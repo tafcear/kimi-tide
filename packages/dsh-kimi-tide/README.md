@@ -20,7 +20,13 @@ Kimi Code (Moonshot) 订阅 → DeepSeek Harness 原生 LLM provider 插件。
 ## 前置条件
 
 - Node.js ≥ 22、DSH `@deepseek-ai/dsh@0.1.0-rc.6`
-- Kimi CLI 已登录：`kimi login`
+- 已安装 Kimi Code CLI 并登录（一次即可）：
+
+  ```powershell
+  # Windows PowerShell（macOS/Linux 见官方文档 https://moonshotai.github.io/kimi-code/）
+  irm https://code.kimi.com/kimi-code/install.ps1 | iex
+  kimi login   # 浏览器完成设备码授权
+  ```
 
 ## 安装
 

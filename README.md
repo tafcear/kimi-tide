@@ -49,7 +49,13 @@
 
 - Node.js ≥ 22
 - DSH `@deepseek-ai/dsh@0.1.0-rc.6`
-- `kimi login` 已完成（一次即可）
+- 已安装 Kimi Code CLI 并完成登录（一次即可）：
+
+  ```powershell
+  # Windows PowerShell（macOS/Linux 见官方文档 https://moonshotai.github.io/kimi-code/）
+  irm https://code.kimi.com/kimi-code/install.ps1 | iex
+  kimi login   # 浏览器完成设备码授权
+  ```
 
 ### 2. 安装插件
 
