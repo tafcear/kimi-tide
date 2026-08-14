@@ -20,6 +20,13 @@
 
 ---
 
+## 路线图
+
+- **0.1.x（当前）**：DSH 原生 Kimi provider，已发布 v0.1.1。
+- **0.2.0（计划中）**：双模型自动分工路由器，支持 `cost`（性价比）与 `capability`（能力最优）两种模式，自动补偿 DeepSeek V4 的多模态与超长上下文缺口。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md)。
+
+---
+
 ## 架构
 
 ```
@@ -139,6 +146,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.1.tgz
 ```
 kimi-tide/
 ├── packages/dsh-kimi-tide/    # 推荐：DSH 原生插件
+│   └── src/router.ts          # 0.2.0 路由器 M1 草稿（未接入，不影响现有行为）
 ├── scripts/                   # 验证与辅助脚本
 │   ├── kimi-capabilities.mjs  # 能力矩阵测试
 │   ├── e2e-kimi.mjs           # 端到端流式测试
@@ -147,6 +155,8 @@ kimi-tide/
 │   └── kimi-token-refresh.ps1 # 旧配置方案专用
 ├── vendor/dsh-kimi-bridge/    # CLI 工具桥接插件（维护 fork）
 ├── docs/                      # 详细文档与协作模板
+│   ├── positioning.md         # 项目定位与维护策略（战略文档）
+│   ├── development-plan-router.md  # 0.2.0 双模型自动分工路由器计划
 │   ├── agent-collaboration-loop.md
 │   ├── legacy-setup.md
 │   ├── audit/                 # 两轮审查档案
@@ -160,7 +170,9 @@ kimi-tide/
 
 本项目实践了一套"实施 → 独立审查 → 修复测试 → 复检验收"的双模型协作流程，并沉淀为方法论资产：
 
+- [`docs/positioning.md`](docs/positioning.md)：项目定位、与 Open Design 的对照、三层价值拆解与退役计划。
 - [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)：协作闭环的原理、实测数据与操作手册。
+- [`docs/development-plan-router.md`](docs/development-plan-router.md)：0.2.0 双模型自动分工路由器设计。
 - [`docs/templates/review-task.md`](docs/templates/review-task.md)：审查任务书模板。
 - [`docs/templates/recheck-task.md`](docs/templates/recheck-task.md)：复检任务书模板。
 
