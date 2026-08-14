@@ -1,0 +1,29 @@
+# 依赖与构建产物
+node_modules/
+*.tgz
+packages/*/node_modules/
+vendor/*/node_modules/
+packages/*/lib/
+vendor/dsh-kimi-bridge/lib/
+
+# 日志与缓存
+*.log
+*.old
+.kimi-code/
+kimi-review-home/
+
+# 凭据与敏感信息（绝对不可提交）
+.credentials.yaml
+credentials/
+*.pem
+*.key
+
+# 编辑器和系统文件
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# 会话与临时文件
+.dsh/
+*.tmp

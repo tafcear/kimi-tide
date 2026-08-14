@@ -1,0 +1,13 @@
+# Bundle patch layer for dsh-kimi-tide (月汐).
+# Applied when a profile lists this bundle (dsh plugin --profile <name> add .).
+# A patch replaces a row's whole config; rows are addressed by id, later
+# layers win. The row mounts the provider plugin after the dsh-base layer
+# provides `llm` (adapter registry) and `timer` (token-refresh loop).
+- insert:
+    - id: dsh-kimi-tide
+      name: dsh-kimi-tide
+      config:
+        providerName: kimi-tide     # LLM provider route registered into ctx.llm
+        kimiHome: ''                # '' = KIMI_CODE_HOME, else ~/.kimi-code
+        refreshIntervalMs: 600000   # access-token refresh period (~15 min lifetime)
+        refreshOnStart: true        # refresh the OAuth token on startup
