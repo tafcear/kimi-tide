@@ -17,12 +17,21 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$credFile    = Join-Path $env:USERPROFILE '.kimi-code\credentials\kimi-code.json'
+# Windows PowerShell 5.1 默认 TLS 1.0/SSL3，会被 auth.kimi.com 拒绝连接；显式启用 TLS 1.2+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch { }
+
+# Kimi home：与 dsh-kimi-tide 插件一致（KIMI_CODE_HOME 优先，再回退 ~/.kimi-code）
+$kimiHome    = if ($env:KIMI_CODE_HOME) { $env:KIMI_CODE_HOME } else { Join-Path $env:USERPROFILE '.kimi-code' }
+$credFile    = Join-Path $kimiHome 'credentials\kimi-code.json'
 $dshCredFile = Join-Path $env:USERPROFILE '.dsh\.credentials.yaml'
 $clientId    = '17e5f671-d194-4dfb-9706-5516cb48c098'
 $tokenUrl    = 'https://auth.kimi.com/api/oauth/token'
 $logFile     = Join-Path (Split-Path -Parent $PSCommandPath) 'kimi-token-refresh.log'
-$lockFile    = Join-Path $env:TEMP 'kimi-token-refresh.lock'
+# 共享锁：与 dsh-kimi-tide 插件进程内刷新共用同一把锁（refresh token 每次轮换，
+# 并发刷新会让其中一方拿到已作废的 refresh_token）
+$lockFile    = "$credFile.lock"
 $maxLogBytes = 1MB
 $lockStaleMinutes = 5
 
@@ -134,9 +143,13 @@ try {
             Write-Log "FATAL: refresh token rejected (invalid_grant) — run 'kimi login' again to re-authenticate"
             exit 1
         }
-        Write-Log "proxy-path attempt failed ($($_.Exception.Message)); retrying with -NoProxy"
+        Write-Log "proxy-path attempt failed ($($_.Exception.Message)); retrying with proxy bypass"
         try {
-            $resp = Invoke-RestMethod -NoProxy -Uri $tokenUrl -Method Post -ContentType 'application/x-www-form-urlencoded' -Body $body -TimeoutSec 30
+            # -NoProxy 是 pwsh 6+ 的参数；Windows PowerShell 5.1 用 DefaultWebProxy 置空实现直连
+            $fallback = @{ Uri = $tokenUrl; Method = 'Post'; ContentType = 'application/x-www-form-urlencoded'; Body = $body; TimeoutSec = 30 }
+            if ($PSVersionTable.PSVersion.Major -ge 6) { $fallback['NoProxy'] = $true }
+            else { [System.Net.WebRequest]::DefaultWebProxy = $null }
+            $resp = Invoke-RestMethod @fallback
         } catch {
             if (Test-InvalidGrant $_) {
                 Write-Log "FATAL: refresh token rejected (invalid_grant) — run 'kimi login' again to re-authenticate"

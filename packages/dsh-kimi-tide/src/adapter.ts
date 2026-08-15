@@ -46,6 +46,11 @@ export class KimiAdapter extends LlmAdapter {
   }
 
   override listModels(_provider: string): Promise<LlmModelInfo[]> {
+    // 未登录（无凭据文件）时不投放任何模型：模型选择器会把空分组整个丢弃，
+    // 避免显示一个必然认证失败的死分组。登录后下一次打开选择器即恢复。
+    if (!this.oauth.hasCredential()) {
+      return Promise.resolve([])
+    }
     return Promise.resolve(
       this.models.getModels('kimi-coding').map((model) => ({
         provider: this.providerName,

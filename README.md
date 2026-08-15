@@ -5,7 +5,7 @@
 把 **Kimi Code（Moonshot）** 订阅接入 **DeepSeek Harness（DSH）** 的原生 LLM provider 方案。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release: v0.1.1](https://img.shields.io/badge/Release-v0.1.1-blue.svg)](https://github.com/tafcear/kimi-tide/releases/tag/v0.1.1)
+[![Release: v0.1.3](https://img.shields.io/badge/Release-v0.1.3-blue.svg)](https://github.com/tafcear/kimi-tide/releases/tag/v0.1.3)
 ![Topics](https://img.shields.io/badge/Topics-dsh--plugin%20%7C%20deepseek--harness%20%7C%20kimi-lightgrey.svg)
 
 ---
@@ -16,13 +16,13 @@
 - **OAuth 进程内刷新**：与 `kimi login` 共享登录态，默认每 10 分钟自动刷新 access token。
 - **跨平台**：零 Windows 计划任务依赖，Linux / macOS / Windows 均可运行。
 - **双通道互补**：provider 路径用于 DSH 模型选择器；`dsh-kimi-bridge` 路径用于显式调用 `kimi` CLI 工具。
-- **发布就绪**：v0.1.1 已发布为 GitHub Release，附 `dsh-kimi-tide-0.1.1.tgz` 安装包。
+- **发布就绪**：v0.1.3 已发布为 GitHub Release，附 `dsh-kimi-tide-0.1.3.tgz` 安装包。
 
 ---
 
 ## 路线图
 
-- **0.1.x（当前）**：DSH 原生 Kimi provider，已发布 v0.1.1。
+- **0.1.x（当前）**：DSH 原生 Kimi provider，已发布 v0.1.3。
 - **0.2.0（计划中）**：双模型自动分工路由器，支持 `cost`（性价比）与 `capability`（能力最优）两种模式，自动补偿 DeepSeek V4 的多模态与超长上下文缺口。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md)。
 
 ---
@@ -68,10 +68,10 @@
 
 #### 方式 A：直接下载 Release（推荐）
 
-从 [v0.1.1 Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.1.1) 下载 `dsh-kimi-tide-0.1.1.tgz`，然后：
+从 [v0.1.3 Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.1.3) 下载 `dsh-kimi-tide-0.1.3.tgz`，然后：
 
 ```bash
-dsh plugin --profile web add ./dsh-kimi-tide-0.1.1.tgz
+dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 ```
 
 #### 方式 B：从源码构建
@@ -79,7 +79,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.1.tgz
 ```bash
 cd packages/dsh-kimi-tide
 npm install && npm run build && npm pack
-dsh plugin --profile web add ./dsh-kimi-tide-0.1.1.tgz
+dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 ```
 
 ### 3. 重启并使用
@@ -205,6 +205,9 @@ A: 可以。provider 路径（`dsh-kimi-tide` 插件）是核心方案；`dsh-ki
 
 **Q: 模型 `k3` 与 `k3-256k` 怎么选？**  
 A: 需要 1M 长上下文时选 `k3`；常规任务或对上下文长度有明确 256K 上限要求时选 `k3-256k`。
+
+**Q: 插件（进程内刷新）和旧方案的计划任务能同时开吗？**  
+A: v0.1.3 起可以安全共存——两者共用凭据锁（`<kimi-home>/credentials/kimi-code.json.lock`），刷新被串行化，refresh token 轮换不会互踩。但仍建议只保留一条路径：首选插件（零计划任务）；计划任务仅在使用旧路由 `kimi-coding`（依赖 `KIMI_API_KEY`）时才需要。
 
 **Q: refresh token 过期怎么办？**  
 A: Kimi Code 的 refresh token 约 30 天过期。到期前插件/脚本会告警；到期后只需重新执行 `kimi login` 获取新的 refresh token。

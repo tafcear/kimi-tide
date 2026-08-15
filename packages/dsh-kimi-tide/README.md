@@ -35,7 +35,7 @@ Kimi Code (Moonshot) 订阅 → DeepSeek Harness 原生 LLM provider 插件。
 npm install && npm run build && npm pack
 
 # 安装到 DSH profile（自动加入 bundles）
-dsh plugin --profile web add ./dsh-kimi-tide-0.1.1.tgz
+dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 
 # 重启 dsh web，模型选择器出现 kimi-tide 组
 ```

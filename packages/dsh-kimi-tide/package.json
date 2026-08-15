@@ -1,6 +1,6 @@
 {
   "name": "dsh-kimi-tide",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "kimi-tide（月汐）— Kimi Code subscription as a native DeepSeek Harness LLM provider, with built-in OAuth token management.",
   "type": "module",
   "main": "lib/index.js",
