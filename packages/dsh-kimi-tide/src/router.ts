@@ -13,7 +13,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
-import type { Agent, UserMessage } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 
 export interface RouteTarget {
   provider: string

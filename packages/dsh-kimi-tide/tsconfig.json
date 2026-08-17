@@ -11,8 +11,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "jsx": "react-jsx"
   },
   "include": ["src"],
-  "exclude": ["src/router.ts"]
+  "exclude": ["src/client"]
 }
