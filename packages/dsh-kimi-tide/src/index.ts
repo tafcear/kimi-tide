@@ -10,8 +10,9 @@ import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-projection'
-import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { KimiAdapter } from './adapter.js'
@@ -62,6 +63,43 @@ export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
   return new KimiRouter(config, log)
 }
 
+/**
+ * Register the panel event type on the INSTALLATION's KNOWN_SESSION_EVENT_TYPES
+ * Set. The strict session-log reader (dsh-session-persistence) refuses event
+ * types outside the catalog unless the envelope marks them ignorable, and
+ * `Session.append` cannot set that marker — extending the catalog is the only
+ * door for a custom projection event. The catalog is a live mutable Set on
+ * the dsh-session module instance the harness itself uses; a `link:`-installed
+ * plugin's bare import resolves its workspace node_modules copy instead (a
+ * different Set), so we anchor a require in the flat profile module fallback
+ * (`$DSH_HOME/profiles/node_modules` — one junction per package in the dsh
+ * app's dependency closure, maintained by `healProfilesModuleFallback`).
+ * Resolution from there lands on the SAME real module the harness checks, so
+ * the mutation makes stored `kimi-tide/panel` events readable again after a
+ * restart. Falls back to the directly imported copy when no installation
+ * fallback exists (e.g. unit tests).
+ * @returns true when the host (installation) catalog was reached; false when
+ * only the locally resolved copy was mutated.
+ */
+function registerPanelEventType(): boolean {
+  let known = KNOWN_SESSION_EVENT_TYPES_DIRECT as Set<string>
+  let hostReached = false
+  try {
+    const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+    const hostRequire = createRequire(join(home, 'profiles', 'node_modules', 'host.cjs'))
+    const hostSession = hostRequire('@deepseek-ai/dsh-session') as {
+      KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string>
+    }
+    known = hostSession.KNOWN_SESSION_EVENT_TYPES as Set<string>
+    hostReached = true
+  } catch {
+    // No dsh installation fallback in this environment (e.g. unit tests):
+    // mutating the directly imported copy is the best effort available.
+  }
+  known.add(KIMI_TIDE_PANEL_EVENT)
+  return hostReached
+}
+
 export function apply(ctx: Context, config: Config = {}) {
   const providerName = config.providerName ?? 'kimi-tide';
   const refreshIntervalMs = config.refreshIntervalMs ?? 10 * 60 * 1000;
@@ -70,9 +108,13 @@ export function apply(ctx: Context, config: Config = {}) {
   };
 
   // The strict persistence reader refuses logs with unknown event types.
-  // KNOWN_SESSION_EVENT_TYPES is typed ReadonlySet but is a live mutable Set
-  // at runtime (same pattern as dsh-kimi-bridge/src/index.ts:105).
-  (KNOWN_SESSION_EVENT_TYPES as Set<string>).add(KIMI_TIDE_PANEL_EVENT)
+  // The catalog Set lives on the INSTALLATION's dsh-session module instance;
+  // register the panel type there (see registerPanelEventType).
+  if (registerPanelEventType()) {
+    ctx.logger.info('dsh-kimi-tide: panel event type registered on the installation session catalog')
+  } else {
+    ctx.logger.warn('dsh-kimi-tide: panel event type registered on a local dsh-session copy; stored kimi-tide/panel events may refuse to load')
+  }
 
   const oauth = new KimiOAuthManager(ctx.logger, { home: config.kimiHome ?? '' })
 
