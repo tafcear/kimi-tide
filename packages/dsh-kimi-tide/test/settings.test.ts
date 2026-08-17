@@ -101,6 +101,39 @@ describe('RouterSettingsStore', () => {
     expect(errors[0]).toContain('cannot read patch file')
   })
 
+  it('save() appends an id-targeted override block when the row is absent (bundle-installed plugin)', () => {
+    // Regression: a bundle-installed dsh-kimi-tide never appears as
+    // `- id: dsh-kimi-tide` in the USER patch file (the row lives in the
+    // bundle's own cordis.patch.yml). The loader merges an id-targeted
+    // override patch `{ id, config }` onto the bundle row, so save() must
+    // be able to create that override block instead of failing.
+    writeFileSync(file, '# only unrelated rows\n- insert:\n    - id: some-other-plugin\n      config:\n        foo: 1\n', 'utf8')
+    const store = new RouterSettingsStore({ patchFile: file, onError: () => {} })
+    store.save(NEW_CONFIG)
+    const text = readFileSync(file, 'utf8')
+    expect(text).toContain('# only unrelated rows')
+    expect(text).toContain('some-other-plugin')
+    expect(text).toContain('- id: dsh-kimi-tide')
+    expect(text).toContain('router:')
+    expect(text).toContain('mode: cost')
+    expect(store.load()?.mode).toBe('cost')
+  })
+
+  it('save() writes into an existing id-targeted override block (bundle-installed plugin, second save)', () => {
+    // After the first save() created the override block, subsequent saves
+    // must locate that SAME block and splice the router subtree in place,
+    // not append a second one.
+    writeFileSync(file, '# only unrelated rows\n- insert:\n    - id: some-other-plugin\n      config:\n        foo: 1\n', 'utf8')
+    const store = new RouterSettingsStore({ patchFile: file, onError: () => {} })
+    store.save(NEW_CONFIG)
+    store.save({ ...NEW_CONFIG, mode: 'capability' })
+    const text = readFileSync(file, 'utf8')
+    expect(text.match(/- id: dsh-kimi-tide/g)).toHaveLength(1)
+    expect(text).toContain('mode: capability')
+    expect(text).not.toContain('mode: cost')
+    expect(store.load()?.mode).toBe('capability')
+  })
+
   it('save() on missing patch file throws with actionable message', () => {
     const store = new RouterSettingsStore({ patchFile: join(dir, 'nonexistent.yml'), onError: () => {} })
     expect(() => store.save(NEW_CONFIG)).toThrow(/cannot read patch file/)

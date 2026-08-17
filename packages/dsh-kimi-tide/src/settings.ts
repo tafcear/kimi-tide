@@ -97,15 +97,30 @@ export class RouterSettingsStore {
       ]
     } else {
       const configBlock = locateConfigBlock(lines)
-      if (configBlock === null) {
-        throw new Error(`dsh-kimi-tide: cannot locate the dsh-kimi-tide config block in ${this.options.patchFile}`)
+      if (configBlock !== null) {
+        const childIndent = configBlock.indent + 2
+        next = [
+          ...lines.slice(0, configBlock.end),
+          ...rendered.map((l) => ' '.repeat(childIndent) + l),
+          ...lines.slice(configBlock.end),
+        ]
+      } else {
+        // Bundle-installed plugin: the row lives in the bundle's own
+        // cordis.patch.yml, not in the user patch file. The loader merges an
+        // id-targeted override patch `{ id, config }` onto that row
+        // (dsh-app-boot applyEntryPatches: overrides assign onto the matched
+        // entry), so append one holding only the router subtree.
+        while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) lines.pop()
+        const overrideIndent = 2
+        next = [
+          ...lines,
+          '',
+          '# 月汐 dock panel writes here; the row itself is provided by the dsh-kimi-tide bundle.',
+          '- id: dsh-kimi-tide',
+          '  config:',
+          ...rendered.map((l) => ' '.repeat(overrideIndent * 2) + l),
+        ]
       }
-      const childIndent = configBlock.indent + 2
-      next = [
-        ...lines.slice(0, configBlock.end),
-        ...rendered.map((l) => ' '.repeat(childIndent) + l),
-        ...lines.slice(configBlock.end),
-      ]
     }
     copyFileSync(this.options.patchFile, this.options.patchFile + '.bak')
     const tmp = this.options.patchFile + `.tmp-${process.pid}`
