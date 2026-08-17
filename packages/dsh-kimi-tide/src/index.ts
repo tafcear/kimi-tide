@@ -201,6 +201,16 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     liveAgents.delete(payload.agent)
   })
+  // Seed the roster from the live agent registry: saving router settings
+  // rewrites the watched cordis.patch.yml, which makes the loader re-apply
+  // this plugin — and agent/created does NOT re-fire for agents that already
+  // live, so a re-applied instance would push to an empty roster forever
+  // (the "mode button desync" bug). ctx.agents is optional (headless presets).
+  const agentRegistry = ctx.get('agents') as { list?: () => Agent[] } | undefined
+  if (typeof agentRegistry?.list === 'function') {
+    for (const agent of agentRegistry.list()) liveAgents.add(agent)
+    if (liveAgents.size > 0) pushPanelToAllSessions()
+  }
 
   // OAuth refresh loop (0.1.x behavior).
   const refresh = () => { void oauth.refresh().catch(() => {}) }

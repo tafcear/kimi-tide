@@ -42,6 +42,7 @@ const panelSchema = z.object({
   }),
   router: z.record(z.string(), z.unknown()),
   reasoning: z.object({ enabled: z.literal(true) }),
+  models: z.object({ kimi: z.array(z.string()), deepseek: z.array(z.string()) }).optional(),
 }).nullable()
 
 // dsh-session-projection depends on zod v4 while this package uses zod v3;
