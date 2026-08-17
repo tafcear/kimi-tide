@@ -1,7 +1,7 @@
 # kimi-tide 0.3.0 开发计划：能力评分路由（capability-scored routing）
 
-> 状态：v2（Kimi Round 1 审查修订回填，13 条意见接受 12、2 条换更优解）· 2026-08-17
-> 上游设计：`specs/2026-08-17-usage-panel-router-settings-design.md` · 审查：`reviews/2026-08-17-capability-routing-kimi-review-round1.md`
+> 状态：v2.1（Kimi Round 2 复检修订回填：7 条新意见全接受）· 2026-08-17
+> 上游设计：`specs/2026-08-17-usage-panel-router-settings-design.md` · 审查：`reviews/2026-08-17-capability-routing-kimi-review-{round1,round2}.md`
 > 待用户审阅后转 writing-plans 出实施计划
 
 ## 0. 背景与目标
@@ -52,6 +52,11 @@ patch 文件 `config.router` 保留为可选静态种子；优先级：sidecar >
 迁移：首启无 sidecar 时读 patch v1 块 → `migrateRouterConfig()`（primary→default、
 premium→candidates[0]、premiumLong 丢弃+一次性 warn）→ 写 sidecar + .bak；补迁移测试。
 
+**sidecar guardrails（Round 2 中等 1-4 落实）**：
+- 损坏回退链：sidecar 解析失败 → warn（含路径与原因）→ 尝试 patch 静态 → 默认；保留 `.corrupt` 副本；启动永不崩。
+- 生效来源可观测：projection 带 `configSource: 'sidecar' | 'patch' | 'default'`，面板 meta 行显示来源 + sidecar 绝对路径（避免手动改 patch 被静默忽略的困惑）。
+- 可移植性：M4.1 提供 `/kimi-tide export-config`（sidecar → stdout/文件）便于备份迁移；README 明示 sidecar 路径。
+
 ### 2.2 能力维度与评分（v2 修订：版本化）
 
 六维 0–5：`code / reasoning / writing / tooluse / vision / longctx`。
@@ -67,18 +72,21 @@ M4.2 先表驱动测试，再进引擎（中等 8）。
 ### 2.4 评分选路（v2 修订：cost 语义与显式选择）
 
 `score(c) = Σ w·score(c,dim) − λ·costNorm(c)`；costNorm 三档 cheap/mid/expensive → 0/0.5/1，λ 默认 0.5（面板可调）。
+**价格→三档映射（Round 2 轻微 5）**：M4.2 给映射表（<$0.5/M→cheap，$0.5–$2/M→mid，>$2/M→expensive），
+catalog 无价格者默认 mid，用户可覆盖。
 - capability：最高分者胜；平局回 default。
 - cost：判定顺序**先** score 差 > routeThreshold，**再** premiumBudget 窗口未耗尽；窗口耗尽直接 keep。
 - 图片护栏（对 Kimi 严重 3 的落实）：候选元数据带 `inputModalities`（枚举期 resolveModel 解析并缓存），
   带图步骤先排除 vision=0 候选再评分；`applyImageGuard` 消费元数据而非硬编码 provider 集合。
-- **显式选择政策（中等 7 裁决）**：M4.3 调研 dsh 是否暴露「选择来源」（UI 手动 vs 预设）；
+- **显式选择政策（中等 7 裁决）**：M4.3 **首个任务**调研 dsh 是否暴露「选择来源」（UI 手动 vs 预设，Round 2 轻微 7 前置）；
   有则尊重并记 reason「user explicit, skipped routing」；无则维持 router-wins，靠面板实时显示
-  实际路由（可观测）+ mode off 作为逃生门，文档明示。
+  实际路由（可观测）+ mode off 作为逃生门，文档明示；面板 chip 渲染「实际路由：xxx（router 决策）」。
 
 ### 2.5 候选池（v2 修订：白名单 + 校验）
 
-枚举 `ctx.llm.listProviders() × listModels()` 后：①过 `allowedProviders` 白名单（默认 kimi-tide +
-deepseek-official，用户可扩）；②`resolveModel` 校验存在性并取 `inputModalities`；未通过者面板标灰。
+枚举 `ctx.llm.listProviders() × listModels()` 后：①过 `allowedProviders` 白名单——**默认值动态生成**：
+`[实际注册的 providerName, 'deepseek-official']` 再并用户配置（Round 2 中等 2：不硬编码 'kimi-tide'，
+兼容用户自定义 providerName）；②`resolveModel` 校验存在性并取 `inputModalities`；未通过者面板标灰。
 M4.1 先写枚举原型验证真实输出与性能（Kimi 顶号建议 2）。
 
 ### 2.6 面板 v3（v2 修订：组件拆分）
@@ -94,7 +102,8 @@ projection 只带结构化摘要：`{ chosen, reason: 'capability:code', scoreDe
 
 ## 3. 里程碑（v2 修订：M4.5 后移）
 
-- **M4.1** sidecar 持久化 + migrateRouterConfig + premiumLong 移除 + 候选枚举原型 + @<provider> 同步。
+- **M4.1** sidecar 持久化（含损坏回退链、configSource、export-config 命令）+ migrateRouterConfig +
+  premiumLong 移除 + 候选枚举原型（动态白名单）+ @<provider> 同步。
 - **M4.2** 评分表（含 scoresVersion）+ classify/score 纯函数 + 表驱动测试。
 - **M4.3** 选路引擎替换 decide()（含 modality 护栏、cost 判定顺序、显式选择调研结论落地）。
 - **M4.4** 面板 v3（组件拆分 + 决策可观测摘要）。
@@ -121,7 +130,8 @@ projection 只带结构化摘要：`{ chosen, reason: 'capability:code', scoreDe
 1. routeThreshold 对齐 RouteLLM 质量差阈值。
 2. 维度词表向 semantic-router 领域词表靠拢。
 3. M4.6 离线回放评估（评估先行）。
-4. 不学只借：零智能依赖；**例外**：持久化允许 `yaml` 依赖（sidecar 方案，2.1）。
+4. 不学只借：零智能依赖；**例外**：持久化允许 `yaml` 依赖（sidecar 方案，2.1）——固定 `yaml: ^2.x`，
+   sidecar 格式限 JSON-compatible 子集（无 anchor/tag/自定义类型，Round 2 轻微 6）。
 5. sidecar 持久化同时消除「保存触发 loader 重 apply」根因（本会话 57c7ef8 实证的 desync 类问题）。
 
 ## 5. 风险与开放点
