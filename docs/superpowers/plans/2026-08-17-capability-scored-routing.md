@@ -1,122 +1,133 @@
 # kimi-tide 0.3.0 开发计划：能力评分路由（capability-scored routing）
 
-> 状态：v1（先例检索已回填）· 2026-08-17 · 上游设计：`specs/2026-08-17-usage-panel-router-settings-design.md` · 待用户审阅后转 writing-plans 出实施计划
+> 状态：v2（Kimi Round 1 审查修订回填，13 条意见接受 12、2 条换更优解）· 2026-08-17
+> 上游设计：`specs/2026-08-17-usage-panel-router-settings-design.md` · 审查：`reviews/2026-08-17-capability-routing-kimi-review-round1.md`
+> 待用户审阅后转 writing-plans 出实施计划
 
 ## 0. 背景与目标
 
-0.2.0 的路由是「固定槽位 + 关键词/阈值升级」：primary（便宜）/ premium（强）/ premiumLong（长上下文）。
-实机使用后用户决策：
-
-1. **砍掉 premiumLong**——长上下文不作为独立槽位，回归双模型协作语义。
-2. **能力评分**：路由器内部维护模型能力画像；任务涉及某能力维度时，选该维度最强的模型
-   （例：code 维度 v4-flash vs k3 → capability 模式选 k3）。
-3. **provider 无关**：候选模型不局限于 kimi / DeepSeek，agent（ctx.llm）里已注册的
-   任何 provider/model 都可进入候选池。
+0.2.0 的路由是「固定槽位 + 关键词/阈值升级」：primary / premium / premiumLong。
+用户决策：砍掉 premiumLong、回归双模型协作、内部能力评分选路（code 等维度选最强）、
+候选不局限于 kimi/DeepSeek（agent 里配置好的模型都可选）。
 
 目标：把「人拍模式」升级为「路由器按能力画像自动选模型」，人只设候选池与预算。
 
 ## 1. 范围
 
-- 配置形状 v2（含旧配置迁移、premiumLong 移除）。
-- 能力维度与评分表（内置基线 + 用户覆盖）。
-- 任务分类器 v1（启发式）。
-- 评分选路引擎（替换现 `KimiRouter.decide`）。
-- 面板 v3（候选池管理 + 评分覆盖）。
-- 保留：cost 模式预算机制、@显式指令（泛化为 `@<provider>`）、图片护栏、patch 文件持久化。
+- 配置形状 v2 + **持久化层迁移到 sidecar 文件**（v2 修订，见 2.1）+ 旧配置迁移。
+- 能力维度与评分表（内置基线 + 版本化 + 用户覆盖）。
+- 任务分类器 v1（启发式，纯函数）。
+- 评分选路引擎（classify/score 纯函数先行，替换 `decide()`）。
+- 候选池 provider 无关（白名单 + 可用性/modality 校验）。
+- 面板 v3（组件拆分 + 候选池管理 + 评分覆盖 + 决策可观测）。
+- 保留：cost 预算机制（语义细化见 2.4）、@显式指令泛化 `@<provider>`、图片护栏（元数据化）、
+  patch 文件仅留静态种子。
 
-不在范围：小模型自分类（v2 再议）、在线学习评分、跨会话评分持久化统计。
+不在范围：小模型自分类、在线学习、跨会话评分统计、离线回放评估（拆为 M4.6/0.4.0）。
 
 ## 2. 设计
 
-### 2.1 配置形状 v2
+### 2.1 配置形状 v2 与持久化（v2 修订：sidecar）
 
 ```yaml
-router:
-  mode: off | cost | capability
-  default: { provider, model }        # 兜底/主力（替代 primary）
-  candidates:                          # 候选池（替代 premium/premiumLong）
-    - { provider: kimi-tide, model: k3 }
-    - { provider: deepseek-official, model: deepseek-v4-flash }
-  scores: {}                           # 用户覆盖（缺省用内置基线），见 2.2
-  classify: { patterns: {...} }        # 分类器用户覆盖（可选）
-  escalateWhen / premiumBudget / budgetWindow / charsPerToken   # cost 模式沿用
+# sidecar: $DSH_HOME/profiles/web/kimi-tide-router.yml（机器管理，整文件 YAML）
+version: 2
+mode: off | cost | capability
+default: { provider, model }
+candidates:
+  - { provider: kimi-tide, model: k3 }
+  - { provider: deepseek-official, model: deepseek-v4-flash }
+scoresVersion: <与内置基线表同版本>
+scores: {}            # 用户覆盖
+classify: {}          # 分类器用户覆盖（可选）
+allowedProviders: [kimi-tide, deepseek-official]   # 默认白名单，可扩
+routeThreshold / premiumBudget / budgetWindow / charsPerToken / lambda
 ```
 
-迁移：`primary→default`；`premium→candidates[0]`；`premiumLong` 丢弃并 warn 一次。
+**持久化决策（对 Kimi 严重 1 的换解）**：不重写行锚定解析器，而是把 router 配置整体迁出
+被 loader 监视的 `cordis.patch.yml`，落到 sidecar 文件（整文件标准 YAML 序列化，可用 `yaml`
+依赖——仅持久化用，不违反「零智能依赖」）。附带收益：**保存不再触发 loader 重 apply 插件**，
+本会话实证的「保存→插件重启→面板 push 静默」一类问题从根上消失。
+patch 文件 `config.router` 保留为可选静态种子；优先级：sidecar > patch 静态 > 默认。
+迁移：首启无 sidecar 时读 patch v1 块 → `migrateRouterConfig()`（primary→default、
+premium→candidates[0]、premiumLong 丢弃+一次性 warn）→ 写 sidecar + .bak；补迁移测试。
 
-### 2.2 能力维度与评分
+### 2.2 能力维度与评分（v2 修订：版本化）
 
-维度 v1（六维，0–5 分，允许半分）：
-`code` / `reasoning` / `writing`（中英写作）/ `tooluse`（工具调用遵循）/ `vision` / `longctx`
+六维 0–5：`code / reasoning / writing / tooluse / vision / longctx`。
+来源优先级：用户覆盖 > 当前版本内置基线 > 旧版本基线（`scoresVersion` 绑定，避免跨版本错并）。
+基线只存相对分，不冒充精确测量。
 
-评分来源优先级：用户面板覆盖 > patch `scores:` > 内置基线表。
-内置基线：curated——公开基准（SWE-bench / MMLU / IFEval 等）+ 实机观察的相对排序，
-**只存相对分，不冒充精确测量**；表在代码里，随版本迭代。
+### 2.3 任务分类器 v1
 
-### 2.3 任务分类器 v1（启发式，纯函数可测）
+纯函数 `classify(messages) → { weights, vision, estTokens }`。关键词族 + 图片块 + 工具密集历史 +
+超长上下文；显式 `@<provider>` 强制该 provider 最优候选（M4.1 同步改正则/命令/面板，轻微 9）。
+M4.2 先表驱动测试，再进引擎（中等 8）。
 
-输入：本步消息批次。输出：维度权重向量（如 `{code:2, reasoning:1}`）+ 视觉标志 + token 估算。
-规则：关键词族（代码/review/bug/重构→code+reasoning；文档/总结/翻译→writing；
-图片块→vision；工具密集历史→tooluse；超长上下文→longctx）+ 显式标注（`@kimi` 泛化 `@<provider>` 强制该 provider 最优候选）。
-v2 候选方案（记录不实施）：用便宜模型做一次结构化自分类。
+### 2.4 评分选路（v2 修订：cost 语义与显式选择）
 
-### 2.4 评分选路
+`score(c) = Σ w·score(c,dim) − λ·costNorm(c)`；costNorm 三档 cheap/mid/expensive → 0/0.5/1，λ 默认 0.5（面板可调）。
+- capability：最高分者胜；平局回 default。
+- cost：判定顺序**先** score 差 > routeThreshold，**再** premiumBudget 窗口未耗尽；窗口耗尽直接 keep。
+- 图片护栏（对 Kimi 严重 3 的落实）：候选元数据带 `inputModalities`（枚举期 resolveModel 解析并缓存），
+  带图步骤先排除 vision=0 候选再评分；`applyImageGuard` 消费元数据而非硬编码 provider 集合。
+- **显式选择政策（中等 7 裁决）**：M4.3 调研 dsh 是否暴露「选择来源」（UI 手动 vs 预设）；
+  有则尊重并记 reason「user explicit, skipped routing」；无则维持 router-wins，靠面板实时显示
+  实际路由（可观测）+ mode off 作为逃生门，文档明示。
 
-`score(candidate) = Σ_dim w(dim)·score(candidate,dim) − λ·costNorm(candidate) − 视觉否决项`
-- capability 模式：选 score 最高者；平局回 `default`。
-- cost 模式：仅当「升级收益」（最高分 − default 分）> 门槛且预算未耗尽时才离开 default。
-- 图片护栏沿用：vision=0 的候选不接带图步骤。
-- 候选池只有一个有效候选时退化为 0.2.x 行为。
+### 2.5 候选池（v2 修订：白名单 + 校验）
 
-### 2.5 provider 无关的候选池
+枚举 `ctx.llm.listProviders() × listModels()` 后：①过 `allowedProviders` 白名单（默认 kimi-tide +
+deepseek-official，用户可扩）；②`resolveModel` 校验存在性并取 `inputModalities`；未通过者面板标灰。
+M4.1 先写枚举原型验证真实输出与性能（Kimi 顶号建议 2）。
 
-枚举：`ctx.llm.listProviders()` × `listModels(provider)`（面板下拉全量化，替代现双目录）。
-costNorm：provider 未知价格时按 catalog 声明或默认中位；用户可在面板标 cheap/mid/expensive 三档。
+### 2.6 面板 v3（v2 修订：组件拆分）
 
-### 2.6 面板 v3
+拆 `CandidateList / ScoreEditor / ReasonPanel` 子组件 + 快照测试（轻微 10）。
+候选行：provider/model 双下拉 + default 单选 + 不可用标灰；评分覆盖紧凑滑杆组；
+主行 chip 显示本步实际路由 + 命中维度。
 
-- 候选池：增/删行（provider+model 双下拉），default 单选标记。
-- 每个候选：六维评分覆盖（紧凑滑杆组，缺省显示基线分）。
-- 模式/预算/阈值区沿用 0.2.x 布局。
-- 主行 chip：显示本步实际路由 + 命中维度（router 决策经 projection 下发，可观测）。
+### 2.7 可观测（v2 修订：payload 受控）
 
-### 2.7 可观测与测试
+projection 只带结构化摘要：`{ chosen, reason: 'capability:code', scoreDelta }`；
+**仅 capability 且非 keep 时**下发详细分数对比，reason 截断 120 字符；完整对照不进 session log（中等 6）。
 
-- 决策日志进 projection（reason: 维度权重 + 分数对比），面板可展开看「为什么选它」。
-- 测试：分类器纯函数表驱动；选路引擎矩阵（平局/预算/视觉否决/单候选退化）；迁移测试；面板快照测试。
+## 3. 里程碑（v2 修订：M4.5 后移）
 
-## 3. 里程碑
-
-- **M4.1** 配置 v2 + 迁移 + premiumLong 移除（含面板去掉长上下文槽位）。
-- **M4.2** 评分表 + 分类器 v1（纯函数 + 表驱动测试）。
-- **M4.3** 选路引擎替换 `decide()`，保留预算/@指令/图片护栏（矩阵测试）。
-- **M4.4** 面板 v3（候选池 + 评分覆盖 + 决策可观测）。
-- **M4.5** 实机验证 + 文档 + 避坑/台账收尾。
+- **M4.1** sidecar 持久化 + migrateRouterConfig + premiumLong 移除 + 候选枚举原型 + @<provider> 同步。
+- **M4.2** 评分表（含 scoresVersion）+ classify/score 纯函数 + 表驱动测试。
+- **M4.3** 选路引擎替换 decide()（含 modality 护栏、cost 判定顺序、显式选择调研结论落地）。
+- **M4.4** 面板 v3（组件拆分 + 决策可观测摘要）。
+- **M4.6（0.4.0 候选）** 离线回放评估：输入 = 本地 `session.jsonl.zstd`（node:zlib zstd 解码，本会话已验证）
+  的 user/message 文本块 + request/header 实际 config；先 replay.ts 最小原型（轻微 11）。
 
 ## 4. 先例检索（GitHub / 2026-08-17 实测）
 
-| 先例 | 思路摘要 | 与本计划关系 / 借鉴 |
-|---|---|---|
-| [lm-sys/RouteLLM](https://github.com/lm-sys/RouteLLM) | 服务+评估 LLM 路由器的框架；强/弱两模型间按预测质量差设阈值路由；可学习路由器（矩阵分解/BERT/因果 LLM 分类器） | **成本阈值安全阀**的直接先例；不采用可学习路由器（无训练数据），启发式评分是其 v1 替代 |
-| [vllm-project/semantic-router](https://vllm-semantic-router.com/zh-hans/docs/v0.2/tutorials/intelligent-route/model-selection/hybrid/) | 语义分类（code 等领域）路由 + Hybrid Selection：Elo 质量分与成本做 tradeoff | **领域分类选最强模型**的工业实现，验证本计划维度分类方向；其 hybrid 公式 ≈ 本计划 2.4 评分式 |
-| [ulab-uiuc/LLMRouter](https://github.com/ulab-uiuc/LLMRouter) | 统一库封装 AutoMix 等十余种路由算法做对比评估 | 借鉴其**评估先行**文化：M4.5 用会话日志离线回放对比路由决策 |
-| [regolo-ai/brick-SR1](https://github.com/regolo-ai/brick-SR1) | 查询复杂度+能力抽取（空间嵌入）选模型 | 记为 **v2 分类器候选**（嵌入/小模型自分类），v1 不采用 |
-| [ypollak2/llm-router](https://github.com/ypollak2/llm-router) | 面向 Claude Code/Cursor 等编码工具的通用路由器，free-first 回退链降成本 70–85% | **同用例**（编码 agent 成本路由）先例；其回退链是规则级，本计划差异点=能力评分 |
-| [FrugalGPT](https://ar5iv.labs.arxiv.org/html/2305.05176)（及 [pi-smart-router 调研](https://github.com/beettlle/pi-smart-router/blob/HEAD/docs/deep-research.md)） | 级联（cascade）+ 预算约束的鼻祖；pi-smart-router 是 pi-ai 生态同类路由器 | 本计划 cost 预算窗口的理论谱系；pi-smart-router 为**同栈（pi-ai）最近先例**，差异点=DSH 原生钩子+面板驱动+provider 无关 |
-| 本仓本地先例 `dsh-model-router`（0.2.0 设计期检索） | DSH 生态内模型路由插件 | 同 harness 最近先例，钩子用法（agent/pre-step + agent/request）沿用 |
+| 先例 | 借鉴 |
+|---|---|
+| [lm-sys/RouteLLM](https://github.com/lm-sys/RouteLLM) | routeThreshold 语义；不采用学习式路由器 |
+| [vllm semantic-router](https://vllm-semantic-router.com/zh-hans/docs/v0.2/tutorials/intelligent-route/model-selection/hybrid/) | 领域分类 + hybrid 质量成本公式 ≈ 2.4 评分式 |
+| [ulab-uiuc/LLMRouter](https://github.com/ulab-uiuc/LLMRouter) | 评估先行 → M4.6 回放 |
+| [regolo-ai/brick-SR1](https://github.com/regolo-ai/brick-SR1) | v2 分类器候选，v1 不采用 |
+| [ypollak2/llm-router](https://github.com/ypollak2/llm-router) | 同用例先例；差异点=能力评分 |
+| [FrugalGPT](https://ar5iv.labs.arxiv.org/html/2305.05176) / [pi-smart-router](https://github.com/beettlle/pi-smart-router/blob/HEAD/docs/deep-research.md) | 级联+预算谱系；同栈最近先例 |
 
-**空白点（本计划的位置）**：上述先例均非「DSH/Cordis 插件形态、对活会话 agent 请求做替换、带用户面板可观测与覆盖」的路由器；能力评分表+面板覆盖+决策可观测三者组合无现成实现。
+空白点：无「DSH 插件形态 + 活会话替换 + 面板评分覆盖 + 决策可观测」组合。
+**待补核对（Kimi 补充意见）**：M4.1 开工前核对本地先例 dsh-model-router 是否已有 provider-agnostic
+候选池/costNorm 实践（本轮未核实其源码）。
 
-## 4.5 检索后设计校准
+## 4.5 检索后设计校准（v2 增补）
 
-1. cost 模式「升级收益门槛」改名为 **route-threshold**，语义对齐 RouteLLM 的质量差阈值（默认值待 M4.3 实测定）。
-2. 分类维度命名向 semantic-router 的领域词表靠拢（code/reasoning/writing/tooluse/vision/longctx 已接近，保留）。
-3. M4.5 增加**离线回放评估**：解码历史会话日志 → 分类器+评分引擎重放 → 与实际所选模型对比，产出路由决策报告（借鉴 LLMRouter 评估先行）。
-4. 明确不学、只借：不引入嵌入/训练依赖（brick-SR1/RouteLLM 学习式），保持零额外依赖、纯启发式可解释。
+1. routeThreshold 对齐 RouteLLM 质量差阈值。
+2. 维度词表向 semantic-router 领域词表靠拢。
+3. M4.6 离线回放评估（评估先行）。
+4. 不学只借：零智能依赖；**例外**：持久化允许 `yaml` 依赖（sidecar 方案，2.1）。
+5. sidecar 持久化同时消除「保存触发 loader 重 apply」根因（本会话 57c7ef8 实证的 desync 类问题）。
 
 ## 5. 风险与开放点
 
-- 启发式分类准确率上限；误分类代价（强模型做简单任务=浪费，弱模型做难任务=返工）→ cost 模式「升级收益门槛」是安全阀。
-- 评分基线的主观性 → 面板覆盖 + 决策可观测兜底。
-- provider 价格未知 → 三档成本标签而非精确计价。
-- 与 DSH 模型选择器的关系：路由器只在 agent/request 钩子替换 callConfig，选择器仍是人的最终入口。
+- 启发式分类上限 → routeThreshold 安全阀 + mode off 逃生门。
+- 基线主观性 → 面板覆盖 + scoresVersion + 决策可观测。
+- provider 价格未知 → 三档 costNorm。
+- 模型选择器冲突 → 2.4 显式选择政策（调研兜底）。
+- sidecar 引入双配置源 → 优先级规则明示 + 迁移 .bak。
