@@ -90,10 +90,7 @@ export class KimiAdapter extends LlmAdapter {
       throw new LlmError(`dsh-kimi-tide: unknown model "${options.model}"`, 'UNKNOWN_MODEL')
     }
     if (this.oauth.getAccessToken().length === 0) {
-      const refreshed = await this.oauth.refresh()
-      if (!refreshed || this.oauth.getAccessToken().length === 0) {
-        throw new LlmError('dsh-kimi-tide: no kimi access token available — run "kimi login" first', 'AUTH')
-      }
+      await ensureAccessToken(this.oauth)
     }
     const context = toPiContext(options)
     const events = this.models.streamSimple(model, context, {
@@ -113,4 +110,39 @@ export class KimiAdapter extends LlmAdapter {
 export function tapUsageChunk(chunk: StreamChunk, onUsage: ((usage: TokenUsage) => void) | undefined): StreamChunk {
   if (onUsage !== undefined && chunk.type === 'usage') onUsage(chunk.usage)
   return chunk
+}
+
+export interface EnsureTokenOptions {
+  /** Max refresh attempts (default 4: covers the dsh web startup window where
+   * the scheduled first refresh is still in flight or holds the credential lock). */
+  retries?: number
+  /** Delay between attempts in ms (default 2000). */
+  delayMs?: number
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Guarantee an access token before streaming, or throw AUTH.
+ *
+ * Regression: after a dsh web restart the in-memory token is empty until the
+ * first scheduled OAuth refresh lands (observed ~2-3 min on a cold start). A
+ * request arriving in that window used to do ONE inline refresh(); when that
+ * attempt lost the shared-lock race to the in-flight scheduled refresh (or hit
+ * a slow network), the adapter threw AUTH immediately — surfaced in the GUI as
+ * "API key is invalid". Retry a few times with a short delay so the startup
+ * window resolves itself instead of failing the user's turn.
+ */
+export async function ensureAccessToken(oauth: KimiOAuthManager, options: EnsureTokenOptions = {}): Promise<void> {
+  const retries = options.retries ?? 4
+  const delayMs = options.delayMs ?? 2000
+  if (oauth.getAccessToken().length > 0) return
+  for (let attempt = 0; attempt < retries; attempt++) {
+    await oauth.refresh().catch(() => false)
+    if (oauth.getAccessToken().length > 0) return
+    if (attempt < retries - 1 && delayMs > 0) await sleep(delayMs)
+  }
+  throw new LlmError('dsh-kimi-tide: no kimi access token available — run "kimi login" first', 'AUTH')
 }
