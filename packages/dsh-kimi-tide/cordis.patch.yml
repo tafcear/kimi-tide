@@ -11,3 +11,7 @@
         kimiHome: ''                # '' = KIMI_CODE_HOME, else ~/.kimi-code
         refreshIntervalMs: 600000   # access-token refresh period (~15 min lifetime)
         refreshOnStart: true        # refresh the OAuth token on startup
+        # usagePollMs: 60000      # quota poll period (月汐 dock)
+        # usagePollOnStart: true  # poll quota on startup
+        # router:                 # managed by the 月汐 dock panel; default off
+        #   mode: off             # off | cost | capability

@@ -13,6 +13,13 @@ export const KIMI_TIDE_PANEL_KEY = 'kimi-tide/panel' as const
 /** Session event type carrying the whole panel payload (log + fold input). */
 export const KIMI_TIDE_PANEL_EVENT = 'kimi-tide/panel' as const
 
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /** Whole panel snapshot (quota + local stats + router config). */
+    'kimi-tide/panel': KimiTidePanelProjection
+  }
+}
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'kimi-tide/panel': KimiTidePanelProjection | null
