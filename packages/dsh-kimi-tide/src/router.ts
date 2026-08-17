@@ -62,6 +62,37 @@ export type RouteDecision =
 
 const DEFAULT_ESCALATE_PATTERNS = ['审查', 'review', 'critique', '复检', '挑毛病', 'audit', '审计', '代码审查']
 
+/** True when any user message in the batch carries an image block. */
+export function messagesContainImage(messages: readonly UserMessage[]): boolean {
+  return messages.some(
+    (m) => m.role === 'user' && m.content.some((b) => (b as { type?: string }).type === 'image'),
+  )
+}
+
+/** Providers this config uses as Kimi routes (text-only in v1). */
+export function textOnlyProviders(config: RouterConfig): Set<string> {
+  const set = new Set<string>([config.premium.provider])
+  if (config.premiumLong !== undefined) set.add(config.premiumLong.provider)
+  for (const rule of config.rules ?? []) set.add(rule.route.provider)
+  return set
+}
+
+/**
+ * Image guard: when the step carries an image and the resolved target is a
+ * text-only Kimi route, swap to the (multimodal) primary instead of letting
+ * the adapter throw UNSUPPORTED_CONTENT mid-turn.
+ */
+export function applyImageGuard(
+  target: RouteTarget,
+  config: RouterConfig,
+  hasImage: boolean,
+): { target: RouteTarget; reason: string } | null {
+  if (!hasImage) return null
+  if (target.provider === config.primary.provider) return null
+  if (!textOnlyProviders(config).has(target.provider)) return null
+  return { target: config.primary, reason: 'image input: rerouted to multimodal primary' }
+}
+
 /** 从消息批次提取最新一条用户文本。 */
 export function latestUserText(messages: readonly UserMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -169,6 +200,11 @@ export class KimiRouter {
     }
   }
 
+  /** Image guard bound to this router's config (see applyImageGuard). */
+  guardImage(target: RouteTarget, hasImage: boolean): { target: RouteTarget; reason: string } | null {
+    return applyImageGuard(target, this.config, hasImage)
+  }
+
   private record(kind: 'primary' | 'premium'): void {
     const window = this.config.budgetWindow ?? 20
     this.budgetHistory.push(kind)
@@ -188,7 +224,7 @@ export class KimiRouter {
  * @returns disposer。
  */
 export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (agent: Agent, decision: RouteDecision) => void): () => void {
-  const slots = new WeakMap<Agent, RouteDecision>()
+  const slots = new WeakMap<Agent, { decision: RouteDecision; hasImage: boolean }>()
   return ctx.effect(() => {
     const disposePre = ctx.on('agent/pre-step', async (payload, next) => {
       const result = await next()
@@ -196,23 +232,31 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       // 工具循环内保持稳定，避免中途换模型破坏上下文一致性）。
       if (payload.step === 0) {
         const decision = router.decide(payload.messages, payload.step)
-        slots.set(payload.agent, decision)
+        slots.set(payload.agent, { decision, hasImage: messagesContainImage(payload.messages) })
         onDecision?.(payload.agent, decision)
       }
       return result
     })
     const disposeRequest = ctx.on('agent/request', async (payload, next) => {
       const resolved = await next()
-      const decision = slots.get(payload.agent)
-      if (decision !== undefined) {
-        slots.delete(payload.agent)
-        const replaced = router.applyTo(resolved, decision)
-        if (replaced !== resolved) {
-          ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${decision.kind === 'route' ? decision.reason : 'kept'})`)
-        }
+      const slot = slots.get(payload.agent)
+      if (slot === undefined) return resolved
+      slots.delete(payload.agent)
+      let replaced = router.applyTo(resolved, slot.decision)
+      // Image guard runs AFTER routing: an image-bearing step must never hit
+      // a text-only Kimi route, whether it came from a route decision or from
+      // the session's base model selection.
+      const guard = router.guardImage({ provider: replaced.provider, model: replaced.model }, slot.hasImage)
+      if (guard !== null) {
+        const { reasoningEffort: _inherited, ...rest } = replaced
+        replaced = { ...rest, provider: guard.target.provider, model: guard.target.model }
+        ctx.logger?.info?.(`kimi-router: ${guard.reason} → ${replaced.provider}/${replaced.model}`)
         return replaced
       }
-      return resolved
+      if (replaced !== resolved) {
+        ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${slot.decision.kind === 'route' ? slot.decision.reason : 'kept'})`)
+      }
+      return replaced
     })
     return () => {
       disposePre()

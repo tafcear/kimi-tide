@@ -42,6 +42,17 @@ export function apply(ctx: Context): void {
     .kimi-tide-dock input, .kimi-tide-dock select { font-size: 12px; padding: 1px 6px;
       border: 1px solid var(--dsw-alias-border-l2, #d4d9e3); border-radius: 6px; background: var(--dsw-alias-bg-base, #fff);
       color: var(--dsw-alias-label-primary, #2b3245); }
+    .kimi-tide-dock .kt-settings { gap: 6px; }
+    .kimi-tide-dock .kt-h { font-size: 11px; opacity: 0.65; margin-top: 2px; }
+    .kimi-tide-dock .kt-meta { opacity: 0.85; }
+    .kimi-tide-dock .kt-hint { opacity: 0.6; }
+    .kimi-tide-dock .kt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 4px 14px; }
+    .kimi-tide-dock .kt-row { display: flex; align-items: center; gap: 6px; }
+    .kimi-tide-dock .kt-field-label { width: 108px; flex: none; opacity: 0.85; }
+    .kimi-tide-dock .kt-row select { flex: 1; min-width: 0; }
+    .kimi-tide-dock .kt-row input:not([type="range"]):not(.kt-num) { flex: 1; min-width: 0; }
+    .kimi-tide-dock .kt-budget input[type="range"] { flex: 1; min-width: 60px; accent-color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-dock .kt-num { width: 52px; flex: none; }
   `
   document.head.appendChild(style)
   ctx.effect(() => () => style.remove())

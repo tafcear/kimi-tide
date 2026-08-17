@@ -63,6 +63,11 @@ export class KimiAdapter extends LlmAdapter {
     )
   }
 
+  /** Model ids from the pi-ai kimi-coding catalog (panel dropdown options). */
+  listModelIds(): string[] {
+    return this.models.getModels('kimi-coding').map((model) => model.id)
+  }
+
   override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const piModel = this.models.getModel('kimi-coding', model)
     if (piModel === undefined) {

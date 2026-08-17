@@ -5,7 +5,7 @@
  * reasoning status line. Reads 'kimi-tide/panel' via the standard-kit
  * useProjection hook; writes via remote slash commands.
  */
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { KimiTidePanelProjection } from '../types.js'
 
 export interface TideDockProps {
@@ -25,9 +25,10 @@ function pct(used: number, limit: number): number {
   return limit > 0 ? Math.round((used / limit) * 100) : 0
 }
 
-function pctClass(p: number): string {
-  if (p >= 90) return 'kt-danger'
-  if (p >= 80) return 'kt-warn'
+/** Color by USAGE percentage: hot when little remains. */
+function pctClass(usedPct: number): string {
+  if (usedPct >= 90) return 'kt-danger'
+  if (usedPct >= 80) return 'kt-warn'
   return ''
 }
 
@@ -48,6 +49,12 @@ function fmtCountdown(resetTime: string): string {
 }
 
 const chip: CSSProperties = { whiteSpace: 'nowrap' }
+
+const MODE_LABELS: Array<{ id: 'off' | 'cost' | 'capability'; label: string }> = [
+  { id: 'off', label: '🚫 关' },
+  { id: 'cost', label: '💰 省钱' },
+  { id: 'capability', label: '🧠 能力' },
+]
 
 export function TideDock(props: TideDockProps) {
   const panel = props.useProjection('kimi-tide/panel')
@@ -70,12 +77,14 @@ export function TideDock(props: TideDockProps) {
   }
 
   if (panel === undefined || panel === null) {
-    return <div className="kimi-tide-dock"><span className="kt-label">🌙 月汐</span><span>面板数据加载中…</span></div>
+    return <div className="kimi-tide-dock"><span className="kt-label">🌙 月汐</span><span>⏳ 面板数据加载中…</span></div>
   }
 
   const { quota, local, router } = panel
-  const weekPct = quota === null ? 0 : pct(quota.weekly.used, quota.weekly.limit)
-  const fivePct = quota === null ? 0 : pct(quota.fiveHour.used, quota.fiveHour.limit)
+  const weekUsedPct = quota === null ? 0 : pct(quota.weekly.used, quota.weekly.limit)
+  const fiveUsedPct = quota === null ? 0 : pct(quota.fiveHour.used, quota.fiveHour.limit)
+  const weekRemain = quota === null ? 0 : Math.max(0, quota.weekly.limit - quota.weekly.used)
+  const fiveRemain = quota === null ? 0 : Math.max(0, quota.fiveHour.limit - quota.fiveHour.used)
   const inTok = local.today.inputTokens ?? 0
   const outTok = local.today.outputTokens ?? 0
   const cacheTok = local.today.cacheReadTokens ?? 0
@@ -86,87 +95,168 @@ export function TideDock(props: TideDockProps) {
       <span className="kt-label">🌙 月汐</span>
 
       <span role="group" aria-label="route mode">
-        {(['off', 'cost', 'capability'] as const).map((m) => (
+        {MODE_LABELS.map((m) => (
           <button
-            key={m}
+            key={m.id}
             disabled={busy}
-            className={router.mode === m ? 'kt-active' : ''}
-            onClick={() => void run(`/kimi-tide mode ${m}`)}
-          >{m}</button>
+            className={router.mode === m.id ? 'kt-active' : ''}
+            onClick={() => void run(`/kimi-tide mode ${m.id}`)}
+          >{m.label}</button>
         ))}
       </span>
 
       {router.mode !== 'off' && (
         <span style={chip}>
-          {router.primary.model}
-          {router.premiumBudget !== undefined && router.mode === 'cost' && ` · 预算 ${Math.round(router.premiumBudget * 100)}%`}
+          ⚡ {router.primary.model}
+          {router.mode === 'cost' && router.premiumBudget !== undefined && ` · 💰 ${Math.round(router.premiumBudget * 100)}%`}
         </span>
       )}
 
       {quota === null ? (
-        <span style={chip} className="kt-stale">配额不可用</span>
+        <span style={chip} className="kt-stale">🌫️ 配额不可用</span>
       ) : (
         <span style={chip} className={quota.stale ? 'kt-stale' : ''}>
-          <span className={pctClass(weekPct)}>wk {weekPct}%</span>
+          <span className={pctClass(weekUsedPct)}>📊 周 剩{weekRemain}</span>
           {' · '}
-          <span className={pctClass(fivePct)}>5h {fivePct}%</span>
-          {` · upd ${fmtClock(quota.fetchedAt)}`}
+          <span className={pctClass(fiveUsedPct)}>⏳ 5h 剩{fiveRemain}</span>
+          {` · 🕐 ${fmtClock(quota.fetchedAt)}`}
           {quota.stale && ' (过期)'}
         </span>
       )}
 
-      <span style={chip}>今日 in {inTok} · out {outTok} · cache {cachePct}%</span>
+      <span style={chip}>📥 {inTok} · 📤 {outTok} · 💾 {cachePct}%</span>
 
-      <button disabled={busy} onClick={() => void run('/kimi-tide refresh')}>刷新</button>
+      <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>
 
       <details>
-        <summary>设置</summary>
-        <div>
+        <summary>⚙️ 设置</summary>
+        <div className="kt-settings">
           {quota !== null && (
-            <span>
-              会员 {quota.membershipLevel || '未知'}
-              {quota.weekly.resetTime !== '' && ` · 周配额 ${fmtCountdown(quota.weekly.resetTime)}`}
-              {quota.fiveHour.resetTime !== '' && ` · 5h 窗口 ${fmtCountdown(quota.fiveHour.resetTime)}`}
+            <span className="kt-meta">
+              💎 {quota.membershipLevel || '未知会员'}
+              {quota.weekly.resetTime !== '' && ` · 🗓️ 周配额 已用 ${quota.weekly.used}/${quota.weekly.limit}（${fmtCountdown(quota.weekly.resetTime)}）`}
+              {quota.fiveHour.resetTime !== '' && ` · ⏳ 5h 窗口 已用 ${quota.fiveHour.used}/${quota.fiveHour.limit}（${fmtCountdown(quota.fiveHour.resetTime)}）`}
             </span>
           )}
-          <QuotaForm router={router} busy={busy} run={run} />
-          <span>推理输出已启用（DSH 原生渲染 reasoning-delta）</span>
-          {notice !== '' && <span className="kt-warn">{notice}</span>}
+
+          <span className="kt-h">🧭 路由模型</span>
+          <div className="kt-grid">
+            <ModelSelect
+              label="⚡ 主力模型"
+              value={router.primary.model}
+              options={panel.models?.deepseek ?? []}
+              busy={busy}
+              onPick={(v) => void run(`/kimi-tide set primary.model ${v}`)}
+            />
+            <ModelSelect
+              label="🌙 Kimi 模型"
+              value={router.premium.model}
+              options={panel.models?.kimi ?? []}
+              busy={busy}
+              onPick={(v) => void run(`/kimi-tide set premium.model ${v}`)}
+            />
+            <ModelSelect
+              label="📜 长上下文"
+              value={router.premiumLong?.model ?? ''}
+              options={panel.models?.kimi ?? []}
+              busy={busy}
+              onPick={(v) => void run(`/kimi-tide set premiumLong.model ${v}`)}
+            />
+          </div>
+
+          <span className="kt-h">💰 预算与阈值</span>
+          <div className="kt-grid">
+            <BudgetSlider
+              value={router.premiumBudget}
+              busy={busy}
+              onCommit={(v) => void run(`/kimi-tide set premiumBudget ${v}`)}
+            />
+            <NumberField label=" 预算窗口" value={router.budgetWindow} busy={busy} onCommit={(v) => void run(`/kimi-tide set budgetWindow ${v}`)} />
+            <NumberField label="🔤 字符/token" value={router.charsPerToken} busy={busy} onCommit={(v) => void run(`/kimi-tide set charsPerToken ${v}`)} />
+            <NumberField label="📈 升级阈值" value={router.escalateWhen?.estimatedTokensGt} busy={busy} onCommit={(v) => void run(`/kimi-tide set escalateWhen.estimatedTokensGt ${v}`)} />
+          </div>
+
+          <span className="kt-meta">✨ 推理输出已启用（DSH 原生渲染 reasoning-delta）</span>
+          {notice !== '' && <span className="kt-warn">⚠️ {notice}</span>}
+          <span className="kt-meta kt-hint">💾 下拉即选、滑杆松手或回车即保存；写入 patch 文件并即时生效。</span>
         </div>
       </details>
     </div>
   )
 }
 
-function QuotaForm({ router, busy, run }: {
-  router: KimiTidePanelProjection['router']
+function ModelSelect({ label, value, options, busy, onPick }: {
+  label: string
+  value: string
+  options: string[]
   busy: boolean
-  run: (line: string) => Promise<void>
+  onPick: (value: string) => void
 }) {
-  const fields: Array<{ key: string; label: string; value: string | number | boolean | undefined }> = [
-    { key: 'premiumBudget', label: 'Kimi 预算占比', value: router.premiumBudget },
-    { key: 'budgetWindow', label: '预算窗口', value: router.budgetWindow },
-    { key: 'charsPerToken', label: '字符/token 比', value: router.charsPerToken },
-    { key: 'escalateWhen.estimatedTokensGt', label: '升级 token 阈值', value: router.escalateWhen?.estimatedTokensGt },
-    { key: 'primary.model', label: '主力模型', value: router.primary.model },
-    { key: 'premium.model', label: 'Kimi 模型', value: router.premium.model },
-    { key: 'premiumLong.model', label: '长上下文模型', value: router.premiumLong?.model },
-  ]
+  const opts = value !== '' && !options.includes(value) ? [value, ...options] : options
   return (
-    <>
-      {fields.map((f) => (
-        <label key={f.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ width: 110 }}>{f.label}</span>
-          <input
-            defaultValue={f.value === undefined ? '' : String(f.value)}
-            disabled={busy}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void run(`/kimi-tide set ${f.key} ${(e.target as HTMLInputElement).value}`)
-            }}
-          />
-        </label>
-      ))}
-      <span style={{ opacity: 0.7 }}>回车保存单项；模式切换用上方按钮。保存即写入 patch 文件并即时生效。</span>
-    </>
+    <label className="kt-row">
+      <span className="kt-field-label">{label}</span>
+      <select disabled={busy || opts.length === 0} value={value} onChange={(e) => onPick(e.target.value)}>
+        {opts.length === 0 && <option value={value}>{value === '' ? '（无可选模型）' : value}</option>}
+        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  )
+}
+
+/** Percentage slider + synced number box; commits 0..1 on release/Enter/blur. */
+function BudgetSlider({ value, busy, onCommit }: {
+  value: number | undefined
+  busy: boolean
+  onCommit: (ratio: number) => void
+}) {
+  const initial = value ?? 0.2
+  const [draftPct, setDraftPct] = useState(Math.round(initial * 100))
+  useEffect(() => { setDraftPct(Math.round((value ?? 0.2) * 100)) }, [value])
+  const commit = () => onCommit(Math.min(100, Math.max(0, draftPct)) / 100)
+  return (
+    <label className="kt-row kt-budget">
+      <span className="kt-field-label">💰 Kimi 预算占比</span>
+      <input
+        type="range" min={0} max={100} step={5}
+        value={draftPct}
+        disabled={busy}
+        onChange={(e) => setDraftPct(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={(e) => { if (e.key.startsWith('Arrow')) commit() }}
+      />
+      <input
+        type="number" min={0} max={100} step={5} className="kt-num"
+        value={draftPct}
+        disabled={busy}
+        onChange={(e) => setDraftPct(Number(e.target.value))}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit() }}
+        onBlur={commit}
+      />
+      <span>%</span>
+    </label>
+  )
+}
+
+function NumberField({ label, value, busy, onCommit }: {
+  label: string
+  value: number | undefined
+  busy: boolean
+  onCommit: (value: number) => void
+}) {
+  return (
+    <label className="kt-row">
+      <span className="kt-field-label">{label}</span>
+      <input
+        defaultValue={value === undefined ? '' : String(value)}
+        disabled={busy}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            const n = Number((e.target as HTMLInputElement).value)
+            if (Number.isFinite(n)) onCommit(n)
+          }
+        }}
+      />
+    </label>
   )
 }

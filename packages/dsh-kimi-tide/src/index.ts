@@ -161,11 +161,15 @@ export function apply(ctx: Context, config: Config = {}) {
   // Projection: register the unit, then push the current snapshot into every
   // session as it appears (panel data is process-global, not per-session).
   ctx.sessionProjections.register(kimiTideProjectionDefinition)
+  // Dropdown model catalogs: kimi from the pi-ai catalog (sync), deepseek from
+  // the llm service (async; refreshed when adapters change).
+  let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: adapter.listModelIds(), deepseek: [] }
   const panelSnapshot = (): KimiTidePanelProjection => ({
     quota: monitor.snapshot().quota,
     local: monitor.snapshot().local,
     router: routerConfig,
     reasoning: { enabled: true },
+    models: modelOptions,
   })
   const pushPanel = (agent: Agent) => {
     try {
@@ -178,6 +182,18 @@ export function apply(ctx: Context, config: Config = {}) {
   function pushPanelToAllSessions() {
     for (const agent of liveAgents) pushPanel(agent)
   }
+  const refreshModelOptions = () => {
+    const llm = ctx.llm as { listModels?: (provider: string) => Promise<Array<{ id: string }>> }
+    if (typeof llm.listModels !== 'function') return
+    void llm.listModels('deepseek-official')
+      .then((models) => {
+        modelOptions = { ...modelOptions, deepseek: models.map((m) => m.id) }
+        pushPanelToAllSessions()
+      })
+      .catch(() => { /* deepseek adapter absent: dropdown falls back to free text */ })
+  }
+  refreshModelOptions()
+  ctx.on('llm/adapters-updated', () => refreshModelOptions())
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     liveAgents.add(payload.agent)
     pushPanel(payload.agent)

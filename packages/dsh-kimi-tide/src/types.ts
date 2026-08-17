@@ -36,6 +36,8 @@ export interface KimiTidePanelProjection {
   /** Currently effective router config (panel form initial values). */
   router: RouterConfig
   reasoning: { enabled: true }
+  /** Selectable model ids per provider family (settings dropdown options). */
+  models?: { kimi: string[]; deepseek: string[] }
 }
 
 function toNumber(value: unknown): number {
