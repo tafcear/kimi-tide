@@ -53,6 +53,21 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 
 Kimi Code 订阅仅供个人交互式使用。本插件以订阅凭据直连官方后端，属于条款灰色地带——个人量级使用风险低，但请勿用于高频批量调用、多账号共享或转售。需要长期稳定的 API 集成时请改用 [Kimi 开放平台](https://platform.kimi.ai) 的 API key。
 
+## 月汐 dock 面板（0.2.0）
+
+会话输入框下方的「🌙 月汐」面板提供：
+
+- **用量显示**：周配额 / 5 小时窗口百分比（≥80% 黄、≥90% 红），会员等级与重置倒计时在展开区；`upd HH:MM` 为上次刷新时间，凭据失效时灰化显示「过期」。
+- **本地 token 统计**：今日 input/output/cache 命中率（按调用次数口径，与官方配额分开展示，不做换算）。
+- **路由模式切换**：off / cost / capability 一键切换，保存即写入用户 `cordis.patch.yml` 并即时生效（重启保持）。
+- **设置表单**：展开区逐项编辑预算占比、升级阈值、模型选择等，回车保存。
+- **推理状态**：推理输出已由 DSH 原生渲染（reasoning-delta），面板仅提示「已启用」。
+
+面板命令族（也可在输入框直接敲）：
+- `/kimi-tide mode off|cost|capability`
+- `/kimi-tide set <key> <value>`（key 见面板表单）
+- `/kimi-tide refresh`（立即刷新配额）
+
 ## 许可
 
 [MIT](../LICENSE) · 依赖 `@earendil-works/pi-ai`（MIT）
