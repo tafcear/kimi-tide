@@ -24,7 +24,7 @@ export class UsageMonitor {
   private quota: QuotaSnapshot | null = null
   private local: LocalTokenStats = emptyLocalTokenStats()
   private timer: ReturnType<typeof setInterval> | null = null
-  private lastNotify = 0
+  private lastNotify = -Infinity
   private todayKey = ''
   private readonly fetchFn: typeof fetch
   private readonly now: () => number
