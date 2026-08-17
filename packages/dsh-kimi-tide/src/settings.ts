@@ -47,7 +47,14 @@ export class RouterSettingsStore {
 
   /** Extract config.router from the dsh-kimi-tide row; null when absent/invalid. */
   load(): RouterConfig | null {
-    const lines = readFileSync(this.options.patchFile, 'utf8').split('\n')
+    let text: string
+    try {
+      text = readFileSync(this.options.patchFile, 'utf8')
+    } catch (error) {
+      this.options.onError(`dsh-kimi-tide: cannot read patch file ${this.options.patchFile}: ${(error as Error).message}`)
+      return null
+    }
+    const lines = text.split('\n')
     const span = locateRouterBlock(lines)
     if (span === null) return null
     const raw = parseSimpleYamlBlock(lines.slice(span.start + 1, span.end))
@@ -72,7 +79,13 @@ export class RouterSettingsStore {
     // Validate (throws on invalid). Use original config for rendering to avoid
     // schemastery-injected defaults polluting the YAML round-trip.
     RouterConfigSchema(config)
-    const lines = readFileSync(this.options.patchFile, 'utf8').split('\n')
+    let text: string
+    try {
+      text = readFileSync(this.options.patchFile, 'utf8')
+    } catch (error) {
+      throw new Error(`dsh-kimi-tide: cannot read patch file ${this.options.patchFile}: ${(error as Error).message} — 请确认 dsh web profile 已生成（先运行一次 dsh web）`)
+    }
+    const lines = text.split('\n')
     const rendered = renderRouterBlock(config)
     const span = locateRouterBlock(lines)
     let next: string[]

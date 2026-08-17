@@ -93,6 +93,24 @@ describe('RouterSettingsStore', () => {
     expect(readFileSync(file, 'utf8')).toBe(BASE_YML)
   })
 
+  it('load() on missing patch file returns null and reports via onError', () => {
+    const errors: string[] = []
+    const store = new RouterSettingsStore({ patchFile: join(dir, 'nonexistent.yml'), onError: (m) => errors.push(m) })
+    expect(store.load()).toBeNull()
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('cannot read patch file')
+  })
+
+  it('save() on missing patch file throws with actionable message', () => {
+    const store = new RouterSettingsStore({ patchFile: join(dir, 'nonexistent.yml'), onError: () => {} })
+    expect(() => store.save(NEW_CONFIG)).toThrow(/cannot read patch file/)
+    try {
+      store.save(NEW_CONFIG)
+    } catch (e) {
+      expect((e as Error).message).toContain(join(dir, 'nonexistent.yml'))
+    }
+  })
+
   it('RouterConfigSchema validates a minimal config', () => {
     const parsed = RouterConfigSchema({
       mode: 'off',
