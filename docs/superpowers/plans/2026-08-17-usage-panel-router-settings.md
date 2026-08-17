@@ -2202,3 +2202,4 @@ git commit -m "docs: 月汐 dock panel section + milestone status"
 | projection schema 严格度 | Task 5 schema 用宽松 record；若框架对 wire payload 校验失败，放宽到 `z.any()` 并在测试锁定 fold 行为 |
 | client 类型检查弱 | src/client 被 host typecheck 排除，esbuild 不做类型检查——实机验证（Task 10 Step 3）是最终防线 |
 | dsh-api-remotes 包名 | 设计文档指定；若 `npm install` 找不到，查本机 dsh 安装内 `dsh-client-runtime` 的 remote.commands 由哪个包声明（grep `"dsh-api-remotes"`），以实际包名为准 |
+| `KNOWN_SESSION_EVENT_TYPES.add` 在 link 安装下不生效（双包陷阱，实机验证暴露） | 已修复（commit `7be6ec9`）：`link:` 插件的裸 import 命中工作区 `node_modules` 里的 dsh-session 副本（不同 Set），宿主读取器（dsh-session-persistence）检查的是安装侧实例——注册永远是死代码，所有含 `kimi-tide/panel` 的会话日志重启后拒读。改为经 `$DSH_HOME/profiles/node_modules`（profile module fallback，每个包一个指向宿主真实位置的 junction）锚定 `createRequire` 解析到宿主同一模块实例再 `add`；失败回退直接 import 并打 warn 日志 |
