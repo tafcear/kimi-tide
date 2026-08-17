@@ -11,6 +11,7 @@ import {
   type LlmModelInfo,
   type LlmResolvedModelInfo,
   type StreamChunk,
+  type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { createModels, getSupportedThinkingLevels, type MutableModels } from '@earendil-works/pi-ai'
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
@@ -21,6 +22,8 @@ import { toStreamChunks } from './stream.js'
 export interface KimiAdapterOptions {
   /** Route name this adapter owns (default 'kimi-tide'). */
   providerName: string
+  /** Optional tap for usage chunks (feeds UsageMonitor local stats). */
+  onUsage?: (usage: TokenUsage) => void
 }
 
 export class KimiAdapter extends LlmAdapter {
@@ -29,7 +32,7 @@ export class KimiAdapter extends LlmAdapter {
 
   constructor(
     private readonly oauth: KimiOAuthManager,
-    options: KimiAdapterOptions,
+    private readonly options: KimiAdapterOptions,
   ) {
     super()
     this.providerName = options.providerName
@@ -100,6 +103,14 @@ export class KimiAdapter extends LlmAdapter {
       signal: options.signal,
       headers: attributionHeaders(),
     })
-    yield* toStreamChunks(events, model.contextWindow)
+    for await (const chunk of toStreamChunks(events, model.contextWindow)) {
+      yield tapUsageChunk(chunk, this.options.onUsage)
+    }
   }
+}
+
+/** Pass through a chunk; invoke the usage tap on usage chunks. */
+export function tapUsageChunk(chunk: StreamChunk, onUsage: ((usage: TokenUsage) => void) | undefined): StreamChunk {
+  if (onUsage !== undefined && chunk.type === 'usage') onUsage(chunk.usage)
+  return chunk
 }
