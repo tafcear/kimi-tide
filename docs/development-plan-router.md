@@ -147,9 +147,9 @@ dsh-kimi-tide:
 | **M1** 路由器核心 | router.ts（决策器 + 预算窗口 + 生命周期挂载） | 单元测试：决策逻辑/预算/显式指令 | ✅ 草稿已有 |
 | **M2** 能力缺口补偿 | 图片块检测 → 强制 kimi（高于预算） | 含 image 块的消息必路由 kimi | ⬜ |
 | **M3** index 集成 + Config | Config 扩展、默认 off、cordis.patch.yml 示例 | 旧配置零影响；开 mode 后生效 | ⬜ |
-| **M3.5** 双端化 | client bundle（build-client.mjs + `dsh.client` 声明）+ `kimi-tide/panel` projection + `/kimi-tide` 命令族 | composer dock 出现「月汐」面板骨架（机制对齐 dsh-model-router） | ⬜ |
-| **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ dock 用量行 | 周配额/5h窗口/会员/本地token 四区展示，80%/90% 变色 | ⬜ |
-| **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | ⬜ |
+| **M3.5** 双端化 | client bundle（build-client.mjs + `dsh.client` 声明）+ `kimi-tide/panel` projection + `/kimi-tide` 命令族 | composer dock 出现「月汐」面板骨架（机制对齐 dsh-model-router） | 📋 已计划（2026-08-17） |
+| **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ dock 用量行 | 周配额/5h窗口/会员/本地token 四区展示，80%/90% 变色 | 📋 已计划（2026-08-17） |
+| **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | 📋 已计划（2026-08-17） |
 | **M4** 单元测试 | 分类器/预算/缺口补偿/applyTo + 用量解析/设置读写 | 覆盖率 >80% 关键路径 | ⬜ |
 | **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | ⬜ |
 | **M6** 文档发布 | README 路由章节 + docs/router 使用手册 + 0.2.0 Release | 文档与配置一致 | ⬜ |
