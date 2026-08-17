@@ -47,16 +47,30 @@
                │ session/projection frames（框架自带通道）
 ┌──────────────▼────────────────────────────────────────────┐
 │ browser (dsh-kimi-tide client bundle)                      │
-│ client/index.ts   slots.register('conversation.view',       │
-│                   { id:'kimi-tide', order:40, label:'月汐' })│
-│ client/TideView.tsx                                        │
-│   ├─ 用量卡片：周配额 / 5h窗口 / 会员等级 / 本地 token       │
-│   ├─ 路由设置表单：RouterConfig 全字段                      │
+│ client/index.ts   slots.register('conversation.composer.dock',│
+│                   { id:'kimi-tide' }, TideDock)            │
+│ client/TideDock.tsx   composer 下方紧凑面板（非整页标签）    │
+│   ├─ 模式 toggle：off/cost/capability（segmented 按钮）      │
+│   ├─ 当前路由 chip + 预算占用                                │
+│   ├─ 用量行：周配额 / 5h窗口（百分比 + 重置倒计时 + 变色阈值）│
+│   ├─ 本地 token 行：miss/out/cache%（仿 dsh-model-router）  │
+│   ├─ <details> 展开：会员等级 + 完整路由设置表单             │
 │   └─ 推理状态行："推理输出已启用（DSH 原生渲染）"            │
 └────────────────────────────────────────────────────────────┘
 ```
 
 **关键取舍**：面板数据走 **session projection**（框架自带推送，bridge 已验证），不新增 HTTP 端点、不新增 WebSocket。配置回写用**行级文本锚点替换**（js-yaml 全量 parse→dump 会丢用户注释，不可接受）。
+
+### 2.1 形态修订（2026-08-17，检索后）
+
+**从 `conversation.view` 整页标签页改为 `conversation.composer.dock` 紧凑面板**。依据两个已验证的先例：
+
+| 先例 | 证明了什么 |
+|---|---|
+| [dsh-model-router](https://github.com/tianji-qingtian/dsh-model-router) | dock slot 注册方式；**`ctx.remote.commands.execute(sessionId, '/cmd')` 作为 client→host 通道（零自定义协议）**；projection 驱动的实时 token/cache/成本面板；`locale` 服务 i18n；`<style data-plugin>` 样式注入 |
+| [dsh-opencode-go-usage](https://github.com/v587d/dsh-opencode-go-usage) | 订阅用量 chip 形态（`5h 0% (1h23m) · wk 65%`）；80%/90% 变色阈值；`upd HH:MM` 新鲜度；host 缓存 + 失败冷却；**界面内 Set 面板持久化配置** |
+
+理由：dock 与内置 token 统计同位、无需切标签页、常态可见——比整页标签更适合"用量一眼看 + 模式随手切"。完整路由表单收进 `<details>` 展开区，保持 dock 紧凑。
 
 ---
 
@@ -109,12 +123,17 @@ interface LocalTokenStats {
 - 推送时机：quota 刷新后 / 本地 token 桶变化后（节流 2s）/ router 配置重建后
 - 注意：projection 是 **session 级**；用量是**进程级**全局数据——在所有 session 的 projection 里放同一份快照引用即可（数据本身无 session 差异）。
 
-### 3.4 `client/TideView.tsx` — 月汐标签页
+### 3.4 `client/TideDock.tsx` — composer dock 面板
 
-- 布局：上=用量卡片网格（周配额进度条 / 5h 窗口进度条 / 会员徽章 / 本地 token 三行），中=路由设置表单，底=推理状态行
-- 表单受控于 projection 的 `router` 字段；保存按钮 → **client→host 通道**
-  - ⚠️ bridge 当前是单向（host→browser projection）。保存需要反向通道：调研 DSH client 是否暴露 command/action 机制（`dsh-client-runtime`）；若无，fallback = 表单生成 YAML 片段让用户粘贴进 patch 文件 + "已复制到剪贴板"提示。**M5 实机验证时定案**。
-- 样式：复用 bridge 的 CSS 变量体系（`--dsw-alias-*`）
+- 布局（紧凑单行 + 展开区，仿 dsh-model-router）：
+  - 主行：`🌙月汐` label + 模式 toggle（off/cost/capability segmented）+ 当前路由 chip + 预算占用 + 用量摘要（`wk 9% · 5h 10%`）+ 本地 token（`miss/out/cache%`）+ `upd HH:MM` 新鲜度
+  - `<details>` 展开：会员徽章 + 重置倒计时 + 完整 RouterConfig 表单 + 推理状态行
+- 变色阈值（仿 dsh-opencode-go-usage）：正常 → ≥80% 黄 → ≥90% 红
+- **client→host 通道（已定案）**：`ctx.remote.commands.execute(sessionId, '/kimi-tide <subcommand>')`——host 侧注册 slash command 处理保存/刷新/toggle，**零自定义 wire 协议**（dsh-model-router 已验证此机制）。host command handler 调用 `settings.ts` 完成校验+回写+重建。
+  - 子命令设计：`/kimi-tide mode off|cost|capability`、`/kimi-tide set <key> <value>`（表单逐字段）、`/kimi-tide refresh`（手动刷 quota）
+- i18n：`locale.register('dsh-kimi-tide', 'zh'|'en', …)` + `locale.bind`
+- 样式：注入 `<style data-plugin="dsh-kimi-tide">`（loader 卸载自动清理），CSS 变量用 `--dsw-alias-*`
+- client inject：`['slots', 'timer', 'locale', 'remote', 'remote.commands']`
 
 ### 3.5 与上游路由器计划（M1-M3）的关系
 
@@ -129,21 +148,22 @@ packages/dsh-kimi-tide/
 ├── src/
 │   ├── usage.ts            新增 ~120 行
 │   ├── settings.ts         新增 ~150 行
+│   ├── commands.ts         新增 ~80 行：/kimi-tide slash command（mode/set/refresh）
 │   ├── projection.ts       新增 ~60 行
-│   ├── client/index.ts     新增 ~20 行
-│   ├── client/TideView.tsx 新增 ~250 行
-│   ├── index.ts            修改：装配新单元 + inject 增加 'sessionProjections'
+│   ├── client/index.ts     新增 ~15 行（dock slot 注册 + style 注入 + locale）
+│   ├── client/TideDock.tsx 新增 ~280 行
+│   ├── index.ts            修改：装配新单元 + inject 增加 'sessionProjections' 'commands'
 │   └── adapter.ts          修改：usage tap（~10 行）
-├── scripts/build-client.mjs 新增（照搬 bridge，PLUGIN_ID 改为 dsh-kimi-tide）
+├── scripts/build-client.mjs 新增（esbuild 方案同 bridge；或 tsdown 单配置，实现时择一）
 ├── package.json            修改：+files lib/client.js，+exports "./client"，+dsh.client 字段
-│                            （inject: dsh-client-runtime / dsh-client-ui-conversation, platform: web），
+│                            （inject: dsh-client-ui-conversation / dsh-api-remotes, platform: web），
 │                            +devDep esbuild schemastery @types/react react，+scripts build:client
 └── cordis.patch.yml        修改：补 usagePollMs 与 router 示例（注释，默认 off）
 ```
 
-**客户端发现机制**（从 bridge package.json 确认）：shell 通过 package.json 的 `dsh.client` 字段发现并加载 `lib/client.js`——这是双端化的必要声明，缺它浏览器端不会拉取 client bundle。
+**客户端发现机制**（从 bridge / dsh-model-router package.json 确认）：shell 通过 package.json 的 `dsh.client` 字段发现并加载 `lib/client.js`——这是双端化的必要声明，缺它浏览器端不会拉取 client bundle。inject 列表对齐 dsh-model-router（`dsh-client-ui-conversation` 提供 dock slot；`dsh-api-remotes` 提供 `remote.commands`）。
 
-依赖变更：`esbuild`（dev）、`schemastery`（runtime，bridge 已用同库）。peerDependencies 不变。
+依赖变更：`esbuild`（dev）、`schemastery`（runtime，bridge 已用同库）。peerDependencies 增加 `@deepseek-ai/dsh-commands`、`@deepseek-ai/dsh-session-projection`（均为 rc.6 线）。
 
 ---
 
@@ -154,7 +174,7 @@ packages/dsh-kimi-tide/
 | 单元 | QuotaSnapshot 解析（含缺字段/字符串数字如 `"used":"9"`）、LocalTokenStats 累计与日界归零、settings 行级替换（含注释保留、缺行 append、.bak 生成） | vitest（新增，对齐 bridge 的测试布局） |
 | 单元 | projection fold 幂等 | vitest |
 | 集成 | usages 轮询 mock fetch（200/401→refresh/500） | vitest + mock |
-| 实机 | M5 扩展：标签页渲染、保存→patch 文件变化→重启保持、 quota 卡片与 `kimi` CLI 数据一致 | 手工 5 分钟 |
+| 实机 | M5 扩展：dock 渲染、保存→patch 文件变化→重启保持、quota 卡片与 `kimi` CLI 数据一致、/kimi-tide 命令往返 | 手工 5 分钟 |
 
 ---
 
@@ -163,11 +183,12 @@ packages/dsh-kimi-tide/
 | 风险/决策 | 分析 | 决定 |
 |---|---|---|
 | usages 接口未文档化 | 逆向接口，可能无预警变更 | 解析层宽容（字符串/数字双兼容，字段缺失降级显示）；`stale` 兜底 |
-| client→host 保存通道未验证 | bridge 只用了单向 projection | M5 实机调研；fallback = 复制 YAML 片段方案 |
+| ~~client→host 保存通道未验证~~ | **已解决**：`ctx.remote.commands.execute` + host slash command（dsh-model-router 验证） | 采用 `/kimi-tide` 命令族；fallback（commands remote 不可用）= 表单禁用 + 提示 |
 | patch yml 注释保留 | js-yaml 往返丢注释 | 行级锚点文本替换（不 parse 全量） |
 | 进程级用量放进 session projection | 语义不符但数据无 session 差异 | 接受：所有 session 共享同一快照；UI 无歧义 |
 | Web profile HMR 被官方禁用 | patch 改动需重启 `dsh web` | 内存即时生效 + 提示文案；重启后从 patch 恢复 |
 | 本地 token 统计与官方配额口径不同 | 官方按"次数"，本地按 token | UI 分开展示，标注口径，不做换算 |
+| dock 空间拥挤 | 多个插件共用一个 dock | 单行紧凑 + `<details>` 收拢；与 dsh-model-router 并存时自然换行 |
 
 ---
 
@@ -176,11 +197,11 @@ packages/dsh-kimi-tide/
 | 里程碑 | 变化 |
 |---|---|
 | M1-M3 | 不变（上游计划） |
-| **M3.5 双端化** | build-client.mjs + client 骨架 + projection 注册（本设计 §3.3/§3.4） |
-| **M3.6 用量显示** | usage.ts + 用量卡片（本设计 §3.1） |
-| **M3.7 设置面板** | settings.ts + 表单 + 持久化（本设计 §3.2） |
+| **M3.5 双端化** | build-client.mjs + dock 骨架 + projection 注册 + commands 挂载（本设计 §3.3/§3.4） |
+| **M3.6 用量显示** | usage.ts + dock 用量行（本设计 §3.1） |
+| **M3.7 设置面板** | settings.ts + `/kimi-tide` 命令族 + 展开区表单（本设计 §3.2/§3.4） |
 | M4 单元测试 | 范围扩展到本设计 §5 |
-| M5 实机验证 | 增加面板三项验证 + client→host 通道定案 |
-| M6 文档发布 | README 加「月汐标签页」章节 |
+| M5 实机验证 | 增加 dock 渲染 / 命令往返 / 持久化三项 |
+| M6 文档发布 | README 加「月汐 dock 面板」章节 |
 
 推理过程显示：无里程碑（零代码），仅在 M6 文档中说明"已原生支持"。

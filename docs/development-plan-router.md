@@ -147,11 +147,11 @@ dsh-kimi-tide:
 | **M1** 路由器核心 | router.ts（决策器 + 预算窗口 + 生命周期挂载） | 单元测试：决策逻辑/预算/显式指令 | ✅ 草稿已有 |
 | **M2** 能力缺口补偿 | 图片块检测 → 强制 kimi（高于预算） | 含 image 块的消息必路由 kimi | ⬜ |
 | **M3** index 集成 + Config | Config 扩展、默认 off、cordis.patch.yml 示例 | 旧配置零影响；开 mode 后生效 | ⬜ |
-| **M3.5** 双端化 | client bundle（build-client.mjs + `dsh.client` 声明）+ `kimi-tide/panel` projection | 浏览器出现「月汐」标签页（空壳） | ⬜ |
-| **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ 用量卡片 | 周配额/5h窗口/会员/本地token 四区展示 | ⬜ |
-| **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ 路由表单 | 保存后重启保持；当前会话即时生效 | ⬜ |
+| **M3.5** 双端化 | client bundle（build-client.mjs + `dsh.client` 声明）+ `kimi-tide/panel` projection + `/kimi-tide` 命令族 | composer dock 出现「月汐」面板骨架（机制对齐 dsh-model-router） | ⬜ |
+| **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ dock 用量行 | 周配额/5h窗口/会员/本地token 四区展示，80%/90% 变色 | ⬜ |
+| **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | ⬜ |
 | **M4** 单元测试 | 分类器/预算/缺口补偿/applyTo + 用量解析/设置读写 | 覆盖率 >80% 关键路径 | ⬜ |
-| **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；面板渲染/保存/持久化 | 会话日志 request/header 观察路由；client→host 保存通道定案 | ⬜ |
+| **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | ⬜ |
 | **M6** 文档发布 | README 路由章节 + docs/router 使用手册 + 0.2.0 Release | 文档与配置一致 | ⬜ |
 | **M7**（可选）增强 | LLM 分类器、token 精确计费、多主模型、settings UI | 视使用反馈 | ⬜ |
 
@@ -177,7 +177,7 @@ dsh-kimi-tide:
 5. 所有路由决策可通过会话 `request/header` 日志追溯
 6. 单元测试绿 + 实机 5 分钟手工验证通过
 7. README/docs 更新，0.2.0 Release 发布
-8. 「月汐」标签页：用量四区（周配额/5h窗口/会员/本地token）正确渲染；路由设置保存后 patch yml 变化且重启保持；推理状态行显示"已启用"
+8. 「月汐」dock 面板：用量四区（周配额/5h窗口/会员/本地token）正确渲染并具备 80%/90% 变色；路由设置保存后 patch yml 变化且重启保持；推理状态行显示"已启用"
 
 ---
 
