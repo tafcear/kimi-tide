@@ -70,4 +70,4 @@ Kimi Code 订阅仅供个人交互式使用。本插件以订阅凭据直连官�
 
 ## 许可
 
-[MIT](../LICENSE) · 依赖 `@earendil-works/pi-ai`（MIT）
+[MIT](../../LICENSE) · 依赖 `@earendil-works/pi-ai`（MIT）
