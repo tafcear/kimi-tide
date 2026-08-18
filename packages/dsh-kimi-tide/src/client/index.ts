@@ -53,6 +53,20 @@ export function apply(ctx: Context): void {
     .kimi-tide-dock .kt-row input:not([type="range"]):not(.kt-num) { flex: 1; min-width: 0; }
     .kimi-tide-dock .kt-budget input[type="range"] { flex: 1; min-width: 60px; accent-color: var(--dsw-alias-brand-primary, #4d6bfe); }
     .kimi-tide-dock .kt-num { width: 52px; flex: none; }
+    /* 面板 v3（Task 10）：候选管理 / 评分编辑 / 决策可观测 */
+    .kimi-tide-dock .kt-candidates, .kimi-tide-dock .kt-scores, .kimi-tide-dock .kt-reason {
+      display: flex; flex-direction: column; gap: 4px; padding: 4px 0; border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
+    .kimi-tide-dock .kt-candidate { gap: 6px; }
+    .kimi-tide-dock .kt-candidate-default { display: flex; align-items: center; gap: 3px; flex: none; opacity: 0.85; }
+    .kimi-tide-dock .kt-candidate select { flex: 1; min-width: 0; }
+    .kimi-tide-dock .kt-unavailable { opacity: 0.5; }
+    .kimi-tide-dock .kt-candidate-add select { flex: 1; min-width: 0; }
+    .kimi-tide-dock .kt-score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2px 14px; }
+    .kimi-tide-dock .kt-score-row input[type="range"] { flex: 1; min-width: 60px; accent-color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-dock .kt-score-values { display: flex; gap: 8px; flex: none; white-space: nowrap; }
+    .kimi-tide-dock .kt-score-override { color: var(--dsw-alias-brand-primary, #4d6bfe); font-variant-numeric: tabular-nums; }
+    .kimi-tide-dock .kt-score-baseline { font-variant-numeric: tabular-nums; }
+    .kimi-tide-dock .kt-decision-chip { color: var(--dsw-alias-brand-primary, #4d6bfe); }
   `
   document.head.appendChild(style)
   ctx.effect(() => () => style.remove())

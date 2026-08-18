@@ -1,12 +1,23 @@
 /**
- * TideDock — the 月汐 composer-dock panel. One compact row (mode toggle,
- * route chip, quota chips, local tokens, freshness), plus a <details> fold
- * with membership, reset countdowns, the router settings form, and the
- * reasoning status line. Reads 'kimi-tide/panel' via the standard-kit
- * useProjection hook; writes via remote slash commands.
+ * TideDock — the 月汐 composer-dock panel (v3). One compact row (mode toggle,
+ * route chip, quota chips, local tokens, freshness, decision chip), plus a
+ * <details> fold with membership/reset countdowns, the v2 settings (候选管理 +
+ * 能力评分 + 预算阈值), the ReasonPanel 决策可观测区, and the reasoning status
+ * line. Reads 'kimi-tide/panel' via the standard-kit useProjection hook; writes
+ * via remote slash commands.
+ *
+ * 面板 v3（Task 10）：保存通道已从 v1 键（primary.model/premium.model/
+ * premiumLong.model/escalateWhen.estimatedTokensGt —— Task 9 已将其移出
+ * SETTABLE_KEYS）迁到 v2 六键（lambda/routeThreshold/premiumBudget/
+ * budgetWindow/charsPerToken/default.model）。候选结构变更与能力评分经
+ * import-config（sidecar 文本）一次性落盘，保持命令面最小。
  */
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { KimiTidePanelProjection } from '../types.js'
+import type { RouteTarget } from '../config.js'
+import { CandidateList } from './CandidateList.js'
+import { ScoreEditor } from './ScoreEditor.js'
+import { ReasonPanel } from './ReasonPanel.js'
 
 export interface TideDockProps {
   sessionId: string
@@ -60,12 +71,13 @@ export function TideDock(props: TideDockProps) {
   const panel = props.useProjection('kimi-tide/panel')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [scoreTarget, setScoreTarget] = useState<RouteTarget | null>(null)
 
   const run = async (line: string) => {
     setBusy(true)
     setNotice('')
     try {
-      const result = await tideDockBridge.execute(props.sessionId, line) as { ok?: boolean; value?: { matched?: boolean } } | undefined
+      const result = await tideDockBridge.execute(props.sessionId, line) as { ok?: boolean } | undefined
       if (result !== undefined && 'ok' in result && result.ok === false) {
         setNotice('命令通道不可用（需 dsh-api-remotes）')
       }
@@ -90,6 +102,11 @@ export function TideDock(props: TideDockProps) {
   const cacheTok = local.today.cacheReadTokens ?? 0
   const cachePct = inTok + cacheTok > 0 ? Math.round((cacheTok / (inTok + cacheTok)) * 100) : 0
 
+  // v2: 默认目标 = v1 视图的 primary；可选模型全量（kimi + deepseek 合并去重）。
+  const defaultTarget: RouteTarget = router.primary
+  const modelOptions = [...new Set([...(panel.models?.kimi ?? []), ...(panel.models?.deepseek ?? [])])]
+  const effectiveScoreTarget = scoreTarget ?? defaultTarget
+
   return (
     <div className="kimi-tide-dock">
       <span className="kt-label">🌙 月汐</span>
@@ -109,6 +126,12 @@ export function TideDock(props: TideDockProps) {
         <span style={chip}>
           ⚡ {router.primary.model}
           {router.mode === 'cost' && router.premiumBudget !== undefined && ` · 💰 ${Math.round(router.premiumBudget * 100)}%`}
+        </span>
+      )}
+
+      {panel.decision !== null && (
+        <span style={chip} className="kt-decision-chip" title={`Δ ${panel.decision.scoreDelta ?? '—'}`}>
+          🧭 {panel.decision.chosen.model} · {panel.decision.reason}
         </span>
       )}
 
@@ -139,68 +162,57 @@ export function TideDock(props: TideDockProps) {
             </span>
           )}
 
-          <span className="kt-h">🧭 路由模型</span>
-          <div className="kt-grid">
-            <ModelSelect
-              label="⚡ 主力模型"
-              value={router.primary.model}
-              options={panel.models?.deepseek ?? []}
-              busy={busy}
-              onPick={(v) => void run(`/kimi-tide set primary.model ${v}`)}
-            />
-            <ModelSelect
-              label="🌙 Kimi 模型"
-              value={router.premium.model}
-              options={panel.models?.kimi ?? []}
-              busy={busy}
-              onPick={(v) => void run(`/kimi-tide set premium.model ${v}`)}
-            />
-            <ModelSelect
-              label="📜 长上下文"
-              value={router.premiumLong?.model ?? ''}
-              options={panel.models?.kimi ?? []}
-              busy={busy}
-              onPick={(v) => void run(`/kimi-tide set premiumLong.model ${v}`)}
-            />
+          <CandidateList
+            candidates={panel.candidates}
+            defaultTarget={defaultTarget}
+            modelOptions={modelOptions}
+            busy={busy}
+            onCommand={(sidecarText) => void run(`/kimi-tide import-config ${sidecarText}`)}
+          />
+
+          <ScoreEditor
+            target={effectiveScoreTarget}
+            busy={busy}
+            onCommand={(sidecarText) => void run(`/kimi-tide import-config ${sidecarText}`)}
+          />
+          <div className="kt-row">
+            <span className="kt-field-label">🎯 评分对象</span>
+            <select
+              aria-label="score target"
+              disabled={busy}
+              value={`${effectiveScoreTarget.provider}/${effectiveScoreTarget.model}`}
+              onChange={(e) => {
+                const [provider, ...rest] = e.target.value.split('/')
+                setScoreTarget({ provider, model: rest.join('/') })
+              }}
+            >
+              {[defaultTarget, ...panel.candidates].map((t) => (
+                <option key={`${t.provider}/${t.model}`} value={`${t.provider}/${t.model}`}>
+                  {t.provider}/{t.model}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <span className="kt-h">💰 预算与阈值</span>
+          <span className="kt-h">💰 预算与阈值（v2）</span>
           <div className="kt-grid">
             <BudgetSlider
               value={router.premiumBudget}
               busy={busy}
               onCommit={(v) => void run(`/kimi-tide set premiumBudget ${v}`)}
             />
-            <NumberField label=" 预算窗口" value={router.budgetWindow} busy={busy} onCommit={(v) => void run(`/kimi-tide set budgetWindow ${v}`)} />
+            <NumberField label="🪟 预算窗口" value={router.budgetWindow} busy={busy} onCommit={(v) => void run(`/kimi-tide set budgetWindow ${v}`)} />
             <NumberField label="🔤 字符/token" value={router.charsPerToken} busy={busy} onCommit={(v) => void run(`/kimi-tide set charsPerToken ${v}`)} />
-            <NumberField label="📈 升级阈值" value={router.escalateWhen?.estimatedTokensGt} busy={busy} onCommit={(v) => void run(`/kimi-tide set escalateWhen.estimatedTokensGt ${v}`)} />
           </div>
+
+          <ReasonPanel configSource={panel.configSource} decision={panel.decision} mode={router.mode} />
 
           <span className="kt-meta">✨ 推理输出已启用（DSH 原生渲染 reasoning-delta）</span>
           {notice !== '' && <span className="kt-warn">⚠️ {notice}</span>}
-          <span className="kt-meta kt-hint">💾 下拉即选、滑杆松手或回车即保存；写入 patch 文件并即时生效。</span>
+          <span className="kt-meta kt-hint">💾 滑杆松手或回车即保存；候选与评分经 import-config 一次性落盘并即时生效。</span>
         </div>
       </details>
     </div>
-  )
-}
-
-function ModelSelect({ label, value, options, busy, onPick }: {
-  label: string
-  value: string
-  options: string[]
-  busy: boolean
-  onPick: (value: string) => void
-}) {
-  const opts = value !== '' && !options.includes(value) ? [value, ...options] : options
-  return (
-    <label className="kt-row">
-      <span className="kt-field-label">{label}</span>
-      <select disabled={busy || opts.length === 0} value={value} onChange={(e) => onPick(e.target.value)}>
-        {opts.length === 0 && <option value={value}>{value === '' ? '（无可选模型）' : value}</option>}
-        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </label>
   )
 }
 
@@ -212,7 +224,6 @@ function BudgetSlider({ value, busy, onCommit }: {
 }) {
   const initial = value ?? 0.2
   const [draftPct, setDraftPct] = useState(Math.round(initial * 100))
-  useEffect(() => { setDraftPct(Math.round((value ?? 0.2) * 100)) }, [value])
   const commit = () => onCommit(Math.min(100, Math.max(0, draftPct)) / 100)
   return (
     <label className="kt-row kt-budget">
