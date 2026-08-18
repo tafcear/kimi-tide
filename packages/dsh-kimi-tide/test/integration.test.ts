@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyKimiTideCommand,
   parseKimiTideCommand,
@@ -44,7 +44,7 @@ function capabilityConfig(): RouterConfigV2 {
 }
 
 /** 与 index-apply.test.ts 相同的 fake ctx（llm 枚举面 stub，kimi-tide 多模态）。 */
-function makeCtx() {
+function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }> = []) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   return {
     ctx: {
@@ -77,7 +77,7 @@ function makeCtx() {
         listeners.set(name, arr)
         return () => {}
       },
-      get: () => undefined,
+      get: (name: string) => (name === 'agents' ? { list: () => agents } : undefined),
     },
     listeners,
   }
@@ -227,7 +227,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     expect(out.config!.mode).toBe('capability') // patch 里是 cost，sidecar 胜出
   })
 
-  it('apply() 端到端：patch 静态块写 cost + sidecar 写 capability → capability 生效', () => {
+  it('apply() 端到端：patch 静态块写 cost + sidecar 写 capability → capability 生效（有判别力）', async () => {
     writeFileSync(
       patchFile,
       '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-tide, model: kimi-for-coding }\n',
@@ -236,18 +236,84 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     const pre = new RouterSidecarStore({ file: sidecarFile, onError: () => {} })
     pre.save(capabilityConfig())
 
-    const agent = { session: { append: () => {} } }
-    const { ctx, listeners } = makeCtx()
+    const agent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
     apply(ctx as never, {
       patchFile,
       sidecarFile,
       usagePollOnStart: false,
       refreshOnStart: false,
     })
+    // 等候选枚举完成（kimi-tide 变多模态；fallback 种子池全部 text-only，
+    // 带图消息会因 eligible 空而 keep——必须先等枚举替换候选池）。
+    await new Promise((resolve) => setTimeout(resolve, 20))
 
-    // sidecar mode=capability 生效：路由器已挂载（off 时不会注册 pre-step 监听）。
-    expect((listeners.get('agent/pre-step') ?? []).length).toBeGreaterThan(0)
-    void agent
+    // 直接判别：快照必须来自 sidecar 且 mode=capability（若优先级反转——
+    // patch cost 胜出——这里会得到 configSource 'patch' / mode 'cost'）。
+    const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+    expect(snapshot.configSource).toBe('sidecar')
+    expect(snapshot.router).toMatchObject({ mode: 'capability' })
+
+    // 端到端判别：走已挂载的 pre-step listener 喂带图消息——deepseek
+    // （text-only）被 eligible 排除，capability 无阈值直接 route；若 patch
+    // cost 胜出，delta 0 < routeThreshold 0.75 → keep。两种模式的决策摘要
+    // 必然不同，断言 route 即证明 capability 生效。
+    const listener = listeners.get('agent/pre-step')?.at(-1) // 枚举后的当前挂载
+    expect(listener).toBeDefined()
+    const payload = {
+      agent: {},
+      messages: [image('看看这张图')],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }
+    await (listener as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      payload,
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+    const decision = (agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>)
+      .decision as { chosen: { provider: string; model: string } } | null
+    expect(decision).not.toBeNull()
+    expect(decision!.chosen).toEqual({ provider: 'kimi-tide', model: 'kimi-for-coding' })
+  })
+
+  it('负向对照：仅 patch 静态块（cost）时同一带图消息 keep——判别器有效', async () => {
+    // 无 sidecar：优先级退化为 patch，mode=cost。同一判别序列必须得到
+    // configSource 'patch' + 决策 null（cost 对 delta 0 < 0.75 判 keep）。
+    writeFileSync(
+      patchFile,
+      '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-tide, model: kimi-for-coding }\n',
+      'utf8',
+    )
+    const agent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+    apply(ctx as never, {
+      patchFile,
+      sidecarFile,
+      usagePollOnStart: false,
+      refreshOnStart: false,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+    expect(snapshot.configSource).toBe('patch')
+    expect(snapshot.router).toMatchObject({ mode: 'cost' })
+
+    const listener = listeners.get('agent/pre-step')?.at(-1)
+    expect(listener).toBeDefined()
+    const payload = {
+      agent: {},
+      messages: [image('看看这张图')],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }
+    await (listener as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      payload,
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+    const decision = (agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>).decision
+    expect(decision).toBeNull()
   })
 })
 
