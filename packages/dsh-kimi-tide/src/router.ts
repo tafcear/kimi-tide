@@ -117,8 +117,17 @@ export function textOnlyProviders(
 ): Set<string> {
   if (config.textOnlyProviders !== undefined) return new Set(config.textOnlyProviders)
   if (metas !== undefined) {
+    // Only the primary (default) provider is treated as text-only from the
+    // candidate metadata. Non-primary providers are this plugin's multimodal
+    // rail (Kimi): enumeration can degrade them to text-only when
+    // resolveModelInfo lacks inputModalities, and trusting that would silently
+    // disable the image guard (regression: image steps kept on the text-only
+    // primary and the adapter threw UNSUPPORTED_CONTENT). An explicit
+    // textOnlyProviders override above still wins.
     return new Set(
-      metas.filter((m) => !m.modalities.includes('image')).map((m) => m.provider),
+      metas
+        .filter((m) => m.provider === config.primary.provider && !m.modalities.includes('image'))
+        .map((m) => m.provider),
     )
   }
   return new Set([config.primary.provider])

@@ -94,13 +94,28 @@ describe('image guard (direction: text-only route → multimodal Kimi; text-only
     expect(applyImageGuard({ provider: 'other', model: 'x' }, BASE, true, shimMetas(BASE))).toBeNull()
   })
 
-  it('bails out when the premium route is itself text-only (no safe multimodal reroute)', () => {
-    // In the metas-driven world this case is expressed as candidate metadata:
-    // every kimi-tide candidate is text-only, so the guard has no safe reroute.
-    const textOnlyMetas: CandidateMeta[] = [
+  it('still reroutes to the premium rail when enumeration degraded kimi to text-only', () => {
+    // Regression: resolveModelInfo lacking inputModalities degrades every kimi
+    // candidate to text-only; the premium provider must stay a multimodal rail
+    // so image steps are not left on the text-only primary (UNSUPPORTED_CONTENT).
+    const degraded: CandidateMeta[] = [
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
       { provider: 'kimi-tide', model: 'kimi-for-coding', modalities: ['text'], costTier: 'mid', available: true },
     ]
-    expect(applyImageGuard({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, BASE, true, textOnlyMetas)).toBeNull()
+    const guard = applyImageGuard({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, BASE, true, degraded)
+    expect(guard).not.toBeNull()
+    if (guard !== null) expect(guard.target).toEqual(BASE.premium)
+  })
+
+  it('bails out when the premium route is itself text-only (no safe multimodal reroute)', () => {
+    // A premium on a genuinely text-only provider (here deepseek) cannot serve
+    // the image, so the guard must not ping-pong onto it.
+    const config: RouterConfigV1 = { ...BASE, premium: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } }
+    const textOnlyMetas: CandidateMeta[] = [
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
+      { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], costTier: 'mid', available: true },
+    ]
+    expect(applyImageGuard({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, config, true, textOnlyMetas)).toBeNull()
   })
 })
 
@@ -152,10 +167,15 @@ describe('canClaimImageAdmission (host prompt pre-check deferral)', () => {
   })
 
   it('does not claim when the premium route is itself text-only (no safe reroute)', () => {
+    // A premium on the text-only primary provider cannot serve the image, so
+    // the host keeps its friendly rejection. (A kimi premium is the multimodal
+    // rail and is never treated as text-only, even if enumeration degrades.)
+    const config: RouterConfigV1 = { ...BASE, mode: 'cost', premium: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } }
     const textOnlyMetas: CandidateMeta[] = [
-      { provider: 'kimi-tide', model: 'kimi-for-coding', modalities: ['text'], costTier: 'mid', available: true },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
+      { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], costTier: 'mid', available: true },
     ]
-    expect(canClaimImageAdmission({ ...BASE, mode: 'cost' }, textOnlyMetas)).toBe(false)
+    expect(canClaimImageAdmission(config, textOnlyMetas)).toBe(false)
   })
 
   it('honors an explicit textOnlyProviders override listing the premium provider', () => {
