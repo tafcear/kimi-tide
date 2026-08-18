@@ -455,13 +455,13 @@ describe('scoring', () => {
     expect(sel!.target.model).toBe('k3')
   })
   it('vision=0 candidates are excluded for image steps', () => {
-    const a = meta('kimi-tide', 'k3')
-    const b = meta('deepseek-official', 'deepseek-v4-flash', { modalities: ['text', 'image'] })
+    const a = meta('kimi-tide', 'k3', { modalities: ['text', 'image'] })
+    const b = meta('deepseek-official', 'deepseek-v4-flash', { modalities: ['text'] })
     const sel = selectCandidate([a, b], { vision: 3 }, {
       lambda: 0, defaultTarget: a, mode: 'capability', hasImage: true, budgetExhausted: false,
       scoresOf: () => ({ code: 4, reasoning: 4, writing: 4, tooluse: 4, vision: 0, longctx: 4 }),
     })
-    expect(sel!.target.provider).toBe('deepseek-official')
+    expect(sel!.target.provider).toBe('kimi-tide')  // deepseek-v4-flash（vision=0）被排除；k3 多模态胜出
   })
   it('cost mode keeps default unless score delta beats threshold and budget allows', () => {
     const a = meta('deepseek-official', 'f', { costTier: 'cheap' })
@@ -537,25 +537,28 @@ import { DEFAULT_CONFIG_V2, type CandidateMeta } from '../src/config.js'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 
 const msg = (text: string): UserMessage => ({ role: 'user', content: [{ type: 'text', text }] } as unknown as UserMessage)
+// 模态元数据按 pi-ai 目录实读修正（2026-08-18，见 development-plan-router.md §1.1）：
+// deepseek-v4-flash 文本-only、k3 多模态——早期版本此处为反向假设（deepseek 带图 / k3 纯文本），
+// 与真实能力矩阵相反，0.3.0 实施时不得沿用。step 参数按 dsh-agent-loop 已验证契约取 1（每轮首个模型步）。
 const metas: CandidateMeta[] = [
-  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text', 'image'], costTier: 'cheap', available: true },
-  { provider: 'kimi-tide', model: 'k3', modalities: ['text'], costTier: 'mid', available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
+  { provider: 'kimi-tide', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
 ]
 
 describe('KimiRouter v2', () => {
   it('capability routes code task to k3', () => {
     const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas, { info: () => {} })
-    expect(r.decide([msg('审查这段代码 review')], 0).kind).toBe('route')
+    expect(r.decide([msg('审查这段代码 review')], 1).kind).toBe('route')
   })
-  it('image step never lands on vision=0 candidate', () => {
+  it('image step lands on the multimodal candidate, never a vision=0 one', () => {
     const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas, { info: () => {} })
-    const d = r.decide([msg('看图 @kimi-tide')], 0)
+    const d = r.decide([msg('看图 @kimi-tide')], 1)
     const target = d.kind === 'route' ? d.target : null
-    expect(target?.model).not.toBe('k3')
+    expect(target?.model).toBe('k3')   // deepseek-v4-flash 文本-only（vision=0）被排除；k3 多模态承接
   })
   it('single eligible candidate degrades to keep', () => {
     const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas.slice(0, 1), { info: () => {} })
-    expect(r.decide([msg('审查代码')], 0).kind).toBe('keep')
+    expect(r.decide([msg('审查代码')], 1).kind).toBe('keep')
   })
 })
 ```
