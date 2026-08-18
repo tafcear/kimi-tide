@@ -191,6 +191,18 @@ describe('TideDock v3', () => {
     expect(html).toContain('📤')
   })
 
+  it('deduplicates the score-target dropdown when the default target is also a candidate', () => {
+    // Regression: when defaultTarget is also present in panel.candidates, the
+    // score-target dropdown must not list it twice. Existing CANDIDATES already
+    // contains deepseek-official/deepseek-v4-flash which equals defaultTarget
+    // (primary), so this fixture reproduces the duplication.
+    const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
+    // Count occurrences of the full provider/model key in the score-target select
+    // (the option value is "provider/model").
+    const matches = html.match(/value="deepseek-official\/deepseek-v4-flash"/g) ?? []
+    expect(matches.length).toBe(1)
+  })
+
   it('seeds the ScoreEditor draft from candidates[].scores (saved overrides, not baseline)', () => {
     // Fails if: TideDock stops passing the per-configKey overrideScores lookup
     // into ScoreEditor — saved overrides would render as baseline values and a

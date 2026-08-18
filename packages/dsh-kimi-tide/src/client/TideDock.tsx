@@ -192,7 +192,9 @@ export function TideDock(props: TideDockProps) {
                 setScoreTarget({ provider, model: rest.join('/') })
               }}
             >
-              {[defaultTarget, ...panel.candidates].map((t) => (
+              {[defaultTarget, ...panel.candidates].filter((t, i, arr) =>
+                arr.findIndex((x) => x.provider === t.provider && x.model === t.model) === i,
+              ).map((t) => (
                 <option key={`${t.provider}/${t.model}`} value={`${t.provider}/${t.model}`}>
                   {t.provider}/{t.model}
                 </option>
