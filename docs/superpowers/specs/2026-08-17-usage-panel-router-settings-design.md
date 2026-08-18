@@ -1,7 +1,7 @@
 # kimi-tide 0.2.0 扩展设计 — 用量显示 · 路由设置面板 · 推理状态
 
 > 状态：设计已确认（2026-08-17，逐节 OK）
-> 上游计划：[`docs/development-plan-router.md`](../development-plan-router.md)（M1 草稿已存在）
+> 上游计划：[`../../development-plan-router.md`](../../development-plan-router.md)（M1 草稿已存在）
 > 本文档为 0.2.0 的**增量设计**：在原路由器计划之上新增三个用户可见能力。
 
 ---

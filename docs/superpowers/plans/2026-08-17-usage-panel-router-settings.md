@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (NodeNext, strict) / React 18 / esbuild / schemastery + zod / vitest / cordis patch yml
 
-**Spec:** [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](../superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)（设计定稿）；上游计划 [`docs/development-plan-router.md`](../development-plan-router.md)
+**Spec:** [`../specs/2026-08-17-usage-panel-router-settings-design.md`](../specs/2026-08-17-usage-panel-router-settings-design.md)（设计定稿）；上游计划 [`../../development-plan-router.md`](../../development-plan-router.md)
 
 ## Global Constraints
 
