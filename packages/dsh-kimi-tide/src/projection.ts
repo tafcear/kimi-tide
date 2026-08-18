@@ -43,6 +43,19 @@ const panelSchema = z.object({
   router: z.record(z.string(), z.unknown()),
   reasoning: z.object({ enabled: z.literal(true) }),
   models: z.object({ kimi: z.array(z.string()), deepseek: z.array(z.string()) }).optional(),
+  // projection v2 (0.3.0): config source observability + candidate pool
+  // summary + decision digest (spec §2.7; full score tables stay host-side).
+  configSource: z.union([z.literal('sidecar'), z.literal('patch'), z.literal('default')]),
+  candidates: z.array(z.object({
+    provider: z.string(),
+    model: z.string(),
+    available: z.boolean(),
+  })),
+  decision: z.object({
+    chosen: z.object({ provider: z.string(), model: z.string() }),
+    reason: z.string().max(120),
+    scoreDelta: z.number().nullable(),
+  }).nullable(),
 }).nullable()
 
 // dsh-session-projection depends on zod v4 while this package uses zod v3;
@@ -57,7 +70,7 @@ export const kimiTideProjectionDefinition:
 ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null> = {
   key: KIMI_TIDE_PANEL_KEY,
   schema: bridgedSchema,
-  stateVersion: 1,
+  stateVersion: 2,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;

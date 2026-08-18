@@ -3,27 +3,35 @@
  *
  * Kimi Code (Moonshot) subscription as a native DeepSeek Harness LLM
  * provider, plus the 月汐 dock panel: official quota display, local token
- * stats, and a router-settings panel persisted back into the user's
- * cordis.patch.yml.
+ * stats, and the 0.3.0 capability-scored router with provider-agnostic
+ * candidate enumeration and sidecar persistence.
  */
 import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type { LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { KimiAdapter } from './adapter.js'
 import { registerKimiTideCommands } from './commands.js'
 import { KimiOAuthManager } from './oauth.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
-import { installRouter, KimiRouter, type RouterConfig, type RouterLog } from './router.js'
-import { DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from './config.js'
+import {
+  installRouter,
+  KimiRouter,
+  type RouteDecision,
+  type RouterConfig,
+  type RouterLog,
+} from './router.js'
+import { configKey, DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from './config.js'
+import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore } from './settings.js'
 import { UsageMonitor } from './usage.js'
-import type { KimiTidePanelProjection } from './types.js'
+import type { ConfigSource, DecisionSummary, KimiTidePanelProjection } from './types.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -42,10 +50,12 @@ export interface Config {
   usagePollMs?: number
   /** Poll quota immediately on startup (default true). */
   usagePollOnStart?: boolean
-  /** Router config; absent/mode off = 0.1.x behavior. The dock panel persists edits to the patch file. */
+  /** Router config; absent/mode off = 0.1.x behavior. Static seed for the v2 sidecar chain. */
   router?: RouterConfig
-  /** Patch file to persist router settings into (default $DSH_HOME/profiles/web/cordis.patch.yml). */
+  /** Patch file holding the legacy static router seed (default $DSH_HOME/profiles/web/cordis.patch.yml). */
   patchFile?: string
+  /** Sidecar router store file (default: kimi-tide-router.yml next to the patch file). */
+  sidecarFile?: string
 }
 
 export const DEFAULT_ROUTER_CONFIG: RouterConfig = {
@@ -60,14 +70,14 @@ export function defaultPatchFile(): string {
   return join(home, 'profiles', 'web', 'cordis.patch.yml')
 }
 
-export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
-  return new KimiRouter(routerConfigToV2(config), candidateMetasFromConfig(config), log)
+export function defaultSidecarFile(): string {
+  return join(dirname(defaultPatchFile()), 'kimi-tide-router.yml')
 }
 
 /**
- * Bridge a v1 (0.2.x) router config onto the v2 scoring engine. Used by the
- * production wiring (panel settings still persist the v1 shape) until the
- * v2 sidecar wiring task lands.
+ * Bridge a v1 (0.2.x) router config onto the v2 scoring engine. Kept for
+ * tests and external callers that still hold the v1 shape; the production
+ * wiring loads RouterConfigV2 through the sidecar chain.
  */
 export function routerConfigToV2(config: RouterConfig): RouterConfigV2 {
   const v2 = DEFAULT_CONFIG_V2('kimi-tide')
@@ -99,6 +109,99 @@ export function candidateMetasFromConfig(config: RouterConfig): CandidateMeta[] 
     costTier: tierOf(t.provider),
     available: true,
   }))
+}
+
+export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
+  return new KimiRouter(routerConfigToV2(config), candidateMetasFromConfig(config), log)
+}
+
+/** The llm runtime surface the candidate enumeration consumes (rc.6 shapes). */
+interface LlmCatalog {
+  listProviders: () => LlmProviderInfo[]
+  listModels: (provider: string) => Promise<LlmModelInfo[]>
+  resolveModelInfo: (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
+}
+
+/**
+ * Provider-agnostic candidate enumeration (spec §2.5): every registered
+ * provider on the whitelist contributes its catalog; each model is resolved
+ * for inputModalities (drives the image guard) and its cost tier is looked
+ * up from config.costTiers (catalogs carry no price data — default mid).
+ * A provider/model that fails to enumerate is dropped with a warning, never
+ * aborting the pool; before the first enumeration completes the pool is
+ * seeded from the configured targets with text-only/default-mid metadata so
+ * the router is immediately mountable.
+ */
+async function enumerateCandidates(
+  llm: LlmCatalog,
+  config: RouterConfigV2,
+  onError: (message: string) => void,
+): Promise<CandidateMeta[]> {
+  const out: CandidateMeta[] = []
+  const seen = new Set<string>()
+  const allowed = new Set(config.allowedProviders)
+  let providers: LlmProviderInfo[] = []
+  try {
+    providers = llm.listProviders()
+  } catch (error) {
+    onError(`dsh-kimi-tide: listProviders failed: ${(error as Error).message}`)
+  }
+  for (const provider of providers) {
+    if (!allowed.has(provider.id)) continue
+    let models: LlmModelInfo[] = []
+    try {
+      models = await llm.listModels(provider.id)
+    } catch (error) {
+      onError(`dsh-kimi-tide: listModels(${provider.id}) failed: ${(error as Error).message}`)
+      continue
+    }
+    for (const model of models) {
+      let modalities: string[] = ['text']
+      try {
+        const resolved = await llm.resolveModelInfo(provider.id, model.id)
+        if (Array.isArray(resolved.inputModalities) && resolved.inputModalities.length > 0) {
+          modalities = [...resolved.inputModalities]
+        }
+      } catch (error) {
+        onError(`dsh-kimi-tide: resolveModelInfo(${provider.id}/${model.id}) failed: ${(error as Error).message}`)
+      }
+      out.push({
+        provider: provider.id,
+        model: model.id,
+        modalities,
+        costTier: config.costTiers[configKey({ provider: provider.id, model: model.id })] ?? 'mid',
+        available: true,
+      })
+      seen.add(configKey({ provider: provider.id, model: model.id }))
+    }
+  }
+  // Configured targets absent from the live catalog stay visible (available:
+  // false → 标灰 in the panel, excluded from scoring by selectCandidate).
+  for (const target of [config.default, ...config.candidates]) {
+    const key = configKey(target)
+    if (seen.has(key)) continue
+    out.push({
+      ...target,
+      modalities: ['text'],
+      costTier: config.costTiers[key] ?? 'mid',
+      available: false,
+    })
+  }
+  return out
+}
+
+/** Pool used before the first enumeration settles (router mounts immediately). */
+function fallbackCandidateMetas(config: RouterConfigV2): CandidateMeta[] {
+  const targets = [config.default, ...config.candidates]
+  const seen = new Set<string>()
+  const out: CandidateMeta[] = []
+  for (const target of targets) {
+    const key = configKey(target)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ ...target, modalities: ['text'], costTier: config.costTiers[key] ?? 'mid', available: true })
+  }
+  return out
 }
 
 /**
@@ -144,6 +247,7 @@ export function apply(ctx: Context, config: Config = {}) {
   const log: RouterLog = {
     info: (message: string) => { ctx.logger.info(message); },
   };
+  const warn = (message: string) => { ctx.logger?.warn?.(message) }
 
   // The strict persistence reader refuses logs with unknown event types.
   // The catalog Set lives on the INSTALLATION's dsh-session module instance;
@@ -172,30 +276,91 @@ export function apply(ctx: Context, config: Config = {}) {
   })
   ctx.llm.registerAdapter([providerName], adapter)
 
-  // Router: static config wins; otherwise the persisted panel config; else default off.
+  // Router persistence (0.3.0): the sidecar file is the live store; the
+  // patch file keeps only the legacy static seed. Priority: sidecar > patch
+  // static > DEFAULT_CONFIG_V2(providerName). Saving no longer rewrites the
+  // loader-watched patch file, so a panel save no longer re-applies the
+  // plugin (the root cause of the 57c7ef8 desync class).
   const store = new RouterSettingsStore({
     patchFile: config.patchFile ?? defaultPatchFile(),
-    onError: (message) => ctx.logger?.warn?.(message),
+    onError: warn,
   })
-  let routerConfig: RouterConfig = config.router ?? loadPersisted(store) ?? DEFAULT_ROUTER_CONFIG
+  const sidecar = new RouterSidecarStore({
+    file: config.sidecarFile ?? defaultSidecarFile(),
+    patchFallback: () => {
+      if (config.router !== undefined) return config.router
+      try {
+        return store.load()
+      } catch {
+        return null
+      }
+    },
+    onError: warn,
+  })
+  const loaded = sidecar.load()
+  let routerConfigV2: RouterConfigV2 = loaded.config ?? DEFAULT_CONFIG_V2(providerName)
+  let configSource: ConfigSource =
+    loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
+
+  // Candidate pool: mounted immediately with config-derived fallback metas,
+  // then replaced by the enumerated pool once the llm catalog settles;
+  // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
+  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfigV2)
+  let enumerationSeq = 0
+  const refreshCandidates = () => {
+    const seq = ++enumerationSeq
+    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfigV2, warn)
+      .then((metas) => {
+        if (seq !== enumerationSeq) return
+        candidateMetas = metas
+        mountRouter()
+        pushPanelToAllSessions()
+      })
+      .catch((error) => warn(`dsh-kimi-tide: candidate enumeration failed: ${(error as Error).message}`))
+  }
+
   let disposeRouter: (() => void) | null = null
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
-    if (routerConfig.mode !== 'off') {
-      disposeRouter = installRouter(ctx, buildRouter(routerConfig, log))
+    if (routerConfigV2.mode !== 'off') {
+      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV2, candidateMetas, log), onDecision)
     }
   }
-  mountRouter()
 
-  // Panel persistence + commands (client→host channel).
+  // Decision observability (spec §2.7): only capability-mode non-keep
+  // decisions surface a summary; reason is truncated to 120 characters.
+  let latestDecision: DecisionSummary | null = null
+  const onDecision = (_agent: Agent, decision: RouteDecision) => {
+    if (routerConfigV2.mode !== 'capability' || decision.kind !== 'route') return
+    latestDecision = {
+      chosen: { provider: decision.target.provider, model: decision.target.model },
+      reason: decision.reason.slice(0, 120),
+      scoreDelta: null,
+    }
+    pushPanelToAllSessions()
+  }
+
+  mountRouter()
+  refreshCandidates()
+
+  // Panel persistence + commands (client→host channel). The panel still
+  // speaks the v1 form shape; on save we migrate to v2 and persist to the
+  // sidecar (the Task 9 command refresh replaces this wholesale).
   registerKimiTideCommands(ctx, {
     store,
     monitor,
-    current: () => routerConfig,
+    current: () => v2ToV1View(routerConfigV2),
     onSaved: (next) => {
-      routerConfig = next
+      routerConfigV2 = routerConfigToV2(next)
+      try {
+        sidecar.save(routerConfigV2)
+        configSource = 'sidecar'
+      } catch (error) {
+        warn(`dsh-kimi-tide: sidecar save failed: ${(error as Error).message}`)
+      }
       mountRouter()
+      refreshCandidates()
       pushPanelToAllSessions()
     },
   })
@@ -209,9 +374,12 @@ export function apply(ctx: Context, config: Config = {}) {
   const panelSnapshot = (): KimiTidePanelProjection => ({
     quota: monitor.snapshot().quota,
     local: monitor.snapshot().local,
-    router: routerConfig,
+    router: v2ToV1View(routerConfigV2),
     reasoning: { enabled: true },
     models: modelOptions,
+    configSource,
+    candidates: candidateMetas.map((m) => ({ provider: m.provider, model: m.model, available: m.available })),
+    decision: latestDecision,
   })
   const pushPanel = (agent: Agent) => {
     try {
@@ -235,7 +403,10 @@ export function apply(ctx: Context, config: Config = {}) {
       .catch(() => { /* deepseek adapter absent: dropdown falls back to free text */ })
   }
   refreshModelOptions()
-  ctx.on('llm/adapters-updated', () => refreshModelOptions())
+  ctx.on('llm/adapters-updated', () => {
+    refreshModelOptions()
+    refreshCandidates()
+  })
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     liveAgents.add(payload.agent)
     pushPanel(payload.agent)
@@ -243,11 +414,9 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     liveAgents.delete(payload.agent)
   })
-  // Seed the roster from the live agent registry: saving router settings
-  // rewrites the watched cordis.patch.yml, which makes the loader re-apply
-  // this plugin — and agent/created does NOT re-fire for agents that already
-  // live, so a re-applied instance would push to an empty roster forever
-  // (the "mode button desync" bug). ctx.agents is optional (headless presets).
+  // Seed the roster from the live agent registry: agent/created does NOT
+  // re-fire for agents that already live, so a (re)applied instance must
+  // recover its roster from ctx.agents. ctx.agents is optional (headless).
   const agentRegistry = ctx.get('agents') as { list?: () => Agent[] } | undefined
   if (typeof agentRegistry?.list === 'function') {
     for (const agent of agentRegistry.list()) liveAgents.add(agent)
@@ -268,10 +437,20 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.effect(() => () => disposeRouter?.())
 }
 
-function loadPersisted(store: RouterSettingsStore): RouterConfig | null {
-  try {
-    return store.load()
-  } catch {
-    return null
+/**
+ * The panel form still speaks the v1 shape (primary/premium); project the v2
+ * config back for display until the panel v3 task (Task 10) lands.
+ */
+function v2ToV1View(config: RouterConfigV2): RouterConfig {
+  const premium = config.candidates.find(
+    (c) => c.provider !== config.default.provider || c.model !== config.default.model,
+  ) ?? config.default
+  return {
+    mode: config.mode,
+    primary: config.default,
+    premium,
+    premiumBudget: config.premiumBudget,
+    budgetWindow: config.budgetWindow,
+    charsPerToken: config.charsPerToken,
   }
 }

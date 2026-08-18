@@ -13,7 +13,14 @@ export class RouterSidecarStore {
   constructor(private readonly o: SidecarOptions) {}
 
   load(): { config: RouterConfigV2 | null; source: 'sidecar' | 'patch' | 'none' } {
-    if (!existsSync(this.o.file)) return { config: this.fallback(), source: this.o.patchFallback ? 'patch' : 'none' }
+    if (!existsSync(this.o.file)) {
+      const fb = this.fallback()
+      // A patch fallback that yields nothing must not masquerade as a patch
+      // source: probe the raw block first so the caller can tell 'patch' from
+      // 'default' (observability, configSource).
+      if (fb === null || this.probePatch() === null) return { config: fb, source: 'none' }
+      return { config: fb, source: 'patch' }
+    }
     try {
       const raw = YAML.parse(readFileSync(this.o.file, 'utf8')) as unknown
       return { config: this.validate(raw), source: 'sidecar' }
@@ -21,7 +28,18 @@ export class RouterSidecarStore {
       try { renameSync(this.o.file, this.o.file + '.corrupt') } catch { /* keep going */ }
       this.o.onError(`dsh-kimi-tide: sidecar 损坏，已保留 .corrupt 副本（${this.o.file}）：${(error as Error).message}；可用 /kimi-tide import-config 恢复`)
       const fb = this.fallback()
-      return { config: fb, source: fb !== null ? 'patch' : 'none' }
+      return { config: fb, source: fb !== null && this.probePatch() !== null ? 'patch' : 'none' }
+    }
+  }
+
+  /** Raw patch fallback payload, null when the callback is absent or has no block. */
+  private probePatch(): unknown {
+    if (this.o.patchFallback === undefined) return null
+    try {
+      const raw = this.o.patchFallback()
+      return raw === null || raw === undefined ? null : raw
+    } catch {
+      return null
     }
   }
 

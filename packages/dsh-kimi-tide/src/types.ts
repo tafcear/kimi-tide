@@ -6,6 +6,27 @@
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { RouterConfig } from './router.js'
 
+/** Where the effective router config came from (sidecar > patch > default). */
+export type ConfigSource = 'sidecar' | 'patch' | 'default'
+
+/** Compact per-candidate summary for the panel (full metas stay host-side). */
+export interface CandidateSummary {
+  provider: string
+  model: string
+  available: boolean
+}
+
+/**
+ * Routing decision summary (spec §2.7: payload 受控). Present only when a
+ * decision was observed this turn cycle AND the mode is capability AND the
+ * decision is not keep; `reason` is truncated to 120 characters.
+ */
+export interface DecisionSummary {
+  chosen: { provider: string; model: string }
+  reason: string
+  scoreDelta: number | null
+}
+
 export interface QuotaWindow {
   used: number
   limit: number
@@ -38,6 +59,12 @@ export interface KimiTidePanelProjection {
   reasoning: { enabled: true }
   /** Selectable model ids per provider family (settings dropdown options). */
   models?: { kimi: string[]; deepseek: string[] }
+  /** Effective config source: sidecar file > patch static block > built-in default. */
+  configSource: ConfigSource
+  /** Enumerated candidate pool summary (provider-agnostic; whitelist-filtered). */
+  candidates: CandidateSummary[]
+  /** Latest capability routing decision summary; null when off/keep or none yet. */
+  decision: DecisionSummary | null
 }
 
 function toNumber(value: unknown): number {
