@@ -54,6 +54,12 @@ export interface RouterConfig {
   charsPerToken?: number
   /** 预算滑动窗口大小（决策次数）。 */
   budgetWindow?: number
+  /**
+   * Providers that cannot accept image input. Defaults to the primary
+   * provider only — the real capability matrix (pi-ai catalog, verified
+   * 2026-08-18) is deepseek-v4-* text-only, Kimi k3 family multimodal.
+   */
+  textOnlyProviders?: string[]
 }
 
 export type RouteDecision =
@@ -69,18 +75,24 @@ export function messagesContainImage(messages: readonly UserMessage[]): boolean 
   )
 }
 
-/** Providers this config uses as Kimi routes (text-only in v1). */
+/**
+ * Providers that cannot accept image input. Defaults to the primary provider:
+ * the real capability matrix (pi-ai catalog `input` field, verified
+ * 2026-08-18) is deepseek-v4-flash/pro text-only, Kimi k3 family multimodal
+ * — the v1 "Kimi is text-only" assumption was inverted. Override via
+ * `RouterConfig.textOnlyProviders`.
+ */
 export function textOnlyProviders(config: RouterConfig): Set<string> {
-  const set = new Set<string>([config.premium.provider])
-  if (config.premiumLong !== undefined) set.add(config.premiumLong.provider)
-  for (const rule of config.rules ?? []) set.add(rule.route.provider)
-  return set
+  if (config.textOnlyProviders !== undefined) return new Set(config.textOnlyProviders)
+  return new Set([config.primary.provider])
 }
 
 /**
  * Image guard: when the step carries an image and the resolved target is a
- * text-only Kimi route, swap to the (multimodal) primary instead of letting
- * the adapter throw UNSUPPORTED_CONTENT mid-turn.
+ * text-only route, swap to the multimodal Kimi premium route instead of
+ * letting the adapter throw UNSUPPORTED_CONTENT mid-turn. The guard is a
+ * correctness rail, not a budget decision: guard-driven escalations are not
+ * recorded in the premium budget window.
  */
 export function applyImageGuard(
   target: RouteTarget,
@@ -88,9 +100,12 @@ export function applyImageGuard(
   hasImage: boolean,
 ): { target: RouteTarget; reason: string } | null {
   if (!hasImage) return null
-  if (target.provider === config.primary.provider) return null
-  if (!textOnlyProviders(config).has(target.provider)) return null
-  return { target: config.primary, reason: 'image input: rerouted to multimodal primary' }
+  const textOnly = textOnlyProviders(config)
+  if (!textOnly.has(target.provider)) return null
+  // No safe reroute when the premium route is itself text-only: leave the
+  // step on its resolved target rather than ping-ponging.
+  if (textOnly.has(config.premium.provider)) return null
+  return { target: config.premium, reason: 'image input: rerouted to multimodal premium' }
 }
 
 /** 从消息批次提取最新一条用户文本。 */
@@ -228,9 +243,14 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
   return ctx.effect(() => {
     const disposePre = ctx.on('agent/pre-step', async (payload, next) => {
       const result = await next()
-      // 只对将要发起模型请求的步骤做决策（step === 0 是最新用户消息的进入点；
-      // 工具循环内保持稳定，避免中途换模型破坏上下文一致性）。
-      if (payload.step === 0) {
+      // Decide once per turn, on its FIRST model step. Verified contract
+      // (dsh-agent-loop rc.6/rc.7, turn()): `step = phase.step + 1` is
+      // computed before preStep() and every turn starts at phase.step 0, so
+      // the first step of every turn arrives as payload.step === 1 — never 0
+      // (the original === 0 gate never matched and idled the whole router).
+      // Tool-loop steps (step > 1) keep the logged header config, so the
+      // model never switches mid-loop.
+      if (payload.step === 1) {
         const decision = router.decide(payload.messages, payload.step)
         slots.set(payload.agent, { decision, hasImage: messagesContainImage(payload.messages) })
         onDecision?.(payload.agent, decision)
@@ -244,8 +264,8 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       slots.delete(payload.agent)
       let replaced = router.applyTo(resolved, slot.decision)
       // Image guard runs AFTER routing: an image-bearing step must never hit
-      // a text-only Kimi route, whether it came from a route decision or from
-      // the session's base model selection.
+      // a text-only route (typically the deepseek primary), whether it came
+      // from a route decision or from the session's base model selection.
       const guard = router.guardImage({ provider: replaced.provider, model: replaced.model }, slot.hasImage)
       if (guard !== null) {
         const { reasoningEffort: _inherited, ...rest } = replaced

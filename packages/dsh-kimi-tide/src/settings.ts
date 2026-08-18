@@ -25,6 +25,7 @@ export const RouterConfigSchema = Schema.object({
   premiumBudget: Schema.number(),
   budgetWindow: Schema.number(),
   charsPerToken: Schema.number(),
+  textOnlyProviders: Schema.array(Schema.string()),
   rules: Schema.array(Schema.object({
     match: Schema.object({
       patterns: Schema.array(Schema.string()),
