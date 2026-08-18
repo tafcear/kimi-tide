@@ -17,13 +17,15 @@
 - **跨平台**：零 Windows 计划任务依赖，Linux / macOS / Windows 均可运行。
 - **双通道互补**：provider 路径用于 DSH 模型选择器；`dsh-kimi-bridge` 路径用于显式调用 `kimi` CLI 工具。
 - **发布就绪**：v0.1.3 已发布为 GitHub Release，附 `dsh-kimi-tide-0.1.3.tgz` 安装包。
+- **月汐 dock 面板（0.2.x，main 已落地）**：`conversation.composer.dock` 面板，模式切换 / 周配额与 5h 窗口用量显示 / 本地 token 统计 / 路由设置折叠区（settings.ts 行级回写 patch yml 持久化）。尚未发布 Release。
 
 ---
 
 ## 路线图
 
-- **0.1.x（当前）**：DSH 原生 Kimi provider，已发布 v0.1.3。
-- **0.2.0（计划中）**：双模型自动分工路由器，支持 `cost`（性价比）与 `capability`（能力最优）两种模式，自动补偿 DeepSeek V4 的多模态与超长上下文缺口。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md)。
+- **0.1.x（当前发布线）**：DSH 原生 Kimi provider，已发布 v0.1.3。
+- **0.2.x（main 已落地，未发布）**：双模型自动分工路由器（`cost` / `capability` 两种模式）已接线（`agent/pre-step` + `agent/request`，自提交 64c22cd 起），「月汐」dock 面板 v2（模式切换 / 配额显示 / 设置折叠）、用量显示（usage.ts 轮询）、设置面板（settings.ts 行级回写）、AUTH 风暴修复均已实现，均在 main 分支上 v0.1.3 之后的提交中；尚未打 tag / 发布 Release。待办：M4 单元测试收尾、M5 实机集成验证、M6 文档发布。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md) 与 [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)。
+- **0.3.0（计划中）**：能力评分路由（capability-scored routing），spec v2.2 定稿（[`docs/superpowers/plans/2026-08-17-capability-scored-routing.md`](docs/superpowers/plans/2026-08-17-capability-scored-routing.md)），11 任务 TDD 实施计划成稿（[`docs/superpowers/plans/2026-08-17-capability-routing-implementation.md`](docs/superpowers/plans/2026-08-17-capability-routing-implementation.md)），经 Kimi 三轮审查闭环（[R1](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round1.md) / [R2](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round2.md) / [R3](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round3.md)）评审通过。
 
 ---
 
@@ -55,7 +57,7 @@
 ### 1. 前置条件
 
 - Node.js ≥ 22
-- DSH `@deepseek-ai/dsh@0.1.0-rc.6`
+- DSH `@deepseek-ai/dsh@0.1.0-rc.6` 及以上（插件 peerDependencies 为 `^0.1.0-rc.6`：**rc.6 起可用，已在 rc.7 实机验证**；rc.6 更早的 rc 版本未验证）
 - 已安装 Kimi Code CLI 并完成登录（一次即可）：
 
   ```powershell
@@ -94,10 +96,12 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 
 | 模型 ID | 说明 | 上下文 |
 |---|---|---|
-| `kimi-for-coding` | Kimi K2.7 Code（默认） | 256K |
-| `kimi-for-coding-highspeed` | K2.7 Code 高速版 | 256K |
-| `k3` | Kimi K3 旗舰 | 1M |
-| `k3-256k` | Kimi K3 256K 版 | 256K |
+| `kimi-for-coding` | Kimi K2.7 Code（默认，多模态） | 256K |
+| `kimi-for-coding-highspeed` | K2.7 Code 高速版（多模态） | 256K |
+| `k3` | Kimi K3 旗舰（多模态，1M 长窗） | 1M |
+| `k3-256k` | Kimi K3 256K 版（多模态） | 256K |
+
+> 模态说明：以上 4 个模型在 pi-ai 目录中均声明 `input: ["text", "image"]`（多模态）；`k3` 额外提供 1M 超长上下文窗。
 
 ---
 
@@ -123,6 +127,10 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 | `kimiHome` | `''` | Kimi home（空 = `KIMI_CODE_HOME`，再回退 `~/.kimi-code`） |
 | `refreshIntervalMs` | `600000` | access token 刷新周期（毫秒） |
 | `refreshOnStart` | `true` | 启动时立即刷新一次 |
+| `usagePollMs` | `60000` | 月汐 dock 配额轮询周期（毫秒） |
+| `usagePollOnStart` | `true` | 启动时立即轮询配额 |
+| `router` | 见下 | 路由器配置（`off` / `cost` / `capability`；0.2.x 已接线，默认 `off`） |
+| `patchFile` | `$DSH_HOME/profiles/web/cordis.patch.yml` | 路由设置面板回写的目标文件 |
 
 ---
 
@@ -136,7 +144,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 | 代码生成 | `kimi-for-coding` | ✅ 正常 |
 | 工具调用 | `kimi-for-coding` / `k3` | ✅ 正常 |
 | 工具调用闭环 | `kimi-for-coding` | ✅ 正常 |
-| 多模态图片识别 | `kimi-for-coding` | ✅ 正常 |
+| 多模态图片识别 | `kimi-for-coding`（脚本实测）/ `k3`（目录声明 `text+image`） | ✅ 正常 |
 | 端到端流式调用 | `kimi-for-coding` | ✅ 正常 |
 
 ---
@@ -146,7 +154,12 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 ```
 kimi-tide/
 ├── packages/dsh-kimi-tide/    # 推荐：DSH 原生插件
-│   └── src/router.ts          # 0.2.0 路由器 M1 草稿（未接入，不影响现有行为）
+│   ├── src/index.ts           # 装配：provider + 月汐面板（usage/settings/commands/projection/router）
+│   ├── src/router.ts          # 0.2.x 路由器（已接线 agent/pre-step + agent/request；cost/capability 决策）
+│   ├── src/usage.ts           # 用量显示（官方 usages 轮询 + 本地 token 桶）
+│   ├── src/settings.ts        # 设置面板（行级回写 patch yml 持久化）
+│   ├── src/client/            # 月汐 TideDock 面板（browser half）
+│   └── src/commands.ts        # /kimi-tide 命令族
 ├── scripts/                   # 验证与辅助脚本
 │   ├── kimi-capabilities.mjs  # 能力矩阵测试
 │   ├── e2e-kimi.mjs           # 端到端流式测试
@@ -156,10 +169,11 @@ kimi-tide/
 ├── vendor/dsh-kimi-bridge/    # CLI 工具桥接插件（维护 fork）
 ├── docs/                      # 详细文档与协作模板
 │   ├── positioning.md         # 项目定位与维护策略（战略文档）
-│   ├── development-plan-router.md  # 0.2.0 双模型自动分工路由器计划
+│   ├── development-plan-router.md  # 0.2.x 双模型自动分工路由器计划
 │   ├── agent-collaboration-loop.md
 │   ├── legacy-setup.md
 │   ├── audit/                 # 两轮审查档案
+│   ├── superpowers/           # 0.2.0 扩展设计 + 0.3.0 能力评分路由（specs/plans/reviews）
 │   └── templates/
 └── LICENSE
 ```
@@ -172,7 +186,11 @@ kimi-tide/
 
 - [`docs/positioning.md`](docs/positioning.md)：项目定位、与 Open Design 的对照、三层价值拆解与退役计划。
 - [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)：协作闭环的原理、实测数据与操作手册。
-- [`docs/development-plan-router.md`](docs/development-plan-router.md)：0.2.0 双模型自动分工路由器设计。
+- [`docs/development-plan-router.md`](docs/development-plan-router.md)：0.2.x 双模型自动分工路由器设计与里程碑（已接线）。
+- [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)：0.2.0 扩展设计稿（用量显示 / 路由设置面板 / 推理状态）。
+- [`docs/superpowers/plans/2026-08-17-capability-scored-routing.md`](docs/superpowers/plans/2026-08-17-capability-scored-routing.md)：0.3.0 能力评分路由 spec（v2.2 定稿）。
+- [`docs/superpowers/plans/2026-08-17-capability-routing-implementation.md`](docs/superpowers/plans/2026-08-17-capability-routing-implementation.md)：0.3.0 实施计划（11 任务 TDD）。
+- [`docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round3.md`](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round3.md)：0.3.0 三轮审查闭环档案（R1 13 条 / R2 7 条 / R3 终审）。
 - [`docs/templates/review-task.md`](docs/templates/review-task.md)：审查任务书模板。
 - [`docs/templates/recheck-task.md`](docs/templates/recheck-task.md)：复检任务书模板。
 
