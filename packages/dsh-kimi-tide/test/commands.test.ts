@@ -68,6 +68,11 @@ describe('parseKimiTideCommand', () => {
     expect(parseKimiTideCommand('export-config')).toEqual({ kind: 'export-config' })
     expect(parseKimiTideCommand('import-config C:/tmp/cfg.yml')).toEqual({ kind: 'import-config', path: 'C:/tmp/cfg.yml' })
   })
+  it('parse: import-config keeps the full inline YAML (newlines/indent intact)', () => {
+    const text = 'version: 2\nscores:\n  "kimi-tide/kimi-for-coding":\n    code: 4.5'
+    const cmd = parseKimiTideCommand(`import-config ${text}`)
+    expect(cmd).toEqual({ kind: 'import-config', path: text })
+  })
   it('errors on unknown subcommand', () => {
     expect(parseKimiTideCommand('frobnicate').kind).toBe('error')
   })
@@ -143,6 +148,53 @@ describe('applyKimiTideCommand', () => {
     const reply = await applyKimiTideCommand({ kind: 'import-config', path: join(dir, 'nope.yml') }, deps)
     expect(reply).toMatch(/import failed|失败/)
     expect(deps.onSaved).not.toHaveBeenCalled()
+  })
+
+  it('import-config: accepts inline YAML text (panel v3 save path), saves, and takes effect', async () => {
+    const { deps, saved, sidecar, readCurrent } = makeDeps()
+    const text = YAML.stringify({ ...makeConfig(), mode: 'capability', lambda: 0.7 })
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
+    expect(reply).toMatch(/import/i)
+    expect(saved[0].lambda).toBe(0.7)
+    expect(saved[0].mode).toBe('capability')
+    expect(readCurrent().mode).toBe('capability')
+    expect(sidecar.load().config!.lambda).toBe(0.7)
+  })
+
+  it('import-config: inline section patch (scores only) merges into current config, keeping untouched fields', async () => {
+    const { deps, saved, sidecar } = makeDeps()
+    const text = [
+      'version: 2',
+      'scores:',
+      '  "kimi-tide/kimi-for-coding":',
+      '    code: 4.5',
+      '    vision: 3',
+    ].join('\n')
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
+    expect(reply).toMatch(/import/i)
+    const cfg = saved[0]
+    expect(cfg.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+    expect(cfg.premiumBudget).toBe(0.5)
+    expect(cfg.candidates[0].model).toBe('kimi-for-coding')
+    expect(sidecar.load().config!.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+  })
+
+  it('import-config: inline candidates text replaces the candidate table but keeps other fields', async () => {
+    const { deps, saved } = makeDeps()
+    const text = [
+      'version: 2',
+      'default:',
+      '  provider: kimi-tide',
+      '  model: k3',
+      'candidates:',
+      '  - provider: kimi-tide',
+      '    model: k3',
+    ].join('\n')
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
+    expect(reply).toMatch(/import/i)
+    expect(saved[0].default.model).toBe('k3')
+    expect(saved[0].candidates).toEqual([{ provider: 'kimi-tide', model: 'k3' }])
+    expect(saved[0].premiumBudget).toBe(0.5)
   })
 
   it('refresh: triggers monitor.refresh and replies', async () => {

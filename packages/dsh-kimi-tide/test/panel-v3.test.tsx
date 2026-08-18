@@ -8,8 +8,10 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { CandidateList } from '../src/client/CandidateList.js'
-import { ScoreEditor } from '../src/client/ScoreEditor.js'
+import YAML from 'yaml'
+import { parseKimiTideCommand, isInlineYamlText } from '../src/commands.js'
+import { CandidateList, candidatesToSidecar } from '../src/client/CandidateList.js'
+import { ScoreEditor, scoresToSidecar } from '../src/client/ScoreEditor.js'
 import { ReasonPanel } from '../src/client/ReasonPanel.js'
 import { TideDock } from '../src/client/TideDock.js'
 import type { CandidateSummary, KimiTidePanelProjection } from '../src/types.js'
@@ -185,5 +187,41 @@ describe('TideDock v3', () => {
     expect(html).toContain('配额不可用')
     expect(html).toContain('📥')
     expect(html).toContain('📤')
+  })
+})
+
+describe('panel v3 save channel (inline YAML via import-config)', () => {
+  it('ScoreEditor 生成的 sidecar 文本被命令层识别为内联 YAML 且可解析', () => {
+    const text = scoresToSidecar({ provider: 'kimi-tide', model: 'kimi-for-coding' }, { code: 4.5, vision: 3 })
+    expect(isInlineYamlText(text)).toBe(true)
+    const parsed = YAML.parse(text) as { version: number; scores: Record<string, Record<string, number>> }
+    expect(parsed.version).toBe(2)
+    expect(parsed.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+  })
+
+  it('CandidateList 生成的 sidecar 文本被命令层识别为内联 YAML 且可解析', () => {
+    const text = candidatesToSidecar(
+      [
+        { provider: 'kimi-tide', model: 'k3' },
+        { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      ],
+      { provider: 'kimi-tide', model: 'k3' },
+    )
+    expect(isInlineYamlText(text)).toBe(true)
+    const parsed = YAML.parse(text) as {
+      default: { provider: string; model: string }
+      candidates: Array<{ provider: string; model: string }>
+    }
+    expect(parsed.default.model).toBe('k3')
+    expect(parsed.candidates).toHaveLength(2)
+  })
+
+  it('面板发送的完整命令串经 parse 后保留完整内联 YAML（多行/缩进不丢失）', () => {
+    const text = scoresToSidecar({ provider: 'kimi-tide', model: 'kimi-for-coding' }, { code: 4.5 })
+    const cmd = parseKimiTideCommand(`import-config ${text}`)
+    expect(cmd.kind).toBe('import-config')
+    if (cmd.kind !== 'import-config') return
+    expect(cmd.path).toBe(text)
+    expect(isInlineYamlText(cmd.path)).toBe(true)
   })
 })
