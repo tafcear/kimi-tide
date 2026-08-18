@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import YAML from 'yaml'
 import {
   applyKimiTideCommand,
   parseKimiTideCommand,
@@ -149,7 +150,13 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
       default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
     }
     const importPath = join(dshHome, 'import.yml')
-    writeFileSync(importPath, `version: 2\nmode: capability\nlambda: 0.9\ndefault:\n  provider: deepseek-official\n  model: deepseek-v4-pro\n`, 'utf8')
+    // 文件形态是整表替换：导入文档必须是结构完整的 v2（sidecar validate
+    // 浅校验 default/candidates），稀疏 YAML 只走内联合并补丁形态。
+    writeFileSync(importPath, YAML.stringify({
+      ...capabilityConfig(),
+      lambda: 0.9,
+      default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+    }), 'utf8')
 
     let current: RouterConfigV2 = capabilityConfig()
     const deps: KimiTideCommandDeps = {

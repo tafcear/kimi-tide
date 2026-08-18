@@ -41,6 +41,9 @@ interface CandidateMeta extends RouteTarget {
   单个 provider/model 枚举失败只告警不中断。
 - 路由器**立即挂载**：首个枚举完成前用 `fallbackCandidateMetas`（配置目标
   + text-only + 配置 tier）做种子池；`llm/adapters-updated` 事件触发重新枚举。
+- **枚举窗口**：配置变更（含面板 onSaved）后立即重挂载、枚举异步 settle——
+  首个枚举 settle 前种子池按 text-only 处理，带图步骤可能短暂 keep
+  （概率低、下个枚举 settle 后自愈）。
 - 配置目标不在实时目录中时保留为 `available: false`（不进评分池，面板可见）。
 
 ## classify（`src/classify.ts`）

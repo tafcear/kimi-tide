@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import YAML from 'yaml'
 import { parseKimiTideCommand, isInlineYamlText } from '../src/commands.js'
 import { CandidateList, candidatesToSidecar } from '../src/client/CandidateList.js'
@@ -20,7 +22,7 @@ const noop = () => {}
 
 const CANDIDATES: CandidateSummary[] = [
   { provider: 'kimi-tide', model: 'kimi-for-coding', available: true },
-  { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true, scores: { code: 4.5, vision: 3 } },
   { provider: 'kimi-tide', model: 'k3', available: false },
 ]
 
@@ -187,6 +189,29 @@ describe('TideDock v3', () => {
     expect(html).toContain('配额不可用')
     expect(html).toContain('📥')
     expect(html).toContain('📤')
+  })
+
+  it('seeds the ScoreEditor draft from candidates[].scores (saved overrides, not baseline)', () => {
+    // Fails if: TideDock stops passing the per-configKey overrideScores lookup
+    // into ScoreEditor — saved overrides would render as baseline values and a
+    // reopened panel would tempt a second accidental save.
+    const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
+    expect(html).toContain('覆盖 <!-- -->4.5')
+    expect(html).toContain('覆盖 <!-- -->3.0')
+  })
+
+  it('BudgetSlider draft follows the external value prop (CLI set / import-config / 另一会话)', () => {
+    // renderToString 只渲染首帧（useEffect 不同步执行），无法直接断言 effect
+    // 同步本身；改为断言「draft 由 value prop 派生」的初值通道成立 + 源码中
+    // 的 value→draft 同步 effect 存在（防再次删回 0.2.x 曾有、本分支被删的
+    // useEffect(() => setDraftPct(...), [value])）。
+    const html = renderToString(createElement(TideDock, {
+      sessionId: 's1',
+      useProjection: () => makePanel({ router: { ...makePanel().router, premiumBudget: 0.35 } }),
+    }))
+    expect(html).toContain('value="35"')
+    const src = readFileSync(join(__dirname, '../src/client/TideDock.tsx'), 'utf8')
+    expect(src).toContain('useEffect(() => setDraftPct(Math.round((value ?? 0.2) * 100)), [value])')
   })
 })
 

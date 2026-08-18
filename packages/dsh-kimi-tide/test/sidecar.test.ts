@@ -36,4 +36,22 @@ describe('RouterSidecarStore', () => {
     const store = new RouterSidecarStore({ file: join(dir, 'nope.yml'), onError: () => {} })
     expect(store.load().source).toBe('none')
   })
+
+  it('half-corrupt v2 (missing default) → load never throws, falls back, warns', () => {
+    // Fails if: validate() v2 passthrough stops doing the shallow structural check
+    // (default provider/model strings + candidates array) — the regression was
+    // load() succeeding, then configKey(config.default) throwing TypeError at
+    // route time, violating 损坏永不崩.
+    writeFileSync(file, 'version: 2\nmode: capability\n', 'utf8')
+    const errors: string[] = []
+    const store = new RouterSidecarStore({
+      file, onError: (m) => errors.push(m),
+      patchFallback: () => ({ mode: 'cost', primary: { provider: 'p', model: 'm' }, premium: { provider: 'k', model: 'x' } }),
+    })
+    const out = store.load()
+    expect(out.source).toBe('patch')
+    expect(out.config).not.toBeNull()
+    expect(out.config!.default.provider).toBe('p')
+    expect(errors.some((e) => e.includes('default'))).toBe(true)
+  })
 })

@@ -25,6 +25,27 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
   }
 }
 
+describe('panelSchema (candidates scores, 0.3.0 final review)', () => {
+  // Fails if: the wire schema strips `scores` from candidate summaries — the
+  // panel needs them to seed ScoreEditor drafts (host fills cfg.scores[key]).
+  const parse = (kimiTideProjectionDefinition.schema as { parse: (v: unknown) => unknown }).parse.bind(
+    kimiTideProjectionDefinition.schema as never,
+  ) as (v: unknown) => KimiTidePanelProjection | null
+
+  it('keeps per-candidate override scores when present', () => {
+    const p = panel(1)
+    p.candidates = [
+      { provider: 'kimi-tide', model: 'kimi-for-coding', available: true, scores: { code: 4.5, vision: 3 } },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true },
+    ]
+    p.configSource = 'sidecar'
+    p.decision = null
+    const out = parse(p)
+    expect(out!.candidates[0].scores).toEqual({ code: 4.5, vision: 3 })
+    expect(out!.candidates[1].scores).toBeUndefined()
+  })
+})
+
 function eventOf(data: unknown): SessionEvent {
   return { type: KIMI_TIDE_PANEL_EVENT, data } as unknown as SessionEvent
 }

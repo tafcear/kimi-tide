@@ -4,6 +4,7 @@
  * (string-or-number fields, missing sections degrade instead of throwing).
  */
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { Dim } from './config.js'
 import type { RouterConfig } from './router.js'
 
 /** Where the effective router config came from (sidecar > patch > default). */
@@ -14,6 +15,9 @@ export interface CandidateSummary {
   provider: string
   model: string
   available: boolean
+  /** 用户覆盖分（RouterConfigV2.scores['provider/model']），无覆盖时缺省——
+   *  ScoreEditor 用它做滑杆初值，避免已保存覆盖分显示成基线值。 */
+  scores?: Partial<Record<Dim, number>>
 }
 
 /**

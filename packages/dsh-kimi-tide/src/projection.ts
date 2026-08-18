@@ -50,6 +50,7 @@ const panelSchema = z.object({
     provider: z.string(),
     model: z.string(),
     available: z.boolean(),
+    scores: z.record(z.string(), z.number()).optional(),
   })),
   decision: z.object({
     chosen: z.object({ provider: z.string(), model: z.string() }),

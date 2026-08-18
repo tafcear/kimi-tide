@@ -31,7 +31,7 @@ import { configKey, DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 }
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore } from './settings.js'
 import { UsageMonitor } from './usage.js'
-import type { ConfigSource, DecisionSummary, KimiTidePanelProjection } from './types.js'
+import type { CandidateSummary, ConfigSource, DecisionSummary, KimiTidePanelProjection } from './types.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -397,7 +397,13 @@ export function apply(ctx: Context, config: Config = {}) {
     reasoning: { enabled: true },
     models: modelOptions,
     configSource,
-    candidates: candidateMetas.map((m) => ({ provider: m.provider, model: m.model, available: m.available })),
+    candidates: candidateMetas.map((m) => {
+      const summary: CandidateSummary = { provider: m.provider, model: m.model, available: m.available }
+      // 用户覆盖分下发给面板（ScoreEditor 滑杆初值）；无覆盖时缺省。
+      const override = routerConfigV2.scores[configKey(m)]
+      if (override !== undefined) summary.scores = override
+      return summary
+    }),
     decision: latestDecision,
   })
   const pushPanel = (agent: Agent) => {

@@ -12,7 +12,7 @@
  * budgetWindow/charsPerToken/default.model）。候选结构变更与能力评分经
  * import-config（sidecar 文本）一次性落盘，保持命令面最小。
  */
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { KimiTidePanelProjection } from '../types.js'
 import type { RouteTarget } from '../config.js'
 import { CandidateList } from './CandidateList.js'
@@ -172,6 +172,12 @@ export function TideDock(props: TideDockProps) {
 
           <ScoreEditor
             target={effectiveScoreTarget}
+            // 已保存覆盖分按 configKey 查表下发（final review #2）：无覆盖时
+            // 缺省 → ScoreEditor 回退基线；有覆盖时滑杆初值=覆盖分，避免重开
+            // 面板把已保存值看成基线初值而二次误保存。
+            overrideScores={panel.candidates.find(
+              (c) => `${c.provider}/${c.model}` === `${effectiveScoreTarget.provider}/${effectiveScoreTarget.model}`,
+            )?.scores}
             busy={busy}
             onCommand={(sidecarText) => void run(`/kimi-tide import-config ${sidecarText}`)}
           />
@@ -224,6 +230,9 @@ function BudgetSlider({ value, busy, onCommit }: {
 }) {
   const initial = value ?? 0.2
   const [draftPct, setDraftPct] = useState(Math.round(initial * 100))
+  // 外部 premiumBudget 变化（CLI set / import-config / 另一会话保存）时同步
+  // 滑杆——0.2.x 原行为；draft 编辑中被覆盖是与原行为一致的可接受代价。
+  useEffect(() => setDraftPct(Math.round((value ?? 0.2) * 100)), [value])
   const commit = () => onCommit(Math.min(100, Math.max(0, draftPct)) / 100)
   return (
     <label className="kt-row kt-budget">

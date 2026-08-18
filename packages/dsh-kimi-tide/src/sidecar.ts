@@ -64,7 +64,20 @@ export class RouterSidecarStore {
 
   private validate(raw: unknown): RouterConfigV2 {
     const r = (raw ?? {}) as Record<string, unknown>
-    if (r.version === 2) return raw as RouterConfigV2
+    if (r.version === 2) {
+      // 损坏永不崩：手改 sidecar 删掉 default/candidates 的半损坏 v2 不能
+      // 直通——否则 load 不崩但路由时 configKey(config.default) 抛 TypeError。
+      // 浅结构检查不合格即视为损坏：warn（含原因）并走与 parse 失败相同的
+      // 回退链（抛错由 load() 捕获 → .corrupt 保留 → migrateV1(patchFallback)）。
+      const d = (r.default ?? {}) as Record<string, unknown>
+      if (typeof d.provider !== 'string' || typeof d.model !== 'string') {
+        throw new Error('sidecar v2 结构不合格：default.provider/default.model 缺失或非字符串')
+      }
+      if (!Array.isArray(r.candidates)) {
+        throw new Error('sidecar v2 结构不合格：candidates 缺失或非数组')
+      }
+      return raw as RouterConfigV2
+    }
     return migrateV1(raw, this.o.onError)   // 旧形状 sidecar 也走迁移
   }
 }
