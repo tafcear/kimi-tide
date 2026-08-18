@@ -17,7 +17,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { CandidateMeta, Dim, RouteTarget, RouterConfigV2 } from './config.js'
 import { classify, explicitProvider, type ClassifyResult } from './classify.js'
-import { selectCandidate } from './scoring.js'
+import { scoreCandidate, selectCandidate } from './scoring.js'
 import { scoreFor } from './scores.js'
 
 /**
@@ -243,7 +243,11 @@ export class KimiRouter {
     }
   }
 
-  /** 基于本步消息批次做决策；显式 @provider 指令直接生效（先 explicit 再评分）。 */
+  /**
+   * 基于本步消息批次做决策；显式 @provider 指令直接生效（先 explicit 再评分）。
+   * `step` 为契约占位：每轮只在首个模型步判定的语义由 installRouter
+   * （payload.step === 1 门控）完成，decide 本身不使用该参数。
+   */
   decide(messages: readonly UserMessage[], step: number): RouteDecision {
     if (this.config.mode === 'off') return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
@@ -260,13 +264,25 @@ export class KimiRouter {
         return { kind: 'keep', reason: `explicit @${explicit}: no available candidate` }
       }
       const v1 = this.v1Config
-      const preferred = v1 === undefined
-        ? []
-        : [v1.premium, v1.premiumLong]
-            .filter((t): t is NonNullable<typeof t> => t !== undefined)
-            .filter((t) => t.provider === explicit && (!hasImage || pool.some((m) => m.model === t.model)))
-      const target = preferred[0] ?? { provider: pool[0].provider, model: pool[0].model }
-      return { kind: 'route', target, reason: `explicit @${explicit} directive` }
+      if (v1 !== undefined) {
+        // Legacy-constructed routers keep the v1 explicit semantics: prefer
+        // the configured premium, then premiumLong (migration tests pin this).
+        const preferred = [v1.premium, v1.premiumLong]
+          .filter((t): t is NonNullable<typeof t> => t !== undefined)
+          .filter((t) => t.provider === explicit && (!hasImage || pool.some((m) => m.model === t.model)))
+        const target = preferred[0] ?? { provider: pool[0].provider, model: pool[0].model }
+        return { kind: 'route', target, reason: `explicit @${explicit} directive` }
+      }
+      // v2: pick the provider's best candidate by the same scoring formula as
+      // selectCandidate (weighted capability score minus lambda × cost tier).
+      const weights = classify(messages, {
+        charsPerToken: this.config.charsPerToken,
+        patterns: this.config.classify.patterns,
+      }).weights
+      const best = pool
+        .map((m) => ({ m, s: scoreCandidate(m, weights, this.config.lambda, (x) => scoreFor(this.config, x)) }))
+        .sort((a, b) => b.s - a.s)[0]
+      return { kind: 'route', target: { provider: best.m.provider, model: best.m.model }, reason: `explicit @${explicit} directive` }
     }
 
     // 2. 评分选择：classify → selectCandidate 已覆盖 keep 语义（best==default /
@@ -291,7 +307,9 @@ export class KimiRouter {
       scoresOf: (m) => scoreFor(this.config, m),
     })
     if (sel === null) {
-      this.record('primary')
+      // 0.2.x budget semantics: only cost-mode keep decisions record a
+      // 'primary' sample; capability keeps leave the window untouched.
+      if (this.config.mode === 'cost') this.record('primary')
       return { kind: 'keep', reason: budgetExhausted ? 'cost: premium budget exhausted' : `${this.config.mode}: default primary` }
     }
     const targetIsDefault = sel.target.provider === this.config.default.provider && sel.target.model === this.config.default.model
@@ -344,13 +362,6 @@ export class KimiRouter {
     const premium = this.budgetHistory.filter((id) => id === 'premium').length
     return { premium, window, ratio: this.budgetHistory.length > 0 ? premium / this.budgetHistory.length : 0 }
   }
-}
-
-/** Weighted sum of a candidate's dimension scores (explicit-pick ordering). */
-function scoreSum(scores: Record<string, number>, weights: Record<string, number | undefined>): number {
-  let sum = 0
-  for (const [dim, w] of Object.entries(weights)) sum += (w ?? 0) * (scores[dim] ?? 0)
-  return sum
 }
 
 /** Bridge a v1 (0.2.x) config to RouterConfigV2 (see KimiRouter overload). */

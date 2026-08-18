@@ -194,3 +194,28 @@ describe('KimiRouter v2', () => {
     expect(r.decide([msg('审查代码')], 1).kind).toBe('keep')
   })
 })
+
+describe('KimiRouter v2 review fixes (round 1)', () => {
+  it('capability keep decisions do not pollute the premium budget window', () => {
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas, { info: () => {} })
+    expect(r.decide([msg('审查这段代码 review')], 1).kind).toBe('route')
+    // No weighted dims match → keep (default stays). 0.2.x semantics: only
+    // cost-mode keep decisions record 'primary'; a capability keep records
+    // nothing, so the window still holds just the one premium route sample.
+    expect(r.decide([msg('普通任务')], 1).kind).toBe('keep')
+    expect(r.budgetUsage()).toMatchObject({ premium: 1, ratio: 1 })
+  })
+  it('explicit directive picks the highest-scored candidate of that provider', () => {
+    const multi: CandidateMeta[] = [
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
+      { provider: 'kimi-tide', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
+      { provider: 'kimi-tide', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+    ]
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, multi, { info: () => {} })
+    const d = r.decide([msg('@kimi-tide 写代码')], 1)
+    // k3 code 4.5 > kimi-for-coding code 4.0 (scores.ts baseline) → k3 wins,
+    // not the metas-array-first kimi-for-coding.
+    expect(d.kind).toBe('route')
+    if (d.kind === 'route') expect(d.target.model).toBe('k3')
+  })
+})
