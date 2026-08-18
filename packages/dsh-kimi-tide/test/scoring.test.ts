@@ -27,7 +27,7 @@ describe('scoring', () => {
     const a = meta('kimi-tide', 'k3', { modalities: ['text', 'image'] })
     const b = meta('deepseek-official', 'deepseek-v4-flash', { modalities: ['text'] })
     const sel = selectCandidate([a, b], { vision: 3 }, {
-      lambda: 0, defaultTarget: a, mode: 'capability', hasImage: true, budgetExhausted: false,
+      lambda: 0, defaultTarget: b, mode: 'capability', hasImage: true, budgetExhausted: false,
       scoresOf: () => ({ code: 4, reasoning: 4, writing: 4, tooluse: 4, vision: 0, longctx: 4 }),
     })
     expect(sel!.target.provider).toBe('kimi-tide')  // deepseek-v4-flash（vision=0）被排除；k3 多模态胜出

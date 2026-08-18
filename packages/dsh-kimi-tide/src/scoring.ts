@@ -30,7 +30,7 @@ export function selectCandidate(metas: CandidateMeta[], weights: Partial<Record<
   const def = scored.find((x) => x.m.provider === opts.defaultTarget.provider && x.m.model === opts.defaultTarget.model)
   const base = def?.s ?? scored[scored.length - 1].s
   const delta = best.s - base
-  if (eligible.length > 1 && best.m.provider === opts.defaultTarget.provider && best.m.model === opts.defaultTarget.model) return null
+  if (best.m.provider === opts.defaultTarget.provider && best.m.model === opts.defaultTarget.model) return null
   if (opts.mode === 'cost') {
     if (opts.budgetExhausted) return null
     if (delta < (opts.routeThreshold ?? 0.75)) return null
