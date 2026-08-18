@@ -48,6 +48,12 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 | `kimiHome` | `''` | Kimi home（空 = `KIMI_CODE_HOME`，再回退 `~/.kimi-code`） |
 | `refreshIntervalMs` | `600000` | access token 刷新周期 |
 | `refreshOnStart` | `true` | 启动时立即刷新一次 |
+| `usagePollMs` | `60000` | 月汐 dock 配额轮询周期（毫秒） |
+| `usagePollOnStart` | `true` | 启动时立即轮询配额 |
+| `router` | `off` | 路由器配置（`off` / `cost` / `capability`；0.2.x 已接线，默认 `off`） |
+| `patchFile` | `$DSH_HOME/profiles/web/cordis.patch.yml` | 路由设置面板回写的目标文件 |
+
+`router` 子配置（settings schema 已含）：`primary` / `premium` / `premiumLong`（provider+model）、`escalateWhen.patterns`（cost 模式关键词升级）、`premiumBudget`（默认 0.2）、`budgetWindow`（默认 20）、`textOnlyProviders`（图像护栏用，71b1d18 新增：声明文本-only 的 provider，缺省 = `primary`；带图步骤自动改道多模态 premium）。
 
 ## 使用合规提示
 
