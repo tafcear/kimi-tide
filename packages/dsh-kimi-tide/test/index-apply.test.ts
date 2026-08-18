@@ -134,6 +134,10 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
     expect(candidates).toContainEqual(expect.objectContaining({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }))
     // Whitelist (allowedProviders) excludes unlisted providers.
     expect(candidates.some((c) => c.provider === 'other-provider')).toBe(false)
+    // Regression: a configured target that also exists in the live catalog must
+    // appear exactly once (enumerateCandidates must not duplicate it).
+    const keys = candidates.map((c) => `${c.provider}/${c.model}`)
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('reports configSource patch when the legacy patch router block is the only config', async () => {
