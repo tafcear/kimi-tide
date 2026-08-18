@@ -20,6 +20,7 @@ import { registerKimiTideCommands } from './commands.js'
 import { KimiOAuthManager } from './oauth.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import { installRouter, KimiRouter, type RouterConfig, type RouterLog } from './router.js'
+import { DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from './config.js'
 import { RouterSettingsStore } from './settings.js'
 import { UsageMonitor } from './usage.js'
 import type { KimiTidePanelProjection } from './types.js'
@@ -60,7 +61,44 @@ export function defaultPatchFile(): string {
 }
 
 export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
-  return new KimiRouter(config, log)
+  return new KimiRouter(routerConfigToV2(config), candidateMetasFromConfig(config), log)
+}
+
+/**
+ * Bridge a v1 (0.2.x) router config onto the v2 scoring engine. Used by the
+ * production wiring (panel settings still persist the v1 shape) until the
+ * v2 sidecar wiring task lands.
+ */
+export function routerConfigToV2(config: RouterConfig): RouterConfigV2 {
+  const v2 = DEFAULT_CONFIG_V2('kimi-tide')
+  return {
+    ...v2,
+    mode: config.mode,
+    default: config.primary,
+    candidates: [config.premium, config.premiumLong].filter((t): t is NonNullable<typeof t> => t !== undefined),
+    premiumBudget: config.premiumBudget ?? v2.premiumBudget,
+    budgetWindow: config.budgetWindow ?? v2.budgetWindow,
+    charsPerToken: config.charsPerToken ?? v2.charsPerToken,
+  }
+}
+
+/**
+ * Candidate metadata implied by a v1 config. Per the real capability matrix
+ * (pi-ai catalog, 2026-08-18): deepseek-v4-* text-only/cheap, Kimi k3 family
+ * multimodal/mid.
+ */
+export function candidateMetasFromConfig(config: RouterConfig): CandidateMeta[] {
+  const tierOf = (provider: string): CandidateMeta['costTier'] => (provider === 'deepseek-official' ? 'cheap' : 'mid')
+  const targets = [config.primary, config.premium, config.premiumLong].filter(
+    (t): t is NonNullable<typeof t> => t !== undefined,
+  )
+  const textOnly = new Set(config.textOnlyProviders ?? [config.primary.provider])
+  return targets.map((t) => ({
+    ...t,
+    modalities: textOnly.has(t.provider) ? ['text'] : ['text', 'image'],
+    costTier: tierOf(t.provider),
+    available: true,
+  }))
 }
 
 /**
