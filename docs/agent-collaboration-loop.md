@@ -64,6 +64,8 @@ kimi-tide 项目的一轮完整闭环：
 - 审查报告把"凭据陈旧"列为严重 #1，但真正的根因（EEXIST 短路）是**测试**抓到的——审查判断了症状，测试挖出了病灶。
 - 复检发现 5 个新问题里 3 个是**文档与代码不同步**（tarball 版本号、过期的路径警告）——这类"实施后遗症"只有独立复核才能系统性发现。
 
+**闭环的第二次应用（设计文档审查，0.3.0 计划）**：同样的"独立审查 → 修订 → 复检 → 终审"流程也被用于**设计/计划文档**而非代码——0.3.0 能力评分路由计划经三轮闭环（R1 13 条 → 修订 v2 → R2 7 条 → 修订 v2.1 → R3 遗留 7 条处理 → 定稿 v2.2），总评「同意闭环进入 writing-plans」。与代码审查的不同点：审查对象是 spec/plan 文本，审查者无法跑测试，因此"落地性"由审查者对照现行源码逐条核实，动态验证项留给实施阶段。档案见 [`superpowers/reviews/2026-08-17-capability-routing-kimi-review-round1.md`](superpowers/reviews/2026-08-17-capability-routing-kimi-review-round1.md)（round2/round3 同目录）。
+
 ---
 
 ## 3. 操作手册（在 DSH 中复现闭环）
@@ -148,7 +150,7 @@ prompt 要素（见 docs/templates/recheck-task.md 完整模板）：
 - [审查任务书模板](templates/review-task.md)
 - [复检任务书模板](templates/recheck-task.md)
 
-> 版本锁定说明：本示例中的命令绑定 DSH 0.1.0-rc.6 / dsh-kimi-bridge 0.1.1。
+> 版本锁定说明：本示例中的命令绑定 DSH 0.1.0-rc.6 / dsh-kimi-bridge 0.1.1（kimi-tide 插件侧已在 DSH rc.7 实机验证）。
 > DSH 升级后请先验证插件兼容性（`dsh plugin` 的 peer 依赖检查），再更新本文档与
 > 模板中的版本号——文档过期本身就是复检的固定检查项（本项目的 R2-2/R2-3/R2-4
 > 就是这类问题）。

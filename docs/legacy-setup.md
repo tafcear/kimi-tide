@@ -6,7 +6,7 @@
 ## 1. 前置条件
 
 - 已安装 Kimi CLI 并完成登录：`kimi login`
-- DSH `@deepseek-ai/dsh@0.1.0-rc.6`
+- DSH `@deepseek-ai/dsh@0.1.0-rc.6` 及以上（rc.6 起可用；已在 rc.7 实机验证）
 
 ## 2. 配置自动刷新（Windows 计划任务）
 
@@ -70,4 +70,6 @@ node scripts/e2e-kimi.mjs
 
 ## 重要提醒
 
-**请勿同时启用插件方案与本方案的自动刷新**：插件与计划任务脚本会并发刷新同一凭据文件，产生 refresh token 轮换竞态（两个进程各持旧 token 刷新，后到者会 invalid_grant）。选用插件后应禁用计划任务 `KimiTokenRefresh`。
+**优先只保留一条路径**：插件方案（进程内刷新，零计划任务）是首选，本旧方案仅在插件不可用（如 DSH 版本过旧）时使用。
+
+自 v0.1.3 起，插件与计划任务脚本**共用同一把凭据锁**（`<kimi-home>/credentials/kimi-code.json.lock`），刷新被串行化，refresh token 轮换不会互踩——两者可以安全共存（详见根 README FAQ）。但并存时两套刷新仍在同一进程组里冗余运行，仍建议：启用插件后停用计划任务 `KimiTokenRefresh`，避免无谓的双刷新。
