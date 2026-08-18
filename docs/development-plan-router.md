@@ -41,7 +41,7 @@
 - **预算上限**：滑动窗口（默认 20 次决策）内 Kimi 占比 ≤ `premiumBudget`（默认 0.2）；超预算 → 强制主力 + 日志记录
 - 语义：**默认省钱，必要时才花**
 
-> **当前 profile 实况（2026-08-18）**：`~/.dsh/profiles/web/cordis.patch.yml` 已配 `router.mode: cost`、primary=`deepseek-v4-flash`、premium/premiumLong=`k3`、`premiumBudget: 0.2`；**`escalateWhen.patterns: [看图, 图像, 截图, 审查, review]` 已配置（2026-08-18 合并进路由器修复实施，用户重启 dsh web 后生效）**——cost 模式的关键词升级现在会触发。配置前（Round 1 时）未配 `escalateWhen`，除显式 `@kimi` 外恒走 primary；已随本轮实机复测验证。
+> **当前 profile 实况（2026-08-18）**：`~/.dsh/profiles/web/cordis.patch.yml` 已配 `router.mode: cost`、primary=`deepseek-v4-flash`、premium/premiumLong=`k3`、`premiumBudget: 0.2`；**`escalateWhen.patterns: [看图, 图像, 截图, 审查, review]` 已配置（2026-08-18 合并进路由器修复实施）**。配置前（Round 1 时）未配 `escalateWhen`，除显式 `@kimi` 外恒走 primary。**注意（2026-08-18 实机复测发现）**：配置/代码改动需 dsh web 后端进程真正重启才生效；当日复测时后端进程仍为旧进程（14:57 启动、未重启），`escalateWhen` 与 71b1d18 修复均未加载，实机验证待真正重启后重做。
 
 ### 2.2 模式 B：capability（能力最优）——"谁厉害谁上"
 
@@ -160,7 +160,7 @@ dsh-kimi-tide:
 | **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ dock 用量行 | 周配额/5h窗口/会员/本地token 四区展示，80%/90% 变色 | ✅ 代码完成（实机验证待人工） |
 | **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | ✅ 代码完成（实机验证待人工） |
 | **M4** 单元测试 | 分类器/预算/缺口补偿/applyTo + 用量解析/设置读写 | 覆盖率 >80% 关键路径 | 🟡 进行中：router/usage/settings/commands/projection/types/adapter-usage/index-wiring/index-apply 等测试已就位（11 个测试文件，2026-08-18 实跑 **66/66 绿**）；覆盖率核算与缺口项待收尾 |
-| **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | 🟡 进行中（profile 已配 `mode: cost` + `escalateWhen.patterns`，用户已重启 dsh web；2026-08-18 Round 2 文档子代理即首轮实机复测，见 §2.1 注） |
+| **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | ⬜ 待办（profile 已配 `mode: cost` + `escalateWhen.patterns`；2026-08-18 首轮复测发现后端进程未真正重启、修复未加载，见 §2.1 注，待真正重启后重做） |
 | **M6** 文档发布 | README 路由章节 + docs/router 使用手册 + 0.2.x Release | 文档与配置一致 | ⬜ 待办（本 README 与本文档已先行同步代码事实） |
 | **M7**（可选）增强 | LLM 分类器、token 精确计费、多主模型、settings UI | 视使用反馈 | ⬜ |
 
