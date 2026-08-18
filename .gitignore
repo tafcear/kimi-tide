@@ -27,3 +27,6 @@ Desktop.ini
 # 会话与临时文件
 .dsh/
 *.tmp
+
+# git worktrees
+.worktrees/
