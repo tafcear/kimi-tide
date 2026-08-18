@@ -3,42 +3,51 @@
  * the dock panel (browser calls ctx.remote.commands.execute(sessionId,
  * '/kimi-tide …'); the harness routes it to this registration).
  *
- * Subcommands:
+ * Subcommands (0.3.0, v2):
  *   /kimi-tide mode off|cost|capability
- *   /kimi-tide set <key> <value>     (dotted keys into RouterConfig)
+ *   /kimi-tide set <key> <value>     (keys into RouterConfigV2 — SETTABLE_KEYS)
+ *   /kimi-tide export-config         (print the sidecar YAML text)
+ *   /kimi-tide import-config <path>  (load a YAML file into the sidecar)
  *   /kimi-tide refresh               (re-poll the usages endpoint now)
+ *
+ * Persistence contract: every mutating subcommand writes RouterConfigV2
+ * through the RouterSidecarStore — never the v1 patch file. The sidecar is
+ * the authoritative router store (sidecar > patch > default on load), so a
+ * v1 raw-text splice would either lose v2-only fields (scores,
+ * classify.patterns) or be shadowed by the sidecar on the next load.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type { RouterConfig } from './router.js'
-import type { RouterSettingsStore } from './settings.js'
+import type { RouterConfigV2 } from './config.js'
+import type { RouterSidecarStore } from './sidecar.js'
 import type { UsageMonitor } from './usage.js'
 
 export type KimiTideCommand =
-  | { kind: 'mode'; mode: RouterConfig['mode'] }
+  | { kind: 'mode'; mode: RouterConfigV2['mode'] }
   | { kind: 'set'; key: string; value: unknown }
+  | { kind: 'export-config' }
+  | { kind: 'import-config'; path: string }
   | { kind: 'refresh' }
   | { kind: 'help' }
   | { kind: 'error'; message: string }
 
 export interface KimiTideCommandDeps {
-  store: RouterSettingsStore
+  /** v2 persistence: the sidecar file is the live router store. */
+  sidecar: RouterSidecarStore
   monitor: UsageMonitor
-  current: () => RouterConfig
+  current: () => RouterConfigV2
   /** Called after a successful save: rebuild the router + push projection. */
-  onSaved: (config: RouterConfig) => void
+  onSaved: (config: RouterConfigV2) => void
 }
 
-/** Keys settable via `/kimi-tide set` — dotted paths into RouterConfig. */
-const SETTABLE_KEYS: Record<string, 'number' | 'boolean' | 'string'> = {
+/** Keys settable via `/kimi-tide set` — paths into RouterConfigV2. */
+const SETTABLE_KEYS: Record<string, 'number' | 'string'> = {
+  lambda: 'number',
+  routeThreshold: 'number',
   premiumBudget: 'number',
   budgetWindow: 'number',
   charsPerToken: 'number',
-  'escalateWhen.estimatedTokensGt': 'number',
-  'escalateWhen.explicit': 'boolean',
-  'primary.model': 'string',
-  'premium.model': 'string',
-  'premiumLong.model': 'string',
+  'default.model': 'string',
 }
 
 export function parseKimiTideCommand(args: string): KimiTideCommand {
@@ -62,11 +71,14 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
         if (!Number.isFinite(n)) return { kind: 'error', message: `"${raw}" is not a number` }
         return { kind: 'set', key, value: n }
       }
-      if (type === 'boolean') {
-        if (raw !== 'true' && raw !== 'false') return { kind: 'error', message: `"${raw}" is not a boolean` }
-        return { kind: 'set', key, value: raw === 'true' }
-      }
       return { kind: 'set', key, value: raw }
+    }
+    case 'export-config':
+      return { kind: 'export-config' }
+    case 'import-config': {
+      const path = parts[1]
+      if (path === undefined) return { kind: 'error', message: 'usage: /kimi-tide import-config <path>' }
+      return { kind: 'import-config', path }
     }
     case 'refresh':
       return { kind: 'refresh' }
@@ -77,8 +89,10 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
 
 const HELP_TEXT = [
   '/kimi-tide mode off|cost|capability — switch routing mode',
-  '/kimi-tide set <key> <value> — update one router setting',
+  '/kimi-tide set <key> <value> — update one router setting (v2)',
   `  keys: ${Object.keys(SETTABLE_KEYS).join(', ')}`,
+  '/kimi-tide export-config — print the sidecar YAML',
+  '/kimi-tide import-config <path> — load a YAML file into the sidecar',
   '/kimi-tide refresh — re-poll Kimi quota now',
 ].join('\n')
 
@@ -98,12 +112,29 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       setDotted(next as unknown as Record<string, unknown>, cmd.key, cmd.value)
       return persist(next, deps, `${cmd.key} → ${String(cmd.value)}`)
     }
+    case 'export-config': {
+      try {
+        return deps.sidecar.exportText()
+      } catch (error) {
+        return `kimi-tide: export failed — ${(error as Error).message}（sidecar 不存在或不可读；可先 /kimi-tide set 生成）`
+      }
+    }
+    case 'import-config': {
+      let next: RouterConfigV2
+      try {
+        next = deps.sidecar.importFile(cmd.path)
+      } catch (error) {
+        return `kimi-tide: import failed — ${(error as Error).message}`
+      }
+      deps.onSaved(next)
+      return `kimi-tide: imported ${cmd.path}; effective now, persists across restarts`
+    }
   }
 }
 
-function persist(config: RouterConfig, deps: KimiTideCommandDeps, what: string): string {
+function persist(config: RouterConfigV2, deps: KimiTideCommandDeps, what: string): string {
   try {
-    deps.store.save(config)
+    deps.sidecar.save(config)
   } catch (error) {
     return `kimi-tide: save failed — ${(error as Error).message}`
   }
@@ -129,8 +160,8 @@ export function registerKimiTideCommands(ctx: Context, deps: KimiTideCommandDeps
   ctx.effect(() => {
     return ctx.commands.register({
       name: 'kimi-tide',
-      description: '月汐 panel: route mode / settings / quota refresh',
-      input: { hint: 'mode off|cost|capability · set <key> <value> · refresh' },
+      description: '月汐 panel: route mode / settings / config export-import / quota refresh',
+      input: { hint: 'mode off|cost|capability · set <key> <value> · export-config · import-config <path> · refresh' },
       handler: async (invocation: CommandInvocation): Promise<CommandResult> => {
         const cmd = parseKimiTideCommand(invocation.rawInput)
         const text = await applyKimiTideCommand(cmd, deps)

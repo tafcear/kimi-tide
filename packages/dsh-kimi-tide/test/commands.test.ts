@@ -1,22 +1,35 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import YAML from 'yaml'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps } from '../src/commands.js'
-import type { RouterConfig } from '../src/router.js'
-import type { RouterSettingsStore } from '../src/settings.js'
+import { DEFAULT_CONFIG_V2, type RouterConfigV2 } from '../src/config.js'
+import { RouterSidecarStore } from '../src/sidecar.js'
 import type { UsageMonitor } from '../src/usage.js'
 
-const BASE: RouterConfig = {
-  mode: 'off',
-  primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+const dir = mkdtempSync(join(tmpdir(), 'kt-commands-'))
+afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+function makeConfig(): RouterConfigV2 {
+  return { ...DEFAULT_CONFIG_V2('kimi-tide'), premiumBudget: 0.5 }
 }
 
-function makeDeps(saved: RouterConfig[] = []): KimiTideCommandDeps {
-  return {
-    store: { save: vi.fn((c: RouterConfig) => saved.push(c)) } as unknown as RouterSettingsStore,
+function makeDeps(opts: { saved?: RouterConfigV2[]; file?: string } = {}) {
+  const saved = opts.saved ?? []
+  let current = makeConfig()
+  const file = opts.file ?? join(dir, `sidecar-${Math.random().toString(36).slice(2)}.yml`)
+  const sidecar = new RouterSidecarStore({ file, onError: () => {} })
+  const deps: KimiTideCommandDeps = {
+    sidecar,
     monitor: { refresh: vi.fn(async () => {}) } as unknown as UsageMonitor,
-    current: () => BASE,
-    onSaved: vi.fn(),
+    current: () => current,
+    onSaved: vi.fn((next: RouterConfigV2) => {
+      saved.push(next)
+      current = next
+    }),
   }
+  return { deps, saved, file, sidecar, readCurrent: () => current }
 }
 
 describe('parseKimiTideCommand', () => {
@@ -27,15 +40,33 @@ describe('parseKimiTideCommand', () => {
   it('rejects invalid mode', () => {
     expect(parseKimiTideCommand('mode bogus').kind).toBe('error')
   })
-  it('parses set subcommand with number/boolean coercion', () => {
+  it('parses set subcommand with number coercion on v2 keys', () => {
+    expect(parseKimiTideCommand('set lambda 0.3')).toEqual({ kind: 'set', key: 'lambda', value: 0.3 })
+    expect(parseKimiTideCommand('set routeThreshold 0.8')).toEqual({ kind: 'set', key: 'routeThreshold', value: 0.8 })
     expect(parseKimiTideCommand('set premiumBudget 0.3')).toEqual({ kind: 'set', key: 'premiumBudget', value: 0.3 })
-    expect(parseKimiTideCommand('set escalateWhen.estimatedTokensGt 90000')).toEqual({ kind: 'set', key: 'escalateWhen.estimatedTokensGt', value: 90000 })
-    expect(parseKimiTideCommand('set escalateWhen.explicit false')).toEqual({ kind: 'set', key: 'escalateWhen.explicit', value: false })
+  })
+  it('parses default.model as a string key', () => {
+    expect(parseKimiTideCommand('set default.model kimi-for-coding')).toEqual({
+      kind: 'set', key: 'default.model', value: 'kimi-for-coding',
+    })
+  })
+  it('rejects v1-only keys and reports the v2 key table', () => {
+    const cmd = parseKimiTideCommand('set escalateWhen.explicit false')
+    expect(cmd.kind).toBe('error')
+    if (cmd.kind !== 'error') return
+    expect(cmd.message).toMatch(/unknown/)
+    for (const key of ['lambda', 'routeThreshold', 'premiumBudget', 'budgetWindow', 'charsPerToken', 'default.model']) {
+      expect(cmd.message).toContain(key)
+    }
   })
   it('parses refresh and empty/help', () => {
     expect(parseKimiTideCommand('refresh')).toEqual({ kind: 'refresh' })
     expect(parseKimiTideCommand('')).toEqual({ kind: 'help' })
     expect(parseKimiTideCommand('help')).toEqual({ kind: 'help' })
+  })
+  it('parses export-config and import-config', () => {
+    expect(parseKimiTideCommand('export-config')).toEqual({ kind: 'export-config' })
+    expect(parseKimiTideCommand('import-config C:/tmp/cfg.yml')).toEqual({ kind: 'import-config', path: 'C:/tmp/cfg.yml' })
   })
   it('errors on unknown subcommand', () => {
     expect(parseKimiTideCommand('frobnicate').kind).toBe('error')
@@ -43,42 +74,87 @@ describe('parseKimiTideCommand', () => {
 })
 
 describe('applyKimiTideCommand', () => {
-  it('mode: merges into current config, saves, fires onSaved', async () => {
-    const saved: RouterConfig[] = []
-    const deps = makeDeps(saved)
+  it('mode: merges into current config, saves to sidecar, fires onSaved', async () => {
+    const { deps, saved, sidecar } = makeDeps()
     const reply = await applyKimiTideCommand({ kind: 'mode', mode: 'cost' }, deps)
     expect(saved).toHaveLength(1)
-    expect(saved[0]).toEqual({ ...BASE, mode: 'cost' })
+    expect(saved[0]).toEqual({ ...makeConfig(), mode: 'cost' })
     expect(deps.onSaved).toHaveBeenCalledWith(saved[0])
     expect(reply).toContain('cost')
+    expect(sidecar.load().config!.mode).toBe('cost')
   })
 
-  it('set: applies dotted key and persists', async () => {
-    const saved: RouterConfig[] = []
-    const deps = makeDeps(saved)
-    await applyKimiTideCommand({ kind: 'set', key: 'premiumBudget', value: 0.5 }, deps)
-    expect(saved[0].premiumBudget).toBe(0.5)
+  it('set lambda 0.3: persists to the sidecar and survives a reload', async () => {
+    const { deps, saved, sidecar } = makeDeps()
+    await applyKimiTideCommand({ kind: 'set', key: 'lambda', value: 0.3 }, deps)
+    expect(saved[0].lambda).toBe(0.3)
+    const reloaded = sidecar.load()
+    expect(reloaded.source).toBe('sidecar')
+    expect(reloaded.config!.lambda).toBe(0.3)
+  })
+
+  it('set default.model: writes the dotted v2 key', async () => {
+    const { deps, saved } = makeDeps()
+    await applyKimiTideCommand({ kind: 'set', key: 'default.model', value: 'deepseek-v4-pro' }, deps)
+    expect(saved[0].default.model).toBe('deepseek-v4-pro')
   })
 
   it('set: rejects unknown keys at parse time (error kind reaches apply as message)', async () => {
-    const deps = makeDeps()
+    const { deps } = makeDeps()
     const cmd = parseKimiTideCommand('set hacker 1')
     expect(cmd.kind).toBe('error')
     const reply = await applyKimiTideCommand(cmd, deps)
     expect(reply).toMatch(/unknown/i)
-    expect(deps.store.save).not.toHaveBeenCalled()
+    expect(reply).toContain('lambda')
+    expect(deps.onSaved).not.toHaveBeenCalled()
+  })
+
+  it('export-config: returns the sidecar YAML text, parseable back to RouterConfigV2', async () => {
+    const { deps, sidecar } = makeDeps()
+    sidecar.save(makeConfig())
+    const text = await applyKimiTideCommand({ kind: 'export-config' }, deps)
+    const parsed = YAML.parse(text) as RouterConfigV2
+    expect(parsed.version).toBe(2)
+    expect(parsed.premiumBudget).toBe(0.5)
+    expect(parsed.candidates[0].model).toBe('kimi-for-coding')
+  })
+
+  it('export-config: explains when no sidecar file exists yet', async () => {
+    const { deps } = makeDeps()
+    const reply = await applyKimiTideCommand({ kind: 'export-config' }, deps)
+    expect(reply).toMatch(/not found|不存在|尚未/)
+    expect(deps.onSaved).not.toHaveBeenCalled()
+  })
+
+  it('import-config: reads a YAML file, saves the sidecar, and the config takes effect', async () => {
+    const { deps, saved, sidecar, readCurrent } = makeDeps()
+    const incoming: RouterConfigV2 = { ...makeConfig(), mode: 'capability', lambda: 0.9 }
+    const src = join(dir, 'import-src.yml')
+    writeFileSync(src, YAML.stringify(incoming), 'utf8')
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
+    expect(reply).toMatch(/import/i)
+    expect(saved[0].lambda).toBe(0.9)
+    expect(readCurrent().mode).toBe('capability')
+    expect(sidecar.load().config!.lambda).toBe(0.9)
+  })
+
+  it('import-config: surfaces a missing file as a reply, not a throw', async () => {
+    const { deps } = makeDeps()
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: join(dir, 'nope.yml') }, deps)
+    expect(reply).toMatch(/import failed|失败/)
+    expect(deps.onSaved).not.toHaveBeenCalled()
   })
 
   it('refresh: triggers monitor.refresh and replies', async () => {
-    const deps = makeDeps()
+    const { deps } = makeDeps()
     const reply = await applyKimiTideCommand({ kind: 'refresh' }, deps)
     expect(deps.monitor.refresh).toHaveBeenCalledOnce()
     expect(reply).toMatch(/refresh/i)
   })
 
-  it('surfaces store validation errors as a reply, not a throw', async () => {
-    const deps = makeDeps()
-    deps.store.save = vi.fn(() => { throw new Error('schema rejected') }) as unknown as RouterSettingsStore['save']
+  it('surfaces sidecar save errors as a reply, not a throw', async () => {
+    const { deps } = makeDeps()
+    deps.sidecar.save = vi.fn(() => { throw new Error('schema rejected') }) as RouterSidecarStore['save']
     const reply = await applyKimiTideCommand({ kind: 'mode', mode: 'cost' }, deps)
     expect(reply).toContain('schema rejected')
     expect(deps.onSaved).not.toHaveBeenCalled()

@@ -363,24 +363,21 @@ export function apply(ctx: Context, config: Config = {}) {
   mountRouter()
   refreshCandidates()
 
-  // Panel persistence + commands (client→host channel). The panel still
-  // speaks the v1 form shape; on save we migrate to v2 and persist to the
-  // sidecar (the Task 9 command refresh replaces this wholesale).
+  // Panel persistence + commands (client→host channel). Commands speak the
+  // v2 config shape and write ONLY the sidecar — the v1 patch file keeps the
+  // legacy static seed untouched (the sidecar outranks it on load anyway, so
+  // a raw-text patch splice would be dead weight and would drop v2-only
+  // fields like scores/classify.patterns).
   registerKimiTideCommands(ctx, {
-    store,
+    sidecar,
     monitor,
-    current: () => v2ToV1View(routerConfigV2),
+    current: () => routerConfigV2,
     onSaved: (next) => {
-      routerConfigV2 = routerConfigToV2(next)
+      routerConfigV2 = next
       // A config change invalidates any decision made under the old config:
       // the summary is dropped until the next capability route decision.
       latestDecision = null
-      try {
-        sidecar.save(routerConfigV2)
-        configSource = 'sidecar'
-      } catch (error) {
-        warn(`dsh-kimi-tide: sidecar save failed: ${(error as Error).message}`)
-      }
+      configSource = 'sidecar'
       mountRouter()
       refreshCandidates()
       pushPanelToAllSessions()
