@@ -69,10 +69,23 @@ Kimi Code 订阅仅供个人交互式使用。本插件以订阅凭据直连官�
 - **设置表单**：展开区逐项编辑预算占比、升级阈值、模型选择等，回车保存。
 - **推理状态**：推理输出已由 DSH 原生渲染（reasoning-delta），面板仅提示「已启用」。
 
-面板命令族（也可在输入框直接敲）：
+面板命令族（也可在输入框直接敲，0.3.0 起为 v2 键表）：
 - `/kimi-tide mode off|cost|capability`
-- `/kimi-tide set <key> <value>`（key 见面板表单）
+- `/kimi-tide set <key> <value>`（v2 键：`lambda` / `routeThreshold` / `premiumBudget` / `budgetWindow` / `charsPerToken` / `default.model`）
+- `/kimi-tide export-config`（打印 sidecar YAML）/ `/kimi-tide import-config <path|内联 YAML>`（文件整表替换，或多行内联 YAML 合并补丁——面板「保存评分」走的就是这条通道）
 - `/kimi-tide refresh`（立即刷新配额）
+
+0.3.0 起路由配置改存 sidecar 文件（`$DSH_HOME/profiles/web/kimi-tide-router.yml`，与 patch 文件互邻），优先级 sidecar > patch 静态块 > 内置默认；面板保存不再回写 `cordis.patch.yml`。评分路由架构详见 [docs/router-v3.md](docs/router-v3.md)。
+
+## 0.3.0 手工验收清单（约 5 分钟）
+
+1. **重启生效**：`npm run build` 后重启 `dsh web`，模型选择器出现 kimi-tide 组；月汐面板折叠区「配置来源」显示 ⚙️ 内置默认（首次）或 📄 sidecar 文件（保存过）。
+2. **面板保存（模式）**：面板切 mode → capability，展开区「配置来源」变为 📄 sidecar 文件；重启 `dsh web` 后模式保持（sidecar 持久化）。
+3. **面板保存（评分，端到端）**：展开「能力评分」，为某个候选拖动滑杆后点「保存评分」——面板经 remote 通道把多行 sidecar YAML 发给 `/kimi-tide import-config`（内联文本形态），换行保真、合并补丁生效；`sidecar` 文件出现对应 `scores:` 覆盖，未触碰的字段（lambda/routeThreshold 等）保持不变。
+4. **chip 显示实际路由**：capability 模式下发一条「请审查这段代码 review」，决策 chip 显示实际路由（`kimi-tide/kimi-for-coding` + scoreDelta）；发一条「今天天气不错」则回到默认路由。
+5. **带图消息改道**：默认路由为 text-only（deepseek）时发送带图消息，该步自动改道多模态 premium（护栏），不抛 UNSUPPORTED_CONTENT。
+6. **export/import 往返**：`/kimi-tide export-config` 打印 YAML → 保存为文件并修改（如改 `lambda`）→ `/kimi-tide import-config <path>` 整表导入，面板快照与重启后均反映新值。
+7. **mode off 逃生**：面板切 off 或 `/kimi-tide mode off`，后续消息不再改道（决策 chip 清空），行为回到 0.1.x 直通。
 
 ## 许可
 
