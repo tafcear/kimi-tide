@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply, defaultSidecarFile, defaultPatchFile } from '../src/index.js'
+import { apply, buildDecisionSummary, defaultSidecarFile, defaultPatchFile } from '../src/index.js'
 import { KIMI_TIDE_PANEL_EVENT } from '../src/projection.js'
 
 /**
@@ -181,5 +181,130 @@ describe('defaultSidecarFile', () => {
     process.env.DSH_HOME = '/tmp/dsh-test'
     expect(defaultSidecarFile()).toBe(join(dirname(defaultPatchFile()), 'kimi-tide-router.yml'))
     expect(defaultSidecarFile().replace(/\\/g, '/')).toBe('/tmp/dsh-test/profiles/web/kimi-tide-router.yml')
+  })
+})
+
+describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
+  const route = {
+    kind: 'route' as const,
+    target: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+    reason: 'capability:code+reasoning',
+    scoreDelta: 2,
+  }
+
+  it('summarizes a capability route decision and passes the scoreDelta through', () => {
+    const summary = buildDecisionSummary(route, 'capability')
+    expect(summary).toEqual({
+      chosen: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      reason: 'capability:code+reasoning',
+      scoreDelta: 2,
+    })
+  })
+
+  it('returns null for keep and non-capability decisions (nothing stale leaks)', () => {
+    expect(buildDecisionSummary({ kind: 'keep', reason: 'capability: default primary' }, 'capability')).toBeNull()
+    expect(buildDecisionSummary(route, 'off')).toBeNull()
+    expect(buildDecisionSummary(route, 'cost')).toBeNull()
+  })
+
+  it('truncates the reason to 120 characters', () => {
+    const summary = buildDecisionSummary({ ...route, reason: 'x'.repeat(200) }, 'capability')
+    expect(summary?.reason).toBe('x'.repeat(120))
+  })
+})
+
+describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-dec-'))
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  const CAPABILITY: Parameters<typeof apply>[1] = {
+    router: {
+      mode: 'capability',
+      primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+    },
+  }
+
+  /** Run the first registered agent/pre-step listener (installRouter's). */
+  async function dispatchStep(
+    listeners: Map<string, Array<(payload: unknown) => unknown>>,
+    text: string,
+  ): Promise<boolean> {
+    const listener = listeners.get('agent/pre-step')?.[0]
+    if (listener === undefined) return false
+    const payload = {
+      agent: {},
+      messages: [{ role: 'user', content: [{ type: 'text', text }] } as never],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }
+    await (listener as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      payload,
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+    return true
+  }
+
+  function lastSnapshot(agent: FakeAgent): Record<string, unknown> {
+    return agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+  }
+
+  it('capability route → decision present with a numeric scoreDelta', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false, refreshOnStart: false })
+    expect(await dispatchStep(listeners, '请审查这段代码 review')).toBe(true)
+
+    const decision = lastSnapshot(agent).decision as { chosen: { provider: string; model: string }; reason: string; scoreDelta: number | null } | null
+    expect(decision).not.toBeNull()
+    expect(decision!.chosen).toEqual({ provider: 'kimi-tide', model: 'kimi-for-coding' })
+    expect(typeof decision!.scoreDelta).toBe('number')
+    expect(decision!.scoreDelta!).toBeGreaterThan(0)
+  })
+
+  it('a keep decision clears a previous route summary (no stale leak)', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false, refreshOnStart: false })
+    await dispatchStep(listeners, '请审查这段代码 review')
+    expect(lastSnapshot(agent).decision).not.toBeNull()
+
+    await dispatchStep(listeners, '今天天气不错')
+    expect(lastSnapshot(agent).decision).toBeNull()
+  })
+
+  it('mode off → no decision is ever surfaced', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    expect(await dispatchStep(listeners, '请审查这段代码 review')).toBe(false) // no router mounted
+    expect(lastSnapshot(agent).decision).toBeNull()
+    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'off' })
+  })
+
+  it('onSaved clears the stale decision (config change invalidates it)', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners, getCommand } = makeCtx([agent])
+
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false, refreshOnStart: false })
+    await dispatchStep(listeners, '请审查这段代码 review')
+    expect(lastSnapshot(agent).decision).not.toBeNull()
+
+    await getCommand()!.handler({ rawInput: 'mode off' })
+    const after = lastSnapshot(agent)
+    expect(after.decision).toBeNull()
+    expect(after.router).toMatchObject({ mode: 'off' })
   })
 })

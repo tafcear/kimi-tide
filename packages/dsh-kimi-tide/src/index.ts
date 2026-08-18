@@ -115,6 +115,25 @@ export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
   return new KimiRouter(routerConfigToV2(config), candidateMetasFromConfig(config), log)
 }
 
+/**
+ * Summarize one routing decision for the panel (spec §2.7). Returns null for
+ * anything that must NOT surface: keep decisions, mode-off/cost-mode
+ * decisions, and no-decision states. Route decisions carry the scoring delta
+ * (null for explicit @provider picks, which are not score comparisons) and
+ * the reason truncated to 120 characters. Pure — no agent/ctx access.
+ */
+export function buildDecisionSummary(
+  decision: RouteDecision,
+  mode: RouterConfigV2['mode'],
+): DecisionSummary | null {
+  if (mode !== 'capability' || decision.kind !== 'route') return null
+  return {
+    chosen: { provider: decision.target.provider, model: decision.target.model },
+    reason: decision.reason.slice(0, 120),
+    scoreDelta: decision.scoreDelta,
+  }
+}
+
 /** The llm runtime surface the candidate enumeration consumes (rc.6 shapes). */
 interface LlmCatalog {
   listProviders: () => LlmProviderInfo[]
@@ -163,6 +182,10 @@ async function enumerateCandidates(
           modalities = [...resolved.inputModalities]
         }
       } catch (error) {
+        // Conservative degradation, not a drop: an unresolvable model stays
+        // available as text-only (modalities ['text']) so routing keeps
+        // working and the panel can still show it; the image guard will
+        // simply never claim image prompts for it.
         onError(`dsh-kimi-tide: resolveModelInfo(${provider.id}/${model.id}) failed: ${(error as Error).message}`)
       }
       out.push({
@@ -329,15 +352,11 @@ export function apply(ctx: Context, config: Config = {}) {
   }
 
   // Decision observability (spec §2.7): only capability-mode non-keep
-  // decisions surface a summary; reason is truncated to 120 characters.
+  // decisions surface a summary; anything else (off / keep / cost-mode)
+  // clears the summary so a stale decision never leaks into later snapshots.
   let latestDecision: DecisionSummary | null = null
   const onDecision = (_agent: Agent, decision: RouteDecision) => {
-    if (routerConfigV2.mode !== 'capability' || decision.kind !== 'route') return
-    latestDecision = {
-      chosen: { provider: decision.target.provider, model: decision.target.model },
-      reason: decision.reason.slice(0, 120),
-      scoreDelta: null,
-    }
+    latestDecision = buildDecisionSummary(decision, routerConfigV2.mode)
     pushPanelToAllSessions()
   }
 
@@ -353,6 +372,9 @@ export function apply(ctx: Context, config: Config = {}) {
     current: () => v2ToV1View(routerConfigV2),
     onSaved: (next) => {
       routerConfigV2 = routerConfigToV2(next)
+      // A config change invalidates any decision made under the old config:
+      // the summary is dropped until the next capability route decision.
+      latestDecision = null
       try {
         sidecar.save(routerConfigV2)
         configSource = 'sidecar'

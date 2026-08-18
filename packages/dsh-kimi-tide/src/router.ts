@@ -95,7 +95,7 @@ export interface MatchRule {
 export type RouterConfig = RouterConfigV1
 
 export type RouteDecision =
-  | { kind: 'route'; target: RouteTarget; reason: string }
+  | { kind: 'route'; target: RouteTarget; reason: string; scoreDelta: number | null }
   | { kind: 'keep'; reason: string }
 
 /** True when any user message in the batch carries an image block. */
@@ -271,7 +271,8 @@ export class KimiRouter {
           .filter((t): t is NonNullable<typeof t> => t !== undefined)
           .filter((t) => t.provider === explicit && (!hasImage || pool.some((m) => m.model === t.model)))
         const target = preferred[0] ?? { provider: pool[0].provider, model: pool[0].model }
-        return { kind: 'route', target, reason: `explicit @${explicit} directive` }
+        // Explicit picks are user-forced, not score comparisons: no delta.
+        return { kind: 'route', target, reason: `explicit @${explicit} directive`, scoreDelta: null }
       }
       // v2: pick the provider's best candidate by the same scoring formula as
       // selectCandidate (weighted capability score minus lambda × cost tier).
@@ -282,7 +283,8 @@ export class KimiRouter {
       const best = pool
         .map((m) => ({ m, s: scoreCandidate(m, weights, this.config.lambda, (x) => scoreFor(this.config, x)) }))
         .sort((a, b) => b.s - a.s)[0]
-      return { kind: 'route', target: { provider: best.m.provider, model: best.m.model }, reason: `explicit @${explicit} directive` }
+      // Explicit picks are user-forced, not score comparisons: no delta.
+      return { kind: 'route', target: { provider: best.m.provider, model: best.m.model }, reason: `explicit @${explicit} directive`, scoreDelta: null }
     }
 
     // 2. 评分选择：classify → selectCandidate 已覆盖 keep 语义（best==default /
@@ -314,7 +316,7 @@ export class KimiRouter {
     }
     const targetIsDefault = sel.target.provider === this.config.default.provider && sel.target.model === this.config.default.model
     this.record(targetIsDefault ? 'primary' : 'premium')
-    return { kind: 'route', target: sel.target, reason: sel.reason }
+    return { kind: 'route', target: sel.target, reason: sel.reason, scoreDelta: sel.scoreDelta }
   }
 
   /** agent/request 钩子：消费决策，返回替换后的 callConfig。 */
