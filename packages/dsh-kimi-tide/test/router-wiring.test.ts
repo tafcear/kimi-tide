@@ -64,6 +64,18 @@ function makeCtx() {
       }
       return result
     },
+    /**
+     * Host prompt pre-check deferral: mirrors cordis `serial` bail semantics
+     * (EventsService.serial) — listeners run in order; the first bail value
+     * (non-null/false/undefined) wins; no listener → undefined (reject).
+     */
+    async admission(payload: object): Promise<unknown> {
+      for (const listener of listeners.get('agent/image-admission') ?? []) {
+        const result = await listener(payload, () => Promise.resolve(undefined))
+        if (result !== null && result !== false && result !== undefined) return result
+      }
+      return undefined
+    },
   }
   return { ctx, dispatch, logs }
 }
@@ -145,5 +157,39 @@ describe('installRouter image guard (direction: text-only primary → multimodal
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
 
     expect(config).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+  })
+})
+
+describe('installRouter image admission probe (host prompt pre-check deferral)', () => {
+  // Regression (2026-08-18, b66ee0d follow-up): the host prompt admission
+  // gate rejects image prompts whose current model selection is text-only
+  // BEFORE the agent loop runs, so a fresh session (default = text-only
+  // deepseek) never reaches the per-step image guard. The host patch defers
+  // via `agent/image-admission` (cordis serial bail): installRouter must
+  // claim (truthy) only when it can actually reroute the image.
+
+  it('claims image admission when the router is active and premium is multimodal', async () => {
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+
+    expect(await dispatch.admission({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })).toBe(true)
+  })
+
+  it('leaves the host rejection in charge when the premium route is text-only', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const textOnlyPremium: RouterConfig = {
+      ...CONFIG,
+      premium: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+    }
+    installRouter(ctx as never, new KimiRouter(textOnlyPremium, { info: () => {} }))
+
+    expect(await dispatch.admission({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })).toBeUndefined()
+  })
+
+  it('does not claim when the router is not mounted (mode off)', async () => {
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter({ ...CONFIG, mode: 'off' }, { info: () => {} }))
+
+    expect(await dispatch.admission({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })).toBeUndefined()
   })
 })

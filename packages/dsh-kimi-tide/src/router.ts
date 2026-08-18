@@ -16,6 +16,24 @@ import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 
+/**
+ * Host prompt image-admission probe (dsh-host-apiproxy hotfix, 2026-08-18;
+ * upstream master identical to rc.7). Dispatched with the agent scope carrier
+ * BEFORE the prompt RPC admits an image whose current model selection is
+ * text-only — the per-step image guard cannot run because the message never
+ * enters the loop. Serial semantics: the first bail value (truthy non-false)
+ * wins; `undefined`/`false` leaves the host's rejection in charge; no
+ * listeners → rejection (upstream-identical behavior on unpatched hosts).
+ */
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'agent/image-admission'(this: unknown, payload: {
+      provider: string
+      model: string
+    }): boolean | undefined
+  }
+}
+
 export interface RouteTarget {
   provider: string
   model: string
@@ -108,6 +126,25 @@ export function applyImageGuard(
   return { target: config.premium, reason: 'image input: rerouted to multimodal premium' }
 }
 
+/**
+ * Whether this router can claim an image prompt at host admission time.
+ *
+ * The host image-admission gate (dsh-host-apiproxy prompt RPC) rejects image
+ * prompts whose CURRENT model selection is text-only BEFORE the agent loop
+ * runs — on a fresh session the default selection is the text-only primary,
+ * so the per-step image guard never gets a chance. The host defers via the
+ * agent-scoped serial event `agent/image-admission`: a listener returning a
+ * truthy value claims the message will be rerouted. Claim only when this
+ * router is active AND the premium route is multimodal — a text-only premium
+ * cannot serve the image (mirror of applyImageGuard's anti-ping-pong rule),
+ * so the host's friendly rejection stays in charge.
+ */
+export function canClaimImageAdmission(config: RouterConfig): boolean {
+  if (config.mode === 'off') return false
+  const textOnly = textOnlyProviders(config)
+  return !textOnly.has(config.premium.provider)
+}
+
 /** 从消息批次提取最新一条用户文本。 */
 export function latestUserText(messages: readonly UserMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -152,7 +189,8 @@ export class KimiRouter {
   private readonly budgetHistory: string[] = []
 
   constructor(
-    private readonly config: RouterConfig,
+    /** Public for capability probes (e.g. the host image-admission claim). */
+    readonly config: RouterConfig,
     private readonly log: RouterLog,
   ) {}
 
@@ -278,9 +316,20 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       }
       return replaced
     })
+    // Host prompt pre-check deferral (see canClaimImageAdmission): the host
+    // rejects image prompts whose current model selection is text-only
+    // BEFORE the loop runs; claim the image here so the guard gets its turn.
+    // Cordis `serial` bail semantics: a truthy return claims; undefined lets
+    // the host's rejection through.
+    const disposeAdmission = ctx.on('agent/image-admission', () => {
+      if (!canClaimImageAdmission(router.config)) return undefined
+      ctx.logger?.info?.('kimi-router: claimed image admission (premium multimodal)')
+      return true
+    })
     return () => {
       disposePre()
       disposeRequest()
+      disposeAdmission()
     }
   })
 }

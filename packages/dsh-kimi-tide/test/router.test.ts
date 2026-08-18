@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   applyImageGuard,
+  canClaimImageAdmission,
   KimiRouter,
   messagesContainImage,
   textOnlyProviders,
@@ -109,5 +110,40 @@ describe('KimiRouter.decide', () => {
     // The exhaustion decision records 'primary', sliding one premium out of
     // the 5-slot window: 4 premium + 1 primary.
     expect(router.budgetUsage()).toMatchObject({ premium: 4, window: 5 })
+  })
+})
+
+describe('canClaimImageAdmission (host prompt pre-check deferral)', () => {
+  // The host (dsh-host-apiproxy prompt RPC) rejects image prompts whose
+  // CURRENT model selection is text-only BEFORE the agent loop runs — the
+  // per-step image guard never gets a chance on a fresh session (default
+  // model = text-only deepseek). The host patch defers via the agent-scoped
+  // serial event `agent/image-admission`: a listener returning a truthy
+  // value claims the image will be rerouted. Claim only when this router is
+  // active AND the premium route is multimodal (a text-only premium cannot
+  // serve the image — mirror of applyImageGuard's anti-ping-pong rule).
+
+  it('claims when the router is active and the premium route is multimodal', () => {
+    expect(canClaimImageAdmission({ ...BASE, mode: 'cost' })).toBe(true)
+    expect(canClaimImageAdmission(BASE)).toBe(true) // capability mode
+  })
+
+  it('does not claim when the router is off (host keeps its friendly rejection)', () => {
+    expect(canClaimImageAdmission({ ...BASE, mode: 'off' })).toBe(false)
+  })
+
+  it('does not claim when the premium route is itself text-only (no safe reroute)', () => {
+    const config: RouterConfig = { ...BASE, mode: 'cost', textOnlyProviders: ['deepseek-official', 'kimi-tide'] }
+    expect(canClaimImageAdmission(config)).toBe(false)
+  })
+
+  it('honors an explicit textOnlyProviders override listing the premium provider', () => {
+    const config: RouterConfig = { ...BASE, mode: 'cost', textOnlyProviders: ['kimi-tide'] }
+    expect(canClaimImageAdmission(config)).toBe(false)
+  })
+
+  it('claims when the text-only set does not include the premium provider', () => {
+    const config: RouterConfig = { ...BASE, mode: 'cost', textOnlyProviders: ['deepseek-official'] }
+    expect(canClaimImageAdmission(config)).toBe(true)
   })
 })
