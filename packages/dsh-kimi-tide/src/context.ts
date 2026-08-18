@@ -1,8 +1,9 @@
 /**
  * kimi-tide: harness request-history conversion into pi-ai's Context.
- * Text-only in v1: image blocks raise UNSUPPORTED_CONTENT.
- * Tool-result names are recovered from preceding assistant tool calls,
- * matching the official dsh-llm-pi-ai conversion semantics.
+ * Image blocks resolve through the durable attachment service (readImage →
+ * base64 bytes + mediaType), matching the official dsh-llm-pi-ai conversion
+ * semantics; without an attachment service an image raises UNSUPPORTED_CONTENT.
+ * Tool-result names are recovered from preceding assistant tool calls.
  */
 import { LlmError, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {
@@ -13,6 +14,13 @@ import type {
   ThinkingContent as PiThinkingContent,
   ToolCall as PiToolCall,
 } from '@earendil-works/pi-ai'
+
+/** Minimal read surface of the durable attachment store (ctx.attachments). */
+export interface ImageAttachmentReader {
+  readImage(ref: unknown): Promise<{ ref: { mediaType?: string }; data: Uint8Array }>
+}
+
+type PiUserContent = PiTextContent | { type: 'image'; data: string; mimeType: string }
 
 type PiAssistantContent = (PiTextContent | PiThinkingContent | PiToolCall)[]
 
@@ -68,10 +76,12 @@ function toPiAssistantContent(blocks: readonly unknown[]): PiAssistantContent {
 }
 
 /**
- * Convert a harness request into a synchronous pi-ai Context (text-only).
- * @throws LlmError('UNSUPPORTED_CONTENT') when any image block is present.
+ * Convert a harness request into a synchronous pi-ai Context.
+ * @param attachments - durable attachment store; required only when any
+ *   message carries an image block (mirrors dsh-llm-pi-ai's dual path).
+ * @throws LlmError('UNSUPPORTED_CONTENT') when an image is present without a store.
  */
-export function toPiContext(options: GenerateOptions): PiContext {
+export async function toPiContext(options: GenerateOptions, attachments?: ImageAttachmentReader): Promise<PiContext> {
   const toolNames = new Map<string, string>()
   const messages: PiMessage[] = []
   for (const message of options.messages) {
@@ -104,20 +114,34 @@ export function toPiContext(options: GenerateOptions): PiContext {
       messages.push(assistant)
       continue
     }
-    // user role: reject images, split inline text from tool results
-    const inline: unknown[] = []
+    // user role: images resolve through the attachment store; split inline
+    // content from tool results
+    const inline: PiUserContent[] = []
     const results: unknown[] = []
     for (const block of message.content) {
-      const b = block as { type?: string }
+      const b = block as { type?: string; attachment?: unknown; text?: unknown }
       if (b.type === 'image') {
-        throw new LlmError('dsh-kimi-tide v1 supports text only (image input is unsupported)', 'UNSUPPORTED_CONTENT')
+        if (attachments === undefined) {
+          throw new LlmError('dsh-kimi-tide v1 supports text only (image input is unsupported)', 'UNSUPPORTED_CONTENT')
+        }
+        const stored = await attachments.readImage(b.attachment)
+        inline.push({
+          type: 'image',
+          data: Buffer.from(stored.data).toString('base64'),
+          mimeType: stored.ref.mediaType ?? 'image/png',
+        })
+        continue
       }
-      if (b.type === 'tool-result') results.push(block)
-      else inline.push(block)
+      if (b.type === 'tool-result') { results.push(block); continue }
+      if (b.type === 'text' && typeof b.text === 'string' && b.text.length > 0) {
+        inline.push({ type: 'text', text: b.text })
+      }
     }
-    const inlineText = flattenBlocks(inline)
-    if (inlineText.length > 0 || results.length === 0) {
-      messages.push({ role: 'user', content: inlineText, timestamp: 0 })
+    if (inline.length > 0 || results.length === 0) {
+      const content = inline.every((b) => b.type === 'text')
+        ? inline.map((b) => (b as PiTextContent).text).join('')
+        : inline
+      messages.push({ role: 'user', content: content as never, timestamp: 0 })
     }
     for (const result of results) {
       const r = result as { toolCallId?: string; content?: readonly unknown[]; isError?: boolean }

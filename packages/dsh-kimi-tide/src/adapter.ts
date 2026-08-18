@@ -15,7 +15,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import { createModels, getSupportedThinkingLevels, type MutableModels } from '@earendil-works/pi-ai'
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
-import { toPiContext } from './context.js'
+import { toPiContext, type ImageAttachmentReader } from './context.js'
 import { KimiOAuthManager } from './oauth.js'
 import { toStreamChunks } from './stream.js'
 
@@ -24,6 +24,12 @@ export interface KimiAdapterOptions {
   providerName: string
   /** Optional tap for usage chunks (feeds UsageMonitor local stats). */
   onUsage?: (usage: TokenUsage) => void
+  /**
+   * Resolve the durable attachment store on demand (mirrors the official
+   * dsh-llm-pi-ai `resolveAttachments: () => ctx.get('attachments')`).
+   * Needed only for image-bearing requests; text paths never call it.
+   */
+  resolveAttachments?: () => ImageAttachmentReader | undefined
 }
 
 export class KimiAdapter extends LlmAdapter {
@@ -97,7 +103,10 @@ export class KimiAdapter extends LlmAdapter {
     if (this.oauth.getAccessToken().length === 0) {
       await ensureAccessToken(this.oauth)
     }
-    const context = toPiContext(options)
+    const containsImage = options.messages.some((message) =>
+      (message.content as readonly { type?: string }[]).some((block) => block.type === 'image'),
+    )
+    const context = await toPiContext(options, containsImage ? this.options.resolveAttachments?.() : undefined)
     const events = this.models.streamSimple(model, context, {
       apiKey: this.oauth.getAccessToken(),
       ...(options.temperature === undefined ? {} : { temperature: options.temperature }),

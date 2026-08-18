@@ -127,6 +127,10 @@ export function apply(ctx: Context, config: Config = {}) {
   const adapter = new KimiAdapter(oauth, {
     providerName,
     onUsage: (usage) => monitor.tapUsage(usage),
+    // Durable attachment store for image conversion (optional service; the
+    // adapter falls back to the text-only error when it is absent) — mirrors
+    // the official dsh-llm-pi-ai resolveAttachments seam.
+    resolveAttachments: () => ctx.get('attachments') as never,
   })
   ctx.llm.registerAdapter([providerName], adapter)
 
