@@ -24,7 +24,7 @@
 ## 路线图
 
 - **0.1.x（当前发布线）**：DSH 原生 Kimi provider，已发布 v0.1.3。
-- **0.2.x（main 已落地，未发布）**：双模型自动分工路由器（`cost` / `capability` 两种模式）已接线（`agent/pre-step` + `agent/request`，自提交 64c22cd 起），「月汐」dock 面板 v2（模式切换 / 配额显示 / 设置折叠）、用量显示（usage.ts 轮询）、设置面板（settings.ts 行级回写）、AUTH 风暴修复均已实现，均在 main 分支上 v0.1.3 之后的提交中；尚未打 tag / 发布 Release。待办：M4 单元测试收尾、M5 实机集成验证、M6 文档发布。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md) 与 [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)。
+- **0.2.x（main 已落地，未发布）**：双模型自动分工路由器（`cost` / `capability` 两种模式）已接线（`agent/pre-step` + `agent/request`，自提交 64c22cd 起）；**路由器失效已修复（commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正（文本-only primary → 多模态 premium，`textOnlyProviders` 可配置），全量 66/66 测试绿）**；「月汐」dock 面板 v2（模式切换 / 配额显示 / 设置折叠）、用量显示（usage.ts 轮询）、设置面板（settings.ts 行级回写）、AUTH 风暴修复均已实现，均在 main 分支上 v0.1.3 之后的提交中；尚未打 tag / 发布 Release。待办：M4 单元测试收尾、M5 实机集成验证（2026-08-18 复测进行中）、M6 文档发布。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md) 与 [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)。
 - **0.3.0（计划中）**：能力评分路由（capability-scored routing），spec v2.2 定稿（[`docs/superpowers/plans/2026-08-17-capability-scored-routing.md`](docs/superpowers/plans/2026-08-17-capability-scored-routing.md)），11 任务 TDD 实施计划成稿（[`docs/superpowers/plans/2026-08-17-capability-routing-implementation.md`](docs/superpowers/plans/2026-08-17-capability-routing-implementation.md)），经 Kimi 三轮审查闭环（[R1](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round1.md) / [R2](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round2.md) / [R3](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round3.md)）评审通过。
 
 ---
@@ -131,6 +131,19 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 | `usagePollOnStart` | `true` | 启动时立即轮询配额 |
 | `router` | 见下 | 路由器配置（`off` / `cost` / `capability`；0.2.x 已接线，默认 `off`） |
 | `patchFile` | `$DSH_HOME/profiles/web/cordis.patch.yml` | 路由设置面板回写的目标文件 |
+
+**`router` 子配置（0.2.x，settings schema 已含全部字段）**：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `mode` | `off` | `off` / `cost` / `capability` |
+| `primary` | `deepseek-official/deepseek-v4-flash` | 默认主力路由（便宜/快） |
+| `premium` | `kimi-tide/kimi-for-coding` | Kimi 路由（贵/强） |
+| `premiumLong` | `kimi-tide/k3` | 超长上下文 Kimi 路由（1M 窗） |
+| `escalateWhen.patterns` | 内置默认集 | cost 模式关键词升级；**本机 profile 实况（2026-08-18 配置）`[看图, 图像, 截图, 审查, review]`** |
+| `premiumBudget` | `0.2` | cost 模式滑动窗口内 Kimi 占比上限 |
+| `budgetWindow` | `20` | 预算滑动窗口大小（决策次数） |
+| `textOnlyProviders` | `[primary.provider]` | **图像护栏用（71b1d18 新增）**：声明无法接收图片输入的 provider；带图步骤会自动从文本-only 路由改道多模态 premium。缺省 = primary（`deepseek-official`，pi-ai 目录实锤 deepseek-v4-* 文本-only） |
 
 ---
 
