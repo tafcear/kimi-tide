@@ -251,6 +251,47 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(lastSnapshot(agent).configSource).toBe('settings')
   })
 
+  /**
+   * Review Minor (a591a0c6) — the migration's dirty check compares the resolved
+   * namespace value against `mergeResolved(entry)`, so `entry` MUST be the same
+   * v2-shaped base the namespace was registered with. Handing it the raw v1
+   * composition entry (brief Step 3's literal `config.router ?? {}`) drops
+   * primary/premium in mergeResolved, makes a clean namespace look dirty, and
+   * silently skips the migration forever. This is that exact combination:
+   * v1 entry + valid sidecar + clean namespace → 'imported'.
+   */
+  it('migrates the sidecar even when the composition entry is a v1 router block', async () => {
+    const legacy: RouterConfigV2 = { ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability', lambda: 0.8 }
+    writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
+    const settings = await bootSettings()
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent], settings)
+
+    apply(ctx as never, {
+      patchFile,
+      sidecarFile,
+      usagePollOnStart: false,
+      refreshOnStart: false,
+      // v1 composition entry (0.2.x shape) — the case a raw `entry` breaks.
+      router: {
+        mode: 'cost',
+        primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      },
+    })
+    await tick()
+
+    // Imported: the sidecar's values won over the v1 seed and the file is archived.
+    const resolved = settings.get(NS) as RouterConfigV2
+    expect(resolved.lambda).toBe(0.8)
+    expect(resolved.mode).toBe('capability')
+    expect(settings.doc[NS]).toBeDefined()
+    expect(existsSync(sidecarFile)).toBe(false)
+    expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
+    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'capability' })
+    expect(lastSnapshot(agent).configSource).toBe('settings')
+  })
+
   it('keeps a user-edited namespace and leaves the sidecar in place (dirty skip)', async () => {
     writeFileSync(sidecarFile, YAML.stringify({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'cost' }), 'utf8')
     const settings = await bootSettings({ [NS]: { lambda: 0.31 } })

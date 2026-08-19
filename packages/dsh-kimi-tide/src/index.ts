@@ -563,6 +563,8 @@ export function apply(ctx: Context, config: Config = {}) {
       .then(({ migrateSidecarIntoScope }) => migrateSidecarIntoScope({
         sidecarFile,
         scope: port,
+        // MUST be the same v2-shaped base the namespace was registered with:
+        // the dirty check compares scope.get() against mergeResolved(entry).
         entry: settingsBase,
         providerName,
         onError: warn,
