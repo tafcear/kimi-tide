@@ -29,6 +29,6 @@ export async function migrateSidecarIntoScope(d: MigrationDeps): Promise<Migrati
     return 'skipped-dirty'
   }
   await d.scope.replace(loaded.config as unknown as object)
-  try { renameSync(d.sidecarFile, d.sidecarFile + '.legacy-imported') } catch (e) { d.onError(`dsh-kimi-tide: sidecar 留档失败（${(e as Error).message}），下次启动将重试迁移`) }
+  try { renameSync(d.sidecarFile, d.sidecarFile + '.legacy-imported') } catch (e) { d.onError(`dsh-kimi-tide: sidecar 留档失败（${(e as Error).message}）；配置已导入设置命名空间，旧 sidecar 文件请手动删除`) }
   return 'imported'
 }
