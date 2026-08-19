@@ -244,6 +244,19 @@ describe('applyKimiTideCommand with settings namespace', () => {
     expect(out).toContain('mode: cost')
   })
 
+  it('export-config surfaces a settings.get() error as a reply, not a throw', async () => {
+    const { deps } = makeDeps({
+      settings: {
+        get: () => { throw new Error('scope unreadable') },
+        update: async () => {},
+        replace: async () => {},
+      },
+    })
+    const out = await applyKimiTideCommand({ kind: 'export-config' }, deps)
+    expect(out).toContain('export failed')
+    expect(out).toContain('scope unreadable')
+  })
+
   it('import-config (file) replaces the namespace section', async () => {
     const replaces: object[] = []
     const { deps } = makeDeps({
@@ -259,6 +272,38 @@ describe('applyKimiTideCommand with settings namespace', () => {
     const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
     expect(replaces).toEqual([incoming])
     expect(deps.onSaved).toHaveBeenCalledWith(incoming)
+    expect(out).toMatch(/import/i)
+  })
+
+  it('import-config (inline) merges into current and replaces the namespace, not the sidecar', async () => {
+    const replaces: object[] = []
+    const { deps } = makeDeps({
+      settings: {
+        get: () => makeConfig(),
+        update: async () => {},
+        replace: async (s) => { replaces.push(s) },
+      },
+    })
+    const saveSpy = vi.fn()
+    deps.sidecar.save = saveSpy as RouterSidecarStore['save']
+    const text = [
+      'version: 2',
+      'scores:',
+      '  "kimi-tide/kimi-for-coding":',
+      '    code: 4.5',
+      '    vision: 3',
+    ].join('\n')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
+    expect(replaces).toHaveLength(1)
+    const merged = replaces[0] as RouterConfigV2
+    // patch 字段生效
+    expect(merged.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+    // 未提及字段保留 current() 的值
+    expect(merged.premiumBudget).toBe(0.5)
+    expect(merged.routeThreshold).toBe(0.75)
+    expect(merged.candidates[0].model).toBe('kimi-for-coding')
+    expect(saveSpy).not.toHaveBeenCalled()
+    expect(deps.onSaved).toHaveBeenCalledWith(merged)
     expect(out).toMatch(/import/i)
   })
 

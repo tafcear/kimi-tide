@@ -138,7 +138,13 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       return persist(next, deps, `${cmd.key} → ${String(cmd.value)}`)
     }
     case 'export-config': {
-      if (deps.settings != null) return YAML.stringify(deps.settings.get())
+      if (deps.settings != null) {
+        try {
+          return YAML.stringify(deps.settings.get())
+        } catch (error) {
+          return `kimi-tide: export failed — ${(error as Error).message}`
+        }
+      }
       try {
         return deps.sidecar.exportText()
       } catch (error) {
