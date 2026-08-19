@@ -117,28 +117,56 @@ export function textOnlyProviders(
 ): Set<string> {
   if (config.textOnlyProviders !== undefined) return new Set(config.textOnlyProviders)
   if (metas !== undefined) {
-    // Only the primary (default) provider is treated as text-only from the
-    // candidate metadata. Non-primary providers are this plugin's multimodal
-    // rail (Kimi): enumeration can degrade them to text-only when
-    // resolveModelInfo lacks inputModalities, and trusting that would silently
-    // disable the image guard (regression: image steps kept on the text-only
-    // primary and the adapter threw UNSUPPORTED_CONTENT). An explicit
-    // textOnlyProviders override above still wins.
-    return new Set(
-      metas
-        .filter((m) => m.provider === config.primary.provider && !m.modalities.includes('image'))
-        .map((m) => m.provider),
-    )
+    // Modality-based and identity-independent: a provider is text-only when
+    // NONE of its candidate metas can carry an image. Keying on the v1
+    // primary identity inverts under the v2 sidecar shape, where the default
+    // can be kimi-tide/k3 while the session base model is a deepseek candidate
+    // (2026-08-19 regression: image steps stayed on deepseek and the adapter
+    // threw UNSUPPORTED_CONTENT because the guard thought deepseek multimodal).
+    const imageCapable = new Set(metas.filter((m) => m.modalities.includes('image')).map((m) => m.provider))
+    const providers = new Set(metas.map((m) => m.provider))
+    return new Set([...providers].filter((p) => !imageCapable.has(p)))
   }
   return new Set([config.primary.provider])
 }
 
 /**
+ * Candidates that can serve an image under this config (modality-driven).
+ * An explicit textOnlyProviders override removes providers from the pool.
+ * When enumeration degraded the whole pool to text-only, the configured
+ * premium route is trusted as a multimodal rail ONLY when the metadata does
+ * not itself mark its provider text-only — a premium on a genuinely
+ * text-only provider must never be picked (anti-ping-pong), and a fully
+ * degraded pool means the host's friendly rejection applies instead of an
+ * unverifiable reroute.
+ */
+function imageCapablePicks(config: RouterConfigV1, metas?: readonly CandidateMeta[]): CandidateMeta[] {
+  const override = config.textOnlyProviders
+  let pool = (metas ?? []).filter((m) => m.modalities.includes('image') && m.available)
+  if (override !== undefined) pool = pool.filter((m) => !override.includes(m.provider))
+  if (pool.length === 0 && override === undefined) {
+    const premium = config.premium
+    if (premium !== undefined && premium.provider !== config.primary.provider) {
+      const metaTextOnly =
+        metas === undefined
+          ? new Set<string>()
+          : new Set(metas.filter((m) => !m.modalities.includes('image')).map((m) => m.provider))
+      if (!metaTextOnly.has(premium.provider)) {
+        pool = [{ ...premium, modalities: ['text', 'image'], costTier: 'mid', available: true }]
+      }
+    }
+  }
+  return pool
+}
+
+/**
  * Image guard: when the step carries an image and the resolved target is a
- * text-only route, swap to the multimodal Kimi premium route instead of
- * letting the adapter throw UNSUPPORTED_CONTENT mid-turn. The guard is a
- * correctness rail, not a budget decision: guard-driven escalations are not
- * recorded in the premium budget window.
+ * text-only route, swap to a multimodal candidate instead of letting the
+ * adapter throw UNSUPPORTED_CONTENT mid-turn. The guard is a correctness
+ * rail, not a budget decision: guard-driven escalations are not recorded in
+ * the premium budget window. The reroute target prefers the configured
+ * premium route, then the primary (v2 default) route, then any multimodal
+ * candidate — all by modality, never by role identity.
  */
 export function applyImageGuard(
   target: RouteTarget,
@@ -149,10 +177,14 @@ export function applyImageGuard(
   if (!hasImage) return null
   const textOnly = textOnlyProviders(config, metas)
   if (!textOnly.has(target.provider)) return null
-  // No safe reroute when the premium route is itself text-only: leave the
-  // step on its resolved target rather than ping-ponging.
-  if (textOnly.has(config.premium.provider)) return null
-  return { target: config.premium, reason: 'image input: rerouted to multimodal premium' }
+  const picks = imageCapablePicks(config, metas)
+  if (picks.length === 0) return null
+  const pick =
+    picks.find((m) => m.provider === config.premium?.provider && m.model === config.premium?.model) ??
+    picks.find((m) => m.provider === config.primary.provider && m.model === config.primary.model) ??
+    picks.find((m) => m.provider === config.premium?.provider) ??
+    picks[0]
+  return { target: { provider: pick.provider, model: pick.model }, reason: 'image input: rerouted to multimodal candidate' }
 }
 
 /**
@@ -160,18 +192,17 @@ export function applyImageGuard(
  *
  * The host image-admission gate (dsh-host-apiproxy prompt RPC) rejects image
  * prompts whose CURRENT model selection is text-only BEFORE the agent loop
- * runs — on a fresh session the default selection is the text-only primary,
- * so the per-step image guard never gets a chance. The host defers via the
- * agent-scoped serial event `agent/image-admission`: a listener returning a
- * truthy value claims the message will be rerouted. Claim only when this
- * router is active AND the premium route is multimodal — a text-only premium
- * cannot serve the image (mirror of applyImageGuard's anti-ping-pong rule),
- * so the host's friendly rejection stays in charge.
+ * runs — on a fresh session the default selection is the text-only base
+ * model, so the per-step image guard never gets a chance. The host defers
+ * via the agent-scoped serial event `agent/image-admission`: a listener
+ * returning a truthy value claims the message will be rerouted. Claim only
+ * when this router is active AND some candidate can actually serve the image
+ * (mirror of applyImageGuard's bail rule) — otherwise the host's friendly
+ * rejection stays in charge.
  */
 export function canClaimImageAdmission(config: RouterConfigV1, metas?: readonly CandidateMeta[]): boolean {
   if (config.mode === 'off') return false
-  const textOnly = textOnlyProviders(config, metas)
-  return !textOnly.has(config.premium.provider)
+  return imageCapablePicks(config, metas).length > 0
 }
 
 /** 从消息批次提取最新一条用户文本。 */
