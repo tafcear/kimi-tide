@@ -16,7 +16,9 @@
 
 ---
 
-## 现状快照（2026-08-19）
+## 现状快照（2026-08-20）
+
+> **📌 开发计划（重要）**：**v0.4.0 预计 2026-08-21（明天）发布**，内容 = 已合并的设置界面迁移（`bc31b69`）+ **0.4.x「API key 直连」**——接入层从自研 OAuth 适配器切换为 **pi-ai catalog 原生 `kimi-coding` 路由 + Console API Key**（自研接入层 ~740 行退役删除，provider 命名 `kimi-tide/*` → `kimi-coding/*` 并自动迁移存量路由配置）。设计已定稿，全文见 [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。发布后排版/接入指引将全量改写（Kimi Code CLI 登录不再是前置条件）。
 
 > **读我前先看这里**：GitHub Release 上的 `v0.1.3` 仅包含「凭据门控 + OAuth 加固」（tarball 实检）——**路由器 / 月汐面板 / 能力评分 / 设置卡片全部在 v0.1.3 之后的 main 提交中，尚未发布**。本机安装 main 构建即可使用全部特性；下一目标版本为 **v0.4.0**（随 GitHub Actions 发布流水线落地）。
 
@@ -295,7 +297,7 @@ npm run build       # tsc 构建宿主 + esbuild 打包浏览器 half
 - **0.1.x（已发布）**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
 - **0.2.x（main 已落地，未发布）**：双模型路由器（`cost` / `capability`）+ 月汐 dock 面板 + 用量显示；失效修复闭环（`71b1d18` / `16a75d0` / `fcbf421`）与 M5 实机验证 ✅。
 - **0.3.0（main 已实施，未发布）**：能力评分路由（11 任务 TDD，`86da918`），手工验收 7/7 ✅；已知限制：评分滑杆步进 0.5（待修）。
-- **0.4.0（下一发布）**：设置界面迁移（`bc31b69`，设置卡片 + 命名空间持久化 + dock 只读化）随版本发布；配套 GitHub Actions Release 流水线；评分基线 A 方案全维取证；滑杆步进修。
+- **0.4.0（下一发布，预计 2026-08-21）**：设置界面迁移（`bc31b69`，设置卡片 + 命名空间持久化 + dock 只读化）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线；评分基线 A 方案全维取证；滑杆步进修。
 - **规划中**：图像转述模式 / 子代理图片外包（图片不入主历史，根解带图锁存死锁）；kimi 子代理后端（subagents 命名注册表 + host plane 挂载）。
 
 ---
@@ -358,7 +360,9 @@ A: Kimi Code 的 refresh token 约 30 天过期。到期前插件会告警；到
 
 ---
 
-## Current Status (2026-08-19)
+## Current Status (2026-08-20)
+
+> **📌 Development plan (important)**: **v0.4.0 ships tomorrow (2026-08-21)**, containing the merged settings migration (`bc31b69`) plus **0.4.x "API-key direct connection"** — the access layer switches from the self-built OAuth adapter to the **pi-ai catalog's native `kimi-coding` route + Console API key** (the self-built access layer, ~740 lines, is retired; provider naming migrates `kimi-tide/*` → `kimi-coding/*` with automatic migration of stored router configs). Design finalized: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md). After release, the quick-start guide will be rewritten (Kimi Code CLI login will no longer be a prerequisite).
 
 > **Read this first**: the `v0.1.3` GitHub Release contains only "credential gating + OAuth hardening" (verified from the tarball) — **the router / 月汐 dock panel / capability scoring / settings card all live in main-branch commits after v0.1.3 and are NOT yet released**. Install a main build for the full feature set; the next release target is **v0.4.0** (landing together with the GitHub Actions release pipeline).
 
@@ -637,7 +641,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.1.x (released)**: native DSH Kimi provider, v0.1.3 (credential gating + OAuth hardening).
 - **0.2.x (landed on main, unreleased)**: dual-model router (`cost` / `capability`) + 月汐 dock panel + usage display; failure-fix loop closed (`71b1d18` / `16a75d0` / `fcbf421`) and M5 live verification ✅.
 - **0.3.0 (implemented on main, unreleased)**: capability-scored routing (11 TDD tasks, `86da918`), manual acceptance 7/7 ✅; known limitation: score-slider step 0.5 (fix pending).
-- **0.4.0 (next release)**: settings migration (`bc31b69` — settings card + namespace persistence + read-only dock) ships with this release; GitHub Actions release pipeline; plan-A full scoring provenance; slider step fix.
+- **0.4.0 (next release, planned 2026-08-21)**: settings migration (`bc31b69` — settings card + namespace persistence + read-only dock) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access layer retired, provider-rename migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline; plan-A full scoring provenance; slider step fix.
 - **Planned**: image transcription mode / subagent image outsourcing (images never enter the main history — root fix for the image-latch deadlock); kimi subagent backend (subagents named registry + host-plane mount).
 
 ---
