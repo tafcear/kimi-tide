@@ -131,7 +131,7 @@ packages/dsh-kimi-tide/src/
 │                      # 图片检测 messagesContainImage + 图片护栏 applyImageGuard（71b1d18 方向已修正：文本-only → 多模态 premium）
 ├── index.ts           # 集成：Config 扩展 { router?: RouterConfig }（默认 mode: 'off'）→ 装配（64c22cd）
 ├── usage.ts           # 用量显示（M3.6，官方 usages 轮询 + 本地 token 桶）
-├── settings.ts        # 设置面板（M3.7，行级回写 patch yml）
+├── settings.ts        # patch 文件读写（legacy 静态种子 / 无 settings 服务回退）
 ├── commands.ts        # /kimi-tide 命令族（M3.5）
 ├── projection.ts      # kimi-tide/panel projection（M3.5）
 ├── client/            # 月汐 TideDock 面板（browser half）
@@ -162,6 +162,8 @@ dsh-kimi-tide:
         route: { provider: kimi-tide, model: k3 }
 ```
 
+> **0.4.0 迁移注**：路由配置持久化已从 sidecar 文件（`kimi-tide-router.yml`）迁至 DSH 设置命名空间 `kimi-tide-router`（base/user 分层 + revision 冲突检测）；sidecar 一次性迁移为 `.legacy-imported` 留档；patch.yml `router` 静态块降级为部署基座（base 层），用户编辑落 user 层。v1 schema 仍被接受并桥接 v2（`migrateV1`）。设计稿见 [`superpowers/specs/2026-08-19-settings-migration-design.md`](superpowers/specs/2026-08-19-settings-migration-design.md)。
+
 ---
 
 ## 4. 里程碑分解
@@ -173,7 +175,7 @@ dsh-kimi-tide:
 | **M3** index 集成 + Config | Config 扩展、默认 off、cordis.patch.yml 示例 | 旧配置零影响；开 mode 后生效 | ✅ 代码完成（index.ts 装配 `config.router ?? loadPersisted(store) ?? DEFAULT`，mode≠off 才 install，64c22cd） |
 | **M3.5** 双端化 | client bundle（build-client.mjs + `dsh.client` 声明）+ `kimi-tide/panel` projection + `/kimi-tide` 命令族 | composer dock 出现「月汐」面板骨架（机制对齐 dsh-model-router） | ✅ 代码完成（实机验证待人工） |
 | **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ dock 用量行 | 周配额/5h窗口/会员/本地token 四区展示，80%/90% 变色 | ✅ 代码完成（实机验证待人工） |
-| **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | ✅ 代码完成（实机验证待人工） |
+| **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | ✅ 代码完成（0.4.0 起表单迁至官方设置面板「月汐」卡片，DSH 设置命名空间 `kimi-tide-router` 持久化；dock 退化为只读仪表） |
 | **M4** 单元测试 | 分类器/预算/缺口补偿/applyTo + 用量解析/设置读写 | 覆盖率 >80% 关键路径 | 🟡 进行中：router/usage/settings/commands/projection/types/adapter-usage/index-wiring/index-apply 等测试已就位（11 个测试文件，2026-08-18 实跑 **66/66 绿**）；覆盖率核算与缺口项待收尾 |
 | **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | ✅ 通过（2026-08-18 双探针 + 2026-08-19 带图实机闭环，DSH 会话日志解码实锤）：`@kimi` 显式探针、escalateWhen 关键词探针与图片消息的 request/header 均为 `kimi-tide/k3`（ctxWindow=1048576），带图轮正常推进无 UNSUPPORTED_CONTENT——**显式指令升级 ✅、关键词升级 ✅、带图改道 ✅**（锁存已知限制见 §2.3.1）。**余项**：dock 渲染/命令往返/持久化（人工验收） |
 | **M6** 文档发布 | README 路由章节 + docs/router 使用手册 + 0.2.x Release | 文档与配置一致 | ⬜ 待办（本 README 与本文档已先行同步代码事实） |
@@ -202,7 +204,7 @@ dsh-kimi-tide:
 5. 所有路由决策可通过会话 `request/header` 日志追溯
 6. 单元测试绿 + 实机 5 分钟手工验证通过
 7. README/docs 更新，0.2.x Release 发布
-8. 「月汐」dock 面板：用量四区（周配额/5h窗口/会员/本地token）正确渲染并具备 80%/90% 变色；路由设置保存后 patch yml 变化且重启保持；推理状态行显示"已启用"
+8. 「月汐」dock 面板：用量四区（周配额/5h窗口/会员/本地token）正确渲染并具备 80%/90% 变色；路由设置保存后持久化且重启保持（0.4.0 起为设置命名空间 `kimi-tide-router`，此前为 patch yml/sidecar）；推理状态行显示"已启用"
 
 ---
 

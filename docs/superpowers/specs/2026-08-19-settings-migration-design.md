@@ -1,6 +1,6 @@
 # 设置界面迁移：月汐路由器设置迁至 DSH 官方设置页
 
-> 状态：**待用户评审**（2026-08-19 设计稿）
+> 状态：**已评审**，实施计划见 [`../plans/2026-08-19-settings-migration-implementation.md`](../plans/2026-08-19-settings-migration-implementation.md)（2026-08-19 设计稿）
 > 决策出处：用户 2026-08-19 指派「先把 tide 插件设置转到官方设置页面再做后续」；
 > 关键决策经用户选择：持久化路径=**B 原生设置命名空间**；拆分边界=**全迁卡片、dock 留读出口**。
 > 依赖：DSH `dsh-client-ui-settings` / `dsh-settings`（rc.7 起提供，本机已装，接口实读锚点见下）。

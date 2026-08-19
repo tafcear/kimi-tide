@@ -17,7 +17,7 @@
 - **跨平台**：零 Windows 计划任务依赖，Linux / macOS / Windows 均可运行。
 - **双通道互补**：provider 路径用于 DSH 模型选择器；`dsh-kimi-bridge` 路径用于显式调用 `kimi` CLI 工具。
 - **发布就绪**：v0.1.3 已发布为 GitHub Release，附 `dsh-kimi-tide-0.1.3.tgz` 安装包。
-- **月汐 dock 面板（0.2.x，main 已落地）**：`conversation.composer.dock` 面板，模式切换 / 周配额与 5h 窗口用量显示 / 本地 token 统计 / 路由设置折叠区（settings.ts 行级回写 patch yml 持久化）。尚未发布 Release。
+- **月汐 dock 面板（0.2.x，main 已落地）**：`conversation.composer.dock` 面板，周配额与 5h 窗口用量显示 / 本地 token 统计 / 路由决策 chip（0.4.0 起退化为只读仪表，保留刷新按钮）；路由设置迁至官方设置面板「月汐」卡片（DSH 设置命名空间 `kimi-tide-router` 持久化，sidecar 已迁移为 `.legacy-imported` 留档）。尚未发布 Release。
 
 ---
 
@@ -130,9 +130,12 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 | `usagePollMs` | `60000` | 月汐 dock 配额轮询周期（毫秒） |
 | `usagePollOnStart` | `true` | 启动时立即轮询配额 |
 | `router` | 见下 | 路由器配置（`off` / `cost` / `capability`；0.2.x 已接线，默认 `off`） |
-| `patchFile` | `$DSH_HOME/profiles/web/cordis.patch.yml` | 路由设置面板回写的目标文件 |
+| `settingsNamespace` | `kimi-tide-router` | 路由配置的 DSH 设置命名空间（0.4.0；sidecar 已迁移为 `.legacy-imported` 留档） |
+| `patchFile` | `$DSH_HOME/profiles/web/cordis.patch.yml` | 路由静态种子的 legacy 来源（0.4.0 起仅作 base 层，不再回写） |
 
 **`router` 子配置（0.2.x，settings schema 已含全部字段）**：
+
+> 注：0.4.0 起持久化在设置面板 → 月汐；此处为部署基座（base 层）。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -169,11 +172,13 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 ```
 kimi-tide/
 ├── packages/dsh-kimi-tide/    # 推荐：DSH 原生插件
-│   ├── src/index.ts           # 装配：provider + 月汐面板（usage/settings/commands/projection/router）
+│   ├── src/index.ts           # 装配：provider + 月汐面板 + 设置命名空间（kimi-tide-router）
 │   ├── src/router.ts          # 0.2.x 路由器（已接线 agent/pre-step + agent/request；cost/capability 决策）
 │   ├── src/usage.ts           # 用量显示（官方 usages 轮询 + 本地 token 桶）
-│   ├── src/settings.ts        # 设置面板（行级回写 patch yml 持久化）
-│   ├── src/client/            # 月汐 TideDock 面板（browser half）
+│   ├── src/settings.ts        # patch 文件读写（legacy 静态种子 / 无 settings 服务回退）
+│   ├── src/settings-schema.ts # RouterConfigV2 的 wire schema（schemastery）
+│   ├── src/settings-migration.ts # 一次性 sidecar → 设置命名空间迁移（.legacy-imported 留档）
+│   ├── src/client/            # 月汐 TideDock 面板（只读）+ SettingsCard（官方设置页「月汐」卡片，browser half）
 │   └── src/commands.ts        # /kimi-tide 命令族
 ├── scripts/                   # 验证与辅助脚本
 │   ├── kimi-capabilities.mjs  # 能力矩阵测试
