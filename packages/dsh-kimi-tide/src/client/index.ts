@@ -28,6 +28,12 @@ export function apply(ctx: Context): void {
 
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
   // inject 内惰性执行（挂载到卡片时才绑定，不因宿主缺服务而阻塞本插件激活）。
+  // 注：候选「不可用」灰态由 SettingsCard 经可选的 useProjection prop 读取
+  // 'kimi-tide/panel' 投影实现；settings.section 是 root 作用域 slot（槽位契约
+  // kind list / scope root），session 级 useProjection 不在该作用域的标准 kit
+  // 里，也无法经公共 API 从 ctx 取得（dsh-client-web-react 不导出 projectionHook/
+  // useSessionMaybeProvideInfo），故此处不注入 useProjection —— 卡片据此降级为
+  // 无灰态（仅配置内候选列表，不标 available）。
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'kimi-tide-router',
@@ -74,6 +80,7 @@ export function apply(ctx: Context): void {
     .kimi-tide-settings .kt-hint { opacity: 0.6; }
     .kimi-tide-settings .kt-candidate { display: flex; flex-direction: column; gap: 4px; padding: 4px 0;
       border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
+    .kimi-tide-settings .kt-candidate.kt-unavailable { opacity: 0.5; }
     .kimi-tide-settings .kt-score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2px 14px; }
     .kimi-tide-settings .kt-score-row { display: flex; align-items: center; gap: 6px; }
     .kimi-tide-settings .kt-field-label { width: 108px; flex: none; opacity: 0.85; }

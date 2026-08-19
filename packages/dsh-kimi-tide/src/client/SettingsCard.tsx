@@ -16,11 +16,19 @@ import { createCardStore } from './card-store.js'
 import type { ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { configKey, DIMS, type Dim, type RouteTarget, type RouterConfigV2 } from '../config.js'
 import { scoreFor } from '../scores.js'
+import type { KimiTidePanelProjection } from '../types.js'
 
 export interface SettingsCardProps {
   scope: SettingsScopeLike | null
   connection: ConnectionLike | null
   close: () => void
+  /**
+   * 可选的面板投影读取钩子（沿用 TideDock 的 useProjection 先例）：拿到
+   * 'kimi-tide/panel' 后按 `candidates[].available` 给候选标灰。settings.section
+   * 是 root 作用域 slot，session 级 useProjection 不在此注入，故运行时通常
+   * 缺省 → 降级为无灰态（见 index.ts 注入处注释）。
+   */
+  useProjection?: (key: 'kimi-tide/panel') => KimiTidePanelProjection | null | undefined
 }
 
 const MODES: Array<RouterConfigV2['mode']> = ['off', 'cost', 'capability']
@@ -98,7 +106,7 @@ function JsonField(props: {
 }
 
 export function SettingsCard(props: SettingsCardProps) {
-  const { scope, connection } = props
+  const { scope, connection, useProjection } = props
   const [store] = useState(() => createCardStore(scope, connection))
   // connection 路径是异步 describe：mount 后拉一次（scope 路径已在创建时同步读入）。
   useEffect(() => {
@@ -112,6 +120,7 @@ export function SettingsCard(props: SettingsCardProps) {
     return (
       <div className="kimi-tide-settings">
         <span className="kt-hint">⚙️ 路由设置不可用</span>
+        {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
       </div>
     )
   }
@@ -119,8 +128,20 @@ export function SettingsCard(props: SettingsCardProps) {
   const writable = snapshot.writable
   const targets = scoreTargets(config)
 
+  // 候选灰态：从宿主面板投影读 available 映射（provider/model → available）。
+  // 投影不可得（useProjection 缺省或尚未推送）时无灰态。
+  const panel = useProjection !== undefined ? useProjection('kimi-tide/panel') : undefined
+  const availableByKey = new Map<string, boolean>()
+  if (panel !== null && panel !== undefined) {
+    for (const candidate of panel.candidates) {
+      availableByKey.set(configKey(candidate), candidate.available)
+    }
+  }
+
   return (
     <div className="kimi-tide-settings">
+      {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
+
       <div className="kt-mode-row">
         {MODES.map((m) => (
           <button
@@ -142,11 +163,13 @@ export function SettingsCard(props: SettingsCardProps) {
           const key = configKey(target)
           const effective = scoreFor(config, target)
           const isDefault = target.provider === config.default.provider && target.model === config.default.model
+          const unavailable = availableByKey.get(key) === false
           return (
-            <div key={key} className="kt-candidate">
+            <div key={key} className={`kt-candidate${unavailable ? ' kt-unavailable' : ''}`}>
               <span className="kt-meta">
                 {key}
                 {isDefault ? '（默认）' : ''}
+                {unavailable ? '（不可用）' : ''}
               </span>
               <div className="kt-score-grid">
                 {DIMS.map((dim) => {

@@ -44,9 +44,11 @@ function makeScope(snapshotOverrides: Record<string, unknown> = {}) {
 }
 
 /** 一个 connection 服务结构面 mock（api.settings.describe/mutate）。 */
-function makeConnection(namespaces: Array<{ ns: string; value: unknown; base?: unknown; user?: unknown }> = []) {
+function makeConnection(namespaces: Array<{ ns: string; value: unknown; base?: unknown; user?: unknown; revision?: number }> = []) {
   const mutate = vi.fn(async (_req: unknown) => ({ result: { ok: true, value: {} } }))
-  const describe = vi.fn(async () => ({ result: { ok: true, value: { writable: true, namespaces } } }))
+  const describe = vi.fn(async () => ({
+    result: { ok: true, value: { writable: true, namespaces: namespaces.map((n) => ({ revision: 0, ...n })) } },
+  }))
   const connection = {
     api: { settings: { describe, mutate } },
   } as unknown as ConnectionLike
@@ -86,6 +88,32 @@ describe('createCardStore write paths', () => {
     // Fails if: resetField stops routing through scope.unset.
     expect(unset).toHaveBeenCalledWith('lambda')
   })
+
+  it('passes the describe revision as expectedRevision on connection mutate', async () => {
+    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V2('kimi-tide'), revision: 7 }])
+    const store = createCardStore(null, connection)
+
+    await store.load()
+    await store.saveTop('lambda', 0.6)
+
+    // Fails if: the connection/mutate write drops the optimistic-concurrency fence.
+    expect(mutate).toHaveBeenCalledWith({
+      ns: 'kimi-tide-router',
+      ops: [{ op: 'set', path: ['lambda'], value: 0.6 }],
+      expectedRevision: 7,
+    })
+  })
+
+  it('publishes an error state when a write fails', async () => {
+    const { scope, set } = makeScope()
+    set.mockRejectedValueOnce(new Error('settings provider is read-only'))
+    const store = createCardStore(scope, null)
+
+    await store.saveTop('lambda', 0.6)
+
+    // Fails if: a rejected write does not surface an error on the snapshot.
+    expect(store.getSnapshot().error).toContain('read-only')
+  })
 })
 
 describe('SettingsCard render', () => {
@@ -124,6 +152,32 @@ describe('SettingsCard render', () => {
       close: noop,
     }))
     expect(overriddenHtml).toContain('覆盖')
+  })
+
+  it('greys out unavailable candidates from the panel projection', () => {
+    const config = { ...DEFAULT_CONFIG_V2('kimi-tide') }
+    const { scope } = makeScope({ value: config })
+    // 投影说 kimi-tide/kimi-for-coding 不可用（configured target 不在 live catalog）。
+    const useProjection = () => ({
+      quota: null,
+      local: { today: {}, session: {}, calls: 0 },
+      router: { mode: 'off' },
+      reasoning: { enabled: true },
+      configSource: 'settings',
+      candidates: [{ provider: 'kimi-tide', model: 'kimi-for-coding', available: false }],
+      decision: null,
+    })
+
+    const html = renderToString(createElement(SettingsCard, {
+      scope,
+      connection: null,
+      close: noop,
+      useProjection,
+    }))
+
+    // Fails if: the available:false candidate loses its greyed affordance.
+    expect(html).toContain('kt-unavailable')
+    expect(html).toContain('不可用')
   })
 })
 

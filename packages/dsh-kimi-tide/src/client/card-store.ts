@@ -14,7 +14,7 @@ import type { RouterConfigV2 } from '../config.js'
 
 export const CARD_NAMESPACE = 'kimi-tide-router'
 
-/** 卡片渲染用的单一快照：resolved 值 + base/user 分层（继承/覆盖显示）。 */
+/** 卡片渲染用的单一快照：resolved 值 + base/user 分层（继承/覆盖显示）+ 错误态。 */
 export interface CardSnapshot {
   status: 'loading' | 'ready' | 'unavailable'
   /** 解析后的生效配置（schema 默认 → base → user 三层合并）。 */
@@ -24,6 +24,8 @@ export interface CardSnapshot {
   /** 原始 user 层；字段在此出现 = 用户覆盖。 */
   user: RouterConfigV2 | null
   writable: boolean
+  /** 最近一次写失败的信息；成功读入/写回后清空。 */
+  error: string | null
 }
 
 /** settings.mutate 的一枚 path op（set / unset）。 */
@@ -31,12 +33,14 @@ export type SettingsPathOp =
   | { op: 'set'; path: string[]; value: unknown }
   | { op: 'unset'; path: string[] }
 
-/** settings.describe 返回的单命名空间视图（卡片只关心 value/base/user）。 */
+/** settings.describe 返回的单命名空间视图（卡片只关心 value/base/user/revision）。 */
 export interface SettingsDescribeView {
   ns: string
   value: unknown
   base?: unknown
   user?: unknown
+  /** 命名空间 raw user 层的单调 revision；写回时作为 expectedRevision。 */
+  revision: number
 }
 
 /** 拆箱后的 RPC result：ok 携带值，否则携带错误。 */
@@ -66,7 +70,9 @@ export interface SettingsScopeLike {
     writable: boolean
   }
   subscribe(listener: () => void): () => void
+  /** 顶层标量写；revision 冲突检测由 scope 内部处理（latest-write 恢复）。 */
   set(field: string, value: unknown): Promise<void>
+  /** 顶层标量清除；revision 冲突检测由 scope 内部处理。 */
   unset(field: string): Promise<void>
 }
 
@@ -86,6 +92,9 @@ export interface CardStore {
 const asConfig = (value: unknown): RouterConfigV2 | null =>
   typeof value === 'object' && value !== null ? (value as RouterConfigV2) : null
 
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
 export function createCardStore(
   scope: SettingsScopeLike | null,
   connection: ConnectionLike | null,
@@ -96,11 +105,18 @@ export function createCardStore(
     base: null,
     user: null,
     writable: false,
+    error: null,
   }
+  // connection/mutate 路径的乐观并发栅栏：最近一次 describe 读到的命名空间
+  // revision。scope 路径不需要它（scope.set/unset 自带 latest-write 恢复）。
+  let revision: number | undefined
   const listeners = new Set<() => void>()
   const publish = (next: CardSnapshot): void => {
     snapshot = next
     for (const listener of [...listeners]) listener()
+  }
+  const fail = (error: unknown): void => {
+    publish({ ...snapshot, error: messageOf(error) })
   }
 
   const readScope = (): void => {
@@ -114,6 +130,7 @@ export function createCardStore(
       base: asConfig(s.base),
       user: asConfig(s.user),
       writable: s.writable,
+      error: null,
     })
   }
 
@@ -123,21 +140,30 @@ export function createCardStore(
       return
     }
     if (connection !== null) {
-      const r = await connection.api.settings.describe({})
-      if (!r.result.ok) {
-        publish({ status: 'unavailable', config: null, base: null, user: null, writable: false })
-        return
-      }
-      const view = r.result.value.namespaces.find((n) => n.ns === CARD_NAMESPACE)
-      publish(view === undefined
-        ? { status: 'unavailable', config: null, base: null, user: null, writable: false }
-        : {
+      try {
+        const r = await connection.api.settings.describe({})
+        if (!r.result.ok) {
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null })
+          return
+        }
+        const view = r.result.value.namespaces.find((n) => n.ns === CARD_NAMESPACE)
+        if (view === undefined) {
+          revision = undefined
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null })
+          return
+        }
+        revision = view.revision
+        publish({
           status: 'ready',
           config: asConfig(view.value),
           base: asConfig(view.base),
           user: asConfig(view.user),
           writable: r.result.value.writable,
+          error: null,
         })
+      } catch (error) {
+        fail(error)
+      }
     }
   }
 
@@ -149,26 +175,50 @@ export function createCardStore(
   }
 
   const saveTop = async (field: string, value: unknown): Promise<void> => {
-    if (scope !== null) await scope.set(field, value)
-    else if (connection !== null) {
-      await connection.api.settings.mutate({ ns: CARD_NAMESPACE, ops: [{ op: 'set', path: [field], value }] })
+    try {
+      if (scope !== null) await scope.set(field, value)
+      else if (connection !== null) {
+        await connection.api.settings.mutate({
+          ns: CARD_NAMESPACE,
+          ops: [{ op: 'set', path: [field], value }],
+          ...(revision === undefined ? {} : { expectedRevision: revision }),
+        })
+      }
+      await load()
+    } catch (error) {
+      fail(error)
     }
-    await load()
   }
 
   const saveScores = async (key: string, dim: string, value: number): Promise<void> => {
-    if (connection !== null) {
-      await connection.api.settings.mutate({ ns: CARD_NAMESPACE, ops: [{ op: 'set', path: ['scores', key, dim], value }] })
+    try {
+      if (connection !== null) {
+        await connection.api.settings.mutate({
+          ns: CARD_NAMESPACE,
+          ops: [{ op: 'set', path: ['scores', key, dim], value }],
+          ...(revision === undefined ? {} : { expectedRevision: revision }),
+        })
+      }
+      await load()
+    } catch (error) {
+      fail(error)
     }
-    await load()
   }
 
   const resetField = async (field: string): Promise<void> => {
-    if (scope !== null) await scope.unset(field)
-    else if (connection !== null) {
-      await connection.api.settings.mutate({ ns: CARD_NAMESPACE, ops: [{ op: 'unset', path: [field] }] })
+    try {
+      if (scope !== null) await scope.unset(field)
+      else if (connection !== null) {
+        await connection.api.settings.mutate({
+          ns: CARD_NAMESPACE,
+          ops: [{ op: 'unset', path: [field] }],
+          ...(revision === undefined ? {} : { expectedRevision: revision }),
+        })
+      }
+      await load()
+    } catch (error) {
+      fail(error)
     }
-    await load()
   }
 
   return {
