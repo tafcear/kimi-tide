@@ -18,6 +18,8 @@ export interface MigrationDeps {
 
 export async function migrateSidecarIntoScope(d: MigrationDeps): Promise<MigrationOutcome> {
   if (!existsSync(d.sidecarFile)) return 'no-sidecar'
+  // 故意不传 patchFallback：损坏 sidecar 必须得到 config===null 走 no-sidecar，
+  // 绝不能把 patch 派生值导入用户层（patch 派生值只是 fallback 读取路径，非可导入的 sidecar 内容）。
   const store = new RouterSidecarStore({ file: d.sidecarFile, onError: d.onError })
   const loaded = store.load()
   if (loaded.config === null) return 'no-sidecar'   // 损坏已被 load 改名 .corrupt
@@ -27,6 +29,6 @@ export async function migrateSidecarIntoScope(d: MigrationDeps): Promise<Migrati
     return 'skipped-dirty'
   }
   await d.scope.replace(loaded.config as unknown as object)
-  try { renameSync(d.sidecarFile, d.sidecarFile + '.legacy-imported') } catch { /* 留档失败不阻塞 */ }
+  try { renameSync(d.sidecarFile, d.sidecarFile + '.legacy-imported') } catch (e) { d.onError(`dsh-kimi-tide: sidecar 留档失败（${(e as Error).message}），下次启动将重试迁移`) }
   return 'imported'
 }

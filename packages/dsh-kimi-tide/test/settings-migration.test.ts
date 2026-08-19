@@ -56,4 +56,16 @@ describe('migrateSidecarIntoScope', () => {
     expect(existsSync(file)).toBe(true)   // 未改名
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('treats a corrupt sidecar as no-sidecar (load renames it .corrupt)', async () => {
+    const dir = tmp()
+    const file = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(file, '{{{', 'utf8')
+    const scope = fakeScope(mergeResolved({}, 'kimi-tide'))
+    const outcome = await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, providerName: 'kimi-tide', onError })
+    expect(outcome).toBe('no-sidecar')
+    expect(scope.replaced).toBeNull()
+    expect(existsSync(file + '.corrupt')).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
