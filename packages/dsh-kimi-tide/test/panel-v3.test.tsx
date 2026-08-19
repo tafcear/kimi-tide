@@ -203,10 +203,12 @@ describe('TideDock v3', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
     // Fails if: the migration hint (routes users to the official settings card) is removed.
     expect(html).toContain('路由设置已迁至')
+    // The refresh button stays: it is a read-side command (/kimi-tide refresh)
+    // that re-reads quota data and does not mutate configuration.
+    expect(html).toContain('🔄')
     // Fails if: any settings write control reappears (save action, mode select, or score-target dropdown).
     expect(html).not.toContain('保存')
     expect(html).not.toContain('<select')
-    expect(html).not.toContain('<button')
   })
 
   it('still renders quota/usage/decision chips', () => {

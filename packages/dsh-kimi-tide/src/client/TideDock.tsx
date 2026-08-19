@@ -6,10 +6,10 @@
  * 主行 chips（mode 徽标 / 路由 chip / 配额 / 用量 / 本地 token / decision chip）、
  * ReasonPanel 决策可观测区（configSource/decision 展示，本身只读）、推理状态行，
  * 以及一行「路由设置已迁至 设置 → 月汐」。全部写控件（mode 按钮 / 设置折叠区
- * 内的候选、评分、预算滑杆、输入框、保存按钮）已移除；tideDockBridge 保留
- * 供 client/index.ts 接线，但本组件不再触发远程命令。
+ * 内的候选、评分、预算滑杆、输入框、保存按钮）已移除；仅保留主行只读侧
+ * 「🔄 刷新配额」按钮（/kimi-tide refresh 重读配额数据，不写配置）。
  */
-import { type CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { KimiTidePanelProjection } from '../types.js'
 import { ReasonPanel } from './ReasonPanel.js'
 
@@ -45,6 +45,23 @@ const chip: CSSProperties = { whiteSpace: 'nowrap' }
 
 export function TideDock(props: TideDockProps) {
   const panel = props.useProjection('kimi-tide/panel')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+
+  const run = async (line: string) => {
+    setBusy(true)
+    setNotice('')
+    try {
+      const result = await tideDockBridge.execute(props.sessionId, line) as { ok?: boolean } | undefined
+      if (result !== undefined && 'ok' in result && result.ok === false) {
+        setNotice('命令通道不可用（需 dsh-api-remotes）')
+      }
+    } catch {
+      setNotice('命令执行失败')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (panel === undefined || panel === null) {
     return <div className="kimi-tide-dock"><span className="kt-label">🌙 月汐</span><span>⏳ 面板数据加载中…</span></div>
@@ -93,10 +110,13 @@ export function TideDock(props: TideDockProps) {
 
       <span style={chip}>📥 {inTok} · 📤 {outTok} · 💾 {cachePct}%</span>
 
+      <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>
+
       <ReasonPanel configSource={panel.configSource} decision={panel.decision} mode={router.mode} />
 
       <span className="kt-meta">✨ 推理输出已启用（DSH 原生渲染 reasoning-delta）</span>
       <span className="kt-hint">路由设置已迁至 设置 → 月汐</span>
+      {notice !== '' && <span className="kt-warn">⚠️ {notice}</span>}
     </div>
   )
 }
