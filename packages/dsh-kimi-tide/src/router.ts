@@ -287,11 +287,19 @@ export class KimiRouter {
    * 基于本步消息批次做决策；显式 @provider 指令直接生效（先 explicit 再评分）。
    * `step` 为契约占位：每轮只在首个模型步判定的语义由 installRouter
    * （payload.step === 1 门控）完成，decide 本身不使用该参数。
+   *
+   * `hasImageOverride`（会话锁存）：agent/pre-step 的 payload.messages 只携带
+   * 本轮 claimed 消息（dsh-agent-loop preStep()：`messages: claimed`），而 deepseek
+   * 适配器序列化**全量会话**时对任一图片块抛 UNSUPPORTED_CONTENT
+   * （dsh-llm-deepseek serializeMessages → assertTextOnly）——一旦图片消息提交进
+   * 历史，后续纯文本轮也必须按 vision 步骤处理，否则会选中文本-only 候选导致
+   * 整轮失败（2026-08-19 实机回归：turn 3 带图走 k3 后，turn 4 纯文本轮在
+   * deepseek-v4-flash 上抛 UNSUPPORTED_CONTENT）。
    */
-  decide(messages: readonly UserMessage[], step: number): RouteDecision {
+  decide(messages: readonly UserMessage[], step: number, hasImageOverride?: boolean): RouteDecision {
     if (this.config.mode === 'off') return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
-    const hasImage = messagesContainImage(messages)
+    const hasImage = hasImageOverride ?? messagesContainImage(messages)
 
     // 1. 显式指令：最高优先级——在该 provider 的候选里选最优（available 且
     //    带图时模态匹配），无可用候选才保持当前路由。
@@ -330,6 +338,13 @@ export class KimiRouter {
     // 2. 评分选择：classify → selectCandidate 已覆盖 keep 语义（best==default /
     //    eligible 空 / cost 阈值与预算不足 → null → keep）。
     const c = classify(messages, { charsPerToken: this.config.charsPerToken, patterns: this.config.classify.patterns })
+    // 会话锁存：当前批次无图但历史含图（hasImageOverride）时，强制按 vision 评分
+    // （vision 权重 × 多模态候选的 vision 分），让 selectCandidate 的 eligible
+    // 过滤与评分都只会落在能承接图片块的候选上。
+    if (hasImage && !c.vision) {
+      c.vision = true
+      c.weights.vision = 3
+    }
     const v1 = this.v1Config
     const weights = v1 === undefined ? c.weights : legacyWeights(c, v1)
     const budget = this.config.premiumBudget
@@ -464,6 +479,13 @@ function legacyWeights(c: ClassifyResult, v1: RouterConfigV1): Partial<Record<Di
  */
 export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (agent: Agent, decision: RouteDecision) => void): () => void {
   const slots = new WeakMap<Agent, { decision: RouteDecision; hasImage: boolean }>()
+  // 会话图片锁存（2026-08-19 实机回归）：agent/pre-step 的 payload.messages 只含
+  // 本轮 claimed 消息，但图片消息一旦提交进会话历史，deepseek 适配器会在序列化
+  // 全量会话时抛 UNSUPPORTED_CONTENT（dsh-llm-deepseek serializeMessages →
+  // assertTextOnly）——因此任何一轮带图之后，本会话所有后续轮次都必须留在多模态
+  // 候选上（图片仍在上下文中，纯文本适配器物理上无法序列化它）。锁存按 agent
+  // 隔离：子代理拥有独立上下文，不继承父会话的图片历史，正常按文本路由。
+  const imageSeen = new WeakMap<Agent, boolean>()
   return ctx.effect(() => {
     const disposePre = ctx.on('agent/pre-step', async (payload, next) => {
       const result = await next()
@@ -475,8 +497,10 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       // Tool-loop steps (step > 1) keep the logged header config, so the
       // model never switches mid-loop.
       if (payload.step === 1) {
-        const decision = router.decide(payload.messages, payload.step)
-        slots.set(payload.agent, { decision, hasImage: messagesContainImage(payload.messages) })
+        const hasImage = messagesContainImage(payload.messages) || imageSeen.get(payload.agent) === true
+        if (hasImage) imageSeen.set(payload.agent, true)
+        const decision = router.decide(payload.messages, payload.step, hasImage)
+        slots.set(payload.agent, { decision, hasImage })
         onDecision?.(payload.agent, decision)
       }
       return result

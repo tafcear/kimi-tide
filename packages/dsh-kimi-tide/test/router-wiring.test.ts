@@ -160,6 +160,47 @@ describe('installRouter image guard (direction: text-only primary → multimodal
   })
 })
 
+describe('installRouter session image latch (regression: text turn after an image turn must stay multimodal)', () => {
+  // 2026-08-19 real-session regression: turn 3 committed an image message
+  // (routed to kimi-tide/k3 by the step-scoped guard); turn 4 carried only
+  // text, so the per-step guard did not fire, the request went to
+  // deepseek-v4-flash, and dsh-llm-deepseek's serializeMessages rejected the
+  // FULL conversation (which still holds the image block) with
+  // UNSUPPORTED_CONTENT. The agent/pre-step payload only carries the claimed
+  // (current-turn) messages — dsh-agent-loop preStep(): `messages: claimed` —
+  // so once an image enters the session history the router must latch the
+  // agent onto a multimodal candidate for every later turn.
+  it('keeps a later text-only turn on the multimodal route after an image turn', async () => {
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+
+    const imageMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: '看图说话' }, { type: 'image' }],
+    } as unknown as UserMessage
+    await dispatch.preStep({ agent, messages: [imageMessage], turn: 1, step: 1, signal: signal() })
+    const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    expect(first).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+
+    // Next turn: plain text only — the image is still in the session history,
+    // so routing back to the text-only deepseek adapter would throw
+    // UNSUPPORTED_CONTENT. The latch must keep this turn multimodal.
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+    expect(second).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+  })
+
+  it('latch is per-agent: a fresh agent with no image history routes normally', async () => {
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+
+    const other = {}
+    await dispatch.preStep({ agent: other, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: other, turn: 1, step: 1, signal: signal() }, baseConfig)
+    expect(config).toEqual(baseConfig)
+  })
+})
+
 describe('installRouter image admission probe (host prompt pre-check deferral)', () => {
   // Regression (2026-08-18, b66ee0d follow-up): the host prompt admission
   // gate rejects image prompts whose current model selection is text-only

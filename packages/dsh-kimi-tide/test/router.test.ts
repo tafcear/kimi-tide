@@ -291,4 +291,23 @@ describe('image guard under the production v2 sidecar shape (default = kimi-tide
   it('claims host image admission under the production shape', () => {
     expect(canClaimImageAdmission(productionRouter().legacyConfig, productionMetas)).toBe(true)
   })
+
+  it('latch: a text step after an image turn scores vision and routes to k3 even without an image in the current batch', () => {
+    // 2026-08-19 实机回归（turn 4）：图片轮之后的历史包含图片块，deepseek 适配器
+    // 序列化全量会话时抛 UNSUPPORTED_CONTENT（dsh-llm-deepseek serializeMessages →
+    // assertTextOnly）；agent/pre-step 只携带本轮消息（dsh-agent-loop preStep:
+    // `messages: claimed`），路由器必须用会话锁存把后续文本轮当作 vision 步骤评分，
+    // 而不是依赖当前消息里看得见的图片块。
+    const r = new KimiRouter(
+      { ...productionConfig, default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
+      productionMetas,
+      { info: () => {} },
+    )
+    const d = r.decide([msg('继续')], 1, true)
+    expect(d.kind).toBe('route')
+    if (d.kind === 'route') {
+      expect(d.target.model).toBe('k3')
+      expect(d.reason).toBe('capability:vision')
+    }
+  })
 })
