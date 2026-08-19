@@ -15,7 +15,7 @@ Kimi Code 的 OAuth access token 默认约 15 分钟过期。运行以下命令�
 ```powershell
 # 以管理员身份运行 PowerShell
 $action = New-ScheduledTaskAction -Execute "C:\Program Files\PowerShell\7\pwsh.exe" `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"D:\Data\kimi-tide\scripts\kimi-token-refresh.ps1`""
+  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"E:\BaiduSyncdisk\Data\vibe-coding\kimi-tide\kimi-tide\scripts\kimi-token-refresh.ps1`""
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration ([TimeSpan]::MaxValue)
 Register-ScheduledTask -TaskName "KimiTokenRefresh" -Action $action -Trigger $trigger -User "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest
 ```

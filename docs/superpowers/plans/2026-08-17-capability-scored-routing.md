@@ -1,6 +1,7 @@
 # kimi-tide 0.3.0 开发计划：能力评分路由（capability-scored routing）
 
 > 状态：v2.2 定稿（Kimi 三轮审查闭环：R1 13 条 + R2 7 条 + R3 遗留 7 条；R3 总评「同意闭环进入 writing-plans」）· 2026-08-17
+> 实施状态（2026-08-19 更新）：✅ 按本 spec 全部实施完成（2026-08-18，commit 86da918，154/154 测试绿）；实施实况见 `packages/dsh-kimi-tide/docs/router-v3.md`
 > 上游设计：[`../specs/2026-08-17-usage-panel-router-settings-design.md`](../specs/2026-08-17-usage-panel-router-settings-design.md) · 审查：`../reviews/2026-08-17-capability-routing-kimi-review-{round1,round2,round3}.md`
 > 实施计划：[`2026-08-17-capability-routing-implementation.md`](2026-08-17-capability-routing-implementation.md)（writing-plans 产出）
 

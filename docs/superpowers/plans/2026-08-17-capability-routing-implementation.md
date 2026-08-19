@@ -1,5 +1,7 @@
 # kimi-tide 0.3.0 能力评分路由 Implementation Plan
 
+> **状态（2026-08-19 更新）**：✅ 11 任务全部实施完成（2026-08-18，ff 合并 main，commit 86da918，154/154 测试绿），待 README 7 步手工验收。3 处计划缺陷经裁定修正：T6 defaultTarget 笔误 / T8 RouteDecision 缺 scoreDelta / T10 import-config 双形态。架构实况详见 `packages/dsh-kimi-tide/docs/router-v3.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 kimi-tide 路由从「固定槽位+关键词升级」升级为「六维能力评分+provider 无关候选池」，配置持久化迁出被监视的 patch 文件（sidecar），面板 v3 可管理候选与评分并显示决策理由。

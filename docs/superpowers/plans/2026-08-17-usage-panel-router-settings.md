@@ -1,5 +1,7 @@
 # kimi-tide 0.2.0 — 用量显示 · 路由设置面板 · 双端化 实施计划
 
+> **状态（2026-08-19 更新）**：✅ M3.5 双端化 / M3.6 用量显示 / M3.7 设置面板均已在 main 落地。注：本计划所述「设置行级回写 patch yml」路径已在 0.3.0 被 sidecar 文件通道取代（面板保存不再回写 patch 文件），现时架构见 `packages/dsh-kimi-tide/docs/router-v3.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 kimi-tide 现有 host 插件之上交付双端「月汐」dock 面板：官方配额/本地 token 用量显示（M3.6）、路由设置回写 patch yml（M3.7），以及承载它们的双端化机制（M3.5）。

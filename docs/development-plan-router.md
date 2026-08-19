@@ -1,6 +1,6 @@
 # 开发计划：kimi-tide 0.2.x — 双模型自动分工 + 能力缺口补偿
 
-> 状态：**计划主体已落地（main 分支，v0.1.3 之后提交，未发布）**——M1-M3 路由器核心/能力缺口补偿/index 集成已接线（64c22cd 起）；**路由器失效已修复（2026-08-18 commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正 + `textOnlyProviders` 可配置，全量 66/66 测试绿）**；M3.5-M3.7 面板三件套代码完成（实机验证待人工）；M4 单元测试收尾、M6 文档发布为待办；**M5 实机集成验证已于 2026-08-18 部分通过（路由两项，见 §4 M5 行）**。
+> 状态：**计划主体已落地（main 分支，v0.1.3 之后提交，未发布），架构已由 0.3.0 能力评分路由承接（2026-08-18 实施完成，见 [`superpowers/plans/2026-08-17-capability-routing-implementation.md`](superpowers/plans/2026-08-17-capability-routing-implementation.md) 与 [`../packages/dsh-kimi-tide/docs/router-v3.md`](../packages/dsh-kimi-tide/docs/router-v3.md)；v1 配置形状仍被接受并桥接 v2）**——M1-M3 路由器核心/能力缺口补偿/index 集成已接线（64c22cd 起）；**路由器失效已修复（2026-08-18 commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正 + `textOnlyProviders` 可配置，全量 66/66 测试绿）**；M3.5-M3.7 面板三件套代码完成（实机验证待人工）；M4 单元测试收尾、M6 文档发布为待办；**M5 实机集成验证已通过 ✅（2026-08-18 双探针 + 2026-08-19 带图实机闭环，见 §4 M5 行）**；**⚠️ 带图会话锁存已知限制（fcbf421，2026-08-19 实测死锁），见 §2.3.1**。
 > 2026-08-17 扩展：用量显示/路由设置面板/推理状态，设计稿见 [`superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)
 > 定位：月汐项目的核心愿景功能——让 DeepSeek 与 Kimi 按策略自动互补，而非手动切换。
 > 现有实现：[`packages/dsh-kimi-tide/src/router.ts`](../packages/dsh-kimi-tide/src/router.ts)（已实现并接线：`KimiRouter` 决策 + `installRouter` 挂 `agent/pre-step` + `agent/request`）
@@ -66,6 +66,21 @@
 | （预留）深度推理 | 关键词"深度思考/推理"（可选） | kimi 高 effort | 视 K3 实际表现再定 |
 
 补偿路由**高于预算约束**（cost 模式下也不降级）——因为主力模型根本没有该能力，降级等于任务失败。
+
+### 2.3.1 带图会话锁存与已知限制（fcbf421，2026-08-19）
+
+**为何锁存**：`agent/pre-step` payload 只含本轮消息；文本-only 适配器（deepseek）序列化**全量**历史时对任一 image 块抛 `UNSUPPORTED_CONTENT` → 图片一旦进入历史，后续文本轮选文本-only 候选必崩。
+
+**机制**：`installRouter` 持 per-agent `imageSeen` WeakMap——任一 pre-step 含图即永久锁存 → `decide` 强制 vision 维评分（生产配置 k3.vision=5 多模态候选必胜出）+ request 钩子 `applyImageGuard` 兜底改道。子代理（独立上下文）不受锁存影响。
+
+**⚠️ 已知限制（2026-08-19 实测）**：锁存后会话锁死在多模态模型——k3 额度/Key 失效（AUTH 报错）时会话无法切文本模型继续（`model-unavailable`：历史含图片）→ **整会话死锁**，存量会话无法救回（历史图片不可逆）。锁存只是把崩溃延后，**判定不可作为终态方案**。
+
+**根解（0.3.x 规划）**：图片不进主会话历史——
+
+- **图像转述模式**（模型级）：pre-step 调多模态模型把图片转述为文本块注入，后续请求全为纯文本；
+- **子代理图片外包**（子代理级）：独立上下文子代理读图回传文字（前置=kimi 子代理后端落地，扩展点为 subagents 命名注册表 + host plane opt-in 挂载，见 §7）。
+
+**现状**：0.3.0 评分路由中锁存以 `hasImageOverride` 强制 vision 评分等价实现（见 router-v3.md「带图会话锁存」节），根解同样适用。
 
 ### 2.4 非目标（v1 明确不做）
 
@@ -160,7 +175,7 @@ dsh-kimi-tide:
 | **M3.6** 用量显示 | usage.ts（官方 `/coding/v1/usages` 轮询 + 本地 token 累计）+ dock 用量行 | 周配额/5h窗口/会员/本地token 四区展示，80%/90% 变色 | ✅ 代码完成（实机验证待人工） |
 | **M3.7** 设置面板 | settings.ts（行级回写 patch yml）+ dock 展开区表单 + 命令保存 | 保存后重启保持；当前会话即时生效 | ✅ 代码完成（实机验证待人工） |
 | **M4** 单元测试 | 分类器/预算/缺口补偿/applyTo + 用量解析/设置读写 | 覆盖率 >80% 关键路径 | 🟡 进行中：router/usage/settings/commands/projection/types/adapter-usage/index-wiring/index-apply 等测试已就位（11 个测试文件，2026-08-18 实跑 **66/66 绿**）；覆盖率核算与缺口项待收尾 |
-| **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | 🟡 部分通过（2026-08-18，DSH 会话日志解码实锤）：后端真正重启后，`@kimi` 显式探针与 escalateWhen 关键词探针的 request/header 均为 `kimi-tide/k3`（ctxWindow=1048576）——**显式指令升级 ✅、关键词升级 ✅**。**待验**：①带图步骤不报 UNSUPPORTED_CONTENT（仅单测覆盖——router.test.ts/router-wiring.test.ts 66/66 绿，尚未实机触发）②dock 渲染/命令往返/持久化（人工） |
+| **M5** 实机集成验证 | 装 profile 重启，验证：普通任务走 deepseek、@kimi 走 kimi、图片走 kimi；dock 渲染/命令往返/持久化 | 会话日志 request/header 观察路由 | ✅ 通过（2026-08-18 双探针 + 2026-08-19 带图实机闭环，DSH 会话日志解码实锤）：`@kimi` 显式探针、escalateWhen 关键词探针与图片消息的 request/header 均为 `kimi-tide/k3`（ctxWindow=1048576），带图轮正常推进无 UNSUPPORTED_CONTENT——**显式指令升级 ✅、关键词升级 ✅、带图改道 ✅**（锁存已知限制见 §2.3.1）。**余项**：dock 渲染/命令往返/持久化（人工验收） |
 | **M6** 文档发布 | README 路由章节 + docs/router 使用手册 + 0.2.x Release | 文档与配置一致 | ⬜ 待办（本 README 与本文档已先行同步代码事实） |
 | **M7**（可选）增强 | LLM 分类器、token 精确计费、多主模型、settings UI | 视使用反馈 | ⬜ |
 
@@ -176,6 +191,7 @@ dsh-kimi-tide:
 | reasoningEffort 跨模型 | 替换路由后 effort 语义不同 | 替换时丢弃继承 effort，让目标模型用自身默认（参考官方 model-selection 做法） |
 | 预算窗口在重启后清零 | 会话级窗口 vs 全局窗口 | v1 进程内全局窗口（简单）；M7 可持久化 |
 | DeepSeek 多模态未来支持 | 若 V4 后续版本支持图片，补偿路由变成过度设计 | 检测前查 `resolveModel` 的 `inputModalities`，支持则跳过补偿 |
+| 带图会话锁存死锁 | 锁存后会话锁死多模态；k3 额度/Key 失效即无法切文本模型，整会话死锁（2026-08-19 实测，见 §2.3.1） | 锁存非终态方案；根解=图片不进主历史（图像转述 / 子代理图片外包，0.3.x） |
 
 ## 6. 验收标准（0.2.x 整体）
 
@@ -194,4 +210,6 @@ dsh-kimi-tide:
 
 - **dsh-kimi-bridge**（CLI 桥接）：与路由正交——路由决定"哪个模型"，bridge 提供"独立 Kimi agent 会话"；`call_kimi` 本身不受路由影响
 - **协作闭环**：路由器的规则集（审查→kimi）正是本项目实测出的能力矩阵的固化
-- **未来路径**：Open Design 已验证 `kimi acp` 官方协议——若 DSH 后续提供 ACP 子代理，capability 模式可扩展为"任务路由给独立 agent"而非仅模型
+- **未来路径**（2026-08-19 更新）：
+  - **图像转述模式 / 子代理图片外包**：带图会话成本与锁存死锁的根解（见 §2.3.1）
+  - **子代理级委托**：DSH 子代理后端的实际扩展点是 **subagents 命名注册表 + host plane opt-in 挂载**（先例：codex/claude-code 后端；此前「等 ACP 子代理机制」的表述不准确）——kimi 子代理后端落地后，capability 路由可扩展为"任务路由给独立 agent"而非仅模型（Open Design 已验证 `kimi acp` 官方协议）

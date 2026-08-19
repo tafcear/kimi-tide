@@ -8,6 +8,8 @@ Kimi Code (Moonshot) 订阅 → DeepSeek Harness 原生 LLM provider 插件。
 - **零计划任务**：跨平台，无 Windows 专属耦合
 - **标准 DSH 插件**：`dsh.bundle.patch` 声明、`attributionHeaders()` 应用归因、`LlmAdapter` 完整实现（流协议翻译 / 模型元数据 / reasoning 档位）
 
+> **当前状态（2026-08-19）**：main 已含 0.2.x 双模型路由器/月汐面板与 0.3.0 能力评分路由（均未发布 Release）；路由架构详见 [docs/router-v3.md](docs/router-v3.md)，带图会话限制见文末「已知限制」节。
+
 ## 模型
 
 | 模型 | 说明 | 上下文 |
@@ -16,6 +18,8 @@ Kimi Code (Moonshot) 订阅 → DeepSeek Harness 原生 LLM provider 插件。
 | `kimi-for-coding-highspeed` | K2.7 Code 高速版 | 256K |
 | `k3` | Kimi K3 旗舰 | 1M |
 | `k3-256k` | Kimi K3 256K 版 | 256K |
+
+> 模态：以上 4 个模型在 pi-ai 目录中均声明 `input: ["text", "image"]`（多模态）。
 
 ## 前置条件
 
@@ -86,6 +90,14 @@ Kimi Code 订阅仅供个人交互式使用。本插件以订阅凭据直连官�
 5. **带图消息改道**：默认路由为 text-only（deepseek）时发送带图消息，该步自动改道多模态 premium（护栏），不抛 UNSUPPORTED_CONTENT。
 6. **export/import 往返**：`/kimi-tide export-config` 打印 YAML → 保存为文件并修改（如改 `lambda`）→ `/kimi-tide import-config <path>` 整表导入，面板快照与重启后均反映新值。
 7. **mode off 逃生**：面板切 off 或 `/kimi-tide mode off`，后续消息不再改道（决策 chip 清空），行为回到 0.1.x 直通。
+
+## 已知限制（带图会话，2026-08-19）
+
+| 项 | 说明 |
+|----|------|
+| **带图会话锁存** | 图片一旦进入会话历史，文本-only 模型无法承接该会话（适配器序列化全量历史拒绝图片块）→ 路由器把会话锁存到多模态模型（fcbf421，`hasImageOverride` 强制 vision 评分） |
+| **⚠️ 死锁场景** | 锁存后若多模态模型额度/Key 失效（AUTH 报错），会话无法切文本模型继续（`model-unavailable`：历史含图片）——存量会话只能新开会话 |
+| **根解（0.3.x 规划）** | 图片不进主会话历史：图像转述模式（模型级 pre-step 转述）/ 子代理图片外包（子代理读图回传文字，前置=kimi 子代理后端）——同时解决成本与死锁 |
 
 ## 许可
 

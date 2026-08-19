@@ -1,6 +1,7 @@
 # kimi-tide 0.2.0 扩展设计 — 用量显示 · 路由设置面板 · 推理状态
 
 > 状态：设计已确认（2026-08-17，逐节 OK）
+> 实施状态（2026-08-19 更新）：✅ 0.2.x 面板已落地 main（M3.5-M3.7，当时设置为行级回写 patch yml）；0.3.0 起设置持久化迁至 sidecar 文件、面板升级为 v3（候选管理/评分滑杆/决策理由）——现时架构见 `packages/dsh-kimi-tide/docs/router-v3.md`
 > 上游计划：[`../../development-plan-router.md`](../../development-plan-router.md)（M1 草稿已存在）
 > 本文档为 0.2.0 的**增量设计**：在原路由器计划之上新增三个用户可见能力。
 

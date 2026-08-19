@@ -65,8 +65,9 @@ score(candidate) = Σ(dim) weight[dim] × scores[provider/model][dim]
 ```
 
 - **评分表**（`src/scores.ts`）：`scoreFor(cfg, target)` = 用户覆盖
-  （`cfg.scores['provider/model'][dim]`）→ 内置基线（`BASELINE`，SCORES_VERSION 1）→
-  缺省 2.5（vision 缺省 0）。
+  （`cfg.scores['provider/model'][dim]`）→ 内置基线（`BASELINE`，SCORES_VERSION 2：
+  code/reasoning 为权威基准溯源值（SWE-bench/GPQA），其余维度中性，
+  vision 0）→ 缺省 2.5。
 - **selectCandidate**：
   - eligible = `available && (!hasImage || modalities 含 'image')`；空 → keep。
   - 最优即默认目标 → keep。
@@ -96,6 +97,28 @@ score(candidate) = Σ(dim) weight[dim] × scores[provider/model][dim]
 - `applyImageGuard`：带图步骤解析到 text-only 路由时改道多模态 premium；
   premium 本身 text-only 时不改道（避免乒乓），留给宿主报错。
 - 宿主准入层（`canClaimImageAdmission`）：mode ≠ off 且 premium 多模态才认领图像。
+
+## 带图会话锁存（fcbf421，2026-08-19）
+
+**为何锁存**：`agent/pre-step` 的 payload 只含本轮消息；文本-only 适配器（deepseek）
+序列化**全量**历史时对任一 image 块抛 `UNSUPPORTED_CONTENT` → 图片一旦进入历史，
+后续文本轮选文本-only 候选必崩。
+
+**机制**：`installRouter` 持 per-agent `imageSeen` WeakMap——任一 pre-step 含图即永久
+锁存；`decide` 第三参 `hasImageOverride` 强制 `hasImage = true` → 强制 vision 维评分
+（生产配置 k3.vision=5 多模态候选必胜出）+ request 钩子 `applyImageGuard` 兜底改道。
+子代理（独立上下文）不受锁存影响。
+
+**⚠️ 已知限制（2026-08-19 实测）**：锁存后会话锁死多模态模型；该模型额度/Key
+失效（AUTH 报错）时会话无法切文本模型（`model-unavailable`：历史含图片）
+→ **死锁**，存量会话无法救回（历史图片不可逆）。锁存判定不可作为终态方案。
+
+**根解（0.3.x 规划）**：图片不进主会话历史——
+
+- **图像转述模式**（模型级）：pre-step 调多模态模型把图片转述为文本块注入，
+  后续请求全为纯文本；
+- **子代理图片外包**（子代理级）：独立上下文子代理读图回传文字
+  （前置=kimi 子代理后端落地）。
 
 ## 配置源与持久化（sidecar）
 
