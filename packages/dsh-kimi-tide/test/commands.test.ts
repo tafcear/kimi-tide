@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import YAML from 'yaml'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps } from '../src/commands.js'
+import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps, type SettingsNamespacePort } from '../src/commands.js'
 import { DEFAULT_CONFIG_V2, type RouterConfigV2 } from '../src/config.js'
 import { RouterSidecarStore } from '../src/sidecar.js'
 import type { UsageMonitor } from '../src/usage.js'
@@ -15,13 +15,14 @@ function makeConfig(): RouterConfigV2 {
   return { ...DEFAULT_CONFIG_V2('kimi-tide'), premiumBudget: 0.5 }
 }
 
-function makeDeps(opts: { saved?: RouterConfigV2[]; file?: string } = {}) {
+function makeDeps(opts: { saved?: RouterConfigV2[]; file?: string; settings?: SettingsNamespacePort | null } = {}) {
   const saved = opts.saved ?? []
   let current = makeConfig()
   const file = opts.file ?? join(dir, `sidecar-${Math.random().toString(36).slice(2)}.yml`)
   const sidecar = new RouterSidecarStore({ file, onError: () => {} })
   const deps: KimiTideCommandDeps = {
     sidecar,
+    settings: opts.settings ?? null,
     monitor: { refresh: vi.fn(async () => {}) } as unknown as UsageMonitor,
     current: () => current,
     onSaved: vi.fn((next: RouterConfigV2) => {
@@ -210,5 +211,63 @@ describe('applyKimiTideCommand', () => {
     const reply = await applyKimiTideCommand({ kind: 'mode', mode: 'cost' }, deps)
     expect(reply).toContain('schema rejected')
     expect(deps.onSaved).not.toHaveBeenCalled()
+  })
+})
+
+describe('applyKimiTideCommand with settings namespace', () => {
+  it('mode writes through scope.update, not the sidecar', async () => {
+    const writes: object[] = []
+    const { deps } = makeDeps({
+      settings: {
+        get: () => makeConfig(),
+        update: async (p) => { writes.push(p) },
+        replace: async () => {},
+      },
+    })
+    const saveSpy = vi.fn()
+    deps.sidecar.save = saveSpy as RouterSidecarStore['save']
+    const out = await applyKimiTideCommand({ kind: 'mode', mode: 'capability' }, deps)
+    expect(writes).toEqual([{ ...makeConfig(), mode: 'capability' }])
+    expect(saveSpy).not.toHaveBeenCalled()
+    expect(out).toContain('saved')
+  })
+
+  it('export-config prints the resolved namespace value as YAML', async () => {
+    const { deps } = makeDeps({
+      settings: {
+        get: () => ({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'cost' }),
+        update: async () => {},
+        replace: async () => {},
+      },
+    })
+    const out = await applyKimiTideCommand({ kind: 'export-config' }, deps)
+    expect(out).toContain('mode: cost')
+  })
+
+  it('import-config (file) replaces the namespace section', async () => {
+    const replaces: object[] = []
+    const { deps } = makeDeps({
+      settings: {
+        get: () => makeConfig(),
+        update: async () => {},
+        replace: async (s) => { replaces.push(s) },
+      },
+    })
+    const incoming: RouterConfigV2 = { ...makeConfig(), mode: 'capability', lambda: 0.9 }
+    const src = join(dir, 'import-src-ns.yml')
+    writeFileSync(src, YAML.stringify(incoming), 'utf8')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
+    expect(replaces).toEqual([incoming])
+    expect(deps.onSaved).toHaveBeenCalledWith(incoming)
+    expect(out).toMatch(/import/i)
+  })
+
+  it('falls back to sidecar when settings is null', async () => {
+    const { deps } = makeDeps({ settings: null })
+    const saveSpy = vi.fn()
+    deps.sidecar.save = saveSpy as RouterSidecarStore['save']
+    const out = await applyKimiTideCommand({ kind: 'mode', mode: 'off' }, deps)
+    expect(saveSpy).toHaveBeenCalled()
+    expect(out).toContain('saved')
   })
 })

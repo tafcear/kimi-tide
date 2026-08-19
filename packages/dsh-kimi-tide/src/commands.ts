@@ -20,16 +20,19 @@
  *   - 其余（不存在路径/不可解析） → 报错，路径形态行为不变
  *
  * Persistence contract: every mutating subcommand writes RouterConfigV2
- * through the RouterSidecarStore — never the v1 patch file. The sidecar is
- * the authoritative router store (sidecar > patch > default on load), so a
- * v1 raw-text splice would either lose v2-only fields (scores,
- * classify.patterns) or be shadowed by the sidecar on the next load.
+ * through the settings namespace (KimiTideCommandDeps.settings) when one is
+ * wired — never the v1 patch file; when settings is absent the sidecar
+ * (RouterSidecarStore) remains the fallback store. The sidecar is the
+ * authoritative router store on load when no settings namespace is present
+ * (sidecar > patch > default), so a v1 raw-text splice would either lose
+ * v2-only fields (scores, classify.patterns) or be shadowed on the next load.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
 import type { RouterConfigV2 } from './config.js'
+import { migrateV1 } from './migrate.js'
 import type { RouterSidecarStore } from './sidecar.js'
 import type { UsageMonitor } from './usage.js'
 
@@ -42,9 +45,18 @@ export type KimiTideCommand =
   | { kind: 'help' }
   | { kind: 'error'; message: string }
 
+/** Settings namespace port: primary read/write channel for the router config. */
+export interface SettingsNamespacePort {
+  get(): RouterConfigV2
+  update(patch: object): Promise<void>
+  replace(section: object): Promise<void>
+}
+
 export interface KimiTideCommandDeps {
   /** v2 persistence: the sidecar file is the live router store. */
   sidecar: RouterSidecarStore
+  /** Primary settings namespace; absent/null → fall back to sidecar read/write. */
+  settings?: SettingsNamespacePort | null
   monitor: UsageMonitor
   current: () => RouterConfigV2
   /** Called after a successful save: rebuild the router + push projection. */
@@ -126,6 +138,7 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       return persist(next, deps, `${cmd.key} → ${String(cmd.value)}`)
     }
     case 'export-config': {
+      if (deps.settings != null) return YAML.stringify(deps.settings.get())
       try {
         return deps.sidecar.exportText()
       } catch (error) {
@@ -136,7 +149,15 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       const inline = isInlineYamlText(cmd.path)
       let next: RouterConfigV2
       try {
-        next = inline ? importInlineText(cmd.path, deps) : deps.sidecar.importFile(cmd.path)
+        if (deps.settings != null) {
+          next = inline ? mergeInlineText(cmd.path, deps.current()) : parseImportedFile(cmd.path)
+          await deps.settings.replace(next as unknown as object)
+        } else if (inline) {
+          next = mergeInlineText(cmd.path, deps.current())
+          deps.sidecar.save(next)
+        } else {
+          next = deps.sidecar.importFile(cmd.path)
+        }
       } catch (error) {
         return `kimi-tide: import failed — ${(error as Error).message}`
       }
@@ -146,14 +167,18 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
   }
 }
 
-function persist(config: RouterConfigV2, deps: KimiTideCommandDeps, what: string): string {
-  try {
-    deps.sidecar.save(config)
-  } catch (error) {
-    return `kimi-tide: save failed — ${(error as Error).message}`
+async function persist(config: RouterConfigV2, deps: KimiTideCommandDeps, what: string): Promise<string> {
+  if (deps.settings != null) {
+    try { await deps.settings.update(config as unknown as object) } catch (error) {
+      return `kimi-tide: save failed — ${(error as Error).message}`
+    }
+    deps.onSaved(config)
+    return `kimi-tide: saved (${what}); effective now, persists across restarts`
   }
+  // 兜底：无 settings 服务时维持旧 sidecar 写入
+  try { deps.sidecar.save(config) } catch (error) { return `kimi-tide: save failed — ${(error as Error).message}` }
   deps.onSaved(config)
-  return `kimi-tide: saved (${what}); effective now, persists across restarts`
+  return `kimi-tide: saved (${what}); effective now, persists across restarts（sidecar 兜底模式）`
 }
 
 function setDotted(target: Record<string, unknown>, dotted: string, value: unknown): void {
@@ -197,19 +222,40 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 }
 
 /**
- * 内联 YAML 合并补丁落盘（面板 v3 保存通道）：把解析后的部分配置深度合并进
- * 当前配置并写入 sidecar。见文件头注释——面板各区块文本只带各自字段，必须合并
- * 而非整表替换，否则未投影字段（lambda/routeThreshold/既有 scores）会丢。
+ * 内联 YAML 合并补丁（面板 v3 保存通道）：把解析后的部分配置深度合并进
+ * 当前配置并返回合并结果（不落盘——由调用处统一 replace/save）。见文件头
+ * 注释——面板各区块文本只带各自字段，必须合并而非整表替换，否则未投影字段
+ * （lambda/routeThreshold/既有 scores）会丢。
  */
-function importInlineText(text: string, deps: KimiTideCommandDeps): RouterConfigV2 {
+function mergeInlineText(text: string, current: RouterConfigV2): RouterConfigV2 {
   const patch = YAML.parse(text) as unknown
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
     throw new Error('inline YAML must be a mapping (object)')
   }
-  const merged = deepMerge(structuredClone(deps.current()), patch) as RouterConfigV2
+  const merged = deepMerge(structuredClone(current), patch) as RouterConfigV2
   merged.version = 2
-  deps.sidecar.save(merged)
   return merged
+}
+
+/**
+ * 读取并校验一个 config YAML 文件（不落盘），供 settings 命名空间路径的
+ * import-config 文件形态使用——镜像 RouterSidecarStore.validate 的 v2 结构
+ * 检查 + v1 迁移，与 sidecar.importFile 保持相同解析语义但不写入 sidecar。
+ */
+function parseImportedFile(path: string): RouterConfigV2 {
+  const raw = YAML.parse(readFileSync(path, 'utf8')) as unknown
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 2) {
+    const d = (r.default ?? {}) as Record<string, unknown>
+    if (typeof d.provider !== 'string' || typeof d.model !== 'string') {
+      throw new Error('config v2 结构不合格：default.provider/default.model 缺失或非字符串')
+    }
+    if (!Array.isArray(r.candidates)) {
+      throw new Error('config v2 结构不合格：candidates 缺失或非数组')
+    }
+    return raw as RouterConfigV2
+  }
+  return migrateV1(raw, () => {})
 }
 
 /**
