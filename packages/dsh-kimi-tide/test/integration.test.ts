@@ -68,6 +68,9 @@ function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }
       commands: { register: () => () => {} },
       sessionProjections: { register: () => () => {} },
       setInterval: () => () => {},
+      // 无 settings 服务的宿主：cordis 不会运行依赖缺失的 inject 回调，
+      // 路由配置仍走 sidecar > patch > default 链。
+      inject: () => {},
       effect: (execute: () => unknown) => {
         const cleanup = execute()
         return () => { void cleanup }

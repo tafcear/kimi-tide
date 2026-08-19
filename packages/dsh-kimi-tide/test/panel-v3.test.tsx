@@ -149,6 +149,18 @@ describe('ReasonPanel', () => {
     expect(html).toContain('kimi-for-coding')
   })
 
+  it('labels the settings-namespace source (0.4.0 primary store)', () => {
+    const html = renderToString(createElement(ReasonPanel, {
+      configSource: 'settings',
+      decision: null,
+      mode: 'capability',
+    }))
+    // Fails if: SOURCE_LABELS still lacks 'settings' and the panel falls back
+    // to echoing the raw key twice.
+    expect(html).toContain('设置')
+    expect(html).toContain('settings')
+  })
+
   it('renders a friendly empty state when no decision was observed', () => {
     const html = renderToString(createElement(ReasonPanel, {
       configSource: 'default',

@@ -10,6 +10,9 @@ import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: brings the `ctx.settings` augmentation in without making
+// @deepseek-ai/dsh-settings a load-time dependency (rc.6 hosts lack it).
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -17,7 +20,8 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { KimiAdapter } from './adapter.js'
-import { registerKimiTideCommands } from './commands.js'
+import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
+import { migrateV1 } from './migrate.js'
 import { KimiOAuthManager } from './oauth.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
@@ -28,6 +32,7 @@ import {
   type RouterLog,
 } from './router.js'
 import { configKey, DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from './config.js'
+import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore } from './settings.js'
 import { UsageMonitor } from './usage.js'
@@ -36,6 +41,9 @@ import type { CandidateSummary, ConfigSource, DecisionSummary, KimiTidePanelProj
 export const name = 'dsh-kimi-tide'
 
 export const inject = ['llm', 'timer', 'commands', 'sessionProjections']
+
+/** User-settings namespace owning RouterConfigV2 (dsh-settings). */
+export const SETTINGS_NAMESPACE = 'kimi-tide-router'
 
 export interface Config {
   /** Provider route name registered into ctx.llm. */
@@ -213,6 +221,25 @@ async function enumerateCandidates(
   return out
 }
 
+/**
+ * Structural equality over JSON-shaped data (key order agnostic) — mirrors
+ * dsh-settings' change-detection predicate without importing it, so this
+ * module stays loadable on a host that has no settings package at all.
+ */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((entry, index) => sameJson(entry, b[index]))
+  }
+  const left = a as Record<string, unknown>
+  const right = b as Record<string, unknown>
+  const keys = Object.keys(left)
+  if (keys.length !== Object.keys(right).length) return false
+  return keys.every((key) => key in right && sameJson(left[key], right[key]))
+}
+
 /** Pool used before the first enumeration settles (router mounts immediately). */
 function fallbackCandidateMetas(config: RouterConfigV2): CandidateMeta[] {
   const targets = [config.default, ...config.candidates]
@@ -299,31 +326,47 @@ export function apply(ctx: Context, config: Config = {}) {
   })
   ctx.llm.registerAdapter([providerName], adapter)
 
-  // Router persistence (0.3.0): the sidecar file is the live store; the
-  // patch file keeps only the legacy static seed. Priority: sidecar > patch
-  // static > DEFAULT_CONFIG_V2(providerName). Saving no longer rewrites the
-  // loader-watched patch file, so a panel save no longer re-applies the
-  // plugin (the root cause of the 57c7ef8 desync class).
+  // Router persistence (0.4.0): the dsh-settings namespace `kimi-tide-router`
+  // is the primary store (see the ctx.inject wiring below); the sidecar file
+  // stays the live store for hosts WITHOUT a settings service and the one-shot
+  // migration source for hosts that gained one. The patch file keeps only the
+  // legacy static seed. Priority without settings: sidecar > patch static >
+  // DEFAULT_CONFIG_V2(providerName).
   const store = new RouterSettingsStore({
     patchFile: config.patchFile ?? defaultPatchFile(),
     onError: warn,
   })
+  const sidecarFile = config.sidecarFile ?? defaultSidecarFile()
+  /**
+   * Composition seed in its raw v1 shape: entry config, else the patch static
+   * block. Read once — it feeds both the sidecar fallback chain and the
+   * settings `base` layer, and re-reading would duplicate its warnings.
+   */
+  const seedRaw: unknown = config.router !== undefined
+    ? config.router
+    : (() => { try { return store.load() } catch { return null } })()
   const sidecar = new RouterSidecarStore({
-    file: config.sidecarFile ?? defaultSidecarFile(),
-    patchFallback: () => {
-      if (config.router !== undefined) return config.router
-      try {
-        return store.load()
-      } catch {
-        return null
-      }
-    },
+    file: sidecarFile,
+    patchFallback: () => seedRaw,
     onError: warn,
   })
   const loaded = sidecar.load()
   let routerConfigV2: RouterConfigV2 = loaded.config ?? DEFAULT_CONFIG_V2(providerName)
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
+  // The settings namespace's `base` layer must be v2-shaped: the composition
+  // entry (and the legacy patch block) speak v1 (mode/primary/premium), and v1
+  // keys mean nothing to routerConfigSchema — layering them raw would resolve
+  // to the schema's DEFAULT targets and silently drop a composed route.
+  // migrateV1 is the same v1→v2 bridge the sidecar fallback chain uses; when
+  // that chain already ran it (source 'patch'), reuse its output rather than
+  // migrating — and warning — twice.
+  const settingsBase: Partial<RouterConfigV2> =
+    seedRaw === null || seedRaw === undefined
+      ? {}
+      : loaded.source === 'patch' && loaded.config !== null
+        ? loaded.config
+        : migrateV1(seedRaw, warn)
 
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
@@ -364,24 +407,49 @@ export function apply(ctx: Context, config: Config = {}) {
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
-  // v2 config shape and write ONLY the sidecar — the v1 patch file keeps the
-  // legacy static seed untouched (the sidecar outranks it on load anyway, so
-  // a raw-text patch splice would be dead weight and would drop v2-only
-  // fields like scores/classify.patterns).
+  // v2 config shape and write the settings namespace when one is attached,
+  // else the sidecar — never the v1 patch file (the sidecar outranks it on
+  // load anyway, so a raw-text patch splice would be dead weight and would
+  // drop v2-only fields like scores/classify.patterns).
+
+  /** Owner scope of the settings namespace; null until attached (or after detach). */
+  let settingsScope: SettingsNamespacePort | null = null
+
+  /**
+   * Adopt a new effective config: the single write path shared by the settings
+   * namespace (attach / committed change / migration) and the command layer's
+   * onSaved. A config change invalidates any decision made under the old
+   * config, so the summary is dropped until the next capability route.
+   *
+   * Idempotent by value: one save arrives twice on a namespace host (the
+   * command's onSaved, then the namespace commit watcher), and an unchanged
+   * config must not re-mount the router or re-enumerate candidates. A source
+   * flip alone (sidecar → settings at attach) still re-pushes the panel.
+   */
+  const applyConfig = (next: RouterConfigV2) => {
+    const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
+    const changed = !sameJson(routerConfigV2, next)
+    if (!changed && configSource === source) return
+    routerConfigV2 = next
+    configSource = source
+    if (changed) {
+      latestDecision = null
+      mountRouter()
+      refreshCandidates()
+    }
+    pushPanelToAllSessions()
+  }
+
   registerKimiTideCommands(ctx, {
     sidecar,
     monitor,
     current: () => routerConfigV2,
-    onSaved: (next) => {
-      routerConfigV2 = next
-      // A config change invalidates any decision made under the old config:
-      // the summary is dropped until the next capability route decision.
-      latestDecision = null
-      configSource = 'sidecar'
-      mountRouter()
-      refreshCandidates()
-      pushPanelToAllSessions()
-    },
+    // A getter, not a snapshot: the settings service attaches asynchronously
+    // (ctx.inject) and can detach, so the command layer must read the CURRENT
+    // port — a value captured here would pin `null` and degrade every save to
+    // the sidecar silently.
+    get settings() { return settingsScope },
+    onSaved: (next) => applyConfig(next),
   })
 
   // Projection: register the unit, then push the current snapshot into every
@@ -447,6 +515,65 @@ export function apply(ctx: Context, config: Config = {}) {
     for (const agent of agentRegistry.list()) liveAgents.add(agent)
     if (liveAgents.size > 0) pushPanelToAllSessions()
   }
+
+  // Settings namespace (dsh-settings, rc.7+): register `kimi-tide-router` with
+  // the composition seed as its base layer and keep the owner scope so the
+  // command layer can write through it. This is installSettingsSection's
+  // wiring done by hand — the seam's hooks expose only a read thunk, and the
+  // host needs the read AND write halves of the scope. The callback never runs
+  // on a host without a settings service (rc.6), which is exactly the seam's
+  // no-op behavior: the sidecar fallback stays in charge. Wired here, after the
+  // panel roster exists, because attaching immediately applies the resolved
+  // config and pushes a snapshot.
+  ctx.inject(['settings'], (sctx) => {
+    let scope: SettingsScope<RouterConfigV2>
+    try {
+      scope = sctx.settings.register(SETTINGS_NAMESPACE as never, routerConfigSchema as never, {
+        base: settingsBase,
+        // dsh-settings' validate throws to refuse a write; T1's returns a message.
+        validate: (value: RouterConfigV2) => {
+          const message = validateRouterConfig(value)
+          if (message !== undefined) throw new Error(message)
+        },
+      }) as unknown as SettingsScope<RouterConfigV2>
+    } catch (error) {
+      // A stored section that already fails schema/validate rejects the
+      // registration itself. Degrade loudly to the sidecar instead of leaving
+      // the whole plugin fiber broken.
+      warn(`dsh-kimi-tide: 设置命名空间 ${SETTINGS_NAMESPACE} 注册失败（${(error as Error).message}）；本次运行退回 sidecar 存储`)
+      return
+    }
+    const port: SettingsNamespacePort = {
+      get: () => scope.get(),
+      update: (patch) => scope.update(patch),
+      replace: (section) => scope.replace(section),
+    }
+    settingsScope = port
+    applyConfig(scope.get())
+    // Detach (provider reload / service disposal) rides the scoped fiber: the
+    // command layer falls back to the sidecar until the callback re-runs.
+    sctx.effect(() => () => { settingsScope = null })
+    // Committed changes (panel save, /kimi-tide, external document edit, the
+    // migration below) all land here.
+    sctx.effect(() => scope.watch(() => applyConfig(scope.get())))
+    // One-shot legacy sidecar → namespace import. Imported dynamically so the
+    // dsh-settings dependency it carries is resolved only on a host that
+    // actually has the service (rc.6 keeps loading this plugin).
+    void import('./settings-migration.js')
+      .then(({ migrateSidecarIntoScope }) => migrateSidecarIntoScope({
+        sidecarFile,
+        scope: port,
+        entry: settingsBase,
+        providerName,
+        onError: warn,
+      }))
+      .then((outcome) => {
+        if (outcome === 'imported') {
+          warn('dsh-kimi-tide: sidecar 已迁移至设置命名空间 kimi-tide-router（原文件留档 .legacy-imported）')
+        }
+      })
+      .catch((error) => warn(`dsh-kimi-tide: sidecar 迁移失败（${(error as Error).message}）`))
+  })
 
   // OAuth refresh loop (0.1.x behavior).
   const refresh = () => { void oauth.refresh().catch(() => {}) }

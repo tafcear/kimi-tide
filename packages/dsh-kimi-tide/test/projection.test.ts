@@ -32,6 +32,18 @@ describe('panelSchema (candidates scores, 0.3.0 final review)', () => {
     kimiTideProjectionDefinition.schema as never,
   ) as (v: unknown) => KimiTidePanelProjection | null
 
+  // Fails if: the wire schema's configSource union lacks 'settings' — the
+  // 0.4.0 host resolves the router config through the settings namespace and
+  // reports that source, so a stale union would reject every panel push.
+  it("accepts configSource 'settings' and still rejects unknown sources", () => {
+    const p = panel(1)
+    p.candidates = []
+    p.decision = null
+    p.configSource = 'settings'
+    expect(parse(p)!.configSource).toBe('settings')
+    expect(() => parse({ ...p, configSource: 'nope' })).toThrow()
+  })
+
   it('keeps per-candidate override scores when present', () => {
     const p = panel(1)
     p.candidates = [

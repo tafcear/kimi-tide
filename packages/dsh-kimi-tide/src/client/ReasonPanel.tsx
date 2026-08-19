@@ -14,6 +14,7 @@ export interface ReasonPanelProps {
 }
 
 const SOURCE_LABELS: Record<ConfigSource, string> = {
+  settings: '🛠 设置命名空间',
   sidecar: '📄 sidecar 文件',
   patch: '🩹 patch 静态块',
   default: '⚙️ 内置默认',

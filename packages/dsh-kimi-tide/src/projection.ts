@@ -45,7 +45,7 @@ const panelSchema = z.object({
   models: z.object({ kimi: z.array(z.string()), deepseek: z.array(z.string()) }).optional(),
   // projection v2 (0.3.0): config source observability + candidate pool
   // summary + decision digest (spec §2.7; full score tables stay host-side).
-  configSource: z.union([z.literal('sidecar'), z.literal('patch'), z.literal('default')]),
+  configSource: z.union([z.literal('settings'), z.literal('sidecar'), z.literal('patch'), z.literal('default')]),
   candidates: z.array(z.object({
     provider: z.string(),
     model: z.string(),

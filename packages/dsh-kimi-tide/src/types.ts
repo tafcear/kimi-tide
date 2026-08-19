@@ -7,8 +7,12 @@ import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { Dim } from './config.js'
 import type { RouterConfig } from './router.js'
 
-/** Where the effective router config came from (sidecar > patch > default). */
-export type ConfigSource = 'sidecar' | 'patch' | 'default'
+/**
+ * Where the effective router config came from. 'settings' is the 0.4.0 primary
+ * store (the dsh-settings namespace `kimi-tide-router`); the sidecar > patch >
+ * default chain remains the fallback for hosts without a settings service.
+ */
+export type ConfigSource = 'settings' | 'sidecar' | 'patch' | 'default'
 
 /** Compact per-candidate summary for the panel (full metas stay host-side). */
 export interface CandidateSummary {
@@ -63,7 +67,7 @@ export interface KimiTidePanelProjection {
   reasoning: { enabled: true }
   /** Selectable model ids per provider family (settings dropdown options). */
   models?: { kimi: string[]; deepseek: string[] }
-  /** Effective config source: sidecar file > patch static block > built-in default. */
+  /** Effective config source: settings namespace > sidecar file > patch static block > built-in default. */
   configSource: ConfigSource
   /** Enumerated candidate pool summary (provider-agnostic; whitelist-filtered). */
   candidates: CandidateSummary[]

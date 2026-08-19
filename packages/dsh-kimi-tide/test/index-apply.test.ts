@@ -49,6 +49,9 @@ function makeCtx(agents: FakeAgent[]) {
     commands: { register: (def: never) => { commandDef = def as never; return () => {} } },
     sessionProjections: { register: () => () => {} },
     setInterval: () => () => {},
+    // No settings service on this host: cordis never runs an inject callback
+    // whose dependency is absent, so the sidecar store stays in charge.
+    inject: () => {},
     effect: (execute: () => unknown) => {
       const cleanup = execute()
       return () => { void cleanup }
