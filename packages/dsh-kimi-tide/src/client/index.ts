@@ -13,11 +13,34 @@ import { SettingsCard } from './SettingsCard.js'
 
 export const inject = ['slots', 'remote', 'remote.commands']
 
+/** Minimal structural face of the browser locale service (dsh-client-locale). */
+interface LocaleFace {
+  register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
+  bind(ns: string): (key: string, params?: Record<string, unknown>) => string
+}
+
+const LOCALE_NS = 'settings.kimi-tide'
+
 export function apply(ctx: Context): void {
   // Wire the bridge so TideDock can call remote commands without receiving ctx as a prop.
   tideDockBridge.execute = (sessionId, line) =>
     (ctx as unknown as { remote: { commands: { execute: (sid: string, l: string) => Promise<unknown> } } })
       .remote.commands.execute(sessionId, line)
+
+  // Settings-card nav label (spec §3.1): locale-bound `t('nav')` like the
+  // official Models section, falling back to the hardcoded copy when the
+  // locale service is absent (it is not in this plugin's inject, so its
+  // absence must not block activation).
+  const locale = ctx.get('locale') as LocaleFace | undefined
+  let navLabel = (): string => '月汐'
+  if (locale?.register !== undefined && locale?.bind !== undefined) {
+    ctx.effect(() => locale.register(LOCALE_NS, {
+      zh: { nav: '月汐' },
+      en: { nav: 'Kimi Tide' },
+    }))
+    const t = locale.bind(LOCALE_NS)
+    navLabel = () => t('nav')
+  }
 
   ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
     name: 'conversation.composer.dock',
@@ -38,7 +61,7 @@ export function apply(ctx: Context): void {
     name: 'settings.section',
     id: 'kimi-tide-router',
     order: 100,
-    label: () => '月汐',
+    label: navLabel,
     inject: () => ({
       scope: (ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
         ?.bind({ namespace: 'kimi-tide-router' }) ?? null,

@@ -361,9 +361,17 @@ export function apply(ctx: Context, config: Config = {}) {
   // migrateV1 is the same v1→v2 bridge the sidecar fallback chain uses; when
   // that chain already ran it (source 'patch'), reuse its output rather than
   // migrating — and warning — twice.
+  // A NULL seed must still be provider-parameterized, not `{}`: settings-schema
+  // resolves a bare base to D = DEFAULT_CONFIG_V2('kimi-tide') (fixed), so a
+  // custom providerName with no composition seed would (a) resolve candidates/
+  // allowedProviders to the fixed 'kimi-tide' and mis-route, and (b) keep the
+  // migration dirty check (scope.get() vs mergeResolved(entry, providerName))
+  // permanently dirty, silently skipping the sidecar import forever. Building
+  // the full DEFAULT_CONFIG_V2(providerName) here aligns with mergeResolved's
+  // T2 clean predicate and the routerConfigV2 fallback at L354.
   const settingsBase: Partial<RouterConfigV2> =
     seedRaw === null || seedRaw === undefined
-      ? {}
+      ? DEFAULT_CONFIG_V2(providerName)
       : loaded.source === 'patch' && loaded.config !== null
         ? loaded.config
         : migrateV1(seedRaw, warn)

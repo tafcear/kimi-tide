@@ -332,6 +332,35 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(lastSnapshot(agent).router).toMatchObject({ mode: 'cost' })
   })
 
+  /**
+   * Ruling 16 — a NULL composition seed (no entry router + no patch block +
+   * no sidecar) must parameterize the namespace base by providerName, not the
+   * schema's fixed 'kimi-tide' default. settingsBase = {} makes the namespace
+   * resolve candidates/allowedProviders to D = DEFAULT_CONFIG_V2('kimi-tide'),
+   * so a custom providerName silently mis-routes and the migration dirty check
+   * (scope.get() vs mergeResolved(entry, providerName)) stays permanently
+   * dirty. The custom providerName variant is what distinguishes this from the
+   * fixed-'kimi-tide' test environment.
+   */
+  it('parameterizes the namespace base by providerName when there is no composition seed', async () => {
+    const settings = await bootSettings()
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent], settings)
+
+    apply(ctx as never, {
+      patchFile,
+      sidecarFile,
+      usagePollOnStart: false,
+      refreshOnStart: false,
+      providerName: 'custom-provider',
+    })
+    await tick()
+
+    const resolved = settings.get(NS) as RouterConfigV2
+    expect(resolved.candidates[0].provider).toBe('custom-provider')
+    expect(resolved.allowedProviders).toContain('custom-provider')
+  })
+
   it('falls back to the sidecar store when the settings service goes away', async () => {
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }

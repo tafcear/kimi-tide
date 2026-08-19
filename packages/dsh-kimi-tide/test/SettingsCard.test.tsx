@@ -79,6 +79,16 @@ describe('createCardStore write paths', () => {
     })
   })
 
+  it('saveScores degrades loudly when only a scope is present (no connection channel)', async () => {
+    const { scope } = makeScope()
+    const store = createCardStore(scope, null)
+
+    await store.saveScores('kimi-tide/k3', 'code', 4.7)
+
+    // Fails if: a nested scores write with no connection channel silently drops.
+    expect(store.getSnapshot().error).toContain('connection 通道')
+  })
+
   it('resetField clears a top-level field so it re-inherits', async () => {
     const { scope, unset } = makeScope()
     const store = createCardStore(scope, null)
@@ -225,5 +235,50 @@ describe('settings.section registration', () => {
     expect(reg!.options.order).toBe(100)
     expect((reg!.options.label as () => string)()).toBe('月汐')
     expect(reg!.component).toBe(SettingsCard)
+  })
+
+  it('binds the section label through the locale service when present', () => {
+    const registered: Array<[string, Record<string, Record<string, string>>]> = []
+    const t = vi.fn((key: string) => `译:${key}`)
+    const locale = {
+      register: (ns: string, dicts: Record<string, Record<string, string>>) => {
+        registered.push([ns, dicts])
+        return () => {}
+      },
+      bind: () => t,
+    }
+    const injects: Array<{ name: string; factory: () => void }> = []
+    const registers: Array<{ options: Record<string, unknown>; component: unknown }> = []
+    const ctx = {
+      slots: {
+        inject: (name: string, factory: () => void) => {
+          injects.push({ name, factory })
+        },
+        register: (options: Record<string, unknown>, component: unknown) => {
+          registers.push({ options, component })
+          return options
+        },
+      },
+      remote: { commands: { execute: async () => ({ ok: true }) } },
+      get: (name: string) => (name === 'locale' ? locale : undefined),
+      effect: (execute: () => unknown) => {
+        execute()
+        return () => {}
+      },
+    }
+
+    apply(ctx as never)
+
+    const section = injects.find((i) => i.name === 'settings.section')
+    expect(section).toBeDefined()
+    section!.factory()
+    const reg = registers.find((r) => r.options.name === 'settings.section')
+    // Fails if: the label stops routing through the locale service's t('nav').
+    expect((reg!.options.label as () => string)()).toBe('译:nav')
+    expect(t).toHaveBeenCalledWith('nav')
+    // Fails if: the plugin's dictionary is not registered under its namespace.
+    expect(registered).toHaveLength(1)
+    expect(registered[0][0]).toBe('settings.kimi-tide')
+    expect(registered[0][1].zh.nav).toBe('月汐')
   })
 })

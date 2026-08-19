@@ -192,13 +192,19 @@ export function createCardStore(
 
   const saveScores = async (key: string, dim: string, value: number): Promise<void> => {
     try {
-      if (connection !== null) {
-        await connection.api.settings.mutate({
-          ns: CARD_NAMESPACE,
-          ops: [{ op: 'set', path: ['scores', key, dim], value }],
-          ...(revision === undefined ? {} : { expectedRevision: revision }),
-        })
+      // Nested scores writes only exist on the connection/mutate channel
+      // (multi-segment path); scope.set/unset speak top-level scalars only. A
+      // scope-only store would otherwise drop the write silently — degrade
+      // loudly through the snapshot error channel instead.
+      if (connection === null) {
+        fail(new Error('嵌套评分写入需要 connection 通道'))
+        return
       }
+      await connection.api.settings.mutate({
+        ns: CARD_NAMESPACE,
+        ops: [{ op: 'set', path: ['scores', key, dim], value }],
+        ...(revision === undefined ? {} : { expectedRevision: revision }),
+      })
       await load()
     } catch (error) {
       fail(error)
