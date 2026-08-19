@@ -8,8 +8,6 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import YAML from 'yaml'
 import { parseKimiTideCommand, isInlineYamlText } from '../src/commands.js'
 import { CandidateList, candidatesToSidecar } from '../src/client/CandidateList.js'
@@ -177,11 +175,9 @@ describe('ReasonPanel', () => {
 describe('TideDock v3', () => {
   const useProjection = () => makePanel()
 
-  it('mounts the v3 sections and the decision chip', () => {
+  it('renders the read-only reason panel and the decision chip', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
-    // v3 panels mounted inside the settings fold.
-    expect(html).toContain('候选')
-    expect(html).toContain('保存评分')
+    // Reason panel (configSource/decision observability) stays read-only on the main row.
     expect(html).toContain('实际路由')
     // Decision chip on the main row.
     expect(html).toContain('代码任务命中 Kimi 编码优势')
@@ -203,39 +199,26 @@ describe('TideDock v3', () => {
     expect(html).toContain('📤')
   })
 
-  it('deduplicates the score-target dropdown when the default target is also a candidate', () => {
-    // Regression: when defaultTarget is also present in panel.candidates, the
-    // score-target dropdown must not list it twice. Existing CANDIDATES already
-    // contains deepseek-official/deepseek-v4-flash which equals defaultTarget
-    // (primary), so this fixture reproduces the duplication.
+  it('renders the read-only migration hint and no settings write controls', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
-    // Count occurrences of the full provider/model key in the score-target select
-    // (the option value is "provider/model").
-    const matches = html.match(/value="deepseek-official\/deepseek-v4-flash"/g) ?? []
-    expect(matches.length).toBe(1)
+    // Fails if: the migration hint (routes users to the official settings card) is removed.
+    expect(html).toContain('路由设置已迁至')
+    // Fails if: any settings write control reappears (save action, mode select, or score-target dropdown).
+    expect(html).not.toContain('保存')
+    expect(html).not.toContain('<select')
+    expect(html).not.toContain('<button')
   })
 
-  it('seeds the ScoreEditor draft from candidates[].scores (saved overrides, not baseline)', () => {
-    // Fails if: TideDock stops passing the per-configKey overrideScores lookup
-    // into ScoreEditor — saved overrides would render as baseline values and a
-    // reopened panel would tempt a second accidental save.
+  it('still renders quota/usage/decision chips', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
-    expect(html).toContain('覆盖 <!-- -->4.5')
-    expect(html).toContain('覆盖 <!-- -->3.0')
-  })
-
-  it('BudgetSlider draft follows the external value prop (CLI set / import-config / 另一会话)', () => {
-    // renderToString 只渲染首帧（useEffect 不同步执行），无法直接断言 effect
-    // 同步本身；改为断言「draft 由 value prop 派生」的初值通道成立 + 源码中
-    // 的 value→draft 同步 effect 存在（防再次删回 0.2.x 曾有、本分支被删的
-    // useEffect(() => setDraftPct(...), [value])）。
-    const html = renderToString(createElement(TideDock, {
-      sessionId: 's1',
-      useProjection: () => makePanel({ router: { ...makePanel().router, premiumBudget: 0.35 } }),
-    }))
-    expect(html).toContain('value="35"')
-    const src = readFileSync(join(__dirname, '../src/client/TideDock.tsx'), 'utf8')
-    expect(src).toContain('useEffect(() => setDraftPct(Math.round((value ?? 0.2) * 100)), [value])')
+    // Fails if: the read-only mode badge is dropped along with the mode buttons.
+    expect(html).toContain('📡')
+    // Fails if: quota/usage readouts are dropped.
+    expect(html).toContain('配额不可用')
+    expect(html).toContain('📥')
+    expect(html).toContain('📤')
+    // Fails if: the decision chip is dropped.
+    expect(html).toContain('代码任务命中 Kimi 编码优势')
   })
 })
 
