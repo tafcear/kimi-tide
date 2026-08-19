@@ -24,8 +24,8 @@
 ## 路线图
 
 - **0.1.x（当前发布线）**：DSH 原生 Kimi provider，已发布 v0.1.3。
-- **0.2.x（main 已落地，未发布）**：双模型自动分工路由器（`cost` / `capability` 两种模式）已接线（`agent/pre-step` + `agent/request`，自提交 64c22cd 起）；**路由器失效已修复（commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正（文本-only primary → 多模态 premium，`textOnlyProviders` 可配置），全量 66/66 测试绿）**；「月汐」dock 面板 v2（模式切换 / 配额显示 / 设置折叠）、用量显示（usage.ts 轮询）、设置面板（settings.ts 行级回写）、AUTH 风暴修复均已实现，均在 main 分支上 v0.1.3 之后的提交中；尚未打 tag / 发布 Release。待办：M4 单元测试收尾、M5 实机集成验证（🟡 部分通过——2026-08-18 DSH 会话日志解码实锤：`@kimi` 显式探针与 escalateWhen 关键词探针的 request/header 均为 `kimi-tide/k3`（ctxWindow=1048576）；带图步骤护栏仅单测覆盖、尚未实机触发）、M6 文档发布。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md) 与 [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)。
-- **0.3.0（计划中）**：能力评分路由（capability-scored routing），spec v2.2 定稿（[`docs/superpowers/plans/2026-08-17-capability-scored-routing.md`](docs/superpowers/plans/2026-08-17-capability-scored-routing.md)），11 任务 TDD 实施计划成稿（[`docs/superpowers/plans/2026-08-17-capability-routing-implementation.md`](docs/superpowers/plans/2026-08-17-capability-routing-implementation.md)），经 Kimi 三轮审查闭环（[R1](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round1.md) / [R2](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round2.md) / [R3](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round3.md)）评审通过。
+- **0.2.x（main 已落地，未发布）**：双模型自动分工路由器（`cost` / `capability` 两种模式）已接线（`agent/pre-step` + `agent/request`，自提交 64c22cd 起）；**路由器失效已修复（commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正（文本-only primary → 多模态 premium，`textOnlyProviders` 可配置），全量 66/66 测试绿）**；「月汐」dock 面板 v2（模式切换 / 配额显示 / 设置折叠）、用量显示（usage.ts 轮询）、设置面板（settings.ts 行级回写）、AUTH 风暴修复均已实现，均在 main 分支上 v0.1.3 之后的提交中；尚未打 tag / 发布 Release。待办：M4 单元测试收尾、M5 实机集成验证（✅ 通过——2026-08-18 双探针 + 2026-08-19 带图实机闭环：`@kimi` 显式探针、escalateWhen 关键词探针与图片消息的 request/header 均为 `kimi-tide/k3`（ctxWindow=1048576），带图轮正常推进无 UNSUPPORTED_CONTENT）、M6 文档发布。**带图会话锁存（fcbf421，2026-08-19）**：图片进入会话历史后，会话锁定多模态模型（防后续文本轮 UNSUPPORTED_CONTENT 崩溃）；⚠️ **已知限制（2026-08-19 实测）**：若多模态模型额度/Key 失效（AUTH 报错），会话无法切回文本模型继续（死锁）——正解=「图像转述模式 / 子代理图片外包」（图片不进主历史，0.3.x 规划）。设计稿见 [`docs/development-plan-router.md`](docs/development-plan-router.md) 与 [`docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](docs/superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)。
+- **0.3.0（main 已实施，未发布）**：能力评分路由（capability-scored routing）——spec v2.2 定稿（[`docs/superpowers/plans/2026-08-17-capability-scored-routing.md`](docs/superpowers/plans/2026-08-17-capability-scored-routing.md)）、11 任务 TDD 实施计划（[`docs/superpowers/plans/2026-08-17-capability-routing-implementation.md`](docs/superpowers/plans/2026-08-17-capability-routing-implementation.md)）、Kimi 三轮审查闭环（[R1](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round1.md) / [R2](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round2.md) / [R3](docs/superpowers/reviews/2026-08-17-capability-routing-kimi-review-round3.md)）；2026-08-18 11 任务全部实施完成（commit 86da918，154/154 测试绿），待手工验收。**0.3.x 规划**：图像转述模式 / 子代理图片外包——解决带图会话的 k3 费用与锁存死锁（图片不入主历史，让文本模型可承接带图会话）。
 
 ---
 
@@ -144,6 +144,8 @@ dsh plugin --profile web add ./dsh-kimi-tide-0.1.3.tgz
 | `premiumBudget` | `0.2` | cost 模式滑动窗口内 Kimi 占比上限 |
 | `budgetWindow` | `20` | 预算滑动窗口大小（决策次数） |
 | `textOnlyProviders` | `[primary.provider]` | **图像护栏用（71b1d18 新增）**：声明无法接收图片输入的 provider；带图步骤会自动从文本-only 路由改道多模态 premium。缺省 = primary（`deepseek-official`，pi-ai 目录实锤 deepseek-v4-* 文本-only） |
+
+> **带图会话行为与已知限制（2026-08-19）**：带图消息整体路由到多模态模型（图像护栏，实机验证 request/header=`kimi-tide/k3`）；图片一旦进入会话历史，文本-only 模型（deepseek-v4-*）无法承接该会话（历史图片块被拒绝）→ 会话锁存多模态（fcbf421）。⚠️ **限制**：锁存后若多模态模型额度/Key 失效（AUTH 报错），会话无法切回文本模型继续（死锁）——正解=「图像转述 / 子代理图片外包」（图片不进主历史，0.3.x 规划中）。
 
 ---
 
