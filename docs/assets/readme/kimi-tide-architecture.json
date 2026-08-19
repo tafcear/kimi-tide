@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "kimi-tide（月汐）0.4.x 架构：官方接入层 + 独占路由层",
+    "output": "kimi-tide-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1300, 740],
+    "views": [
+      { "id": "main-request", "label": "主请求路径", "focus": ["user", "events", "router", "registry", "piai", "kimiapi"], "note": "一条消息从进入宿主到命中 Kimi 模型的完整链路。" },
+      { "id": "observe-and-config", "label": "观测与配置", "focus": ["dock", "card", "router"], "note": "决策观测与路由配置都落在官方设置页与 dock 面板。" }
+    ]
+  },
+  "components": [
+    { "id": "dock", "type": "frontend", "label": "月汐 dock 面板", "sublabel": "配额 · 决策 chip（只读）", "pos": [450, 80], "size": [160, 64] },
+    { "id": "card", "type": "frontend", "label": "设置卡片「月汐」", "sublabel": "官方设置页 · settings.section", "pos": [700, 80], "size": [170, 64] },
+    { "id": "creds", "type": "security", "label": "API Key 凭据", "sublabel": "apiKeyEnv 引用 · 按请求解析", "pos": [920, 90], "size": [160, 64], "tag": "KIMI_API_KEY" },
+    { "id": "user", "type": "external", "label": "用户消息", "sublabel": "文本 / 图片", "pos": [40, 330], "size": [130, 60] },
+    { "id": "events", "type": "messagebus", "label": "Agent 事件缝", "sublabel": "pre-step · request · image-admission", "pos": [240, 330], "size": [170, 60] },
+    { "id": "router", "type": "backend", "label": "KimiRouter v2 路由器", "sublabel": "6 维评分 · 图像护栏 · 会话锁存", "pos": [480, 330], "size": [180, 60], "tag": "kimi-tide 独占" },
+    { "id": "registry", "type": "backend", "label": "ctx.llm 注册表", "sublabel": "provider 路由 + 模态元数据", "pos": [700, 330], "size": [160, 60] },
+    { "id": "piai", "type": "backend", "label": "官方 dsh-llm-pi-ai", "sublabel": "kimi-coding · deepseek-official 路由", "pos": [920, 330], "size": [180, 60], "tag": "0.4.x 接入层" },
+    { "id": "kimiapi", "type": "cloud", "label": "api.kimi.com/coding", "sublabel": "K3 旗舰 · 多模态 · 1M 长窗", "pos": [800, 550], "size": [170, 64] },
+    { "id": "dsapi", "type": "cloud", "label": "api.deepseek.com", "sublabel": "V4 文本主力 · 低成本", "pos": [1060, 550], "size": [160, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "浏览器", "wraps": ["dock", "card"] },
+    { "kind": "region", "label": "DSH 宿主进程", "wraps": ["events", "router", "registry", "piai", "creds"] }
+  ],
+  "connections": [
+    { "id": "user-to-events", "from": "user", "to": "events", "label": "prompt", "variant": "emphasis" },
+    { "id": "events-to-router", "from": "events", "to": "router", "label": "每轮首步" },
+    { "id": "router-to-registry", "from": "router", "to": "registry", "label": "改道 LlmCallConfig", "labelDy": 54 },
+    { "id": "registry-to-piai", "from": "registry", "to": "piai", "label": "prepareCall" },
+    { "id": "piai-to-kimi", "from": "piai", "to": "kimiapi", "label": "anthropic-messages · Bearer key", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [845, 445] },
+    { "id": "piai-to-deepseek", "from": "piai", "to": "dsapi", "label": "openai-completions", "fromSide": "bottom", "toSide": "top" },
+    { "id": "creds-to-piai", "from": "creds", "to": "piai", "label": "引用解析（密钥不落配置）", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "router-to-dock", "from": "router", "to": "dock", "label": "panel 投影事件", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "card-to-router", "from": "card", "to": "router", "label": "配置读写 · 命名空间 kimi-tide-router", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[785, 250], [570, 250]] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "官方承接（不重复造轮）", "items": ["接入层 = pi-ai 原生 kimi-coding 路由（API key 直连）", "凭据 = apiKeyEnv 引用按请求解析，密钥不落插件配置", "模型目录 / 模型选择器 / 设置页全部走官方生态"] },
+    { "dot": "violet", "title": "kimi-tide 独占价值", "items": ["per-step 能力评分路由：6 维评分 + 预算窗口 + 显式 @provider", "图像护栏 + 会话锁存：带图会话不再崩 UNSUPPORTED_CONTENT", "决策可观测：dock 面板 chip + 会话投影留痕"] },
+    { "dot": "amber", "title": "0.4.x 变更", "items": ["自研 OAuth 适配器整体退役（约 740 行删除）", "provider 改名 kimi-tide/* → kimi-coding/*，存量配置自动迁移", "自研接入删除后，插件只做路由 / 护栏 / 观测"] }
+  ]
+}
