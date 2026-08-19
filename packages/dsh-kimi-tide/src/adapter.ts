@@ -100,7 +100,7 @@ export class KimiAdapter extends LlmAdapter {
     if (model === undefined) {
       throw new LlmError(`dsh-kimi-tide: unknown model "${options.model}"`, 'UNKNOWN_MODEL')
     }
-    if (this.oauth.getAccessToken().length === 0) {
+    if (this.oauth.getAccessToken().length === 0 || this.oauth.remainingMs() < 60_000) {
       await ensureAccessToken(this.oauth)
     }
     const containsImage = options.messages.some((message) =>
@@ -152,7 +152,7 @@ function sleep(ms: number): Promise<void> {
 export async function ensureAccessToken(oauth: KimiOAuthManager, options: EnsureTokenOptions = {}): Promise<void> {
   const retries = options.retries ?? 4
   const delayMs = options.delayMs ?? 2000
-  if (oauth.getAccessToken().length > 0) return
+  if (oauth.getAccessToken().length > 0 && oauth.remainingMs() >= 60_000) return
   for (let attempt = 0; attempt < retries; attempt++) {
     await oauth.refresh().catch(() => false)
     if (oauth.getAccessToken().length > 0) return
