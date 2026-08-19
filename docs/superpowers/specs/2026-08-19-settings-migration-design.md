@@ -114,8 +114,8 @@ installSettingsSection(ctx, 'kimi-tide-router', routerConfigSchema, config.route
 
 | 命令 | 现状 | 改造后 |
 |---|---|---|
-| `/kimi-tide mode <m>` | 写 sidecar | `scope.patch({ mode })` |
-| `/kimi-tide set <key> <value>` | 写 sidecar | `scope.patch({ [key]: value })` |
+| `/kimi-tide mode <m>` | 写 sidecar | `scope.update({ mode })` |
+| `/kimi-tide set <key> <value>` | 写 sidecar | `scope.update({ [key]: value })` |
 | `/kimi-tide export-config` | 打印 sidecar YAML | 打印 `scope.get()` resolved 值的 YAML |
 | `/kimi-tide import-config <path\|inline YAML>` | 写 sidecar | 解析后 schema 校验 → `scope.replace()`；双形态（文件/内联）保留 |
 | `/kimi-tide refresh` | 不变 | 不变 |
