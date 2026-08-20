@@ -39,3 +39,8 @@ rc.8 修复了「推理内容回传可能缺失」；本问题似为其**损坏�
 **附（复现与排查材料）**
 - 两次失败会话日志解码摘录（request/header=kimi-coding/k3、step 序列、turn/end error 原文）
 - 官方错误参考对应条目：kimi.com/code/docs/kimi-code/error-reference.html「思维链字段缺失」类（thinking 模式 reasoning 内容必须回传）
+
+**附 2：本机规避尝试（未奏效，供上游参考）**
+- 尝试在 llm-pi-ai settings 模型条目声明 `reasoningEfforts: false`（schema 支持，语义=从目录模型剥离推理）→ 实测探针请求（单步）响应**仍含 reasoning 块**（会话日志 blockType:reasoning 实锤）。
+- 两种可能：①settings 变更需宿主重启才重物化路由目录（settings-file watcher 热重载未触发 pi-ai 重枚举）；②kimi-coding 目录 `compat.forceAdaptiveThinking: true`（pi-ai anthropic-messages.js L617 强制 adaptive 路径）导致 seam 无法真正关闭思考——若为②，则无配置级规避手段，只能靠上游修复或本地补丁。
+- 本机规避现状：长任务子代理避免长跑 k3（分段派发/控制工具轮数）；`reasoningEfforts: false` 配置保留（无害，重启后若生效则风险进一步降低）。
