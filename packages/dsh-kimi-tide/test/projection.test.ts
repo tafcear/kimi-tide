@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { kimiTideProjectionDefinition, KIMI_TIDE_PANEL_EVENT } from '../src/projection.js'
-import type { KimiTidePanelProjection } from '../src/types.js'
-import type { RouterConfig } from '../src/router.js'
+import type { KimiTidePanelProjection, RouterPanelView } from '../src/types.js'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
-const router: RouterConfig = {
-  mode: 'off',
-  primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+const router: RouterPanelView = {
+  activePreset: null,
+  presetName: null,
+  defaultTarget: null,
+  ruleCount: 0,
 }
 
 function panel(quotaUsed: number): KimiTidePanelProjection {
@@ -22,46 +22,51 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
     kimi: { route: true, key: true },
     router,
     reasoning: { enabled: true },
+    configSource: 'default',
+    candidates: [],
+    decision: null,
   }
 }
 
-describe('panelSchema (candidates scores, 0.3.0 final review)', () => {
-  // Fails if: the wire schema strips `scores` from candidate summaries — the
-  // panel needs them to seed ScoreEditor drafts (host fills cfg.scores[key]).
+describe('panelSchema (projection v4)', () => {
   const parse = (kimiTideProjectionDefinition.schema as { parse: (v: unknown) => unknown }).parse.bind(
     kimiTideProjectionDefinition.schema as never,
   ) as (v: unknown) => KimiTidePanelProjection | null
 
-  // Fails if: the wire schema's configSource union lacks 'settings' — the
-  // 0.4.0 host resolves the router config through the settings namespace and
-  // reports that source, so a stale union would reject every panel push.
+  it('pins stateVersion 4 (v4 投影)', () => {
+    expect(kimiTideProjectionDefinition.stateVersion).toBe(4)
+  })
+
   it("accepts configSource 'settings' and still rejects unknown sources", () => {
     const p = panel(1)
-    p.candidates = []
-    p.decision = null
     p.configSource = 'settings'
     expect(parse(p)!.configSource).toBe('settings')
     expect(() => parse({ ...p, configSource: 'nope' })).toThrow()
   })
 
-  it('keeps per-candidate override scores when present', () => {
+  it('accepts candidates without scores and strips any score payload', () => {
     const p = panel(1)
     p.candidates = [
-      { provider: 'kimi-coding', model: 'kimi-for-coding', available: true, scores: { code: 4.5, vision: 3 } },
-      { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true },
+      { provider: 'kimi-coding', model: 'kimi-for-coding', available: true },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true, scores: { code: 4.5 } },
     ]
-    p.configSource = 'sidecar'
-    p.decision = null
     const out = parse(p)
-    expect(out!.candidates[0].scores).toEqual({ code: 4.5, vision: 3 })
-    expect(out!.candidates[1].scores).toBeUndefined()
+    expect(out!.candidates[0]).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding', available: true })
+    expect((out!.candidates[1] as { scores?: unknown }).scores).toBeUndefined()
   })
 
-  it('projection v3：携带 kimi 二态接入指示，拒绝缺失字段', () => {
+  it('accepts a decision without scoreDelta', () => {
     const p = panel(1)
-    p.candidates = []
-    p.decision = null
-    p.configSource = 'default'
+    p.decision = { chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '规则「code」命中' }
+    const out = parse(p)
+    expect(out!.decision).toEqual({
+      chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      reason: '规则「code」命中',
+    })
+  })
+
+  it('projection v4：携带 kimi 二态接入指示，拒绝缺失字段', () => {
+    const p = panel(1)
     const out = parse(p)
     expect(out!.kimi).toEqual({ route: true, key: true })
     const { kimi: _kimi, ...rest } = p

@@ -49,12 +49,10 @@ const panelSchema = z.object({
     provider: z.string(),
     model: z.string(),
     available: z.boolean(),
-    scores: z.record(z.string(), z.number()).optional(),
   })),
   decision: z.object({
     chosen: z.object({ provider: z.string(), model: z.string() }),
     reason: z.string().max(120),
-    scoreDelta: z.number().nullable(),
   }).nullable(),
 }).nullable()
 
@@ -70,7 +68,7 @@ export const kimiTideProjectionDefinition:
 ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null> = {
   key: KIMI_TIDE_PANEL_KEY,
   schema: bridgedSchema,
-  stateVersion: 3,
+  stateVersion: 4,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;

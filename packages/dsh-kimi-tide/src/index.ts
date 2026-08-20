@@ -3,8 +3,9 @@
  *
  * Kimi Code (Moonshot) subscription as a native DeepSeek Harness LLM
  * provider, plus the 月汐 dock panel: official quota display, the 0.4.x
- * kimi 二态接入指示, and the 0.3.0 capability-scored router with
- * provider-agnostic candidate enumeration and sidecar persistence.
+ * kimi 二态接入指示, and the 0.5.0 rule-driven router (preset/rule/keyword-
+ * group → RouteDecision with via) with provider-agnostic candidate
+ * enumeration and sidecar/settings persistence.
  */
 import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
@@ -21,19 +22,18 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
-import { coerceRouterConfig, hasKimiTideResidue, migrateV2 } from './migrate.js'
+import { coerceRouterConfigV4, hasKimiTideResidue } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
   installRouter,
   KimiRouter,
   type RouteDecision,
-  type RouterConfig,
   type RouterLog,
 } from './router.js'
-import { configKey, DEFAULT_CONFIG_V3, type CandidateMeta, type RouterConfigV3 } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, type CandidateMeta, type RouteTarget, type RouterConfigV4 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
-import { RouterSettingsStore } from './settings.js'
+import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor } from './usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
 
@@ -41,7 +41,7 @@ export const name = 'dsh-kimi-tide'
 
 export const inject = ['llm', 'timer', 'commands', 'sessionProjections']
 
-/** User-settings namespace owning RouterConfigV3 (dsh-settings). */
+/** User-settings namespace owning RouterConfigV4 (dsh-settings). */
 export const SETTINGS_NAMESPACE = 'kimi-tide-router'
 
 export interface Config {
@@ -49,19 +49,16 @@ export interface Config {
   usagePollMs?: number
   /** Poll quota immediately on startup (default true). */
   usagePollOnStart?: boolean
-  /** Router config; absent/mode off = 0.1.x behavior. Static seed for the v2 sidecar chain. */
+  /**
+   * Router config composition seed. The entry still speaks the legacy v1
+   * vocabulary (mode/primary/premium) — it is migrated through the
+   * coerceRouterConfigV4 chain into the v4 preset/rule shape.
+   */
   router?: RouterConfig
   /** Patch file holding the legacy static router seed (default $DSH_HOME/profiles/web/cordis.patch.yml). */
   patchFile?: string
   /** Sidecar router store file (default: kimi-tide-router.yml next to the patch file). */
   sidecarFile?: string
-}
-
-export const DEFAULT_ROUTER_CONFIG: RouterConfig = {
-  mode: 'off',
-  primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
-  premiumLong: { provider: 'kimi-coding', model: 'k3' },
 }
 
 export function defaultPatchFile(): string {
@@ -74,63 +71,14 @@ export function defaultSidecarFile(): string {
 }
 
 /**
- * Bridge a v1 (0.2.x) router config onto the v3 scoring engine. Kept for
- * tests and external callers that still hold the v1 shape; the production
- * wiring loads RouterConfigV3 through the sidecar chain.
- */
-export function routerConfigToV3(config: RouterConfig): RouterConfigV3 {
-  const v3 = DEFAULT_CONFIG_V3()
-  return {
-    ...v3,
-    mode: config.mode,
-    default: config.primary,
-    candidates: [config.premium, config.premiumLong].filter((t): t is NonNullable<typeof t> => t !== undefined),
-    premiumBudget: config.premiumBudget ?? v3.premiumBudget,
-    budgetWindow: config.budgetWindow ?? v3.budgetWindow,
-    charsPerToken: config.charsPerToken ?? v3.charsPerToken,
-  }
-}
-
-/**
- * Candidate metadata implied by a v1 config. Per the real capability matrix
- * (pi-ai catalog, 2026-08-18): deepseek-v4-* text-only/cheap, Kimi k3 family
- * multimodal/mid.
- */
-export function candidateMetasFromConfig(config: RouterConfig): CandidateMeta[] {
-  const tierOf = (provider: string): CandidateMeta['costTier'] => (provider === 'deepseek-official' ? 'cheap' : 'mid')
-  const targets = [config.primary, config.premium, config.premiumLong].filter(
-    (t): t is NonNullable<typeof t> => t !== undefined,
-  )
-  const textOnly = new Set(config.textOnlyProviders ?? [config.primary.provider])
-  return targets.map((t) => ({
-    ...t,
-    modalities: textOnly.has(t.provider) ? ['text'] : ['text', 'image'],
-    costTier: tierOf(t.provider),
-    available: true,
-  }))
-}
-
-export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
-  return new KimiRouter(routerConfigToV3(config), candidateMetasFromConfig(config), log)
-}
-
-/**
  * Summarize one routing decision for the panel (spec §2.7). Returns null for
- * anything that must NOT surface: keep decisions, mode-off/cost-mode
- * decisions, and no-decision states. Route decisions carry the scoring delta
- * (null for explicit @provider picks, which are not score comparisons) and
- * the reason truncated to 120 characters. Pure — no agent/ctx access.
+ * anything that must NOT surface: keep decisions, no-decision states, and
+ * default-preset (miss → 打底) routes. Route decisions carry the reason
+ * truncated to 120 characters. Pure — no agent/ctx access.
  */
-export function buildDecisionSummary(
-  decision: RouteDecision,
-  mode: RouterConfigV3['mode'],
-): DecisionSummary | null {
-  if (mode !== 'capability' || decision.kind !== 'route') return null
-  return {
-    chosen: { provider: decision.target.provider, model: decision.target.model },
-    reason: decision.reason.slice(0, 120),
-    scoreDelta: decision.scoreDelta,
-  }
+export function buildDecisionSummary(decision: RouteDecision): DecisionSummary | null {
+  if (decision.kind !== 'route' || decision.via === 'default') return null
+  return { chosen: { provider: decision.target.provider, model: decision.target.model }, reason: decision.reason.slice(0, 120) }
 }
 
 /** The llm runtime surface the candidate enumeration consumes (rc.6 shapes). */
@@ -140,24 +88,38 @@ interface LlmCatalog {
   resolveModelInfo: (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
 }
 
+/** 所有预设 default + 所有规则 target 的并集（去重，preset 序内 default→rules 序）。 */
+function configuredTargets(config: RouterConfigV4): RouteTarget[] {
+  const out: RouteTarget[] = []
+  const seen = new Set<string>()
+  for (const preset of Object.values(config.presets)) {
+    for (const t of [preset.default, ...preset.rules.map((r) => r.target)]) {
+      const key = configKey(t)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(t)
+    }
+  }
+  return out
+}
+
 /**
  * Provider-agnostic candidate enumeration (spec §2.5): every registered
- * provider on the whitelist contributes its catalog; each model is resolved
- * for inputModalities (drives the image guard) and its cost tier is looked
- * up from config.costTiers (catalogs carry no price data — default mid).
- * A provider/model that fails to enumerate is dropped with a warning, never
- * aborting the pool; before the first enumeration completes the pool is
- * seeded from the configured targets with text-only/default-mid metadata so
- * the router is immediately mountable.
+ * provider contributes its catalog (no whitelist — a provider that fails to
+ * enumerate is dropped with a warning, never aborting the pool); each model
+ * is resolved for inputModalities (drives the image guard) and its cost tier
+ * is hardcoded 'mid' (v4 has no costTiers config; the field leaves in T9).
+ * Before the first enumeration completes the pool is seeded from the
+ * configured targets (preset defaults + rule targets) with text-only/mid
+ * metadata so the router is immediately mountable.
  */
 async function enumerateCandidates(
   llm: LlmCatalog,
-  config: RouterConfigV3,
+  config: RouterConfigV4,
   onError: (message: string) => void,
 ): Promise<CandidateMeta[]> {
   const out: CandidateMeta[] = []
   const seen = new Set<string>()
-  const allowed = new Set(config.allowedProviders)
   let providers: LlmProviderInfo[] = []
   try {
     providers = llm.listProviders()
@@ -165,7 +127,6 @@ async function enumerateCandidates(
     onError(`dsh-kimi-tide: listProviders failed: ${(error as Error).message}`)
   }
   for (const provider of providers) {
-    if (!allowed.has(provider.id)) continue
     let models: LlmModelInfo[] = []
     try {
       models = await llm.listModels(provider.id)
@@ -191,7 +152,7 @@ async function enumerateCandidates(
         provider: provider.id,
         model: model.id,
         modalities,
-        costTier: config.costTiers[configKey({ provider: provider.id, model: model.id })] ?? 'mid',
+        costTier: 'mid',
         available: true,
       })
       seen.add(configKey({ provider: provider.id, model: model.id }))
@@ -199,13 +160,13 @@ async function enumerateCandidates(
   }
   // Configured targets absent from the live catalog stay visible (available:
   // false → 标灰 in the panel, excluded from scoring by selectCandidate).
-  for (const target of [config.default, ...config.candidates]) {
+  for (const target of configuredTargets(config)) {
     const key = configKey(target)
     if (seen.has(key)) continue
     out.push({
       ...target,
       modalities: ['text'],
-      costTier: config.costTiers[key] ?? 'mid',
+      costTier: 'mid',
       available: false,
     })
   }
@@ -232,17 +193,13 @@ function sameJson(a: unknown, b: unknown): boolean {
 }
 
 /** Pool used before the first enumeration settles (router mounts immediately). */
-function fallbackCandidateMetas(config: RouterConfigV3): CandidateMeta[] {
-  const targets = [config.default, ...config.candidates]
-  const seen = new Set<string>()
-  const out: CandidateMeta[] = []
-  for (const target of targets) {
-    const key = configKey(target)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({ ...target, modalities: ['text'], costTier: config.costTiers[key] ?? 'mid', available: true })
-  }
-  return out
+function fallbackCandidateMetas(config: RouterConfigV4): CandidateMeta[] {
+  return configuredTargets(config).map((target) => ({
+    ...target,
+    modalities: ['text'],
+    costTier: 'mid',
+    available: true,
+  }))
 }
 
 /**
@@ -350,7 +307,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // stays the live store for hosts WITHOUT a settings service and the one-shot
   // migration source for hosts that gained one. The patch file keeps only the
   // legacy static seed. Priority without settings: sidecar > patch static >
-  // DEFAULT_CONFIG_V3().
+  // DEFAULT_CONFIG_V4().
   const store = new RouterSettingsStore({
     patchFile: config.patchFile ?? defaultPatchFile(),
     onError: warn,
@@ -370,34 +327,30 @@ export function apply(ctx: Context, config: Config = {}) {
     onError: warn,
   })
   const loaded = sidecar.load()
-  let routerConfigV3: RouterConfigV3 = loaded.config ?? DEFAULT_CONFIG_V3()
+  let routerConfigV4: RouterConfigV4 = loaded.config ?? DEFAULT_CONFIG_V4()
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
-  // The settings namespace's `base` layer must be v3-shaped: the composition
+  // The settings namespace's `base` layer must be v4-shaped: the composition
   // entry (and the legacy patch block) speak v1 (mode/primary/premium), and v1
   // keys mean nothing to routerConfigSchema — layering them raw would resolve
   // to the schema's DEFAULT targets and silently drop a composed route.
-  // coerceRouterConfig is the version-dispatching v1/v2→v3 bridge the sidecar
-  // fallback chain uses; when that chain already ran it (source 'patch'), reuse
-  // its output rather than migrating — and warning — twice.
-  // A NULL seed resolves to DEFAULT_CONFIG_V3() (fixed kimi-coding) so the
-  // namespace base aligns with mergeResolved's clean predicate and the
-  // routerConfigV3 fallback above.
-  const settingsBase: Partial<RouterConfigV3> =
+  // coerceRouterConfigV4 is the version-dispatching v1/v2/v3→v4 bridge the
+  // sidecar fallback chain uses; a NULL seed resolves to DEFAULT_CONFIG_V4()
+  // so the namespace base aligns with mergeResolved's clean predicate and the
+  // routerConfigV4 fallback above.
+  const settingsBase: Partial<RouterConfigV4> =
     seedRaw === null || seedRaw === undefined
-      ? DEFAULT_CONFIG_V3()
-      : loaded.source === 'patch' && loaded.config !== null
-        ? loaded.config
-        : coerceRouterConfig(seedRaw, warn)
+      ? DEFAULT_CONFIG_V4()
+      : coerceRouterConfigV4(seedRaw, warn)
 
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
-  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfigV3)
+  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfigV4)
   let enumerationSeq = 0
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
-    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfigV3, warn)
+    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfigV4, warn)
       .then((metas) => {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
@@ -411,17 +364,17 @@ export function apply(ctx: Context, config: Config = {}) {
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
-    if (routerConfigV3.mode !== 'off') {
-      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV3, candidateMetas, log), onDecision)
+    if (routerConfigV4.activePreset !== null) {
+      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV4, candidateMetas, log), onDecision)
     }
   }
 
-  // Decision observability (spec §2.7): only capability-mode non-keep
-  // decisions surface a summary; anything else (off / keep / cost-mode)
-  // clears the summary so a stale decision never leaks into later snapshots.
+  // Decision observability (spec §2.7): only non-default route decisions
+  // surface a summary; anything else (off / keep / default miss) clears the
+  // summary so a stale decision never leaks into later snapshots.
   let latestDecision: DecisionSummary | null = null
   const onDecision = (_agent: Agent, decision: RouteDecision) => {
-    latestDecision = buildDecisionSummary(decision, routerConfigV3.mode)
+    latestDecision = buildDecisionSummary(decision)
     pushPanelToAllSessions()
   }
 
@@ -429,10 +382,9 @@ export function apply(ctx: Context, config: Config = {}) {
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
-  // v3 config shape and write the settings namespace when one is attached,
+  // v4 config shape and write the settings namespace when one is attached,
   // else the sidecar — never the v1 patch file (the sidecar outranks it on
-  // load anyway, so a raw-text patch splice would be dead weight and would
-  // drop v3-only fields like scores/classify.patterns).
+  // load anyway).
 
   /** Owner scope of the settings namespace; null until attached (or after detach). */
   let settingsScope: SettingsNamespacePort | null = null
@@ -441,18 +393,18 @@ export function apply(ctx: Context, config: Config = {}) {
    * Adopt a new effective config: the single write path shared by the settings
    * namespace (attach / committed change / migration) and the command layer's
    * onSaved. A config change invalidates any decision made under the old
-   * config, so the summary is dropped until the next capability route.
+   * config, so the summary is dropped until the next route.
    *
    * Idempotent by value: one save arrives twice on a namespace host (the
    * command's onSaved, then the namespace commit watcher), and an unchanged
    * config must not re-mount the router or re-enumerate candidates. A source
    * flip alone (sidecar → settings at attach) still re-pushes the panel.
    */
-  const applyConfig = (next: RouterConfigV3) => {
+  const applyConfig = (next: RouterConfigV4) => {
     const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
-    const changed = !sameJson(routerConfigV3, next)
+    const changed = !sameJson(routerConfigV4, next)
     if (!changed && configSource === source) return
-    routerConfigV3 = next
+    routerConfigV4 = next
     configSource = source
     if (changed) {
       latestDecision = null
@@ -465,7 +417,7 @@ export function apply(ctx: Context, config: Config = {}) {
   registerKimiTideCommands(ctx, {
     sidecar,
     monitor,
-    current: () => routerConfigV3,
+    current: () => routerConfigV4,
     // A getter, not a snapshot: the settings service attaches asynchronously
     // (ctx.inject) and can detach, so the command layer must read the CURRENT
     // port — a value captured here would pin `null` and degrade every save to
@@ -480,22 +432,27 @@ export function apply(ctx: Context, config: Config = {}) {
   // Dropdown model catalogs: both enumerated async from the llm service
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
-  const panelSnapshot = (): KimiTidePanelProjection => ({
-    quota: monitor.snapshot().quota,
-    kimi: kimiStatus,
-    router: v3ToV1View(routerConfigV3),
-    reasoning: { enabled: true },
-    models: modelOptions,
-    configSource,
-    candidates: candidateMetas.map((m) => {
-      const summary: CandidateSummary = { provider: m.provider, model: m.model, available: m.available }
-      // 用户覆盖分下发给面板（ScoreEditor 滑杆初值）；无覆盖时缺省。
-      const override = routerConfigV3.scores[configKey(m)]
-      if (override !== undefined) summary.scores = override
-      return summary
-    }),
-    decision: latestDecision,
-  })
+  const panelSnapshot = (): KimiTidePanelProjection => {
+    const preset = routerConfigV4.activePreset === null ? undefined : routerConfigV4.presets[routerConfigV4.activePreset]
+    return {
+      quota: monitor.snapshot().quota,
+      kimi: kimiStatus,
+      router: {
+        activePreset: routerConfigV4.activePreset,
+        presetName: preset?.name ?? null,
+        defaultTarget: preset?.default ?? null,
+        ruleCount: preset?.rules.length ?? 0,
+      },
+      reasoning: { enabled: true },
+      models: modelOptions,
+      configSource,
+      candidates: candidateMetas.map((m) => {
+        const summary: CandidateSummary = { provider: m.provider, model: m.model, available: m.available }
+        return summary
+      }),
+      decision: latestDecision,
+    }
+  }
   const pushPanel = (agent: Agent) => {
     try {
       agent.session.append(KIMI_TIDE_PANEL_EVENT, panelSnapshot())
@@ -561,16 +518,16 @@ export function apply(ctx: Context, config: Config = {}) {
   // panel roster exists, because attaching immediately applies the resolved
   // config and pushes a snapshot.
   ctx.inject(['settings'], (sctx) => {
-    let scope: SettingsScope<RouterConfigV3>
+    let scope: SettingsScope<RouterConfigV4>
     try {
       scope = sctx.settings.register(SETTINGS_NAMESPACE as never, routerConfigSchema as never, {
         base: settingsBase,
         // dsh-settings' validate throws to refuse a write; T1's returns a message.
-        validate: (value: RouterConfigV3) => {
+        validate: (value: RouterConfigV4) => {
           const message = validateRouterConfig(value)
           if (message !== undefined) throw new Error(message)
         },
-      }) as unknown as SettingsScope<RouterConfigV3>
+      }) as unknown as SettingsScope<RouterConfigV4>
     } catch (error) {
       // A stored section that already fails schema/validate rejects the
       // registration itself. Degrade loudly to the sidecar instead of leaving
@@ -584,32 +541,32 @@ export function apply(ctx: Context, config: Config = {}) {
       replace: (section) => scope.replace(section),
     }
     settingsScope = port
-    // v3 一次性迁移（0.4.x，spec §3.3）。dsh-settings 的 replace 在 persist
+    // v4 一次性迁移（0.5.0，spec §6.1）。dsh-settings 的 replace 在 persist
     // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
-    // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前 v2 形。
+    // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前旧形。
     // 持久化替换在后台完成；提交后 watch 会以相同值再触发 applyConfig，
     // applyConfig 按值幂等（sameJson）不会重复挂载。整段迁移包在 try/catch
     // 里：迁移失败只降级（保留旧形状），绝不把异常抛回 inject 回调使命名空间
     // 半接（无 watch、无 sidecar 导入）。
-    let baseline: RouterConfigV3
+    let baseline: RouterConfigV4
     try {
       const current = scope.get()
-      const migrated = hasKimiTideResidue(current) ? migrateV2(current) : current
+      const migrated = hasKimiTideResidue(current) ? coerceRouterConfigV4(current, warn) : current
       if (migrated !== current) {
         const docPath = (sctx.settings as { documentPath?: string }).documentPath
         if (typeof docPath === 'string' && docPath.length > 0) {
-          try { copyFileSync(docPath, docPath + '.pre-v3') } catch (error) {
-            warn(`dsh-kimi-tide: 设置文档 .pre-v3 快照失败（${(error as Error).message}）`)
+          try { copyFileSync(docPath, docPath + '.pre-v4') } catch (error) {
+            warn(`dsh-kimi-tide: 设置文档 .pre-v4 快照失败（${(error as Error).message}）`)
           }
         }
         void scope.replace(migrated as unknown as object)
-          .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v3（kimi-coding/*）'))
+          .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v4（预设+规则）'))
           .catch((error: unknown) =>
-            warn(`dsh-kimi-tide: 命名空间 v3 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
+            warn(`dsh-kimi-tide: 命名空间 v4 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
       }
       baseline = migrated
     } catch (error) {
-      warn(`dsh-kimi-tide: 命名空间 v3 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
+      warn(`dsh-kimi-tide: 命名空间 v4 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
       baseline = scope.get()
     }
     applyConfig(baseline)
@@ -626,7 +583,7 @@ export function apply(ctx: Context, config: Config = {}) {
       .then(({ migrateSidecarIntoScope }) => migrateSidecarIntoScope({
         sidecarFile,
         scope: port,
-        // MUST be the same v3-shaped base the namespace was registered with:
+        // MUST be the same v4-shaped base the namespace was registered with:
         // the dirty check compares scope.get() against mergeResolved(entry).
         entry: settingsBase,
         onError: warn,
@@ -643,22 +600,4 @@ export function apply(ctx: Context, config: Config = {}) {
   if (config.usagePollOnStart !== false) monitor.start()
   ctx.effect(() => () => monitor.stop())
   ctx.effect(() => () => disposeRouter?.())
-}
-
-/**
- * The panel form still speaks the v1 shape (primary/premium); project the v3
- * config back for display until the panel v3 task (Task 10) lands.
- */
-function v3ToV1View(config: RouterConfigV3): RouterConfig {
-  const premium = config.candidates.find(
-    (c) => c.provider !== config.default.provider || c.model !== config.default.model,
-  ) ?? config.default
-  return {
-    mode: config.mode,
-    primary: config.default,
-    premium,
-    premiumBudget: config.premiumBudget,
-    budgetWindow: config.budgetWindow,
-    charsPerToken: config.charsPerToken,
-  }
 }

@@ -3,8 +3,7 @@
  * The usages endpoint is undocumented — parsing is deliberately lenient
  * (string-or-number fields, missing sections degrade instead of throwing).
  */
-import type { Dim } from './config.js'
-import type { RouterConfig } from './router.js'
+import type { RouteTarget } from './config.js'
 
 /**
  * Where the effective router config came from. 'settings' is the 0.4.0 primary
@@ -18,20 +17,24 @@ export interface CandidateSummary {
   provider: string
   model: string
   available: boolean
-  /** 用户覆盖分（RouterConfigV3.scores['provider/model']），无覆盖时缺省——
-   *  ScoreEditor 用它做滑杆初值，避免已保存覆盖分显示成基线值。 */
-  scores?: Partial<Record<Dim, number>>
 }
 
 /**
  * Routing decision summary (spec §2.7: payload 受控). Present only when a
- * decision was observed this turn cycle AND the mode is capability AND the
- * decision is not keep; `reason` is truncated to 120 characters.
+ * decision was observed this turn cycle AND the decision is a non-default
+ * route (explicit @ / rule hit); `reason` is truncated to 120 characters.
  */
 export interface DecisionSummary {
   chosen: { provider: string; model: string }
   reason: string
-  scoreDelta: number | null
+}
+
+/** 0.5.0 面板路由视图：预设选择 + 默认目标 + 规则数（scores/scoreDelta 随评分退役）。 */
+export interface RouterPanelView {
+  activePreset: string | null
+  presetName: string | null
+  defaultTarget: RouteTarget | null
+  ruleCount: number
 }
 
 export interface QuotaWindow {
@@ -59,8 +62,8 @@ export interface KimiTidePanelProjection {
   quota: QuotaSnapshot | null
   /** 0.4.x 二态接入指示（spec §3.5/验收 5）：路由已注册 + key 可解析。 */
   kimi: KimiAccessStatus
-  /** Currently effective router config (panel form initial values). */
-  router: RouterConfig
+  /** 0.5.0 路由视图：预设选择 / 预设名 / 默认目标 / 规则数（面板展示）。 */
+  router: RouterPanelView
   reasoning: { enabled: true }
   /** Selectable model ids per provider family (settings dropdown options). */
   models?: { kimi: string[]; deepseek: string[] }

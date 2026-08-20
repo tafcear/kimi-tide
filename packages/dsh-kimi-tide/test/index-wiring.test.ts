@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SettingsProvider, { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import YAML from 'yaml'
-import { DEFAULT_ROUTER_CONFIG, apply, buildRouter, defaultPatchFile } from '../src/index.js'
-import { DEFAULT_CONFIG_V3, type RouterConfigV3 } from '../src/config.js'
-import { KIMI_TIDE_PANEL_EVENT } from '../src/projection.js'
-import { routerConfigSchema } from '../src/settings-schema.js'
+import { apply, defaultPatchFile } from '../src/index.js'
+import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from '../src/config.js'
+
+function v4cfg(activePreset: string | null): RouterConfigV4 {
+  return { ...DEFAULT_CONFIG_V4(), activePreset }
+}
 
 describe('defaultPatchFile', () => {
   const original = process.env.DSH_HOME
@@ -29,33 +31,11 @@ describe('defaultPatchFile', () => {
   })
 })
 
-describe('buildRouter / DEFAULT_ROUTER_CONFIG', () => {
-  it('default config is mode off with deepseek primary and kimi premium', () => {
-    expect(DEFAULT_ROUTER_CONFIG.mode).toBe('off')
-    expect(DEFAULT_ROUTER_CONFIG.primary.provider).toBe('deepseek-official')
-    expect(DEFAULT_ROUTER_CONFIG.premium.provider).toBe('kimi-coding')
-  })
-
-  it('buildRouter returns a KimiRouter whose decisions respect the config', () => {
-    const logs: string[] = []
-    const router = buildRouter(
-      { ...DEFAULT_ROUTER_CONFIG, mode: 'cost', escalateWhen: { patterns: ['审查', 'review'] } },
-      { info: (m) => logs.push(m) },
-    )
-    const decision = router.decide([{ role: 'user', content: [{ type: 'text', text: '请审查这段代码 review' }] } as never], 0)
-    expect(decision.kind).toBe('route')
-  })
-})
-
 /**
- * Task 4 — settings-namespace wiring.
+ * Task 4 — settings-namespace wiring (0.5.0 v4).
  *
  * These tests drive apply() against the REAL dsh-settings provider (an
- * in-memory subclass on its own cordis Context), not a hand-written stub:
- * `register`/`update`/`replace`/`watch` semantics — including the layered
- * resolution and the merge rules that {@link SettingsNamespacePort} depends
- * on — are the library's, so the assertions lock the real contract instead of
- * a mock's imitation.
+ * in-memory subclass on its own cordis Context), not a hand-written stub.
  */
 const NS = settingsNamespace('kimi-tide-router')
 
@@ -175,7 +155,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(descriptor).toBeDefined()
     expect(getCommand()!.name).toBe('kimi-tide')
     expect(lastSnapshot(agent).configSource).toBe('settings')
-    expect((descriptor!.value as RouterConfigV3).version).toBe(3)
+    expect((descriptor!.value as RouterConfigV4).version).toBe(4)
   })
 
   /**
@@ -191,32 +171,31 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
-    expect(listeners.get('agent/pre-step') ?? []).toHaveLength(0) // mode off: no router mounted
+    expect(listeners.get('agent/pre-step') ?? []).toHaveLength(0) // activePreset null: no router mounted
     const enumerationsBeforeSave = listModelsCalls.length
 
-    await getCommand()!.handler({ rawInput: 'mode capability' })
+    await getCommand()!.handler({ rawInput: 'preset capability' })
     await tick()
 
-    const stored = settings.doc[NS] as RouterConfigV3
-    expect(stored.mode).toBe('capability')
-    // Whole-table write (T3 persists deps.current() merged): not just { mode }.
-    expect(stored.version).toBe(3)
-    expect(stored.candidates.length).toBeGreaterThan(0)
-    expect((settings.get(NS) as RouterConfigV3).mode).toBe('capability')
+    const stored = settings.doc[NS] as RouterConfigV4
+    expect(stored.activePreset).toBe('capability')
+    expect(stored.version).toBe(4)
+    expect(Object.keys(stored.presets).length).toBeGreaterThan(0)
+    expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
     // applyConfig ran: panel refreshed and the capability router was mounted.
-    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'capability' })
+    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
     expect(lastSnapshot(agent).configSource).toBe('settings')
     expect((listeners.get('agent/pre-step') ?? []).length).toBeGreaterThan(0)
-    // One save = one candidate enumeration pass over the two whitelisted
-    // providers. A save reaches applyConfig twice (the command's onSaved and
-    // the namespace commit watcher); without the by-value guard both passes
-    // would re-enumerate and re-mount.
+    // One save = one candidate enumeration pass over the two providers.
+    // A save reaches applyConfig twice (the command's onSaved and the
+    // namespace commit watcher); without the by-value guard both passes would
+    // re-enumerate and re-mount.
     expect(listModelsCalls.length - enumerationsBeforeSave).toBe(2)
   })
 
   /** Ruling 10.2 — current() must track the namespace, not a frozen startup copy. */
-  it('current() tracks the namespace so a later save merges over the earlier one', async () => {
+  it('current() tracks the namespace so a later save keeps the previous preset change', async () => {
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
@@ -224,18 +203,17 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
-    await getCommand()!.handler({ rawInput: 'set lambda 0.7' })
-    await getCommand()!.handler({ rawInput: 'mode cost' })
+    await getCommand()!.handler({ rawInput: 'preset saving' })
+    await getCommand()!.handler({ rawInput: 'preset capability' })
 
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.lambda).toBe(0.7)   // stale current() would write 0.5 back
-    expect(resolved.mode).toBe('cost')
-    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'cost' })
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.activePreset).toBe('capability')   // second save wins
+    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
   })
 
   /** T2 wiring: a legacy sidecar is imported into the namespace exactly once. */
   it('migrates an existing sidecar into the namespace and archives the file', async () => {
-    const legacy: RouterConfigV3 = { ...DEFAULT_CONFIG_V3(), mode: 'capability', lambda: 0.9 }
+    const legacy: RouterConfigV4 = v4cfg('capability')
     writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
@@ -244,25 +222,15 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
-    expect((settings.get(NS) as RouterConfigV3).lambda).toBe(0.9)
+    expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
     expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
-    // The migration commit re-applies the config: panel + router follow it.
-    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'capability' })
+    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
     expect(lastSnapshot(agent).configSource).toBe('settings')
   })
 
-  /**
-   * Review Minor (a591a0c6) — the migration's dirty check compares the resolved
-   * namespace value against `mergeResolved(entry)`, so `entry` MUST be the same
-   * v2-shaped base the namespace was registered with. Handing it the raw v1
-   * composition entry (brief Step 3's literal `config.router ?? {}`) drops
-   * primary/premium in mergeResolved, makes a clean namespace look dirty, and
-   * silently skips the migration forever. This is that exact combination:
-   * v1 entry + valid sidecar + clean namespace → 'imported'.
-   */
   it('migrates the sidecar even when the composition entry is a v1 router block', async () => {
-    const legacy: RouterConfigV3 = { ...DEFAULT_CONFIG_V3(), mode: 'capability', lambda: 0.8 }
+    const legacy: RouterConfigV4 = v4cfg('capability')
     writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
@@ -272,7 +240,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
       patchFile,
       sidecarFile,
       usagePollOnStart: false,
-      // v1 composition entry (0.2.x shape) — the case a raw `entry` breaks.
+      // v1 composition entry (0.2.x shape).
       router: {
         mode: 'cost',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -281,29 +249,26 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     })
     await tick()
 
-    // Imported: the sidecar's values won over the v1 seed and the file is archived.
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.lambda).toBe(0.8)
-    expect(resolved.mode).toBe('capability')
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.activePreset).toBe('capability')
     expect(settings.doc[NS]).toBeDefined()
     expect(existsSync(sidecarFile)).toBe(false)
     expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
-    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'capability' })
+    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
     expect(lastSnapshot(agent).configSource).toBe('settings')
   })
 
   it('keeps a user-edited namespace and leaves the sidecar in place (dirty skip)', async () => {
-    writeFileSync(sidecarFile, YAML.stringify({ ...DEFAULT_CONFIG_V3(), mode: 'cost' }), 'utf8')
-    const settings = await bootSettings({ [NS]: { lambda: 0.31 } })
+    writeFileSync(sidecarFile, YAML.stringify(v4cfg('saving')), 'utf8')
+    const settings = await bootSettings({ [NS]: { activePreset: 'capability' } })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.lambda).toBe(0.31)
-    expect(resolved.mode).toBe('off')            // sidecar's 'cost' was NOT imported
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.activePreset).toBe('capability')   // user edit kept
     expect(existsSync(sidecarFile)).toBe(true)   // left for manual /kimi-tide import-config
   })
 
@@ -325,22 +290,22 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.mode).toBe('cost')
-    expect(resolved.candidates).toEqual([{ provider: 'kimi-coding', model: 'kimi-for-coding' }])
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.activePreset).toBe('saving')   // mode cost → saving preset
     expect(lastSnapshot(agent).configSource).toBe('settings')
-    expect(lastSnapshot(agent).router).toMatchObject({ mode: 'cost' })
+    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'saving' })
   })
 
-  it('uses the fixed kimi-coding base when there is no composition seed', async () => {
+  it('uses the built-in default presets when there is no composition seed', async () => {
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.candidates[0].provider).toBe('kimi-coding')
-    expect(resolved.allowedProviders).toContain('kimi-coding')
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.activePreset).toBeNull()
+    expect(resolved.presets.saving).toBeDefined()
+    expect(resolved.presets.capability.default.provider).toBe('kimi-coding')
   })
 
   it('falls back to the sidecar store when the settings service goes away', async () => {
@@ -352,14 +317,14 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     await tick()
     detachSettings()
 
-    await getCommand()!.handler({ rawInput: 'mode cost' })
+    await getCommand()!.handler({ rawInput: 'preset saving' })
 
     expect(existsSync(sidecarFile)).toBe(true)
     expect(settings.doc[NS]).toBeUndefined()
     expect(lastSnapshot(agent).configSource).toBe('sidecar')
   })
 
-  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding，version 3，文档 .pre-v3 快照）', async () => {
+  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v4，文档 .pre-v4 快照）', async () => {
     // 预置一个「用户编辑过」的 v2 命名空间节（0.3.0 面板写出来的形状）
     const seed = {
       [NS]: {
@@ -378,63 +343,24 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.version).toBe(3)
-    expect(resolved.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
-    expect(resolved.allowedProviders).toEqual(['kimi-coding', 'deepseek-official'])
-    expect(resolved.scores).toEqual({ 'kimi-coding/k3': { code: 4.7 } })
-    expect(resolved.candidates).toEqual([{ provider: 'kimi-coding', model: 'k3' }, { provider: 'deepseek-official', model: 'deepseek-v4-flash' }])
-    // 用户编辑保留（非 dirty 跳过）；sidecar 不存在 → 无导入行为
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.version).toBe(4)
+    expect(resolved.activePreset).toBe('capability')
+    expect(resolved.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    // sidecar 不存在 → 无导入行为
     expect(existsSync(sidecarFile)).toBe(false)
   })
 
-  it('干净的 v3 用户层不触发迁移（无替换写、无 .pre-v3 快照）', async () => {
-    const settings = await bootSettings({ [NS]: { lambda: 0.31 } })
+  it('干净的 v4 用户层不触发迁移（无替换写、无 .pre-v4 快照）', async () => {
+    const settings = await bootSettings({ [NS]: { activePreset: 'saving' } })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
-    const resolved = settings.get(NS) as RouterConfigV3
-    expect(resolved.version).toBe(3)
-    expect(resolved.lambda).toBe(0.31)
+    const resolved = settings.get(NS) as RouterConfigV4
+    expect(resolved.version).toBe(4)
+    expect(resolved.activePreset).toBe('saving')
     // 无残留 → 不调 replace → 无写入发生：doc 仍等于预置 seed
-    expect(settings.doc[NS]).toEqual({ lambda: 0.31 })
-  })
-})
-
-/**
- * Ruling 10.3 — T3 persists `/kimi-tide mode|set` through `scope.update(whole
- * table)`. dsh-settings' update is a LAYERED merge (plain objects recurse,
- * every other value replaces), so these tests pin the two behaviours the
- * command layer depends on, straight against the real provider.
- */
-describe('settings namespace write semantics the command port relies on', () => {
-  it('replaces array fields (candidates) wholesale on update', async () => {
-    const settings = await bootSettings()
-    const scope = settings.register(NS, routerConfigSchema as never, { base: {} })
-    const base = DEFAULT_CONFIG_V3()
-
-    await scope.update({
-      ...base,
-      candidates: [{ provider: 'kimi-coding', model: 'kimi-for-coding' }, { provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
-    })
-    expect((scope.get() as RouterConfigV3).candidates).toHaveLength(2)
-
-    await scope.update({ ...base, candidates: [{ provider: 'kimi-coding', model: 'kimi-for-coding' }] })
-    // Element-wise merge would leave the dropped candidate behind.
-    expect((scope.get() as RouterConfigV3).candidates).toEqual([{ provider: 'kimi-coding', model: 'kimi-for-coding' }])
-  })
-
-  it('merges dict fields (scores) on update, so removal needs replace', async () => {
-    const settings = await bootSettings()
-    const scope = settings.register(NS, routerConfigSchema as never, { base: {} })
-    const base = DEFAULT_CONFIG_V3()
-
-    await scope.update({ ...base, scores: { 'kimi-coding/kimi-for-coding': { code: 5 } } })
-    await scope.update({ ...base, scores: {} })
-    expect((scope.get() as RouterConfigV3).scores).toEqual({ 'kimi-coding/kimi-for-coding': { code: 5 } })
-
-    await scope.replace({ ...base, scores: {} })
-    expect((scope.get() as RouterConfigV3).scores).toEqual({})
+    expect(settings.doc[NS]).toEqual({ activePreset: 'saving' })
   })
 })

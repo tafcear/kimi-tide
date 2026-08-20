@@ -2,8 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RouterSettingsStore, RouterConfigSchema } from '../src/settings.js'
-import type { RouterConfig } from '../src/router.js'
+import { RouterSettingsStore, RouterConfigSchema, type RouterConfig } from '../src/settings.js'
 
 const BASE_YML = `# user patch — keep my comments!
 - insert:

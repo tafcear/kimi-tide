@@ -43,7 +43,11 @@ const CONFIG = (): RouterConfigV4 => {
   return c
 }
 
-const baseConfig = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+// 与省钱预设默认（deepseek-official/deepseek-v4-flash）不同的哨兵路由：
+// 打底语义下「普通任务」route 到预设默认，若 baseConfig 与预设默认相同，
+// `toEqual(baseConfig)` 会失去 route/keep 判别力（评审建议，T3 延期 Minor）。
+const baseConfig = { provider: 'sentinel-provider', model: 'sentinel-model' }
+const SAVING_DEFAULT = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
 
 interface Listener {
   (payload: unknown, next: () => Promise<unknown>): Promise<unknown>
@@ -135,7 +139,7 @@ describe('installRouter step contract (regression: step===0 gate idled the route
     // Realistic loop shape: pre-step(1) → request(1) → pre-step(2) → request(2).
     await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
-    expect(first).toEqual(baseConfig) // 未命中规则 → 打底路由到预设默认（= baseConfig）
+    expect(first).toEqual(SAVING_DEFAULT) // 未命中规则 → 打底路由到预设默认（≠ baseConfig，判别力）
 
     await dispatch.preStep({ agent, messages: [], turn: 1, step: 2, signal: signal() })
     const second = await dispatch.request({ agent, turn: 1, step: 2, signal: signal() }, baseConfig)
@@ -213,7 +217,7 @@ describe('installRouter session image latch (regression: text turn after an imag
     const other = {}
     await dispatch.preStep({ agent: other, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: other, turn: 1, step: 1, signal: signal() }, baseConfig)
-    expect(config).toEqual(baseConfig)
+    expect(config).toEqual(SAVING_DEFAULT) // 打底路由到预设默认（≠ baseConfig，判别力）
   })
 })
 

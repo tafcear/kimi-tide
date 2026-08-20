@@ -8,7 +8,54 @@
  */
 import { copyFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import Schema from 'schemastery'
-import type { RouterConfig } from './router.js'
+import type { RouteTarget } from './config.js'
+
+/* ---- @legacy v1（0.2.x）配置形状：patch 文件 router 节读写的词汇。
+ * 0.5.0 起该类型从 router.ts 迁至本文件本地（settings.ts 是 v1 词汇 patch
+ * 静态块裸读器的 0.5.0 终态）。纯类型声明（编译期擦除，零运行时足迹）。 */
+export interface RouterConfigV1 {
+  /** off 关闭（默认，向后兼容）；cost 性价比；capability 能力最优。 */
+  mode: 'off' | 'cost' | 'capability'
+  /** 默认主力路由（便宜/快）。 */
+  primary: RouteTarget
+  /** Kimi 路由（贵/强）。 */
+  premium: RouteTarget
+  /** 超长上下文的 Kimi 路由（capability 模式可换 1M 窗模型）。 */
+  premiumLong?: RouteTarget
+  /** cost 模式升级条件（任一命中即升级，受预算约束）。 */
+  escalateWhen?: {
+    /** 用户显式 @kimi 指令。 */
+    explicit?: boolean
+    /** 估算 token 阈值。 */
+    estimatedTokensGt?: number
+    /** 关键词规则。 */
+    patterns?: string[]
+  }
+  /** cost 模式 Kimi 调用占比上限（滑动窗口内，0-1）。 */
+  premiumBudget?: number
+  /** capability 模式规则表（顺序匹配，首个命中生效）。 */
+  rules?: { match: MatchRule; route: RouteTarget }[]
+  /** 估算 token 的字符折算比率（token ≈ chars / ratio）。 */
+  charsPerToken?: number
+  /** 预算滑动窗口大小（决策次数）。 */
+  budgetWindow?: number
+  /**
+   * Providers that cannot accept image input. Defaults to the primary
+   * provider only — the real capability matrix (pi-ai catalog, verified
+   * 2026-08-18) is deepseek-v4-* text-only, Kimi k3 family multimodal.
+   */
+  textOnlyProviders?: string[]
+}
+
+export interface MatchRule {
+  /** 正则关键词（对最新用户消息全文匹配）。 */
+  patterns?: string[]
+  /** 消息文本估算 token 数超过该值时命中（中英混合保守估算）。 */
+  estimatedTokensGt?: number
+}
+
+/** Back-compat alias (0.2.x name) for the v1 router config shape. @legacy */
+export type RouterConfig = RouterConfigV1
 
 const ROW_ANCHOR = /^(\s*)- id: dsh-kimi-tide\s*$/
 
