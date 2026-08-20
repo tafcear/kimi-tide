@@ -30,7 +30,11 @@ export class RouterSidecarStore {
         try { copyFileSync(this.o.file, this.o.file + '.pre-v3') } catch (error) {
           this.o.onError(`dsh-kimi-tide: sidecar .pre-v3 留档失败（${(error as Error).message}）`)
         }
-        this.save(config)
+        try {
+          this.save(config)
+        } catch (error) {
+          this.o.onError(`dsh-kimi-tide: sidecar v3 写回失败（${(error as Error).message}）；本次运行使用迁移结果，文件将在下次保存时落盘`)
+        }
       }
       return { config, source: 'sidecar' }
     } catch (error) {
