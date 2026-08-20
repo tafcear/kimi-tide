@@ -16,6 +16,8 @@ describe('classify', () => {
     const r = classify([msg('看图', true)], { charsPerToken: 2 })
     expect(r.vision).toBe(true)
     expect(explicitProvider('用 @ollama 回答')).toBe('ollama')
+    expect(explicitProvider('用 @kimi 回答')).toBe('kimi-coding')
+    expect(explicitProvider('用 @kimi-tide 回答')).toBe('kimi-coding')
   })
   it('long context raises longctx', () => {
     const r = classify([msg('x'.repeat(200000))], { charsPerToken: 2 })

@@ -254,7 +254,7 @@ describe('image guard under the production v2 sidecar shape (default = kimi-codi
     { provider: 'kimi-coding', model: 'kimi-for-coding-highspeed', modalities: ['text', 'image'], costTier: 'mid', available: true },
   ]
   const productionConfig: RouterConfigV3 = {
-    version: 2,
+    version: 3,
     mode: 'capability',
     default: { provider: 'kimi-coding', model: 'k3' },
     candidates: productionMetas.map(({ provider, model }) => ({ provider, model })),

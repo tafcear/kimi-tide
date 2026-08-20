@@ -61,6 +61,11 @@ describe('migrateV2（kimi-tide → kimi-coding）', () => {
     expect(out.classify).toEqual({ patterns: { code: ['审查'] } })
     expect(out.routeThreshold).toBe(0.8)
     expect(out.lambda).toBe(0.4)
+    expect(out.mode).toBe('capability')
+    expect(out.premiumBudget).toBe(0.2)
+    expect(out.budgetWindow).toBe(20)
+    expect(out.charsPerToken).toBe(2)
+    expect(out.default.model).toBe('k3')
   })
 
   it('is idempotent: a v3 config with no residue passes through unchanged', () => {

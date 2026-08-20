@@ -33,7 +33,7 @@ function sameTarget(a: RouteTarget, b: RouteTarget): boolean {
 
 /** 把候选池 + 默认目标渲染成最小 sidecar YAML（仅本组件可观测的字段）。 */
 export function candidatesToSidecar(candidates: RouteTarget[], defaultTarget: RouteTarget): string {
-  const lines: string[] = ['version: 2', 'default:', `  provider: ${defaultTarget.provider}`, `  model: ${defaultTarget.model}`, 'candidates:']
+  const lines: string[] = ['version: 3', 'default:', `  provider: ${defaultTarget.provider}`, `  model: ${defaultTarget.model}`, 'candidates:']
   for (const c of candidates) {
     lines.push(`  - provider: ${c.provider}`, `    model: ${c.model}`)
   }

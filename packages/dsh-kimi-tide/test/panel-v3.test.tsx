@@ -229,7 +229,7 @@ describe('panel v3 save channel (inline YAML via import-config)', () => {
     const text = scoresToSidecar({ provider: 'kimi-coding', model: 'kimi-for-coding' }, { code: 4.5, vision: 3 })
     expect(isInlineYamlText(text)).toBe(true)
     const parsed = YAML.parse(text) as { version: number; scores: Record<string, Record<string, number>> }
-    expect(parsed.version).toBe(2)
+    expect(parsed.version).toBe(3)
     expect(parsed.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
   })
 

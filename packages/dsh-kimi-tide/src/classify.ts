@@ -15,7 +15,8 @@ export interface ClassifyResult {
 }
 export function explicitProvider(text: string): string | null {
   const m = /@([\w-]{2,20})\b/.exec(text)
-  if (m === null || m[1] === 'kimi') return m?.[1] === 'kimi' ? KIMI_PROVIDER : null
+  if (m === null) return null
+  if (m[1] === 'kimi' || m[1] === 'kimi-tide') return KIMI_PROVIDER
   return m[1]
 }
 export function classify(messages: readonly UserMessage[], opts: { charsPerToken: number; patterns?: Record<string, string[]> }): ClassifyResult {

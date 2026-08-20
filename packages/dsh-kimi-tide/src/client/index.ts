@@ -44,7 +44,7 @@ export function apply(ctx: Context): void {
 
   ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
     name: 'conversation.composer.dock',
-    id: 'kimi-coding',
+    id: 'kimi-tide',
     order: 10, // after the shipped stats line (order 0)
     label: '月汐',
   }, TideDock))

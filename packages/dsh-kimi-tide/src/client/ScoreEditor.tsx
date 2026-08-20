@@ -37,7 +37,7 @@ const SNAP = (v: number): number => Math.min(5, Math.max(0, Math.round(v * 2) / 
 /** 用默认 host 名构造一个最小 v2，只为复用 scoreFor 的基线合并逻辑。 */
 function baselineFor(target: RouteTarget): Record<Dim, number> {
   const stub: RouterConfigV3 = {
-    version: 2, mode: 'off', default: target, candidates: [target],
+    version: 3, mode: 'off', default: target, candidates: [target],
     scores: {}, classify: {}, allowedProviders: [], costTiers: {},
     routeThreshold: 0.75, lambda: 0.5, premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2,
   }
@@ -47,7 +47,7 @@ function baselineFor(target: RouteTarget): Record<Dim, number> {
 /** 把目标 + 覆盖分渲染成最小 sidecar YAML（仅 scores 段）。 */
 export function scoresToSidecar(target: RouteTarget, scores: Partial<Record<Dim, number>>): string {
   const key = configKey(target)
-  const lines: string[] = ['version: 2', 'scores:', `  "${key}":`]
+  const lines: string[] = ['version: 3', 'scores:', `  "${key}":`]
   for (const dim of DIMS) {
     const v = scores[dim]
     if (v !== undefined) lines.push(`    ${dim}: ${v}`)

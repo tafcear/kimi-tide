@@ -277,7 +277,7 @@ export class KimiRouter {
     } else {
       const v1 = config as RouterConfigV1
       this.v1Config = v1
-      this.config = legacyConfigToV2(v1)
+      this.config = legacyConfigToV3(v1)
       this.metas = legacyMetasFromConfig(v1)
       this.log = metasOrLog
     }
@@ -422,7 +422,7 @@ export class KimiRouter {
 }
 
 /** Bridge a v1 (0.2.x) config to RouterConfigV3 (see KimiRouter overload). */
-function legacyConfigToV2(v1: RouterConfigV1): RouterConfigV3 {
+function legacyConfigToV3(v1: RouterConfigV1): RouterConfigV3 {
   return {
     version: 3,
     mode: v1.mode,

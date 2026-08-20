@@ -271,7 +271,7 @@ function parseImportedFile(path: string): RouterConfigV3 {
 export function registerKimiTideCommands(ctx: Context, deps: KimiTideCommandDeps): void {
   ctx.effect(() => {
     return ctx.commands.register({
-      name: 'kimi-coding',
+      name: 'kimi-tide',
       description: '月汐 panel: route mode / settings / config export-import / quota refresh',
       input: { hint: 'mode off|cost|capability · set <key> <value> · export-config · import-config <path|inline YAML> · refresh' },
       handler: async (invocation: CommandInvocation): Promise<CommandResult> => {

@@ -166,13 +166,14 @@ describe('apply() settings namespace wiring (Task 4)', () => {
   it('registers the kimi-tide-router namespace and reports configSource "settings"', async () => {
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
     await tick()
 
     const descriptor = settings.describe().find((d) => d.ns === NS)
     expect(descriptor).toBeDefined()
+    expect(getCommand()!.name).toBe('kimi-tide')
     expect(lastSnapshot(agent).configSource).toBe('settings')
     expect((descriptor!.value as RouterConfigV3).version).toBe(3)
   })

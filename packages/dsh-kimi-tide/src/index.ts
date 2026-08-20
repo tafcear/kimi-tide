@@ -83,7 +83,7 @@ export function defaultSidecarFile(): string {
 }
 
 /**
- * Bridge a v1 (0.2.x) router config onto the v2 scoring engine. Kept for
+ * Bridge a v1 (0.2.x) router config onto the v3 scoring engine. Kept for
  * tests and external callers that still hold the v1 shape; the production
  * wiring loads RouterConfigV3 through the sidecar chain.
  */
@@ -351,14 +351,14 @@ export function apply(ctx: Context, config: Config = {}) {
     onError: warn,
   })
   const loaded = sidecar.load()
-  let RouterConfigV3: RouterConfigV3 = loaded.config ?? DEFAULT_CONFIG_V3()
+  let routerConfigV3: RouterConfigV3 = loaded.config ?? DEFAULT_CONFIG_V3()
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
-  // The settings namespace's `base` layer must be v2-shaped: the composition
+  // The settings namespace's `base` layer must be v3-shaped: the composition
   // entry (and the legacy patch block) speak v1 (mode/primary/premium), and v1
   // keys mean nothing to routerConfigSchema — layering them raw would resolve
   // to the schema's DEFAULT targets and silently drop a composed route.
-  // migrateV1 is the same v1→v2 bridge the sidecar fallback chain uses; when
+  // migrateV1 is the same v1→v3 bridge the sidecar fallback chain uses; when
   // that chain already ran it (source 'patch'), reuse its output rather than
   // migrating — and warning — twice.
   // A NULL seed must still be provider-parameterized, not `{}`: settings-schema
@@ -368,7 +368,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // migration dirty check (scope.get() vs mergeResolved(entry, providerName))
   // permanently dirty, silently skipping the sidecar import forever. Building
   // the full DEFAULT_CONFIG_V3() here aligns with mergeResolved's
-  // T2 clean predicate and the RouterConfigV3 fallback at L354.
+  // T2 clean predicate and the routerConfigV3 fallback at L354.
   const settingsBase: Partial<RouterConfigV3> =
     seedRaw === null || seedRaw === undefined
       ? DEFAULT_CONFIG_V3()
@@ -379,11 +379,11 @@ export function apply(ctx: Context, config: Config = {}) {
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
-  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(RouterConfigV3)
+  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfigV3)
   let enumerationSeq = 0
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
-    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, RouterConfigV3, warn)
+    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfigV3, warn)
       .then((metas) => {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
@@ -397,8 +397,8 @@ export function apply(ctx: Context, config: Config = {}) {
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
-    if (RouterConfigV3.mode !== 'off') {
-      disposeRouter = installRouter(ctx, new KimiRouter(RouterConfigV3, candidateMetas, log), onDecision)
+    if (routerConfigV3.mode !== 'off') {
+      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV3, candidateMetas, log), onDecision)
     }
   }
 
@@ -407,7 +407,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // clears the summary so a stale decision never leaks into later snapshots.
   let latestDecision: DecisionSummary | null = null
   const onDecision = (_agent: Agent, decision: RouteDecision) => {
-    latestDecision = buildDecisionSummary(decision, RouterConfigV3.mode)
+    latestDecision = buildDecisionSummary(decision, routerConfigV3.mode)
     pushPanelToAllSessions()
   }
 
@@ -415,10 +415,10 @@ export function apply(ctx: Context, config: Config = {}) {
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
-  // v2 config shape and write the settings namespace when one is attached,
+  // v3 config shape and write the settings namespace when one is attached,
   // else the sidecar — never the v1 patch file (the sidecar outranks it on
   // load anyway, so a raw-text patch splice would be dead weight and would
-  // drop v2-only fields like scores/classify.patterns).
+  // drop v3-only fields like scores/classify.patterns).
 
   /** Owner scope of the settings namespace; null until attached (or after detach). */
   let settingsScope: SettingsNamespacePort | null = null
@@ -436,9 +436,9 @@ export function apply(ctx: Context, config: Config = {}) {
    */
   const applyConfig = (next: RouterConfigV3) => {
     const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
-    const changed = !sameJson(RouterConfigV3, next)
+    const changed = !sameJson(routerConfigV3, next)
     if (!changed && configSource === source) return
-    RouterConfigV3 = next
+    routerConfigV3 = next
     configSource = source
     if (changed) {
       latestDecision = null
@@ -451,7 +451,7 @@ export function apply(ctx: Context, config: Config = {}) {
   registerKimiTideCommands(ctx, {
     sidecar,
     monitor,
-    current: () => RouterConfigV3,
+    current: () => routerConfigV3,
     // A getter, not a snapshot: the settings service attaches asynchronously
     // (ctx.inject) and can detach, so the command layer must read the CURRENT
     // port — a value captured here would pin `null` and degrade every save to
@@ -469,14 +469,14 @@ export function apply(ctx: Context, config: Config = {}) {
   const panelSnapshot = (): KimiTidePanelProjection => ({
     quota: monitor.snapshot().quota,
     local: monitor.snapshot().local,
-    router: v2ToV1View(RouterConfigV3),
+    router: v3ToV1View(routerConfigV3),
     reasoning: { enabled: true },
     models: modelOptions,
     configSource,
     candidates: candidateMetas.map((m) => {
       const summary: CandidateSummary = { provider: m.provider, model: m.model, available: m.available }
       // 用户覆盖分下发给面板（ScoreEditor 滑杆初值）；无覆盖时缺省。
-      const override = RouterConfigV3.scores[configKey(m)]
+      const override = routerConfigV3.scores[configKey(m)]
       if (override !== undefined) summary.scores = override
       return summary
     }),
@@ -600,10 +600,10 @@ export function apply(ctx: Context, config: Config = {}) {
 }
 
 /**
- * The panel form still speaks the v1 shape (primary/premium); project the v2
+ * The panel form still speaks the v1 shape (primary/premium); project the v3
  * config back for display until the panel v3 task (Task 10) lands.
  */
-function v2ToV1View(config: RouterConfigV3): RouterConfig {
+function v3ToV1View(config: RouterConfigV3): RouterConfig {
   const premium = config.candidates.find(
     (c) => c.provider !== config.default.provider || c.model !== config.default.model,
   ) ?? config.default
