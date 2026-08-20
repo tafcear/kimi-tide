@@ -1,13 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { UsageMonitor } from '../src/usage.js'
-import type { KimiOAuthManager } from '../src/oauth.js'
-
-function fakeOAuth(token = 'tok'): KimiOAuthManager {
-  return {
-    getAccessToken: () => token,
-    refresh: vi.fn(async () => true),
-  } as unknown as KimiOAuthManager
-}
 
 const USAGES_OK = {
   usage: { used: 9, limit: 100, resetTime: 'w' },
@@ -16,56 +8,53 @@ const USAGES_OK = {
 }
 
 function fetchResponse(status: number, body: unknown): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-  } as Response
+  return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) } as Response
 }
 
-describe('UsageMonitor quota polling', () => {
-  it('fetches usages and stores a fresh snapshot', async () => {
+describe('UsageMonitor quota polling (API key auth)', () => {
+  it('resolves the key per refresh and sends it as Bearer', async () => {
+    const resolveKey = vi.fn(async () => 'sk-abc')
     const fetchFn = vi.fn(async () => fetchResponse(200, USAGES_OK))
-    const monitor = new UsageMonitor(fakeOAuth(), { pollMs: 60000, onUpdate: () => {}, fetchFn: fetchFn as unknown as typeof fetch, now: () => 1000 })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey, fetchFn: fetchFn as unknown as typeof fetch, now: () => 1000 })
     await monitor.refresh()
-    const { quota } = monitor.snapshot()
-    expect(quota?.weekly.used).toBe(9)
-    expect(quota?.stale).toBe(false)
-    expect(fetchFn).toHaveBeenCalledOnce()
-    const url = String((fetchFn.mock.calls[0] as unknown[])[0])
-    expect(url).toBe('https://api.kimi.com/coding/v1/usages')
+    expect(monitor.snapshot().quota?.weekly.used).toBe(9)
+    expect(resolveKey).toHaveBeenCalledOnce()
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer sk-abc' })
   })
 
-  it('on 401 refreshes the OAuth token and retries once', async () => {
-    const oauth = fakeOAuth()
+  it('does not fetch when the key is unresolvable (null)', async () => {
     const fetchFn = vi.fn()
-      .mockResolvedValueOnce(fetchResponse(401, {}))
-      .mockResolvedValueOnce(fetchResponse(200, USAGES_OK))
-    const monitor = new UsageMonitor(oauth, { pollMs: 60000, onUpdate: () => {}, fetchFn: fetchFn as unknown as typeof fetch })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => null, fetchFn: fetchFn as unknown as typeof fetch })
     await monitor.refresh()
-    expect(oauth.refresh).toHaveBeenCalledOnce()
-    expect(fetchFn).toHaveBeenCalledTimes(2)
-    expect(monitor.snapshot().quota?.weekly.used).toBe(9)
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(monitor.snapshot().quota).toBeNull()
+  })
+
+  it('on 401 marks stale without any refresh-retry (no OAuth anymore)', async () => {
+    const fetchFn = vi.fn(async () => fetchResponse(401, {}))
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch })
+    await monitor.refresh()
+    await monitor.refresh()
+    expect(fetchFn).toHaveBeenCalledTimes(2)   // 每次 refresh 只拉一次，无重试
+    expect(monitor.snapshot().quota).toBeNull()
   })
 
   it('on persistent failure keeps the old snapshot and marks it stale', async () => {
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(fetchResponse(200, USAGES_OK))
       .mockResolvedValue(fetchResponse(500, {}))
-    const monitor = new UsageMonitor(fakeOAuth(), { pollMs: 60000, onUpdate: () => {}, fetchFn: fetchFn as unknown as typeof fetch })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch })
     await monitor.refresh()
     await monitor.refresh()
-    const { quota } = monitor.snapshot()
-    expect(quota?.weekly.used).toBe(9)
-    expect(quota?.stale).toBe(true)
+    expect(monitor.snapshot().quota?.stale).toBe(true)
   })
 
   it('throttles onUpdate notifications (2s window)', async () => {
     let now = 0
     const onUpdate = vi.fn()
     const fetchFn = vi.fn(async () => fetchResponse(200, USAGES_OK))
-    const monitor = new UsageMonitor(fakeOAuth(), { pollMs: 60000, onUpdate, fetchFn: fetchFn as unknown as typeof fetch, now: () => now })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch, now: () => now })
     await monitor.refresh()
     await monitor.refresh()
     expect(onUpdate).toHaveBeenCalledOnce()
@@ -77,7 +66,7 @@ describe('UsageMonitor quota polling', () => {
 
 describe('UsageMonitor local token stats', () => {
   it('accumulates today/session buckets and call count', () => {
-    const monitor = new UsageMonitor(fakeOAuth(), { pollMs: 60000, onUpdate: () => {}, now: () => Date.parse('2026-08-17T10:00:00') })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', now: () => Date.parse('2026-08-17T10:00:00') })
     monitor.tapUsage({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 20 })
     monitor.tapUsage({ inputTokens: 30, outputTokens: 10 })
     const { local } = monitor.snapshot()
@@ -88,7 +77,7 @@ describe('UsageMonitor local token stats', () => {
 
   it('resets the today bucket across a local-day boundary', () => {
     let now = Date.parse('2026-08-17T23:59:00')
-    const monitor = new UsageMonitor(fakeOAuth(), { pollMs: 60000, onUpdate: () => {}, now: () => now })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', now: () => now })
     monitor.tapUsage({ inputTokens: 100, outputTokens: 0 })
     now = Date.parse('2026-08-18T00:01:00')
     monitor.tapUsage({ inputTokens: 5, outputTokens: 0 })

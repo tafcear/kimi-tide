@@ -310,10 +310,13 @@ export function apply(ctx: Context, config: Config = {}) {
 
   const oauth = new KimiOAuthManager(ctx.logger, { home: config.kimiHome ?? '' })
 
-  // Panel data source: quota polling + local token buckets.
-  const monitor = new UsageMonitor(oauth, {
+  // Panel data source: quota polling + local token buckets. 0.4.x Task 3: the
+  // monitor resolves its credential per refresh via a thunk; until Task 4
+  // re-wires this to ctx.credentials, bridge it to the OAuth access token.
+  const monitor = new UsageMonitor({
     pollMs: config.usagePollMs ?? 60_000,
     onUpdate: () => pushPanelToAllSessions(),
+    resolveKey: async () => oauth.getAccessToken() || null,
   })
 
   const adapter = new KimiAdapter(oauth, {
