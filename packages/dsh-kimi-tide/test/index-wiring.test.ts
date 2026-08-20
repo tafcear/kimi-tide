@@ -383,6 +383,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(resolved.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
     expect(resolved.allowedProviders).toEqual(['kimi-coding', 'deepseek-official'])
     expect(resolved.scores).toEqual({ 'kimi-coding/k3': { code: 4.7 } })
+    expect(resolved.candidates).toEqual([{ provider: 'kimi-coding', model: 'k3' }, { provider: 'deepseek-official', model: 'deepseek-v4-flash' }])
     // 用户编辑保留（非 dirty 跳过）；sidecar 不存在 → 无导入行为
     expect(existsSync(sidecarFile)).toBe(false)
   })
@@ -396,6 +397,8 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const resolved = settings.get(NS) as RouterConfigV3
     expect(resolved.version).toBe(3)
     expect(resolved.lambda).toBe(0.31)
+    // 无残留 → 不调 replace → 无写入发生：doc 仍等于预置 seed
+    expect(settings.doc[NS]).toEqual({ lambda: 0.31 })
   })
 })
 

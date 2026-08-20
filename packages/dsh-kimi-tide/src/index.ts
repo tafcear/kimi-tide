@@ -555,27 +555,26 @@ export function apply(ctx: Context, config: Config = {}) {
       replace: (section) => scope.replace(section),
     }
     settingsScope = port
-    // v3 一次性迁移（0.4.x，spec §3.3）：存量用户层（version 2 + kimi-tide/*）
-    // 改写为 kimi-coding/*。必须在 applyConfig 与 sidecar 导入（脏检查）
-    // 之前完成——迁移后的 scope 才是后续逻辑看到的基线。
-    void (async () => {
-      try {
-        const current = scope.get()
-        if (hasKimiTideResidue(current)) {
-          const docPath = (sctx.settings as { documentPath?: string }).documentPath
-          if (typeof docPath === 'string' && docPath.length > 0) {
-            try { copyFileSync(docPath, docPath + '.pre-v3') } catch (error) {
-              warn(`dsh-kimi-tide: 设置文档 .pre-v3 快照失败（${(error as Error).message}）`)
-            }
-          }
-          await scope.replace(migrateV2(current) as unknown as object)
-          warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v3（kimi-coding/*）')
+    // v3 一次性迁移（0.4.x，spec §3.3）。dsh-settings 的 replace 在 persist
+    // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
+    // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前 v2 形。
+    // 持久化替换在后台完成；提交后 watch 会以相同值再触发 applyConfig，
+    // applyConfig 按值幂等（sameJson）不会重复挂载。
+    const current = scope.get()
+    const migrated = hasKimiTideResidue(current) ? migrateV2(current) : current
+    if (migrated !== current) {
+      const docPath = (sctx.settings as { documentPath?: string }).documentPath
+      if (typeof docPath === 'string' && docPath.length > 0) {
+        try { copyFileSync(docPath, docPath + '.pre-v3') } catch (error) {
+          warn(`dsh-kimi-tide: 设置文档 .pre-v3 快照失败（${(error as Error).message}）`)
         }
-      } catch (error) {
-        warn(`dsh-kimi-tide: 命名空间 v3 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
       }
-    })()
-    applyConfig(scope.get())
+      void scope.replace(migrated as unknown as object)
+        .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v3（kimi-coding/*）'))
+        .catch((error: unknown) =>
+          warn(`dsh-kimi-tide: 命名空间 v3 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
+    }
+    applyConfig(migrated)
     // Detach (provider reload / service disposal) rides the scoped fiber: the
     // command layer falls back to the sidecar until the callback re-runs.
     sctx.effect(() => () => { settingsScope = null })
