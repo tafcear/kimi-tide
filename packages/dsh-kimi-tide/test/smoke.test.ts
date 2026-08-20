@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { estimateTokens, latestUserText } from '../src/router.js'
+import { latestUserText, messagesContainImage } from '../src/router.js'
 
 describe('scaffold smoke', () => {
-  it('router.ts now compiles and is importable', () => {
-    expect(estimateTokens('abcd', 2)).toBe(2)
+  it('router.ts compiles and re-exports message helpers', () => {
     expect(latestUserText([])).toBe('')
+    expect(messagesContainImage([])).toBe(false)
   })
 })

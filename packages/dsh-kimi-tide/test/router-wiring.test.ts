@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { installRouter, KimiRouter, type RouterConfig } from '../src/router.js'
+import { DEFAULT_CONFIG_V4, type CandidateMeta, type RouterConfigV4 } from '../src/config.js'
+import { installRouter, KimiRouter } from '../src/router.js'
 
 /**
  * Integration tests for installRouter against the VERIFIED dsh-agent-loop
@@ -19,12 +20,27 @@ import { installRouter, KimiRouter, type RouterConfig } from '../src/router.js'
  * (explicit @kimi, image guard, budget, escalation) idled in production.
  */
 
-const CONFIG: RouterConfig = {
-  mode: 'cost',
-  primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-coding', model: 'k3' },
-  escalateWhen: { patterns: ['审查'] },
-  premiumBudget: 0.2,
+const METAS: CandidateMeta[] = [
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'mid', available: true },
+  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
+]
+
+/**
+ * v4 配置夹具：省钱预设 + 自定义 review 关键词组规则（目标 k3）——保留旧
+ * v1 夹具 `escalateWhen.patterns: ['审查'] → premium(k3)` 的断言语义，
+ * 配置词汇改 v4（预设/规则/关键词组）。
+ */
+const CONFIG = (): RouterConfigV4 => {
+  const c = DEFAULT_CONFIG_V4()
+  c.activePreset = 'saving'
+  c.keywordGroups.review = ['审查']
+  c.presets.saving.rules.unshift({
+    id: 'review-k3',
+    when: { kind: 'keywords', group: 'review' },
+    target: { provider: 'kimi-coding', model: 'k3' },
+  })
+  return c
 }
 
 const baseConfig = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
@@ -94,7 +110,7 @@ function textMessage(text: string): UserMessage {
 describe('installRouter step contract (regression: step===0 gate idled the router)', () => {
   it('routes @kimi on the first model step exactly as dsh-agent-loop sends it (payload.step === 1)', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     await dispatch.preStep({ agent, messages: [textMessage('@kimi 请审查这段代码')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
@@ -104,7 +120,7 @@ describe('installRouter step contract (regression: step===0 gate idled the route
 
   it('escalates on pattern match at the first step of the turn', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     await dispatch.preStep({ agent, messages: [textMessage('请审查一下这个实现')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
@@ -114,12 +130,12 @@ describe('installRouter step contract (regression: step===0 gate idled the route
 
   it('does not re-decide inside the tool loop (step > 1 leaves the logged config alone)', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     // Realistic loop shape: pre-step(1) → request(1) → pre-step(2) → request(2).
     await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
-    expect(first).toEqual(baseConfig) // keep decision: no escalation matched
+    expect(first).toEqual(baseConfig) // 未命中规则 → 打底路由到预设默认（= baseConfig）
 
     await dispatch.preStep({ agent, messages: [], turn: 1, step: 2, signal: signal() })
     const second = await dispatch.request({ agent, turn: 1, step: 2, signal: signal() }, baseConfig)
@@ -131,10 +147,10 @@ describe('installRouter step contract (regression: step===0 gate idled the route
 describe('installRouter image guard (direction: text-only primary → multimodal Kimi)', () => {
   it('reroutes an image-bearing keep step from the text-only primary to premium', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
-    // '看图' matches no escalation pattern → decision is keep; the guard must
-    // still move the image-bearing step off the text-only deepseek route.
+    // '看图说话' 不命中关键词规则，但带图命中省钱预设的 image 规则 → k3；
+    // request 侧护栏作为兜底仍在（目标已多模态时不再改道）。
     const imageMessage = {
       role: 'user',
       content: [{ type: 'text', text: '看图说话' }, { type: 'image' }],
@@ -147,7 +163,7 @@ describe('installRouter image guard (direction: text-only primary → multimodal
 
   it('leaves an image-bearing step already routed to multimodal Kimi untouched', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     const imageMessage = {
       role: 'user',
@@ -172,7 +188,7 @@ describe('installRouter session image latch (regression: text turn after an imag
   // agent onto a multimodal candidate for every later turn.
   it('keeps a later text-only turn on the multimodal route after an image turn', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     const imageMessage = {
       role: 'user',
@@ -192,7 +208,7 @@ describe('installRouter session image latch (regression: text turn after an imag
 
   it('latch is per-agent: a fresh agent with no image history routes normally', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     const other = {}
     await dispatch.preStep({ agent: other, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
@@ -209,27 +225,26 @@ describe('installRouter image admission probe (host prompt pre-check deferral)',
   // via `agent/image-admission` (cordis serial bail): installRouter must
   // claim (truthy) only when it can actually reroute the image.
 
-  it('claims image admission when the router is active and premium is multimodal', async () => {
+  it('claims image admission when the router is active and the pool holds a multimodal candidate', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter(CONFIG, { info: () => {} }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }))
 
     expect(await dispatch.admission({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })).toBe(true)
   })
 
-  it('leaves the host rejection in charge when the premium route is text-only', async () => {
+  it('leaves the host rejection in charge when the pool holds no multimodal candidate', async () => {
     const { ctx, dispatch } = makeCtx()
-    const textOnlyPremium: RouterConfig = {
-      ...CONFIG,
-      premium: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
-    }
-    installRouter(ctx as never, new KimiRouter(textOnlyPremium, { info: () => {} }))
+    const textOnlyMetas = METAS.map((m) => ({ ...m, modalities: ['text'] }))
+    installRouter(ctx as never, new KimiRouter(CONFIG(), textOnlyMetas, { info: () => {} }))
 
     expect(await dispatch.admission({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })).toBeUndefined()
   })
 
-  it('does not claim when the router is not mounted (mode off)', async () => {
+  it('does not claim when the router is not mounted (activePreset null)', async () => {
     const { ctx, dispatch } = makeCtx()
-    installRouter(ctx as never, new KimiRouter({ ...CONFIG, mode: 'off' }, { info: () => {} }))
+    const off = CONFIG()
+    off.activePreset = null
+    installRouter(ctx as never, new KimiRouter(off, METAS, { info: () => {} }))
 
     expect(await dispatch.admission({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })).toBeUndefined()
   })

@@ -1,24 +1,22 @@
 /**
- * kimi-tide: automatic model router — 月汐双模型互补的决策核心。
+ * kimi-tide: automatic model router — 月汐规则驱动路由的决策核心（0.5.0）。
  *
- * Two strategies over the official agent lifecycle:
- *   - `cost`       性价比：默认走便宜主力（DeepSeek），仅在满足升级条件
- *                  （显式指令 / 长上下文 / 命中规则）且未超预算时用 Kimi。
- *   - `capability` 能力最优：按任务类型路由——审查类任务与超长上下文走
- *                  Kimi，工具密集与日常执行走 DeepSeek。
+ * 决策语义（spec §5.1）：显式 @指令（最高优先级）→ 预设规则链（列表顺序，
+ * 首条目标可用者生效；目标不可用跳过该规则降级）→ 未命中路由到预设默认
+ * 模型（打底，非 keep）。
  *
- * 事件流（DSH 官方机制）：
- *   agent/pre-step（携带本步消息）→ classify() 计算决策存入 per-agent 槽位
+ * 事件流（DSH 官方机制，与 0.4.x 相同）：
+ *   agent/pre-step（携带本步消息）→ decide() 计算决策存入 per-agent 槽位
  *   agent/request（携带该步的 callConfig）→ 消费槽位，返回替换路由
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import type { CandidateMeta, Dim, RouteTarget, RouterConfigV3 } from './config.js'
-import { classify, explicitProvider, type ClassifyResult } from './classify.js'
-import { scoreCandidate, selectCandidate } from './scoring.js'
-import { scoreFor } from './scores.js'
+import type { CandidateMeta, RouteTarget, RouterConfigV4 } from './config.js'
+import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from './rules.js'
+export { latestUserText, messagesContainImage } from './rules.js'
+export type { RouteTarget }
 
 /**
  * Host prompt image-admission probe (dsh-host-apiproxy hotfix, 2026-08-18;
@@ -38,14 +36,13 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export type { RouteTarget }
-
-/**
- * v1 (0.2.x) router config shape. Retained as the on-disk/panel schema while
- * the v2 engine is being wired in: settings.ts, commands.ts, types.ts,
- * index.ts and the wiring tests still operate on this shape; the v2 engine
- * itself is configured with RouterConfigV3 (config.ts).
- */
+/* ---- @legacy v1（0.2.x）配置形状：settings.ts（patch 文件 router 节读写）与
+ * types.ts（红窗内，T6 收口）仍消费该词汇。Ruling 7 同款取舍：brief 删除清单
+ * 含 RouterConfigV1/RouterConfig/MatchRule，但 src/settings.ts 不在 T3-T5 红窗
+ * 且经 `import type { RouterConfig } from './router.js'` 引用——删除会让
+ * 未声明文件类型红，违反分级全量门槛。纯类型声明（编译期擦除，零运行时
+ * 足迹）暂留本文件，最终归宿（settings.ts 本地化 / config.ts @legacy 区）
+ * 由 T6 spine 收口时裁定。运行时 v1 机器（预算史/v1 桥/估算函数）已全部删除。 */
 export interface RouterConfigV1 {
   /** off 关闭（默认，向后兼容）；cost 性价比；capability 能力最优。 */
   mode: 'off' | 'cost' | 'capability'
@@ -88,157 +85,40 @@ export interface MatchRule {
 }
 
 /**
- * Back-compat alias (0.2.x name) for the v1 router config shape. New code
- * should use RouterConfigV1 (v1 panel/settings shape) or RouterConfigV3
- * (0.3.0 engine config, config.ts).
+ * Back-compat alias (0.2.x name) for the v1 router config shape.
+ * @legacy 见上方 RouterConfigV1 块注释。
  */
 export type RouterConfig = RouterConfigV1
 
 export type RouteDecision =
-  | { kind: 'route'; target: RouteTarget; reason: string; scoreDelta: number | null }
+  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default' }
   | { kind: 'keep'; reason: string }
 
-/** True when any user message in the batch carries an image block. */
-export function messagesContainImage(messages: readonly UserMessage[]): boolean {
-  return messages.some(
-    (m) => m.role === 'user' && m.content.some((b) => (b as { type?: string }).type === 'image'),
-  )
+/** Providers that cannot accept image input, derived from candidate modalities. */
+export function textOnlyProviders(metas: readonly CandidateMeta[]): Set<string> {
+  const imageCapable = new Set(metas.filter((m) => m.modalities.includes('image')).map((m) => m.provider))
+  return new Set([...new Set(metas.map((m) => m.provider))].filter((p) => !imageCapable.has(p)))
 }
 
-/**
- * Providers that cannot accept image input, derived from the candidate
- * metadata modalities (0.3.0: replaces the hard-coded provider set). A
- * v1-style override (`textOnlyProviders`) still wins when supplied; without
- * metas the legacy default (primary provider only) applies.
- */
-export function textOnlyProviders(
-  config: RouterConfigV1,
-  metas?: readonly CandidateMeta[],
-): Set<string> {
-  if (config.textOnlyProviders !== undefined) return new Set(config.textOnlyProviders)
-  if (metas !== undefined) {
-    // Modality-based and identity-independent: a provider is text-only when
-    // NONE of its candidate metas can carry an image. Keying on the v1
-    // primary identity inverts under the v2 sidecar shape, where the default
-    // can be kimi-coding/k3 while the session base model is a deepseek candidate
-    // (2026-08-19 regression: image steps stayed on deepseek and the adapter
-    // threw UNSUPPORTED_CONTENT because the guard thought deepseek multimodal).
-    const imageCapable = new Set(metas.filter((m) => m.modalities.includes('image')).map((m) => m.provider))
-    const providers = new Set(metas.map((m) => m.provider))
-    return new Set([...providers].filter((p) => !imageCapable.has(p)))
-  }
-  return new Set([config.primary.provider])
+function imageCapablePicks(metas: readonly CandidateMeta[]): CandidateMeta[] {
+  return metas.filter((m) => m.modalities.includes('image') && m.available)
 }
 
-/**
- * Candidates that can serve an image under this config (modality-driven).
- * An explicit textOnlyProviders override removes providers from the pool.
- * When enumeration degraded the whole pool to text-only, the configured
- * premium route is trusted as a multimodal rail ONLY when the metadata does
- * not itself mark its provider text-only — a premium on a genuinely
- * text-only provider must never be picked (anti-ping-pong), and a fully
- * degraded pool means the host's friendly rejection applies instead of an
- * unverifiable reroute.
- */
-function imageCapablePicks(config: RouterConfigV1, metas?: readonly CandidateMeta[]): CandidateMeta[] {
-  const override = config.textOnlyProviders
-  let pool = (metas ?? []).filter((m) => m.modalities.includes('image') && m.available)
-  if (override !== undefined) pool = pool.filter((m) => !override.includes(m.provider))
-  if (pool.length === 0 && override === undefined) {
-    const premium = config.premium
-    if (premium !== undefined && premium.provider !== config.primary.provider) {
-      const metaTextOnly =
-        metas === undefined
-          ? new Set<string>()
-          : new Set(metas.filter((m) => !m.modalities.includes('image')).map((m) => m.provider))
-      if (!metaTextOnly.has(premium.provider)) {
-        pool = [{ ...premium, modalities: ['text', 'image'], costTier: 'mid', available: true }]
-      }
-    }
-  }
-  return pool
-}
-
-/**
- * Image guard: when the step carries an image and the resolved target is a
- * text-only route, swap to a multimodal candidate instead of letting the
- * adapter throw UNSUPPORTED_CONTENT mid-turn. The guard is a correctness
- * rail, not a budget decision: guard-driven escalations are not recorded in
- * the premium budget window. The reroute target prefers the configured
- * premium route, then the primary (v2 default) route, then any multimodal
- * candidate — all by modality, never by role identity.
- */
 export function applyImageGuard(
   target: RouteTarget,
-  config: RouterConfigV1,
   hasImage: boolean,
-  metas?: readonly CandidateMeta[],
+  metas: readonly CandidateMeta[],
 ): { target: RouteTarget; reason: string } | null {
   if (!hasImage) return null
-  const textOnly = textOnlyProviders(config, metas)
-  if (!textOnly.has(target.provider)) return null
-  const picks = imageCapablePicks(config, metas)
+  if (!textOnlyProviders(metas).has(target.provider)) return null
+  const picks = imageCapablePicks(metas)
   if (picks.length === 0) return null
-  const pick =
-    picks.find((m) => m.provider === config.premium?.provider && m.model === config.premium?.model) ??
-    picks.find((m) => m.provider === config.primary.provider && m.model === config.primary.model) ??
-    picks.find((m) => m.provider === config.premium?.provider) ??
-    picks[0]
-  return { target: { provider: pick.provider, model: pick.model }, reason: 'image input: rerouted to multimodal candidate' }
+  return { target: { provider: picks[0].provider, model: picks[0].model }, reason: 'image input: rerouted to multimodal candidate' }
 }
 
-/**
- * Whether this router can claim an image prompt at host admission time.
- *
- * The host image-admission gate (dsh-host-apiproxy prompt RPC) rejects image
- * prompts whose CURRENT model selection is text-only BEFORE the agent loop
- * runs — on a fresh session the default selection is the text-only base
- * model, so the per-step image guard never gets a chance. The host defers
- * via the agent-scoped serial event `agent/image-admission`: a listener
- * returning a truthy value claims the message will be rerouted. Claim only
- * when this router is active AND some candidate can actually serve the image
- * (mirror of applyImageGuard's bail rule) — otherwise the host's friendly
- * rejection stays in charge.
- */
-export function canClaimImageAdmission(config: RouterConfigV1, metas?: readonly CandidateMeta[]): boolean {
-  if (config.mode === 'off') return false
-  return imageCapablePicks(config, metas).length > 0
-}
-
-/** 从消息批次提取最新一条用户文本。 */
-export function latestUserText(messages: readonly UserMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message.role !== 'user') continue
-    let out = ''
-    for (const block of message.content) {
-      const b = block as { type?: string; text?: unknown }
-      if (b?.type === 'text' && typeof b.text === 'string') out += b.text
-    }
-    if (out.trim().length > 0) return out
-  }
-  return ''
-}
-
-/** 中英混合保守估算：token ≈ ceil(chars / ratio)，ratio 默认 2。 */
-export function estimateTokens(text: string, charsPerToken = 2): number {
-  return Math.ceil(text.length / Math.max(1, charsPerToken))
-}
-
-/** 组合消息批次（本步消息 + 可选历史）的总估算。 */
-export function estimateContextTokens(messages: readonly UserMessage[], charsPerToken = 2): number {
-  let chars = 0
-  for (const message of messages) {
-    for (const block of message.content) {
-      const b = block as { type?: string; text?: unknown }
-      if (b?.type === 'text' && typeof b.text === 'string') chars += b.text.length
-    }
-  }
-  return Math.ceil(chars / Math.max(1, charsPerToken))
-}
-
-export function matchesPatterns(text: string, patterns: string[]): boolean {
-  return patterns.some((pattern) => text.includes(pattern))
+export function canClaimImageAdmission(config: RouterConfigV4, metas: readonly CandidateMeta[]): boolean {
+  if (config.activePreset === null) return false
+  return imageCapablePicks(metas).length > 0
 }
 
 export interface RouterLog {
@@ -246,45 +126,21 @@ export interface RouterLog {
 }
 
 /**
- * Scoring-based router engine (0.3.0). The rule-table decide() of 0.2.x is
- * replaced by: classify(messages) → explicit @provider forced pick →
- * selectCandidate over capability scores, with the premium budget window
- * carried over from 0.2.x (cost mode).
- *
- * The 0.2.x construction shape `new KimiRouter(v1Config, log)` is still
- * accepted (production wiring / panel settings are v1-shaped until the v2
- * sidecar lands): the v1 config is bridged to RouterConfigV3 with candidate
- * metadata derived from the real capability matrix (pi-ai catalog,
- * 2026-08-18: deepseek-v4-* text-only/cheap, Kimi k3 family multimodal/mid).
+ * Rule-driven router engine (0.5.0). The scoring engine of 0.3.x/0.4.x is
+ * replaced by: explicit @provider directive → preset rule chain (first hit
+ * with an available target wins; unavailable targets are skipped) → preset
+ * default (miss ≠ keep).
  */
 export class KimiRouter {
-  private readonly budgetHistory: string[] = []
-
-  readonly config: RouterConfigV3
-  /** Candidate metadata (modalities/costTier/availability); drives scoring and the image guard. */
+  readonly config: RouterConfigV4
   readonly metas: CandidateMeta[]
   private readonly log: RouterLog
-  /** Present only when constructed with the legacy v1 config shape. */
-  private readonly v1Config?: RouterConfigV1
-
-  constructor(config: RouterConfigV3, metas: CandidateMeta[], log: RouterLog)
-  constructor(config: RouterConfigV1, log: RouterLog)
-  constructor(config: RouterConfigV3 | RouterConfigV1, metasOrLog: CandidateMeta[] | RouterLog, log?: RouterLog) {
-    if (Array.isArray(metasOrLog)) {
-      this.config = config as RouterConfigV3
-      this.metas = metasOrLog
-      this.log = log as RouterLog
-    } else {
-      const v1 = config as RouterConfigV1
-      this.v1Config = v1
-      this.config = legacyConfigToV3(v1)
-      this.metas = legacyMetasFromConfig(v1)
-      this.log = metasOrLog
-    }
+  constructor(config: RouterConfigV4, metas: CandidateMeta[], log: RouterLog) {
+    this.config = config; this.metas = metas; this.log = log
   }
 
   /**
-   * 基于本步消息批次做决策；显式 @provider 指令直接生效（先 explicit 再评分）。
+   * 基于本步消息批次做决策。
    * `step` 为契约占位：每轮只在首个模型步判定的语义由 installRouter
    * （payload.step === 1 门控）完成，decide 本身不使用该参数。
    *
@@ -297,81 +153,31 @@ export class KimiRouter {
    * deepseek-v4-flash 上抛 UNSUPPORTED_CONTENT）。
    */
   decide(messages: readonly UserMessage[], step: number, hasImageOverride?: boolean): RouteDecision {
-    if (this.config.mode === 'off') return { kind: 'keep', reason: 'router off' }
+    if (this.config.activePreset === null) return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
     const hasImage = hasImageOverride ?? messagesContainImage(messages)
-
-    // 1. 显式指令：最高优先级——在该 provider 的候选里选最优（available 且
-    //    带图时模态匹配），无可用候选才保持当前路由。
+    // 1. 显式 @指令（最高优先级）：只锁 provider 层，模型=该 provider 枚举序首个可用候选（带图限定多模态）。
     const explicit = explicitProvider(text)
     if (explicit !== null) {
       const pool = this.metas.filter(
         (m) => m.provider === explicit && m.available && (!hasImage || m.modalities.includes('image')),
       )
-      if (pool.length === 0) {
-        return { kind: 'keep', reason: `explicit @${explicit}: no available candidate` }
-      }
-      const v1 = this.v1Config
-      if (v1 !== undefined) {
-        // Legacy-constructed routers keep the v1 explicit semantics: prefer
-        // the configured premium, then premiumLong (migration tests pin this).
-        const preferred = [v1.premium, v1.premiumLong]
-          .filter((t): t is NonNullable<typeof t> => t !== undefined)
-          .filter((t) => t.provider === explicit && (!hasImage || pool.some((m) => m.model === t.model)))
-        const target = preferred[0] ?? { provider: pool[0].provider, model: pool[0].model }
-        // Explicit picks are user-forced, not score comparisons: no delta.
-        return { kind: 'route', target, reason: `explicit @${explicit} directive`, scoreDelta: null }
-      }
-      // v2: pick the provider's best candidate by the same scoring formula as
-      // selectCandidate (weighted capability score minus lambda × cost tier).
-      const weights = classify(messages, {
-        charsPerToken: this.config.charsPerToken,
-        patterns: this.config.classify.patterns,
-      }).weights
-      const best = pool
-        .map((m) => ({ m, s: scoreCandidate(m, weights, this.config.lambda, (x) => scoreFor(this.config, x)) }))
-        .sort((a, b) => b.s - a.s)[0]
-      // Explicit picks are user-forced, not score comparisons: no delta.
-      return { kind: 'route', target: { provider: best.m.provider, model: best.m.model }, reason: `explicit @${explicit} directive`, scoreDelta: null }
+      if (pool.length === 0) return { kind: 'keep', reason: `explicit @${explicit}: no available candidate` }
+      return { kind: 'route', target: { provider: pool[0].provider, model: pool[0].model }, reason: `显式 @${explicit} 指令`, via: 'explicit' }
     }
-
-    // 2. 评分选择：classify → selectCandidate 已覆盖 keep 语义（best==default /
-    //    eligible 空 / cost 阈值与预算不足 → null → keep）。
-    const c = classify(messages, { charsPerToken: this.config.charsPerToken, patterns: this.config.classify.patterns })
-    // 会话锁存：当前批次无图但历史含图（hasImageOverride）时，强制按 vision 评分
-    // （vision 权重 × 多模态候选的 vision 分），让 selectCandidate 的 eligible
-    // 过滤与评分都只会落在能承接图片块的候选上。
-    if (hasImage && !c.vision) {
-      c.vision = true
-      c.weights.vision = 3
+    // 2. 预设规则链（首条目标可用者生效；目标不可用 → 跳过该规则，降级）。
+    const preset = this.config.presets[this.config.activePreset]
+    if (preset === undefined) {
+      this.log.info(`kimi-router: active preset '${this.config.activePreset}' not found, keeping current route`)
+      return { kind: 'keep', reason: 'active preset not found' }
     }
-    const v1 = this.v1Config
-    const weights = v1 === undefined ? c.weights : legacyWeights(c, v1)
-    const budget = this.config.premiumBudget
-    const window = this.config.budgetWindow
-    const premiumCount = this.budgetHistory.filter((id) => id === 'premium').length
-    const budgetExhausted = this.budgetHistory.length >= window && premiumCount / this.budgetHistory.length >= budget
-    if (budgetExhausted) {
-      this.log.info(`kimi-router: premium budget exhausted (${premiumCount}/${this.budgetHistory.length} ≥ ${budget}), keeping primary`)
+    for (const rule of matchingRules(this.config, text, hasImage)) {
+      const meta = this.metas.find((m) => m.provider === rule.target.provider && m.model === rule.target.model && m.available)
+      if (meta === undefined) continue
+      return { kind: 'route', target: { ...rule.target }, reason: `规则「${ruleLabel(rule)}」命中`, via: 'rule' }
     }
-    const sel = selectCandidate(this.metas, weights, {
-      lambda: this.config.lambda,
-      defaultTarget: this.config.default,
-      mode: this.config.mode,
-      hasImage: c.vision,
-      budgetExhausted,
-      routeThreshold: v1 === undefined ? this.config.routeThreshold : 0,
-      scoresOf: (m) => scoreFor(this.config, m),
-    })
-    if (sel === null) {
-      // 0.2.x budget semantics: only cost-mode keep decisions record a
-      // 'primary' sample; capability keeps leave the window untouched.
-      if (this.config.mode === 'cost') this.record('primary')
-      return { kind: 'keep', reason: budgetExhausted ? 'cost: premium budget exhausted' : `${this.config.mode}: default primary` }
-    }
-    const targetIsDefault = sel.target.provider === this.config.default.provider && sel.target.model === this.config.default.model
-    this.record(targetIsDefault ? 'primary' : 'premium')
-    return { kind: 'route', target: sel.target, reason: sel.reason, scoreDelta: sel.scoreDelta }
+    // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
+    return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
   }
 
   /** agent/request 钩子：消费决策，返回替换后的 callConfig。 */
@@ -387,90 +193,8 @@ export class KimiRouter {
 
   /** Image guard bound to this router's candidates (see applyImageGuard). */
   guardImage(target: RouteTarget, hasImage: boolean): { target: RouteTarget; reason: string } | null {
-    return applyImageGuard(target, this.legacyConfig, hasImage, this.metas)
+    return applyImageGuard(target, hasImage, this.metas)
   }
-
-  /**
-   * Legacy v1 view of this router (primary/premium/mode) for the guard and
-   * admission helpers that still speak the v1 vocabulary: the exact v1 config
-   * when legacy-constructed, otherwise derived from the v2 config +
-   * candidates (premium = first candidate on a non-default provider).
-   */
-  get legacyConfig(): RouterConfigV1 {
-    if (this.v1Config !== undefined) return this.v1Config
-    return {
-      mode: this.config.mode,
-      primary: this.config.default,
-      premium: this.metas.find((m) => m.provider !== this.config.default.provider)
-        ?? this.metas[0]
-        ?? this.config.default,
-    }
-  }
-
-  private record(kind: 'primary' | 'premium'): void {
-    const window = this.config.budgetWindow
-    this.budgetHistory.push(kind)
-    while (this.budgetHistory.length > window) this.budgetHistory.shift()
-  }
-
-  /** 当前预算占用（诊断用）。 */
-  budgetUsage(): { premium: number; window: number; ratio: number } {
-    const window = this.config.budgetWindow
-    const premium = this.budgetHistory.filter((id) => id === 'premium').length
-    return { premium, window, ratio: this.budgetHistory.length > 0 ? premium / this.budgetHistory.length : 0 }
-  }
-}
-
-/** Bridge a v1 (0.2.x) config to RouterConfigV3 (see KimiRouter overload). */
-function legacyConfigToV3(v1: RouterConfigV1): RouterConfigV3 {
-  return {
-    version: 3,
-    mode: v1.mode,
-    default: v1.primary,
-    candidates: [v1.premium, v1.premiumLong].filter((t): t is NonNullable<typeof t> => t !== undefined),
-    scores: {},
-    classify: { patterns: v1.escalateWhen?.patterns !== undefined ? { reasoning: v1.escalateWhen.patterns } : {} },
-    allowedProviders: [...new Set([v1.primary.provider, v1.premium.provider])],
-    costTiers: {},
-    routeThreshold: 0.75,
-    lambda: 0.5,
-    premiumBudget: v1.premiumBudget ?? 0.2,
-    budgetWindow: v1.budgetWindow ?? 20,
-    charsPerToken: v1.charsPerToken ?? 2,
-  }
-}
-
-/**
- * Candidate metadata implied by a v1 config. Per the real capability matrix
- * (pi-ai catalog, 2026-08-18): deepseek-v4-* text-only/cheap, Kimi k3 family
- * multimodal/mid.
- */
-function legacyMetasFromConfig(v1: RouterConfigV1): CandidateMeta[] {
-  const targets = [v1.primary, v1.premium, v1.premiumLong].filter(
-    (t): t is NonNullable<typeof t> => t !== undefined,
-  )
-  const textOnly = new Set(v1.textOnlyProviders ?? [v1.primary.provider])
-  return targets.map((t) => ({
-    ...t,
-    modalities: textOnly.has(t.provider) ? ['text'] : ['text', 'image'],
-    costTier: t.provider === 'deepseek-official' ? ('cheap' as const) : ('mid' as const),
-    available: true,
-  }))
-}
-
-/**
- * Legacy-constructed routers: restrict the scoring weights to the dims the
- * v1 escalateWhen config actually opted into (patterns → reasoning, token
- * threshold → longctx). Capability-mode v1 carried no opt-ins (rules
- * table was dropped), so no weights → no route, matching the default-rules
- * v1 behavior.
- */
-function legacyWeights(c: ClassifyResult, v1: RouterConfigV1): Partial<Record<Dim, number>> {
-  const out: Partial<Record<Dim, number>> = {}
-  const esc = v1.escalateWhen ?? {}
-  if (esc.patterns !== undefined && esc.patterns.length > 0 && c.weights.reasoning !== undefined) out.reasoning = c.weights.reasoning
-  if (esc.estimatedTokensGt !== undefined && c.weights.longctx !== undefined) out.longctx = c.weights.longctx
-  return out
 }
 
 /**
@@ -532,7 +256,7 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
     // Cordis `serial` bail semantics: a truthy return claims; undefined lets
     // the host's rejection through.
     const disposeAdmission = ctx.on('agent/image-admission', () => {
-      if (!canClaimImageAdmission(router.legacyConfig, router.metas)) return undefined
+      if (!canClaimImageAdmission(router.config, router.metas)) return undefined
       ctx.logger?.info?.('kimi-router: claimed image admission (premium multimodal)')
       return true
     })
