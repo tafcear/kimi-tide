@@ -91,6 +91,16 @@ function toWindow(value: unknown): QuotaWindow {
 }
 
 /**
+ * 五小时窗条目：实机响应（2026-08-20 验收④探针）把数字嵌在
+ * `limits[0].detail`（`{ window, detail: { used, limit, resetTime } }`），
+ * 平铺形态（测试夹具/旧假设）兜底直读。
+ */
+function toFiveHour(entry: unknown): QuotaWindow {
+  const v = (entry ?? {}) as Record<string, unknown>
+  return toWindow(v.detail ?? v)
+}
+
+/**
  * Parse `GET /coding/v1/usages` JSON into a QuotaSnapshot.
  * Returns null only when the weekly `usage` section is absent entirely.
  */
@@ -103,7 +113,7 @@ export function parseQuotaSnapshot(json: unknown, fetchedAt: number): QuotaSnaps
   const membership = (user.membership ?? {}) as Record<string, unknown>
   return {
     weekly: toWindow(root.usage),
-    fiveHour: limits.length > 0 ? toWindow(limits[0]) : { used: 0, limit: 0, resetTime: '' },
+    fiveHour: limits.length > 0 ? toFiveHour(limits[0]) : { used: 0, limit: 0, resetTime: '' },
     membershipLevel: typeof membership.level === 'string' ? membership.level : '',
     fetchedAt,
     stale: false,

@@ -26,6 +26,22 @@ describe('parseQuotaSnapshot', () => {
     expect(snap!.fiveHour.used).toBe(10)
   })
 
+  it('parses the real wire shape: limits[0].detail nests the window numbers', () => {
+    // 实机响应锚点（2026-08-20 验收④探针，GET /coding/v1/usages 200）：
+    // limits[0] = { window: { duration, timeUnit }, detail: { limit, used, remaining, resetTime } }
+    const snap = parseQuotaSnapshot({
+      usage: { limit: '100', used: '12', remaining: '88', resetTime: '2026-08-26T04:35:26Z' },
+      limits: [{
+        window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' },
+        detail: { limit: '100', used: '13', remaining: '87', resetTime: '2026-08-20T10:35:26Z' },
+      }],
+      user: { membership: { level: 'LEVEL_ADVANCED' } },
+    }, 0)
+    expect(snap!.weekly).toEqual({ used: 12, limit: 100, resetTime: '2026-08-26T04:35:26Z' })
+    expect(snap!.fiveHour).toEqual({ used: 13, limit: 100, resetTime: '2026-08-20T10:35:26Z' })
+    expect(snap!.membershipLevel).toBe('LEVEL_ADVANCED')
+  })
+
   it('returns null when usage section is missing', () => {
     expect(parseQuotaSnapshot({}, 0)).toBeNull()
     expect(parseQuotaSnapshot(null, 0)).toBeNull()
