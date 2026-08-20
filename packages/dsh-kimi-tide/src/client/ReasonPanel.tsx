@@ -1,16 +1,18 @@
 /**
- * ReasonPanel — 面板 v3 决策可观测组件（Task 10 / Step 3）。
+ * ReasonPanel — 面板 v4 决策可观测组件（0.5.0 规则驱动路由）。
  *
- * 显示：配置来源（configSource）、本步路由决策（decision.reason/scoreDelta），
- * 以及「实际路由：xxx（router 决策）」。模式切换入口保留在主行（见 TideDock）。
+ * 显示：配置来源（configSource）、本步路由决策（decision.reason），
+ * 以及「实际路由：xxx（router 决策）」。预设切换入口在官方设置页「月汐」
+ * 卡片。Δ 评分差行随评分面退役删除（Task 9）。
  */
 import type { ConfigSource, DecisionSummary } from '../types.js'
 
 export interface ReasonPanelProps {
   configSource: ConfigSource
-  /** 本步决策摘要；off/keep 或尚无决策时为 null。 */
+  /** 本步决策摘要；无预设/尚无决策时为 null。 */
   decision: DecisionSummary | null
-  mode: 'off' | 'cost' | 'capability'
+  /** 当前预设名；null = 路由关闭（逃生舱）。 */
+  presetName: string | null
 }
 
 const SOURCE_LABELS: Record<ConfigSource, string> = {
@@ -21,7 +23,7 @@ const SOURCE_LABELS: Record<ConfigSource, string> = {
 }
 
 export function ReasonPanel(props: ReasonPanelProps) {
-  const { configSource, decision, mode } = props
+  const { configSource, decision, presetName } = props
   const source = SOURCE_LABELS[configSource] ?? configSource
 
   return (
@@ -30,7 +32,7 @@ export function ReasonPanel(props: ReasonPanelProps) {
       <span className="kt-meta">🧰 配置来源：{source}（{configSource}）</span>
       {decision === null ? (
         <span className="kt-meta">
-          🧭 实际路由：{mode === 'off' ? '（路由已关闭）' : '（暂无本步决策 — 尚未发生能力路由或为 keep）'}
+          🧭 实际路由：{presetName === null ? '（路由已关闭）' : '（暂无本步决策 — 尚未发生规则命中或为默认目标）'}
         </span>
       ) : (
         <>
@@ -39,9 +41,6 @@ export function ReasonPanel(props: ReasonPanelProps) {
             <span className="kt-meta">（router 决策）</span>
           </span>
           <span className="kt-meta">💡 原因：{decision.reason}</span>
-          {decision.scoreDelta !== null && (
-            <span className="kt-meta">Δ 评分差：{decision.scoreDelta}</span>
-          )}
         </>
       )}
     </div>

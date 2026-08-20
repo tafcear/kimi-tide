@@ -107,11 +107,10 @@ function configuredTargets(config: RouterConfigV4): RouteTarget[] {
  * Provider-agnostic candidate enumeration (spec §2.5): every registered
  * provider contributes its catalog (no whitelist — a provider that fails to
  * enumerate is dropped with a warning, never aborting the pool); each model
- * is resolved for inputModalities (drives the image guard) and its cost tier
- * is hardcoded 'mid' (v4 has no costTiers config; the field leaves in T9).
- * Before the first enumeration completes the pool is seeded from the
- * configured targets (preset defaults + rule targets) with text-only/mid
- * metadata so the router is immediately mountable.
+ * is resolved for inputModalities (drives the image guard). Before the
+ * first enumeration completes the pool is seeded from the configured
+ * targets (preset defaults + rule targets) with text-only metadata so the
+ * router is immediately mountable.
  */
 async function enumerateCandidates(
   llm: LlmCatalog,
@@ -152,21 +151,19 @@ async function enumerateCandidates(
         provider: provider.id,
         model: model.id,
         modalities,
-        costTier: 'mid',
         available: true,
       })
       seen.add(configKey({ provider: provider.id, model: model.id }))
     }
   }
   // Configured targets absent from the live catalog stay visible (available:
-  // false → 标灰 in the panel, excluded from scoring by selectCandidate).
+  // false → 标灰 in the panel, and the router skips them when routing).
   for (const target of configuredTargets(config)) {
     const key = configKey(target)
     if (seen.has(key)) continue
     out.push({
       ...target,
       modalities: ['text'],
-      costTier: 'mid',
       available: false,
     })
   }
@@ -197,7 +194,6 @@ function fallbackCandidateMetas(config: RouterConfigV4): CandidateMeta[] {
   return configuredTargets(config).map((target) => ({
     ...target,
     modalities: ['text'],
-    costTier: 'mid',
     available: true,
   }))
 }

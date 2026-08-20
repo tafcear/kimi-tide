@@ -1,11 +1,7 @@
 export interface RouteTarget { provider: string; model: string }
-/** 候选元数据（0.5.0：costTier 随评分退役）。
- *  注意：costTier 字段暂留——scoring.ts（T9 退役）、index.ts（T6 重写）、
- *  router.ts（T3 换核）仍引用该字段；Task 1 若删之会在范围外文件引发
- *  typecheck/build 红（见 task-1-report.md「costTier 爆炸半径」）。 */
+/** 候选元数据（0.5.0：costTier 随评分面退役，Task 9 删除）。 */
 export interface CandidateMeta extends RouteTarget {
   modalities: string[]
-  costTier: 'cheap' | 'mid' | 'expensive'
   available: boolean
 }
 /** 0.4.x：插件固定的 Kimi provider 路由（pi-ai catalog 原生名）。 */

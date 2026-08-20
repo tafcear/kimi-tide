@@ -4,12 +4,11 @@ import { DEFAULT_CONFIG_V4, type CandidateMeta } from '../src/config.js'
 import { KimiRouter } from '../src/router.js'
 
 const log = { info: () => {} }
-// Ruling 7：costTier 字段 T9 才删，夹具必须带 costTier: 'mid'
 const METAS: CandidateMeta[] = [
-  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'mid', available: true },
-  { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], costTier: 'mid', available: true },
-  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
-  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], available: true },
+  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true },
+  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], available: true },
 ]
 const textMsg = (t: string) => ({ role: 'user', content: [{ type: 'text', text: t }] }) as never
 const imageMsg = () => ({ role: 'user', content: [{ type: 'image', attachment: 'a' }] }) as never
@@ -66,8 +65,8 @@ describe('KimiRouter v4 decide', () => {
   })
   it('显式 @kimi 且带图：池限定多模态候选', () => {
     const metas: CandidateMeta[] = [
-      { provider: 'kimi-coding', model: 'text-only-x', modalities: ['text'], costTier: 'mid', available: true },
-      { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+      { provider: 'kimi-coding', model: 'text-only-x', modalities: ['text'], available: true },
+      { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true },
       ...METAS.filter((m) => m.provider !== 'kimi-coding'),
     ]
     const r = new KimiRouter(cfg('saving'), metas, log)

@@ -282,21 +282,18 @@ describe('integration: decide 级规则路由（via 语义）', () => {
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       modalities: ['text'],
-      costTier: 'cheap',
       available: true,
     },
     {
       provider: 'kimi-coding',
       model: 'kimi-for-coding',
       modalities: ['text', 'image'],
-      costTier: 'mid',
       available: true,
     },
     {
       provider: 'kimi-coding',
       model: 'k3',
       modalities: ['text', 'image'],
-      costTier: 'mid',
       available: true,
     },
   ]

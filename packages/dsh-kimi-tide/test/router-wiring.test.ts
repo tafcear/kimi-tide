@@ -21,9 +21,9 @@ import { installRouter, KimiRouter } from '../src/router.js'
  */
 
 const METAS: CandidateMeta[] = [
-  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'mid', available: true },
-  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
-  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true },
+  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true },
+  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], available: true },
 ]
 
 /**
