@@ -1,46 +1,47 @@
+// test/settings-schema.test.ts（重写）
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_CONFIG_V4 } from '../src/config.js'
 import { mergeResolved, routerConfigSchema, validateRouterConfig } from '../src/settings-schema.js'
-import { DEFAULT_CONFIG_V3, type RouterConfigV3 } from '../src/config.js'
 
-describe('routerConfigSchema', () => {
-  it('resolves a full valid config unchanged', () => {
-    const cfg = DEFAULT_CONFIG_V3()
-    const out = routerConfigSchema(cfg) as RouterConfigV3
-    expect(out).toEqual(cfg)
+describe('routerConfigSchema v4', () => {
+  it('v4 默认往返相等（单一真相源）', () => {
+    expect(routerConfigSchema(DEFAULT_CONFIG_V4() as never)).toEqual(DEFAULT_CONFIG_V4())
   })
-
-  it('injects defaults for a bare section', () => {
-    const out = routerConfigSchema({}) as RouterConfigV3
-    expect(out.mode).toBe('off')
-    expect(out.routeThreshold).toBe(0.75)
-    expect(out.candidates).toEqual([{ provider: 'kimi-coding', model: 'kimi-for-coding' }])
+  it('存量 v3 节可过 schema（注册不被拒绝）', () => {
+    const v3 = { version: 3, mode: 'capability', default: { provider: 'kimi-coding', model: 'k3' }, candidates: [], scores: {}, classify: {}, allowedProviders: [], costTiers: {}, routeThreshold: 0.75, lambda: 0.5, premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2 }
+    const parsed = routerConfigSchema(v3 as never) as { version: number; mode?: string; default?: { model: string } }
+    expect(parsed.version).toBe(3)
+    expect(parsed.mode).toBe('capability')          // migrateV3 需要 mode+default 存活
+    expect(parsed.default?.model).toBe('k3')
   })
-
-  it('rejects an invalid mode', () => {
-    expect(() => routerConfigSchema({ ...DEFAULT_CONFIG_V3(), mode: 'nope' })).toThrow()
-  })
-
-  it('rejects a malformed scores entry', () => {
-    expect(() => routerConfigSchema({ ...DEFAULT_CONFIG_V3(), scores: { 'kimi-coding/k3': { code: 7 } } })).toThrow()
+  it('存量 v2 节可过 schema', () => {
+    expect((routerConfigSchema({ version: 2, mode: 'cost', default: { provider: 'kimi-tide', model: 'k3' } } as never) as { version: number }).version).toBe(2)
   })
 })
 
-describe('validateRouterConfig', () => {
-  const valid = () => validateRouterConfig({ ...DEFAULT_CONFIG_V3(), mode: 'capability' })
-  it('passes a well-formed config', () => { expect(valid()).toBeUndefined() })
-  it('rejects a default target missing from candidates', () => {
-    expect(validateRouterConfig({ ...DEFAULT_CONFIG_V3(), default: { provider: 'x', model: 'y' } })).toMatch(/default/)
+describe('validateRouterConfig v4', () => {
+  it('合法默认配置通过', () => {
+    expect(validateRouterConfig(DEFAULT_CONFIG_V4())).toBeUndefined()
   })
-  it('rejects out-of-range routeThreshold', () => {
-    expect(validateRouterConfig({ ...DEFAULT_CONFIG_V3(), routeThreshold: 5 })).toMatch(/routeThreshold/)
+  it('activePreset 不存在于 presets → 拒绝', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'ghost'
+    expect(validateRouterConfig(c)).toContain('ghost')
   })
-})
-
-describe('mergeResolved', () => {
-  it('merges schema defaults under a patch entry (base layer)', () => {
-    const entry = { mode: 'capability' }
-    const out = mergeResolved(entry)
-    expect(out.mode).toBe('capability')
-    expect(out.routeThreshold).toBe(0.75)  // schema default fills the rest
+  it('规则引用缺失关键词组 → 拒绝并指出组名', () => {
+    const c = DEFAULT_CONFIG_V4(); delete c.keywordGroups.code
+    expect(validateRouterConfig(c)).toContain('code')
+  })
+  it('规则 target 缺 model → 拒绝', () => {
+    const c = DEFAULT_CONFIG_V4(); c.presets.saving.rules[0].target.model = ''
+    expect(validateRouterConfig(c)).toContain('image-k3')
+  })
+  it('legacy version（≠4）直通不校验（迁移兜底）', () => {
+    expect(validateRouterConfig({ version: 3 } as never)).toBeUndefined()
+  })
+  it('mergeResolved：空 entry → v4 默认；部分覆盖深合并', () => {
+    expect(mergeResolved(undefined)).toEqual(DEFAULT_CONFIG_V4())
+    const merged = mergeResolved({ activePreset: 'saving' })
+    expect(merged.activePreset).toBe('saving')
+    expect(merged.presets.capability.rules).toHaveLength(2)
   })
 })

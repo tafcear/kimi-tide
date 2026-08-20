@@ -1,11 +1,11 @@
 // src/settings-migration.ts
 import { existsSync, renameSync } from 'node:fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-settings'
-import type { RouterConfigV3 } from './config.js'
+import type { RouterConfigV4 } from './config.js'
 import { mergeResolved } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 
-export interface MigrationScope { get(): RouterConfigV3; replace(section: object): Promise<void> }
+export interface MigrationScope { get(): RouterConfigV4; replace(section: object): Promise<void> }
 export type MigrationOutcome = 'imported' | 'skipped-clean' | 'skipped-dirty' | 'no-sidecar'
 
 export interface MigrationDeps {

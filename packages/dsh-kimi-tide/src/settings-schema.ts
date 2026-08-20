@@ -1,60 +1,67 @@
 // src/settings-schema.ts
 import Schema from 'schemastery'
-import { DIMS, DEFAULT_CONFIG_V3, type Dim, type RouterConfigV3 } from './config.js'
+import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from './config.js'
 
-// 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V3 派生，不另抄一份（防漂移）。
-// schema 无法参数化，固定取生产 provider 'kimi-coding'（KIMI_PROVIDER）。
-const D = DEFAULT_CONFIG_V3()
+// 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V4 派生，不另抄一份（防漂移）。
+const D4 = DEFAULT_CONFIG_V4()
 
-// 分值域 0..5：归一化规则 score = 基准百分比 / 100 * 5（src/scores.ts），
-// 用户覆盖分与基线同槽位同标度。
-const dimSchema = Schema.object(Object.fromEntries(DIMS.map((d: Dim) => [d, Schema.number().min(0).max(5)])))
-export const routerConfigSchema = Schema.object({
-  // 宽松读取存量 v2 用户层（dsh-settings 契约：存量节校验失败会拒绝整个命名空间
-  // 注册），Task 5 一次性迁移归 3。
-  version: Schema.union([Schema.const(2), Schema.const(3)]).default(D.version),
-  mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]).default(D.mode),
-  default: Schema.object({ provider: Schema.string(), model: Schema.string() }).default(D.default),
-  candidates: Schema.array(Schema.object({ provider: Schema.string(), model: Schema.string() })).default(D.candidates),
-  scores: Schema.dict(dimSchema).default(D.scores),
-  // patterns 形状校验不能在 schema 内做：实测 schemastery dict 会把缺失键
-  // 解析为 {} 并注入（s({}) → { patterns: {} }），破坏与 DEFAULT_CONFIG_V3
-  // classify:{} 的往返相等（审查者「缺失键不写入」的说法实测不成立）。
-  // 故 classify 保留任意键透传，patterns 形状由 validateRouterConfig 把关。
-  classify: Schema.object({}).default(D.classify),
-  allowedProviders: Schema.array(Schema.string()).default(D.allowedProviders),
-  costTiers: Schema.dict(Schema.union([Schema.const('cheap'), Schema.const('mid'), Schema.const('expensive')])).default(D.costTiers),
-  routeThreshold: Schema.number().default(D.routeThreshold),
-  lambda: Schema.number().default(D.lambda),
-  premiumBudget: Schema.number().default(D.premiumBudget),
-  budgetWindow: Schema.number().default(D.budgetWindow),
-  charsPerToken: Schema.number().default(D.charsPerToken),
+const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
+const ruleSchema = Schema.object({
+  id: Schema.string(),
+  when: Schema.union([
+    Schema.object({ kind: Schema.const('image') }),
+    Schema.object({ kind: Schema.const('keywords'), group: Schema.string() }),
+  ]),
+  target: targetSchema,
+})
+const presetSchema = Schema.object({
+  name: Schema.string(),
+  default: targetSchema,
+  rules: Schema.array(ruleSchema),
 })
 
-export function validateRouterConfig(raw: RouterConfigV3): string | undefined {
-  // 语义裁决（控制器 Ruling 4，2026-08-19）：DEFAULT_CONFIG_V3 的 default
-  // （deepseek-official/...）本就不在 candidates（仅 kimi-coding/kimi-for-coding），
-  // 计划模板的「default ∈ candidates」与其自带应通过用例互斥；故校验
-  // default.provider ∈ allowedProviders。default.model 的存在性无注册表可查
-  // （模型清单属 provider 侧），不做校验。
-  if (!raw.allowedProviders.includes(raw.default.provider)) {
-    return `default provider '${raw.default.provider}' is not in allowedProviders`
+// 兼容层行为锚点（2026-08-20 本包 node_modules 实测，承接 Task 1 Ruling 8）：
+// - 非 strict 直接调用下 schema 外未知键**透传保留**（不剥离、不拒绝）；
+// - 标量/联合字段无 default 时：缺失省略、存在即校验（非法值抛错）；
+// - 对象/字典/数组型字段：缺失即注入 {}/[]（与是否带 default 无关）。
+// 因此 v3 遗留字段的处理只能是：
+// - mode 入 schema 但不带 default —— v4 往返不注入；v3 存量存在即校验存活；
+// - default 不入 schema —— 它是对象型，入则 v4 往返被注入 default:{} 破坏
+//   「v4 默认往返相等」；v3 存量的 default 靠透传保活（migrateV3 的 target()
+//   对畸形输入有兜底）；
+// - 其余 v3 遗留字段（scores/classify/candidates/allowedProviders/costTiers/
+//   routeThreshold/lambda/premiumBudget/budgetWindow/charsPerToken）透传保留，
+//   随对象交给 migrateV3（其只读 version/mode/default，忽略其余）。
+// 本 schema 一律非 strict 直接调用，不经 intersect/config 包装。
+export const routerConfigSchema = Schema.object({
+  // 宽松读取存量 v2/v3 用户层（dsh-settings 契约：存量节校验失败会拒绝整个
+  // 命名空间注册）；迁移后整段 replace 覆盖为纯 v4。
+  version: Schema.union([Schema.const(2), Schema.const(3), Schema.const(4)]).default(4),
+  activePreset: Schema.union([Schema.string(), Schema.const(null)]).default(D4.activePreset),
+  presets: Schema.dict(presetSchema).default(D4.presets),
+  keywordGroups: Schema.dict(Schema.array(Schema.string())).default(D4.keywordGroups),
+  // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
+  mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
+})
+
+/** v4 语义校验：activePreset 存在性 / 规则引用组存在 / target 完整 / 预设名非空。
+ *  legacy version（≠4）直通返回 undefined（迁移兜底，注册期不做 v4 语义校验）。 */
+export function validateRouterConfig(raw: RouterConfigV4): string | undefined {
+  if ((raw as { version?: unknown }).version !== 4) return undefined
+  if (raw.activePreset !== null && !(raw.activePreset in raw.presets)) {
+    return `activePreset '${raw.activePreset}' 不在 presets 中`
   }
-  for (const [name, range] of [['routeThreshold', 1], ['lambda', 1], ['premiumBudget', 1]] as const) {
-    const v = raw[name]
-    if (!Number.isFinite(v) || v < 0 || v > range) return `${name} out of range 0..${range}`
-  }
-  if (!Number.isInteger(raw.budgetWindow) || raw.budgetWindow <= 0) return 'budgetWindow must be a positive integer'
-  if (raw.candidates.length === 0) return 'candidates must not be empty'
-  // classify.patterns 形状校验（schema 层无法兼顾「不注入 {}」与形状校验，见上方注释）
-  const patterns = (raw.classify as { patterns?: unknown }).patterns
-  if (patterns !== undefined) {
-    if (patterns === null || typeof patterns !== 'object' || Array.isArray(patterns)) {
-      return 'classify.patterns must be a record of string arrays'
+  for (const [key, preset] of Object.entries(raw.presets)) {
+    if (typeof preset.name !== 'string' || preset.name.trim() === '') {
+      return `预设 '${key}' 的名称不能为空`
     }
-    for (const [k, v] of Object.entries(patterns)) {
-      if (!Array.isArray(v) || v.some((s) => typeof s !== 'string')) {
-        return `classify.patterns['${k}'] must be an array of strings`
+    for (const rule of preset.rules) {
+      const t = (rule.target ?? {}) as { provider?: unknown; model?: unknown }
+      if (typeof t.provider !== 'string' || t.provider === '' || typeof t.model !== 'string' || t.model === '') {
+        return `规则 '${rule.id}' 的 target 不完整（provider/model 必须为非空字符串）`
+      }
+      if (rule.when?.kind === 'keywords' && !(rule.when.group in raw.keywordGroups)) {
+        return `规则 '${rule.id}' 引用的关键词组 '${rule.when.group}' 不存在于 keywordGroups`
       }
     }
   }
@@ -69,8 +76,8 @@ function deepMerge(base: unknown, patch: unknown): unknown {
   return out
 }
 
-export function mergeResolved(entry: unknown): RouterConfigV3 {
-  const defaults = DEFAULT_CONFIG_V3()
-  const resolved = deepMerge(defaults, entry) as RouterConfigV3
-  return routerConfigSchema(resolved) as RouterConfigV3
+export function mergeResolved(entry: unknown): RouterConfigV4 {
+  const defaults = DEFAULT_CONFIG_V4()
+  const resolved = deepMerge(defaults, entry ?? {}) as RouterConfigV4
+  return routerConfigSchema(resolved) as RouterConfigV4
 }
