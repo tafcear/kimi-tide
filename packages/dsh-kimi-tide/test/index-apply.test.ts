@@ -19,7 +19,7 @@ import { KIMI_TIDE_PANEL_EVENT } from '../src/projection.js'
 
 interface FakeAgent { session: { append: ReturnType<typeof vi.fn> } }
 
-function makeCtx(agents: FakeAgent[]) {
+function makeCtx(agents: FakeAgent[], providers?: Array<{ id: string }>) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   let commandDef: { name: string; handler: (invocation: { rawInput: string }) => Promise<unknown> } | undefined
   const ctx = {
@@ -27,7 +27,7 @@ function makeCtx(agents: FakeAgent[]) {
     llm: {
       registerAdapter: () => {},
       // Provider-agnostic catalog: the whitelist decides what becomes a candidate.
-      listProviders: () => [
+      listProviders: () => providers ?? [
         { id: 'kimi-coding', name: 'Kimi' },
         { id: 'deepseek-official', name: 'DeepSeek' },
         { id: 'other-provider', name: 'Other' },
@@ -186,6 +186,60 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
     const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
     expect(snapshot.router).toMatchObject({ mode: 'capability' })
     expect(snapshot.configSource).toBe('sidecar')
+  })
+})
+
+describe('apply() kimi 二态 change-gate（0.4.x 终审跟进：二态变化才推面板）', () => {
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-gate-'))
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('二态未变：refreshKimiStatus 不增推面板（credentials/updated 节流窗口内隔离）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    // 等 apply 期初始推送（异步枚举等）全部落定
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    agent.session.append.mockClear()
+
+    // #1：monitor.refresh 首喷 notify（onUpdate 推 1 次）+ refreshKimiStatus（状态未变 → 门控不推）
+    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(agent.session.append).toHaveBeenCalledTimes(1)
+
+    // #2：2s 节流窗口内 monitor 不再喷；二态仍未变 → 门控依旧不推 → 仍 1 次
+    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(agent.session.append).toHaveBeenCalledTimes(1)
+  })
+
+  it('二态翻转：恰好补推一次且快照 kimi.route=false', async () => {
+    const providers = [
+      { id: 'kimi-coding', name: 'Kimi' },
+      { id: 'deepseek-official', name: 'DeepSeek' },
+    ]
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent], providers)
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    // 首喷一次填满 notify 节流窗口：此后观察到的推送只能来自门控
+    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    agent.session.append.mockClear()
+
+    providers.length = 0 // kimi-coding 路由消失 → route true→false
+    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(agent.session.append).toHaveBeenCalledTimes(1)
+    const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+    expect(snapshot.kimi).toMatchObject({ route: false })
   })
 })
 
