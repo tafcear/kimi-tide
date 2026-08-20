@@ -86,7 +86,10 @@ keywordGroups:
 - **内置预设即数据**：与自定义预设同构，无特例；可编辑、可删除。预设 id 为
   `presets` 的 Record 键；新建预设时 UI 输入显示名，id 由名称派生 slug。
 - **全局切换**：`activePreset` 单选全局生效（设置卡片主写、dock 只读）；删除
-  当前激活预设时同一次写入把 `activePreset` 置 null。
+  当前激活预设时**先写 `activePreset: null`、再写删除后的 `presets` 整段**
+  （两次顺序写入——宿主 dsh-settings 对每笔写入跑 validate-on-write，
+  两个中间态各自合法；反序会产生「activePreset 指向已删预设」的非法中间态
+  被拒）。
 - **打底语义**：预设激活时未命中规则即路由到预设默认模型，覆盖会话手动选
   模型；需手动控制时把预设切到「关闭」（`activePreset: null`）。
 
@@ -265,10 +268,10 @@ interface CandidateMeta extends RouteTarget {
     自定义预设单选）、当前预设编辑器（默认模型下拉 + 规则表：条件下拉/目标
     下拉/上移下移删除/新增）、预设操作（新建/复制/删除）、关键词组管理区
     （折叠；组词表编辑 + 新建/删除组）。写通道经 card-store 的
-    `setActivePreset` / `savePresetField` / `addRule` / `updateRule` /
-    `moveRule` / `removeRule` / `createPreset` / `duplicatePreset` /
-    `deletePreset` / `saveKeywordGroup` / `deleteKeywordGroup`，全部经
-    `scope.update` 整段写（settings 数组全替换语义）。
+    `saveActivePreset` / `savePreset` / `createPreset` / `deletePreset` /
+    `saveKeywordGroups` / `resetField`（规则表/词表的细粒度编辑由组件组装
+    下一个完整字段值后整段提交），全部经 `scope.set`（或 connection 的
+    `settings.mutate`）顶层字段整段写（settings 数组全替换语义）。
 - 写通道：设置卡片直接写 settings 命名空间；dock 的命令通道（`/kimi-tide …`）
   经 remote 执行、多行文本换行保真，写 settings 命名空间（无则 sidecar）。
 

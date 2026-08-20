@@ -54,6 +54,24 @@ describe('RouterSidecarStore', () => {
     expect(out.config!.presets.saving.default.provider).toBe('p')
     expect(errors.some((e) => e.includes('default'))).toBe(true)
   })
+
+  it('half-corrupt v4 (missing presets) → load never throws, .corrupt kept, falls back, warns', () => {
+    // Fails if: validate() v4 直通分支丢掉浅结构检查（presets 对象存在性）——
+    // 回归形态：load() 成功直通，路由期 config.presets[activePreset]  undefined
+    // → configKey(preset.default) 抛 TypeError，违反 损坏永不崩。
+    writeFileSync(file, 'version: 4\nactivePreset: saving\n', 'utf8')
+    const errors: string[] = []
+    const store = new RouterSidecarStore({
+      file, onError: (m) => errors.push(m),
+      patchFallback: () => ({ mode: 'cost', primary: { provider: 'p', model: 'm' }, premium: { provider: 'k', model: 'x' } }),
+    })
+    const out = store.load()
+    expect(out.source).toBe('patch')
+    expect(out.config).not.toBeNull()
+    expect(out.config!.presets.saving.default.provider).toBe('p')
+    expect(existsSync(file + '.corrupt')).toBe(true)
+    expect(errors.some((e) => e.includes('presets'))).toBe(true)
+  })
 })
 
 const V2_YAML = [

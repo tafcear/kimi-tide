@@ -110,7 +110,7 @@ export interface CardStore {
   savePreset(presetId: string, preset: RouterPreset): Promise<void>
   /** 新建预设；id 冲突 → error 通道，不写。 */
   createPreset(id: string, preset: RouterPreset): Promise<void>
-  /** 删除预设；删激活预设时同写 activePreset: null。 */
+  /** 删除预设；删激活预设时先写 activePreset: null 再删预设（两次顺序写入）。 */
   deletePreset(id: string): Promise<void>
   /** 整段覆盖关键词组表。 */
   saveKeywordGroups(groups: Record<string, string[]>): Promise<void>
@@ -258,13 +258,28 @@ export function createCardStore(
     try {
       if (scope !== null) await scope.set(field, value)
       else if (connection !== null) {
-        await connection.api.settings.mutate({
+        const r = (await connection.api.settings.mutate({
           ns: CARD_NAMESPACE,
           ops: [{ op: 'set', path: [field], value }],
           ...(revision === undefined ? {} : { expectedRevision: revision }),
-        })
+        })) as { result?: SettingsRpcResult<unknown> } | undefined
+        // I1 终审修复：宿主校验拒绝经 result 通道返回（不抛）——ok:false
+        // 必须上浮 error，不再当作成功继续 load。
+        if (r !== null && typeof r === 'object' && r.result !== undefined && !r.result.ok) {
+          fail(new Error(r.result.error.message))
+          return
+        }
       }
       await load()
+      // I1 终审修复（scope 路径）：宿主 validate-on-write 静默 recover（set
+      // 不抛、落值被拒）——load 后对比「意图写入值」与「实际值」，不一致即
+      // 视为写入被拒，上浮 error 通道。
+      if (scope !== null) {
+        const actual = (snapshot.config as Record<string, unknown> | null)?.[field]
+        if (JSON.stringify(actual) !== JSON.stringify(value)) {
+          fail(new Error('写入被拒绝（校验失败？）'))
+        }
+      }
     } catch (error) {
       fail(error)
     }
@@ -292,12 +307,17 @@ export function createCardStore(
   }
 
   const deletePreset = async (id: string): Promise<void> => {
-    const presets = nextPresets()
-    delete presets[id]
-    await saveTop('presets', presets)
+    // C1 终审修复：宿主 dsh-settings 对每笔写入跑 validateRouterConfig——
+    // 「先删 presets 再清 activePreset」会产生 activePreset 指向已删预设的
+    // 非法中间态（首笔被拒 → 预设没删、路由被静默关闭）。顺序反转：先清
+    // activePreset（若激活的就是待删预设），再写删除后的 presets 整段——
+    // 两个中间态各自合法。
     if (snapshot.config?.activePreset === id) {
       await saveTop('activePreset', null)
     }
+    const presets = nextPresets()
+    delete presets[id]
+    await saveTop('presets', presets)
   }
 
   const saveKeywordGroups = async (groups: Record<string, string[]>): Promise<void> => {

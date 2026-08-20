@@ -27,7 +27,7 @@
 | 0.3.0 能力评分路由 | ✅ main 已实施 + 手工验收 7/7 | `86da918`（203/203 绿） |
 | 0.4.0 设置界面迁移 | ✅ main 已合并 | `bc31b69`；验收 ①-③ 通过 |
 | 0.4.x API key 直连 | ✅ 已发布 v0.4.0（2026-08-20） | tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，[流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
-| 0.5.0 规则驱动路由 | ✅ 已实施（分支 `feat-0.5.0-rule-routing`，未发布） | 预设+规则引擎取代评分引擎，203/203 绿 + typecheck 0 + build 过 |
+| 0.5.0 规则驱动路由 | ✅ 已实施（分支 `feat/0.5.0-rule-driven-routing`，未发布） | 预设+规则引擎取代评分引擎，203/203 绿 + typecheck 0 + build 过 |
 
 ⚠️ **已知限制**：带图会话会锁存多模态模型；若 Kimi 侧额度/Key 失效，该会话无法切回文本模型（死锁，只能新开会话）。根解「图像转述模式」改设计中（子代理图片外包已裁撤：官方子代理仅文本），详见[已知限制](#已知限制)。
 
@@ -311,7 +311,7 @@ A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布�
 | 0.3.0 capability-scored routing | ✅ Implemented on main + manual acceptance 7/7 | `86da918` (203/203 green) |
 | 0.4.0 settings migration | ✅ Merged on main | `bc31b69`; acceptance ①-③ passed |
 | 0.4.x API-key direct | ✅ Released v0.4.0 (2026-08-20) | tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0), [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
-| 0.5.0 rule-driven routing | ✅ Implemented (branch `feat-0.5.0-rule-routing`, unreleased) | preset+rule engine replaces the scoring engine; 203/203 green + typecheck 0 + build ok |
+| 0.5.0 rule-driven routing | ✅ Implemented (branch `feat/0.5.0-rule-driven-routing`, unreleased) | preset+rule engine replaces the scoring engine; 203/203 green + typecheck 0 + build ok |
 
 ⚠️ **Known limitation**: image-bearing sessions latch onto the multimodal model; if the Kimi quota/key fails, that session cannot fall back to a text model (deadlock — start a new session). The root fix (image transcription mode, redesigned for rc.8) is planned; subagent image outsourcing was dropped (official subagents are text-only). See [Known Limitations](#known-limitations).
 
