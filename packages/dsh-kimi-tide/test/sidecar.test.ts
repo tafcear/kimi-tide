@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -53,5 +53,65 @@ describe('RouterSidecarStore', () => {
     expect(out.config).not.toBeNull()
     expect(out.config!.default.provider).toBe('p')
     expect(errors.some((e) => e.includes('default'))).toBe(true)
+  })
+})
+
+const V2_YAML = [
+  'version: 2',
+  'mode: capability',
+  'default:',
+  '  provider: kimi-tide',
+  '  model: k3',
+  'candidates:',
+  '  - provider: kimi-tide',
+  '    model: k3',
+  '  - provider: deepseek-official',
+  '    model: deepseek-v4-flash',
+  'allowedProviders:',
+  '  - kimi-tide',
+  '  - deepseek-official',
+  'scores:',
+  '  kimi-tide/k3:',
+  '    code: 4.7',
+].join('\n')
+
+describe('sidecar v2 → v3 迁移', () => {
+  it('loads a v2 sidecar as migrated v3, archives .pre-v3 and rewrites the file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kt-sidecar-v3-'))
+    try {
+      const file = join(dir, 'kimi-tide-router.yml')
+      writeFileSync(file, V2_YAML, 'utf8')
+      const store = new RouterSidecarStore({ file, onError: () => {} })
+      const loaded = store.load()
+      expect(loaded.source).toBe('sidecar')
+      expect(loaded.config!.version).toBe(3)
+      expect(loaded.config!.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
+      expect(loaded.config!.allowedProviders).toEqual(['kimi-coding', 'deepseek-official'])
+      expect(loaded.config!.scores).toEqual({ 'kimi-coding/k3': { code: 4.7 } })
+      expect(existsSync(file + '.pre-v3')).toBe(true)
+      // 回写后文件是 v3：再 load 不重复迁移、不留第二份 .pre-v3
+      const again = new RouterSidecarStore({ file, onError: () => {} }).load()
+      expect(again.config!.version).toBe(3)
+      expect(again.config!.default.provider).toBe('kimi-coding')
+      expect(readFileSync(file + '.pre-v3', 'utf8')).toContain('provider: kimi-tide')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('passes a v3 sidecar through untouched (no archive, no rewrite)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kt-sidecar-v3b-'))
+    try {
+      const file = join(dir, 'kimi-tide-router.yml')
+      const v3 = { version: 3, mode: 'off' as const, default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, candidates: [{ provider: 'kimi-coding', model: 'kimi-for-coding' }] }
+      const store = new RouterSidecarStore({ file, onError: () => {} })
+      store.save(v3)
+      const out = store.load()
+      expect(out.config!.version).toBe(3)
+      expect(existsSync(file + '.pre-v3')).toBe(false)
+      expect(out.config!.candidates[0].provider).toBe('kimi-coding')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

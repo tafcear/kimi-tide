@@ -3,7 +3,7 @@
  * the dock panel (browser calls ctx.remote.commands.execute(sessionId,
  * '/kimi-tide …'); the harness routes it to this registration).
  *
- * Subcommands (0.3.0, v2):
+ * Subcommands (0.3.0, v3):
  *   /kimi-tide mode off|cost|capability
  *   /kimi-tide set <key> <value>     (keys into RouterConfigV3 — SETTABLE_KEYS)
  *   /kimi-tide export-config         (print the sidecar YAML text)
@@ -32,7 +32,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
 import type { RouterConfigV3 } from './config.js'
-import { migrateV1 } from './migrate.js'
+import { coerceRouterConfig, migrateV1 } from './migrate.js'
 import type { RouterSidecarStore } from './sidecar.js'
 import type { UsageMonitor } from './usage.js'
 
@@ -53,7 +53,7 @@ export interface SettingsNamespacePort {
 }
 
 export interface KimiTideCommandDeps {
-  /** v2 persistence: the sidecar file is the live router store. */
+  /** v3 persistence: the sidecar file is the live router store. */
   sidecar: RouterSidecarStore
   /** Primary settings namespace; absent/null → fall back to sidecar read/write. */
   settings?: SettingsNamespacePort | null
@@ -114,7 +114,7 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
 
 const HELP_TEXT = [
   '/kimi-tide mode off|cost|capability — switch routing mode',
-  '/kimi-tide set <key> <value> — update one router setting (v2)',
+  '/kimi-tide set <key> <value> — update one router setting (v3)',
   `  keys: ${Object.keys(SETTABLE_KEYS).join(', ')}`,
   '/kimi-tide export-config — print the sidecar YAML',
   '/kimi-tide import-config <path|inline YAML> — load a YAML file OR inline YAML text (panel save channel)',
@@ -245,21 +245,22 @@ function mergeInlineText(text: string, current: RouterConfigV3): RouterConfigV3 
 
 /**
  * 读取并校验一个 config YAML 文件（不落盘），供 settings 命名空间路径的
- * import-config 文件形态使用——镜像 RouterSidecarStore.validate 的 v2 结构
- * 检查 + v1 迁移，与 sidecar.importFile 保持相同解析语义但不写入 sidecar。
+ * import-config 文件形态使用——镜像 RouterSidecarStore.validate 的 v2/v3 结构
+ * 检查 + coerceRouterConfig 迁移（v2→v3 改名、v1→v3），与 sidecar.importFile
+ * 保持相同解析语义但不写入 sidecar。
  */
 function parseImportedFile(path: string): RouterConfigV3 {
   const raw = YAML.parse(readFileSync(path, 'utf8')) as unknown
   const r = (raw ?? {}) as Record<string, unknown>
-  if (r.version === 2 || r.version === 3) {
+  if (r.version === 3 || r.version === 2) {
     const d = (r.default ?? {}) as Record<string, unknown>
     if (typeof d.provider !== 'string' || typeof d.model !== 'string') {
-      throw new Error('config v2 结构不合格：default.provider/default.model 缺失或非字符串')
+      throw new Error('config v3 结构不合格：default.provider/default.model 缺失或非字符串')
     }
     if (!Array.isArray(r.candidates)) {
-      throw new Error('config v2 结构不合格：candidates 缺失或非数组')
+      throw new Error('config v3 结构不合格：candidates 缺失或非数组')
     }
-    return raw as RouterConfigV3
+    return coerceRouterConfig(raw, () => {})
   }
   return migrateV1(raw, () => {})
 }

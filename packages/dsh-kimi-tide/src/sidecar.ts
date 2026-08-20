@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import YAML from 'yaml'
 import { DEFAULT_CONFIG_V3, type RouterConfigV3 } from './config.js'
-import { migrateV1 } from './migrate.js'
+import { coerceRouterConfig, migrateV1 } from './migrate.js'
 
 export interface SidecarOptions {
   file: string
@@ -23,7 +23,16 @@ export class RouterSidecarStore {
     }
     try {
       const raw = YAML.parse(readFileSync(this.o.file, 'utf8')) as unknown
-      return { config: this.validate(raw), source: 'sidecar' }
+      const config = this.validate(raw)
+      // v2→v3 写回迁移（spec §3.3）：旧文件留档 .pre-v3 后把迁移结果写回，
+      // 使后续 load 走直通路径（幂等；settings 宿主随后整体导入并留档 .legacy-imported）。
+      if ((raw as { version?: unknown })?.version === 2) {
+        try { copyFileSync(this.o.file, this.o.file + '.pre-v3') } catch (error) {
+          this.o.onError(`dsh-kimi-tide: sidecar .pre-v3 留档失败（${(error as Error).message}）`)
+        }
+        this.save(config)
+      }
+      return { config, source: 'sidecar' }
     } catch (error) {
       try { renameSync(this.o.file, this.o.file + '.corrupt') } catch { /* keep going */ }
       this.o.onError(`dsh-kimi-tide: sidecar 损坏，已保留 .corrupt 副本（${this.o.file}）：${(error as Error).message}；可用 /kimi-tide import-config 恢复`)
@@ -64,21 +73,21 @@ export class RouterSidecarStore {
 
   private validate(raw: unknown): RouterConfigV3 {
     const r = (raw ?? {}) as Record<string, unknown>
-    if (r.version === 2 || r.version === 3) {
-      // 损坏永不崩：手改 sidecar 删掉 default/candidates 的半损坏 v2 不能
-      // 直通——否则 load 不崩但路由时 configKey(config.default) 抛 TypeError。
-      // 浅结构检查不合格即视为损坏：warn（含原因）并走与 parse 失败相同的
-      // 回退链（抛错由 load() 捕获 → .corrupt 保留 → migrateV1(patchFallback)）。
+    if (r.version === 3 || r.version === 2) {
+      // 损坏永不崩：半损坏 v2/v3 直通会导致 configKey(config.default) 抛 TypeError
+      // 浅结构检查不合格即视为损坏：抛错由 load() 捕获 → .corrupt 保留 →
+      // migrateV1(patchFallback)。结构合格则走 coerceRouterConfig 统一迁移
+      // （v3 直通；v2 → migrateV2 改名）。
       const d = (r.default ?? {}) as Record<string, unknown>
       if (typeof d.provider !== 'string' || typeof d.model !== 'string') {
-        throw new Error('sidecar v2 结构不合格：default.provider/default.model 缺失或非字符串')
+        throw new Error('sidecar 结构不合格：default.provider/default.model 缺失或非字符串')
       }
       if (!Array.isArray(r.candidates)) {
-        throw new Error('sidecar v2 结构不合格：candidates 缺失或非数组')
+        throw new Error('sidecar 结构不合格：candidates 缺失或非数组')
       }
-      return raw as RouterConfigV3
+      return coerceRouterConfig(raw, this.o.onError)
     }
-    return migrateV1(raw, this.o.onError)   // 旧形状 sidecar 也走迁移
+    return migrateV1(raw, this.o.onError)   // 旧形状 sidecar 也走迁移（收尾 v3）
   }
 }
 export { DEFAULT_CONFIG_V3 }
