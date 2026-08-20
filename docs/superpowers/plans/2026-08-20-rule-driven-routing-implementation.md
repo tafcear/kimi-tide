@@ -828,7 +828,7 @@ Expected: FAIL
 
 - [ ] **Step 3: 实现（GREEN）**
 
-schema 结构（Ruling 8 修订：schemastery 实测=**非 strict 模式下未知键透传**——schema 只需列 v4 字段 + version union + `mode`/`default` 两个 v3 字段保 migrateV3 输入；其余 v3 遗留字段透传保留，**不得**写「解析结果不含遗留字段」类断言；本 schema 一律非 strict 直接调用，不经 intersect/config 包装）：
+schema 结构（Ruling 8 修订：schemastery 实测=**非 strict 模式下未知键透传**；Ruling 10 修订：schemastery 对**带 default 的字段缺失即注入默认值、对象/字典/数组型字段无 default 也注入 {}/[]**——因此 `mode` 入 schema 但**不带 default**、`default` 字段**不入 schema**（靠透传保活），否则 v4 默认往返相等测试必红。本 schema 一律非 strict 直接调用，不经 intersect/config 包装）：
 
 ```typescript
 const D4 = DEFAULT_CONFIG_V4()
