@@ -1,7 +1,7 @@
 # 0.4.x「API key 直连」设计稿
 
 - 日期：2026-08-20
-- 状态：**设计已定稿（用户三项裁决批准）**，待实施（预计 2026-08-21，随 v0.4.0 发布）
+- 状态：**已实施（2026-08-20，commit `ec7909e..123d4e7`，分支 `feat/0.4.0-api-key-direct`），发布待定（随 v0.4.0）**
 - 决策出处：2026-08-19 晚「四点方向讨论」（评分退役 / 接入层换官方 API Key 直连 / 路径 3 收敛版 / 排期 0.4.x→0.5.0，见 vault 协作日志 2026-08-19）+ 2026-08-20 本会话三项裁决
 - 前置调研：[`docs/host-platform-map.md`](../../host-platform-map.md)（DSH 宿主平台契约，Kimi k3 实跑，commit 648ed87）
 
@@ -145,5 +145,5 @@ kimi-tide 现行接入层为自研 `KimiAdapter`（OAuth 进程内刷新 + pi-ai
 ## 6. 待核实项
 
 1. `/coding/v1/usages` 对 Console Key 的接受性 → 验收④实机落锤。
-2. `dsh-credentials-local` 对插件暴露的解析 API 形状（实施第一步实读其 `.d.ts`；决定 UsageMonitor 取 key 路径）。
+2. ~~`dsh-credentials-local` 对插件暴露的解析 API 形状~~ **已落锤（实施时实读）**：`ctx.credentials.resolve(CredentialRef) → { value, source }`（`@deepseek-ai/dsh-credentials` lib/types/index.d.ts:46-56）；apiKeyEnv 引用名从 `ctx.settings.get('llm-pi-ai')` 的 `providers['kimi-coding'].apiKeyEnv` 读取（`@deepseek-ai/dsh-llm-pi-ai` lib/types/config.d.ts:40-42，README.md:108），兜底 `'KIMI_API_KEY'` 与 `process.env`。
 3. `k3-256k`/`kimi-for-coding` 是否需在本机 kimi-coding 路由补声明（用户决策；不补则标灰，机制已兜）。

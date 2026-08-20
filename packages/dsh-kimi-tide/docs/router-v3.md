@@ -1,7 +1,9 @@
-# kimi-tide 路由 v3（能力评分路由，0.3.0）
+# kimi-tide 路由 v3（能力评分路由，0.3.0 → 0.4.x）
 
-本文以 `src/` 现行实现为准，描述 0.3.0 的评分路由架构。0.2.x 的规则表 `decide()`
-已被「classify → 评分选择」取代；v1 配置形状仍被接受并桥接到 v2（见下文「兼容性」）。
+本文以 `src/` 现行实现为准，描述 0.3.0 起的能力评分路由架构。0.4.x 起 provider 改名
+`kimi-tide` → `kimi-coding`（`SCORES_VERSION` 升 3），自研接入层退役切换为 pi-ai 原生
+路由 + API key（见根 README 快速开始）。0.2.x 的规则表 `decide()` 已被
+「classify → 评分选择」取代；v1 配置形状仍被接受并桥接到 v3（见下文「兼容性」）。
 
 ## 总览
 
@@ -55,7 +57,7 @@ interface CandidateMeta extends RouteTarget {
 - **vision**：任一消息含 image 块 → `weights.vision = 3`，`vision = true`。
 - **longctx**：`estTokens > 60000` → +1（`estTokens = ceil(chars / charsPerToken)`，
   默认 charsPerToken=2，中英混合保守估算）。
-- **显式指令**：`/@([\w-]{2,20})\b/`；`@kimi` 归一化为 provider `kimi-tide`。
+- **显式指令**：`/@([\w-]{2,20})\b/`；`@kimi`（及 `@kimi-tide`）归一化为 provider `kimi-coding`（`KIMI_PROVIDER`）。
 
 ## 评分与选择（`src/scoring.ts`）
 
@@ -65,9 +67,9 @@ score(candidate) = Σ(dim) weight[dim] × scores[provider/model][dim]
 ```
 
 - **评分表**（`src/scores.ts`）：`scoreFor(cfg, target)` = 用户覆盖
-  （`cfg.scores['provider/model'][dim]`）→ 内置基线（`BASELINE`，SCORES_VERSION 2：
-  code/reasoning 为权威基准溯源值（SWE-bench/GPQA），其余维度中性，
-  vision 0）→ 缺省 2.5。
+  （`cfg.scores['provider/model'][dim]`）→ 内置基线（`BASELINE`，`SCORES_VERSION = 3`，
+  键为 `kimi-coding/*`：code/reasoning 为权威基准溯源值（SWE-bench/GPQA），
+  其余维度中性，vision 0）→ 缺省 2.5。
 - **selectCandidate**：
   - eligible = `available && (!hasImage || modalities 含 'image')`；空 → keep。
   - 最优即默认目标 → keep。
@@ -120,27 +122,33 @@ score(candidate) = Σ(dim) weight[dim] × scores[provider/model][dim]
 - **子代理图片外包**（子代理级）：独立上下文子代理读图回传文字
   （前置=kimi 子代理后端落地）。
 
-## 配置源与持久化（sidecar）
+## 配置源与持久化（settings 命名空间 + sidecar 兜底）
 
-优先级：**sidecar 文件 > patch 静态块 > 内置默认**，面板以
-`configSource: 'sidecar'|'patch'|'default'` 投影来源。
+0.4.0 起持久化迁至 DSH 设置命名空间 `kimi-tide-router`（base 层 = 部署基座 /
+user 层 = 用户编辑，revision 冲突检测）；面板以 `configSource:
+'settings'|'sidecar'|'patch'|'default'` 投影来源。
 
-- **sidecar**：`$DSH_HOME/profiles/web/kimi-tide-router.yml`（`defaultSidecarFile()`，
-  与 patch 文件互邻）。`RouterSidecarStore`（`src/sidecar.ts`）：
+- **有 settings 服务（rc.7+）**：settings 命名空间为唯一写目标——面板保存、命令
+  变更、外部文档编辑都经 settings 服务提交（`configSource: 'settings'`）。
+- **无 settings 服务（rc.6）**：回退 sidecar 文件
+  `$DSH_HOME/profiles/web/kimi-tide-router.yml`（`RouterSidecarStore`，
+  `src/sidecar.ts`），优先级 sidecar > patch 静态块 > `DEFAULT_CONFIG_V3()`。
   - `save`：先存 `.bak`，tmp+rename 原子写。
   - `load`：YAML 解析失败 → 原文件改名 `.corrupt` 保留、告警、回退 patch/default。
-  - `version !== 2` 的旧形状走 `migrateV1` 迁移（premiumLong 丢弃并告警）。
+  - 旧形状走 `coerceRouterConfig` 迁移（v1/v2 → v3，premiumLong 丢弃并告警）；
+    命名迁移（`kimi-tide/*` → `kimi-coding/*`）前留档 `.pre-v3`。
 - **patch**：`RouterSettingsStore`（`src/settings.ts`）只读 legacy 静态种子
-  （v1 形状，行锚定读写保护用户注释）；0.3.0 起面板保存**不再**回写 patch
-  文件——保存不再触发 loader 重挂载（修复 57c7ef8 失配类问题）。
+  （v1 形状，行锚定读写保护用户注释）；0.3.0 起面板保存**不再**回写 patch 文件。
+- **sidecar → settings 迁移**：settings 服务附着时 sidecar 内容一次性导入命名空间
+  并留档 `.legacy-imported`。
 
-## 命令面 v2（`/kimi-tide`）
+## 命令面 v3（`/kimi-tide`）
 
 | 子命令 | 行为 |
 |--------|------|
-| `mode off\|cost\|capability` | 切换模式并写 sidecar |
-| `set <key> <value>` | v2 键表：`lambda` / `routeThreshold` / `premiumBudget` / `budgetWindow` / `charsPerToken` / `default.model` |
-| `export-config` | 打印 sidecar YAML 文本 |
+| `mode off\|cost\|capability` | 切换模式并写 settings 命名空间（无则 sidecar） |
+| `set <key> <value>` | v3 键表：`lambda` / `routeThreshold` / `premiumBudget` / `budgetWindow` / `charsPerToken` / `default.model` |
+| `export-config` | 打印 resolved 配置 YAML（settings 命名空间优先，无则 sidecar） |
 | `import-config <path\|inline YAML>` | 双形态（见下） |
 | `refresh` | 立即轮询配额 |
 
@@ -155,37 +163,45 @@ score(candidate) = Σ(dim) weight[dim] × scores[provider/model][dim]
 - `parseKimiTideCommand` 对 import-config 取子命令后的**完整剩余参数**
   （保留换行/缩进），多行 YAML 原样送达。
 
-所有变更类子命令只写 sidecar，成功后回调 `onSaved`：重建路由器、清掉
-旧决策摘要、重枚举候选、推送面板快照。
+所有变更类子命令写 settings 命名空间（无则 sidecar），成功后回调 `onSaved`：
+重建路由器、清掉旧决策摘要、重枚举候选、推送面板快照。
 
-## 面板 v3 与投影（projection v2）
+## 面板 v3 与投影（projection v3）
 
-`kimi-tide/panel` 投影（stateVersion 2）携带：`quota` / `local` / `router`
-（v1 视图）/ `models` 下拉选项 / **`configSource`** / **`candidates`**
-（provider/model/available 摘要，完整 metas 留在 host）/ **`decision`**。
+`kimi-tide/panel` 投影（stateVersion 3）携带：`quota` / `router`（v1 视图）/
+**`kimi` 二态接入指示**（`{ route, key }`——kimi-coding 路由已注册 + API key 可解析）/
+`models` 下拉选项 / **`configSource`** / **`candidates`**（provider/model/available
+摘要，完整 metas 留在 host）/ **`decision`**。（0.4.x 删本地 token 统计 `local`，
+其数据源随自研接入层退役。）
 
 - **决策可观测**（`buildDecisionSummary`）：仅 capability 模式的 route 决策
   上浮（chosen/reason≤120 字符/scoreDelta）；off/keep/cost 一律 null，
   配置变更即清空（旧决策不泄漏）。
 - **组件**（`src/client/`）：
-  - `TideDock`：主行（模式切换、路由 chip、配额 chip、本地 token、决策 chip）
-    + 折叠区（会员/重置倒计时、v2 设置、ReasonPanel、推理状态）。
-  - `CandidateList`：候选池增删改 → 翻译成 sidecar YAML 经 import-config 落盘。
-  - `ScoreEditor`：六维滑杆（0–5 步长 0.5，基线 vs 覆盖分）→ 「保存评分」
-    序列化整份 draft 为 sidecar 文本经 import-config 落盘。
-  - `ReasonPanel`：configSource 标签 + 本步决策摘要 + 实际路由显示。
-- 写通道：面板经 remote 通道执行 `/kimi-tide …` 命令（多行文本换行保真）。
+  - `TideDock`（`conversation.composer.dock` 只读仪表）：主行 chips（mode 徽标、
+    路由 chip、kimi 接入指引 chip、配额 chip、决策 chip）+ 「🔄 刷新配额」按钮 +
+    ReasonPanel + 推理状态行 + 「路由设置已迁至 设置 → 月汐」指引；写控件
+    （mode 按钮 / 设置折叠区）已整体移除。
+  - `SettingsCard`（`settings.section`，id `kimi-tide-router`）：官方设置页
+    「月汐」卡片——mode 三选、候选 + 每候选评分滑杆、数值区、高级折叠
+    （classify.patterns / costTiers / allowedProviders）。写通道经 card-store 的
+    `scope.set` 或 `connection.api.settings.mutate`（多段 path），不经过 dock 的
+    import-config 通道。
+  - `ReasonPanel`：configSource 标签 + 本步决策摘要 + 实际路由显示（只读）。
+- 写通道：设置卡片直接写 settings 命名空间；dock 的命令通道（`/kimi-tide …`）
+  经 remote 执行、多行文本换行保真，写 settings 命名空间（无则 sidecar）。
 
 ## 兼容性（v1 桥接）
 
-`new KimiRouter(v1Config, log)` 仍被接受：`legacyConfigToV2` 桥接配置
+`new KimiRouter(v1Config, log)` 仍被接受：`legacyConfigToV3` 桥接配置
 （candidates = [premium, premiumLong]，classify.patterns 由 escalateWhen.patterns
 映射到 reasoning），`legacyMetasFromConfig` 按真实能力矩阵推导候选元数据
 （deepseek-v4-* text-only/cheap，Kimi k3 系 multimodal/mid）。v1 构造时评分
 权重收缩到 escalateWhen 实际开启的维度（patterns→reasoning、
 estimatedTokensGt→longctx），`routeThreshold` 置 0，保持 0.2.x 行为。
-`index.ts` 另导出 `routerConfigToV2` / `candidateMetasFromConfig` / `buildRouter`
-供测试与外部调用方做同样的桥接。
+`index.ts` 另导出 `routerConfigToV3` / `candidateMetasFromConfig` / `buildRouter`
+供测试与外部调用方做同样的桥接；v1/v2 → v3 的统一迁移入口为
+`coerceRouterConfig`（`migrate.ts`）。
 
 ## 逃生
 

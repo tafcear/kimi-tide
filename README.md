@@ -8,9 +8,8 @@
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.1.3-blue" alt="release">
-    <img src="https://img.shields.io/badge/Next%20Release-v0.4.0-orange" alt="next release">
-    <img src="https://img.shields.io/badge/Tests-203%2F203-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Tests-205%2F205-brightgreen" alt="tests">
   </p>
 </p>
 
@@ -18,7 +17,7 @@
 
 ## 现状快照（2026-08-20）
 
-> **📌 开发计划（重要）**：**v0.4.0 预计 2026-08-21 发布**，内容 = 设置界面迁移（`bc31b69`）+ **「API key 直连」**——接入层切换为官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，自研 OAuth 接入层退役（约 740 行删除），provider 命名 `kimi-tide/*` → `kimi-coding/*` 自动迁移存量配置。设计稿：[`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。
+> **📌 开发计划（重要）**：**v0.4.0 已实施（分支 `feat/0.4.0-api-key-direct`，发布待定）**，内容 = 设置界面迁移（`bc31b69`）+ **「API key 直连」**——接入层切换为官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，自研 OAuth 接入层退役（约 740 行删除），provider 命名 `kimi-tide/*` → `kimi-coding/*` 自动迁移存量配置（实施 commit `ec7909e..123d4e7`，205/205 测试 + typecheck + build 绿）。设计稿：[`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
@@ -26,7 +25,7 @@
 | 0.2.x 双模型路由器 | ✅ main 已落地 + 实机验证 | `71b1d18` / `16a75d0` / `fcbf421`，M5 双探针 + 带图闭环 |
 | 0.3.0 能力评分路由 | ✅ main 已实施 + 手工验收 7/7 | `86da918`（203/203 绿） |
 | 0.4.0 设置界面迁移 | ✅ main 已合并 | `bc31b69`；验收 ①-③ 通过 |
-| 0.4.x API key 直连 | 📐 设计定稿，2026-08-21 实施并随 v0.4.0 发布 | [设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md) |
+| 0.4.x API key 直连 | ✅ 已实施（分支 `feat/0.4.0-api-key-direct`），发布待定 | `ec7909e..123d4e7`，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md) |
 
 ⚠️ **已知限制**：带图会话会锁存多模态模型；若 Kimi 侧额度/Key 失效，该会话无法切回文本模型（死锁，只能新开会话）。根解「图像转述 / 子代理图片外包」规划中，详见[已知限制](#已知限制)。
 
@@ -110,7 +109,7 @@ flowchart LR
 
 ## 快速开始（v0.4.0 形态）
 
-> v0.4.0 于 2026-08-21 发布。在此之前，源码构建仍是 0.1.x 的 OAuth 接入形态（旧路径见 [`docs/legacy-setup.md`](docs/legacy-setup.md)）。
+> 本分支已实施 API key 直连（发布待定，见「开发计划」）；旧 OAuth 方案已退役，历史存档见 [`docs/legacy-setup.md`](docs/legacy-setup.md)。
 
 ### 1. 前置条件
 
@@ -157,7 +156,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 - **6 维评分**：`code` / `reasoning` / `writing` / `tooluse` / `vision` / `longctx`；设置卡片滑杆可覆盖任意维度。
 - **决策流**：`classify`（关键词/长度 → 维度权重）→ 显式 `@provider`（最高优先）→ `selectCandidate`（加权分 − λ×成本档）；平局/不达标回退默认路由。
 - **候选枚举**：从 `ctx.llm` 实时目录枚举白名单 provider 的模型并解析模态；配了但未接入的模型在面板标灰，不参与评分。
-- **评分基线 v2**（`src/scores.ts`，`SCORES_VERSION = 2`，证据分级标注）：
+- **评分基线 v3**（`src/scores.ts`，`SCORES_VERSION = 3`，证据分级标注）：
 
 | 模型 | code | reasoning | 其余维度 |
 |---|---|---|---|
@@ -166,7 +165,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 | `deepseek-v4-pro` | 4.0（一级：SWE-bench 80.6%） | 4.5（一级：GPQA 90.1%） | 同上 |
 | `deepseek-v4-flash` | 3.0（推断） | 3.0（推断） | 同上 |
 
-> 出处锚点见 `src/scores.ts` 注释与 [`docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md)；「推断」格计划由 A 方案全维取证替换。（0.4.x 迁移后基线键改为 `kimi-coding/*`。）
+> 出处锚点见 `src/scores.ts` 注释与 [`docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md)；「推断」格计划由 A 方案全维取证替换。（0.4.x 起基线键为 `kimi-coding/*`。）
 
 ### 图像护栏与锁存
 
@@ -244,7 +243,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（当前 203/203 通过，23 个测试文件）
+npm test            # vitest（当前 205/205 通过，21 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
@@ -257,7 +256,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 - **0.1.x（已发布）**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
 - **0.2.x（main 已落地，未发布）**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
 - **0.3.0（main 已实施，未发布）**：能力评分路由（11 任务 TDD，`86da918`），手工验收 7/7 ✅。
-- **0.4.0（2026-08-21 发布）**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线；评分基线 A 方案全维取证；滑杆步进修。
+- **0.4.0（已实施，发布待定）**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线；评分基线 A 方案全维取证；滑杆步进修。
 - **0.5.0（规划）**：官方 agent preset 模式预设（桥接行 + `agent-presets.default` 绑定）。
 - **规划中**：图像转述模式 / 子代理图片外包（图片不入主历史，根解带图死锁）；kimi 子代理后端（subagents 命名注册表挂载）。
 
@@ -284,13 +283,13 @@ A：v0.4.0 起不需要。一把 Console API Key + 官方 Models 页配置即可
 A：图片进入会话历史后会话锁存多模态模型；若 Kimi 额度/Key 失效，会话无法切回文本模型 → 死锁，只能新开。根解（图像转述 / 子代理图片外包）规划中；落地前重要带图任务请保持 Kimi 侧额度健康。
 
 **Q：能力评分从哪里来？**  
-A：`src/scores.ts` 基线 v2：`code` / `reasoning` 有 SWE-bench / GPQA 一级证据或强相对推断，其余维度中性 2.5（vision 由模态决定）；每格标证据等级，可在设置卡片覆盖。
+A：`src/scores.ts` 基线 v3：`code` / `reasoning` 有 SWE-bench / GPQA 一级证据或强相对推断，其余维度中性 2.5（vision 由模态决定）；每格标证据等级，可在设置卡片覆盖。
 
 **Q：路由配置存在哪里？**  
 A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无设置服务的宿主回退 sidecar 文件；0.4.x 升级自动把 `kimi-tide/*` 改名为 `kimi-coding/*`（留档 `.pre-v3`）。
 
 **Q：为什么 Release 页只有 v0.1.3？**  
-A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。v0.4.0（含设置迁移 + API key 直连）于 2026-08-21 发布。
+A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。v0.4.0（含设置迁移 + API key 直连）已在分支 `feat/0.4.0-api-key-direct` 实施（`ec7909e..123d4e7`，205/205 测试 + typecheck + build 绿），发布待定。
 
 </details>
 
@@ -304,9 +303,8 @@ A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.1.3-blue" alt="release">
-    <img src="https://img.shields.io/badge/Next%20Release-v0.4.0-orange" alt="next release">
-    <img src="https://img.shields.io/badge/Tests-203%2F203-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Tests-205%2F205-brightgreen" alt="tests">
   </p>
 </p>
 
@@ -314,7 +312,7 @@ A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。
 
 ## Current Status (2026-08-20)
 
-> **📌 Development plan (important)**: **v0.4.0 ships 2026-08-21**, containing the settings migration (`bc31b69`) plus **"API-key direct connection"** — the access layer switches to the official pi-ai native `kimi-coding` route + a Console API key; the self-built OAuth access layer is retired (~740 lines deleted); provider naming migrates `kimi-tide/*` → `kimi-coding/*` automatically. Design spec: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md).
+> **📌 Development plan (important)**: **v0.4.0 is implemented (branch `feat/0.4.0-api-key-direct`, release pending)**, containing the settings migration (`bc31b69`) plus **"API-key direct connection"** — the access layer switches to the official pi-ai native `kimi-coding` route + a Console API key; the self-built OAuth access layer is retired (~740 lines deleted); provider naming migrates `kimi-tide/*` → `kimi-coding/*` automatically (implementation `ec7909e..123d4e7`, 205/205 tests + typecheck + build green). Design spec: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md).
 
 | Line | Status | Evidence |
 |---|---|---|
@@ -322,7 +320,7 @@ A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。
 | 0.2.x dual-model router | ✅ Landed on main + verified live | `71b1d18` / `16a75d0` / `fcbf421`, M5 dual-probe + image roundtrip |
 | 0.3.0 capability-scored routing | ✅ Implemented on main + manual acceptance 7/7 | `86da918` (203/203 green) |
 | 0.4.0 settings migration | ✅ Merged on main | `bc31b69`; acceptance ①-③ passed |
-| 0.4.x API-key direct | 📐 Design finalized; ships with v0.4.0 on 2026-08-21 | [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md) |
+| 0.4.x API-key direct | ✅ Implemented (branch `feat/0.4.0-api-key-direct`), release pending | `ec7909e..123d4e7`, [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md) |
 
 ⚠️ **Known limitation**: image-bearing sessions latch onto the multimodal model; if the Kimi quota/key fails, that session cannot fall back to a text model (deadlock — start a new session). The root fix ("image transcription / subagent image outsourcing") is planned. See [Known Limitations](#known-limitations).
 
@@ -406,7 +404,7 @@ flowchart LR
 
 ## Quick Start (v0.4.0 form)
 
-> v0.4.0 ships on 2026-08-21. Until then, a source build still carries the 0.1.x OAuth access form (legacy path: [`docs/legacy-setup.md`](docs/legacy-setup.md)).
+> This branch implements API-key direct (release pending — see the development plan); the old OAuth form is retired, archived in [`docs/legacy-setup.md`](docs/legacy-setup.md).
 
 ### 1. Prerequisites
 
@@ -453,7 +451,7 @@ Restart `dsh web`:
 - **6 dimensions**: `code` / `reasoning` / `writing` / `tooluse` / `vision` / `longctx`; sliders in the settings card override any dimension.
 - **Decision flow**: `classify` (keywords/length → dimension weights) → explicit `@provider` (highest priority) → `selectCandidate` (weighted score − λ×cost tier); ties/shortfalls keep the default route.
 - **Candidate enumeration**: models are enumerated live from the `ctx.llm` catalog for whitelisted providers, with modalities resolved; configured-but-unavailable models render greyed out and skip scoring.
-- **Baseline scores v2** (`src/scores.ts`, `SCORES_VERSION = 2`, evidence-graded):
+- **Baseline scores v3** (`src/scores.ts`, `SCORES_VERSION = 3`, evidence-graded):
 
 | Model | code | reasoning | other dims |
 |---|---|---|---|
@@ -462,7 +460,7 @@ Restart `dsh web`:
 | `deepseek-v4-pro` | 4.0 (primary: SWE-bench 80.6%) | 4.5 (primary: GPQA 90.1%) | same |
 | `deepseek-v4-flash` | 3.0 (inferred) | 3.0 (inferred) | same |
 
-> Provenance anchors live in `src/scores.ts` comments and [`docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md); "inferred" cells will be replaced by fully-sourced values (plan A). (After the 0.4.x migration, baseline keys become `kimi-coding/*`.)
+> Provenance anchors live in `src/scores.ts` comments and [`docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md); "inferred" cells will be replaced by fully-sourced values (plan A). (Since 0.4.x, baseline keys are `kimi-coding/*`.)
 
 ### Image Guard and Latching
 
@@ -540,7 +538,7 @@ Restart `dsh web`:
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (currently 203/203 passing across 23 test files)
+npm test            # vitest (currently 205/205 passing across 21 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
@@ -553,7 +551,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.1.x (released)**: native DSH Kimi provider, v0.1.3 (credential gating + OAuth hardening).
 - **0.2.x (landed on main, unreleased)**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
 - **0.3.0 (implemented on main, unreleased)**: capability-scored routing (11 TDD tasks, `86da918`), manual acceptance 7/7 ✅.
-- **0.4.0 (ships 2026-08-21)**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline; plan-A full scoring provenance; slider step fix.
+- **0.4.0 (implemented, release pending)**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline; plan-A full scoring provenance; slider step fix.
 - **0.5.0 (planned)**: official agent-preset mode presets (bridge line + `agent-presets.default` binding).
 - **Planned**: image transcription mode / subagent image outsourcing (images never enter the main history — root fix for the image-latch deadlock); kimi subagent backend (subagents named-registry mount).
 
@@ -580,12 +578,12 @@ A: Not since v0.4.0. One Console API key + the official Models page is all it ta
 A: Once an image enters history, the session latches onto the multimodal model; if the Kimi quota/key fails, the session cannot switch back → deadlock; open a new session. The root fix (image transcription / subagent image outsourcing) is planned; until then keep the Kimi quota healthy for important image tasks.
 
 **Q: Where do the capability scores come from?**  
-A: `src/scores.ts` baseline v2: `code` / `reasoning` carry SWE-bench / GPQA primary evidence or strong relative inference; other dims are neutral 2.5 (vision is modality-driven); every cell is evidence-graded and overridable in the settings card.
+A: `src/scores.ts` baseline v3: `code` / `reasoning` carry SWE-bench / GPQA primary evidence or strong relative inference; other dims are neutral 2.5 (vision is modality-driven); every cell is evidence-graded and overridable in the settings card.
 
 **Q: Where is the router configuration stored?**  
 A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月汐); hosts without a settings service fall back to the sidecar file; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` (`.pre-v3` backup).
 
 **Q: Why does the Release page only have v0.1.3?**  
-A: v0.1.3 shipped before the router wiring; every later feature lives on main, unreleased. v0.4.0 (settings migration + API-key direct) ships on 2026-08-21.
+A: v0.1.3 shipped before the router wiring; every later feature lives on main, unreleased. v0.4.0 (settings migration + API-key direct) is implemented on branch `feat/0.4.0-api-key-direct` (`ec7909e..123d4e7`, 205/205 tests + typecheck + build green), release pending.
 
 </details>

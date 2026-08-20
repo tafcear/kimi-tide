@@ -1,5 +1,7 @@
 # 旧配置方案（备选）：settings.yaml + 外部刷新脚本
 
+> ⚠️ **已被 0.4.x 取代**：v0.4.0 起 kimi-tide 走 pi-ai 原生 `kimi-coding` 路由 + Console API Key（见 README 快速开始），本文档的定时任务/OAuth 方案仅作历史存档，不再适用。
+
 > 仅当无法使用 [`dsh-kimi-tide`](../packages/dsh-kimi-tide) 插件时（如 DSH 版本过旧）才推荐此路径。
 > 插件方案（进程内 OAuth 刷新）是当前首选。
 
