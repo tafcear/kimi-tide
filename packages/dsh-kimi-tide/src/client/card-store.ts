@@ -26,6 +26,13 @@ export interface CardSnapshot {
   writable: boolean
   /** 最近一次写失败的信息；成功读入/写回后清空。 */
   error: string | null
+  /**
+   * 候选可用性映射（'provider/model' → available），来自宿主模型目录
+   * （connection.api.llm.models，settings.section 是 root 作用域 slot、
+   * 拿不到 session 级投影，验收⑥改由此通道取数）。null = 无灰态
+   * （无 connection 通道 / 目录拉取失败），不为可用性失败污染 error 通道。
+   */
+  availability: Record<string, boolean> | null
 }
 
 /** settings.mutate 的一枚 path op（set / unset）。 */
@@ -48,7 +55,7 @@ export type SettingsRpcResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: { message: string } }
 
-/** connection 服务的结构面（api.settings.describe / mutate）。 */
+/** connection 服务的结构面（api.settings.describe / mutate + 可选 api.llm.models）。 */
 export interface ConnectionLike {
   api: {
     settings: {
@@ -56,6 +63,16 @@ export interface ConnectionLike {
         result: SettingsRpcResult<{ writable: boolean; namespaces: SettingsDescribeView[] }>
       }>
       mutate(request: { ns: string; ops: SettingsPathOp[]; expectedRevision?: number }): Promise<unknown>
+    }
+    /**
+     * 宿主模型目录（dsh-host-apiproxy LlmApi.models，session 无关）：设置页
+     * Models 官方先例使用的同一通道。可选——旧宿主/无网关时缺省，卡片降级
+     * 为无灰态。
+     */
+    llm?: {
+      models(request: Record<string, never>): Promise<{
+        result: SettingsRpcResult<{ groups: Array<{ id: string; models: Array<{ id: string }> }> }>
+      }>
     }
   }
 }
@@ -106,6 +123,7 @@ export function createCardStore(
     user: null,
     writable: false,
     error: null,
+    availability: null,
   }
   // connection/mutate 路径的乐观并发栅栏：最近一次 describe 读到的命名空间
   // revision。scope 路径不需要它（scope.set/unset 自带 latest-write 恢复）。
@@ -131,25 +149,58 @@ export function createCardStore(
       user: asConfig(s.user),
       writable: s.writable,
       error: null,
+      availability: snapshot.availability,
     })
+  }
+
+  /**
+   * 候选灰态取数（验收⑥修复）：宿主模型目录（llm.models）= 可用集合；
+   * allowedProviders 之外的 provider 即使被目录列出也不可用（对齐宿主
+   * enumerateCandidates 的过滤语义）。失败/无通道 → availability null
+   * （无灰态），不占用 error 通道。
+   */
+  const loadAvailability = async (config: RouterConfigV3 | null): Promise<void> => {
+    const llm = connection?.api.llm
+    if (config === null || llm === undefined) {
+      if (snapshot.availability !== null) publish({ ...snapshot, availability: null })
+      return
+    }
+    try {
+      const r = await llm.models({})
+      if (!r.result.ok) {
+        publish({ ...snapshot, availability: null })
+        return
+      }
+      const served = new Set<string>()
+      for (const group of r.result.value.groups) {
+        for (const model of group.models) served.add(`${group.id}/${model.id}`)
+      }
+      const allowed = new Set(config.allowedProviders)
+      const availability: Record<string, boolean> = {}
+      for (const target of [config.default, ...config.candidates]) {
+        const key = `${target.provider}/${target.model}`
+        availability[key] = allowed.has(target.provider) && served.has(key)
+      }
+      publish({ ...snapshot, availability })
+    } catch {
+      publish({ ...snapshot, availability: null })
+    }
   }
 
   const load = async (): Promise<void> => {
     if (scope !== null) {
       readScope()
-      return
-    }
-    if (connection !== null) {
+    } else if (connection !== null) {
       try {
         const r = await connection.api.settings.describe({})
         if (!r.result.ok) {
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, availability: null })
           return
         }
         const view = r.result.value.namespaces.find((n) => n.ns === CARD_NAMESPACE)
         if (view === undefined) {
           revision = undefined
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, availability: null })
           return
         }
         revision = view.revision
@@ -160,11 +211,13 @@ export function createCardStore(
           user: asConfig(view.user),
           writable: r.result.value.writable,
           error: null,
+          availability: snapshot.availability,
         })
       } catch (error) {
         fail(error)
       }
     }
+    await loadAvailability(snapshot.config)
   }
 
   // scope 路径同步读一次（renderToString 无 effect，仍能渲染出就绪快照），

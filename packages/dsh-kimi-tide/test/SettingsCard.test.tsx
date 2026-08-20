@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { createCardStore } from '../src/client/card-store.js'
-import type { ConnectionLike, SettingsScopeLike } from '../src/client/card-store.js'
+import type { CardStore, ConnectionLike, SettingsScopeLike } from '../src/client/card-store.js'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import { apply } from '../src/client/index.js'
 import { DEFAULT_CONFIG_V3 } from '../src/config.js'
@@ -43,16 +43,27 @@ function makeScope(snapshotOverrides: Record<string, unknown> = {}) {
   }
 }
 
-/** 一个 connection 服务结构面 mock（api.settings.describe/mutate）。 */
-function makeConnection(namespaces: Array<{ ns: string; value: unknown; base?: unknown; user?: unknown; revision?: number }> = []) {
+/** 一个 connection 服务结构面 mock（api.settings.describe/mutate + 可选 api.llm.models）。 */
+function makeConnection(
+  namespaces: Array<{ ns: string; value: unknown; base?: unknown; user?: unknown; revision?: number }> = [],
+  llmGroups?: Array<{ id: string; models: Array<{ id: string }> }>,
+  llmError?: Error,
+) {
   const mutate = vi.fn(async (_req: unknown) => ({ result: { ok: true, value: {} } }))
   const describe = vi.fn(async () => ({
     result: { ok: true, value: { writable: true, namespaces: namespaces.map((n) => ({ revision: 0, ...n })) } },
   }))
+  const models = vi.fn(async () => {
+    if (llmError !== undefined) throw llmError
+    return { result: { ok: true, value: { groups: llmGroups ?? [], failures: [] } } }
+  })
   const connection = {
-    api: { settings: { describe, mutate } },
+    api: {
+      settings: { describe, mutate },
+      ...(llmGroups !== undefined || llmError !== undefined ? { llm: { models } } : {}),
+    },
   } as unknown as ConnectionLike
-  return { connection, mutate, describe }
+  return { connection, mutate, describe, models }
 }
 
 describe('createCardStore write paths', () => {
@@ -126,6 +137,82 @@ describe('createCardStore write paths', () => {
   })
 })
 
+describe('createCardStore availability（connection.api.llm.models，验收⑥修复）', () => {
+  it('marks configured-but-unserved candidates unavailable', async () => {
+    // kimi-coding 路由不在宿主目录里（未注册/未声明该模型）→ 配置内候选不可用
+    const { connection } = makeConnection(
+      [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V3() }],
+      [{ id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash' }] }],
+    )
+    const store = createCardStore(null, connection)
+
+    await store.load()
+
+    const availability = store.getSnapshot().availability
+    // Fails if: load() stops fetching the host model catalog into availability.
+    expect(availability).not.toBeNull()
+    expect(availability!['deepseek-official/deepseek-v4-flash']).toBe(true)
+    expect(availability!['kimi-coding/kimi-for-coding']).toBe(false)
+  })
+
+  it('marks served-but-disallowed providers unavailable（对齐宿主枚举的 allowedProviders 过滤）', async () => {
+    const config = { ...DEFAULT_CONFIG_V3(), allowedProviders: ['deepseek-official'] }
+    const { connection } = makeConnection(
+      [{ ns: 'kimi-tide-router', value: config }],
+      [
+        { id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash' }] },
+        { id: 'kimi-coding', models: [{ id: 'kimi-for-coding' }] },
+      ],
+    )
+    const store = createCardStore(null, connection)
+
+    await store.load()
+
+    // Fails if: availability stops honoring config.allowedProviders.
+    expect(store.getSnapshot().availability!['kimi-coding/kimi-for-coding']).toBe(false)
+  })
+
+  it('degrades to no grey-state (not an error) when the llm channel fails', async () => {
+    const { connection } = makeConnection(
+      [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V3() }],
+      undefined,
+      new Error('rpc down'),
+    )
+    const store = createCardStore(null, connection)
+
+    await store.load()
+
+    // Fails if: an llm catalog failure surfaces as a card error instead of silent no-grey.
+    expect(store.getSnapshot().availability).toBeNull()
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('has no grey-state without a connection channel (scope-only)', async () => {
+    const { scope } = makeScope()
+    const store = createCardStore(scope, null)
+
+    await store.load()
+
+    // Fails if: a scope-only store invents availability data.
+    expect(store.getSnapshot().availability).toBeNull()
+  })
+
+  it('fetches availability on the scope read path too when a connection is present', async () => {
+    const { scope } = makeScope()
+    const { connection } = makeConnection([], [
+      { id: 'kimi-coding', models: [{ id: 'kimi-for-coding' }] },
+      { id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash' }] },
+    ])
+    const store = createCardStore(scope, connection)
+
+    await store.load()
+
+    // Fails if: the scope path's early return skips the availability fetch.
+    expect(store.getSnapshot().availability!['kimi-coding/kimi-for-coding']).toBe(true)
+  })
+})
+
+
 describe('SettingsCard render', () => {
   it('renders the mode segmented control bound to the snapshot', () => {
     const config = { ...DEFAULT_CONFIG_V3(), mode: 'capability' as const }
@@ -164,25 +251,34 @@ describe('SettingsCard render', () => {
     expect(overriddenHtml).toContain('覆盖')
   })
 
-  it('greys out unavailable candidates from the panel projection', () => {
-    const config = { ...DEFAULT_CONFIG_V3() }
-    const { scope } = makeScope({ value: config })
-    // 投影说 kimi-coding/kimi-for-coding 不可用（configured target 不在 live catalog）。
-    const useProjection = () => ({
-      quota: null,
-      kimi: { route: true, key: true },
-      router: { mode: 'off' },
-      reasoning: { enabled: true },
-      configSource: 'settings',
-      candidates: [{ provider: 'kimi-coding', model: 'kimi-for-coding', available: false }],
-      decision: null,
-    })
+  it('greys out unavailable candidates from the snapshot availability map', () => {
+    const config = DEFAULT_CONFIG_V3()
+    // 快照 availability 说 kimi-coding/kimi-for-coding 不可用（configured target 不在宿主目录）。
+    const store: CardStore = {
+      load: async () => {},
+      saveTop: async () => {},
+      saveScores: async () => {},
+      resetField: async () => {},
+      getSnapshot: () => ({
+        status: 'ready',
+        config,
+        base: null,
+        user: null,
+        writable: true,
+        error: null,
+        availability: {
+          'kimi-coding/kimi-for-coding': false,
+          'deepseek-official/deepseek-v4-flash': true,
+        },
+      }),
+      subscribe: () => () => {},
+    }
 
     const html = renderToString(createElement(SettingsCard, {
-      scope,
+      scope: null,
       connection: null,
       close: noop,
-      useProjection,
+      storeFactory: () => store,
     }))
 
     // Fails if: the available:false candidate loses its greyed affordance.

@@ -51,12 +51,10 @@ export function apply(ctx: Context): void {
 
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
   // inject 内惰性执行（挂载到卡片时才绑定，不因宿主缺服务而阻塞本插件激活）。
-  // 注：候选「不可用」灰态由 SettingsCard 经可选的 useProjection prop 读取
-  // 'kimi-tide/panel' 投影实现；settings.section 是 root 作用域 slot（槽位契约
-  // kind list / scope root），session 级 useProjection 不在该作用域的标准 kit
-  // 里，也无法经公共 API 从 ctx 取得（dsh-client-web-react 不导出 projectionHook/
-  // useSessionMaybeProvideInfo），故此处不注入 useProjection —— 卡片据此降级为
-  // 无灰态（仅配置内候选列表，不标 available）。
+  // 候选「不可用」灰态：settings.section 是 root 作用域 slot，拿不到 session
+  // 级 'kimi-tide/panel' 投影，故由 card-store 经 connection.api.llm.models
+  // （宿主模型目录，session 无关，设置页 Models 官方先例同通道）拉取可用性
+  // （验收⑥修复）；无 connection 通道时降级为无灰态。
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'kimi-tide-router',
