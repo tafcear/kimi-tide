@@ -115,6 +115,22 @@ export function SettingsCard(props: SettingsCardProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const config = snapshot.config
 
+  // 候选手风琴（2026-08-20 用户裁定）：默认全部折叠为一行摘要，点击展开
+  // 该候选的 6 维评分区；展开是纯查看动作，不受 writable 门控。
+  // hooks 纪律：本 useState 必须位于下方 `config === null` 提前返回之前——
+  // 首帧 loading → ready 的重渲染若 hook 数变化，React 直接卸载整卡
+  // （2026-08-20 生产事故：设置页「月汐」卡片空白；回归见
+  // test/SettingsCard.dom.test.tsx）。
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
+    () => new Set(props.initialExpanded ?? []),
+  )
+  const toggleCandidate = (key: string): void => {
+    const next = new Set(expandedKeys)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setExpandedKeys(next)
+  }
+
   if (config === null) {
     return (
       <div className="kimi-tide-settings">
@@ -130,18 +146,6 @@ export function SettingsCard(props: SettingsCardProps) {
   // 候选灰态：读快照 availability（数据源 = connection.api.llm.models，
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
-
-  // 候选手风琴（2026-08-20 用户裁定）：默认全部折叠为一行摘要，点击展开
-  // 该候选的 6 维评分区；展开是纯查看动作，不受 writable 门控。
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
-    () => new Set(props.initialExpanded ?? []),
-  )
-  const toggleCandidate = (key: string): void => {
-    const next = new Set(expandedKeys)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    setExpandedKeys(next)
-  }
 
   return (
     <div className="kimi-tide-settings">
