@@ -12,7 +12,6 @@ export interface MigrationDeps {
   sidecarFile: string
   scope: MigrationScope
   entry: unknown                    // patch.yml router 块（composition entry）
-  providerName: string
   onError: (m: string) => void
 }
 

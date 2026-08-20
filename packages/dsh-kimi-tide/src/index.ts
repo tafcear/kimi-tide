@@ -19,10 +19,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { KimiAdapter } from './adapter.js'
 import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
-import { migrateV1 } from './migrate.js'
-import { KimiOAuthManager } from './oauth.js'
+import { coerceRouterConfig } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
   installRouter,
@@ -46,14 +44,6 @@ export const inject = ['llm', 'timer', 'commands', 'sessionProjections']
 export const SETTINGS_NAMESPACE = 'kimi-tide-router'
 
 export interface Config {
-  /** Provider route name registered into ctx.llm. */
-  providerName?: string
-  /** Kimi home directory; default follows KIMI_CODE_HOME then ~/.kimi-code. */
-  kimiHome?: string
-  /** Token refresh period in milliseconds (access tokens live ~15 min). */
-  refreshIntervalMs?: number
-  /** Refresh immediately on startup (default true). */
-  refreshOnStart?: boolean
   /** Quota poll period in milliseconds (default 60000). */
   usagePollMs?: number
   /** Poll quota immediately on startup (default true). */
@@ -88,15 +78,15 @@ export function defaultSidecarFile(): string {
  * wiring loads RouterConfigV3 through the sidecar chain.
  */
 export function routerConfigToV3(config: RouterConfig): RouterConfigV3 {
-  const v2 = DEFAULT_CONFIG_V3()
+  const v3 = DEFAULT_CONFIG_V3()
   return {
-    ...v2,
+    ...v3,
     mode: config.mode,
     default: config.primary,
     candidates: [config.premium, config.premiumLong].filter((t): t is NonNullable<typeof t> => t !== undefined),
-    premiumBudget: config.premiumBudget ?? v2.premiumBudget,
-    budgetWindow: config.budgetWindow ?? v2.budgetWindow,
-    charsPerToken: config.charsPerToken ?? v2.charsPerToken,
+    premiumBudget: config.premiumBudget ?? v3.premiumBudget,
+    budgetWindow: config.budgetWindow ?? v3.budgetWindow,
+    charsPerToken: config.charsPerToken ?? v3.charsPerToken,
   }
 }
 
@@ -292,11 +282,7 @@ function registerPanelEventType(): boolean {
 }
 
 export function apply(ctx: Context, config: Config = {}) {
-  const providerName = config.providerName ?? 'kimi-coding';
-  const refreshIntervalMs = config.refreshIntervalMs ?? 10 * 60 * 1000;
-  const log: RouterLog = {
-    info: (message: string) => { ctx.logger.info(message); },
-  };
+  const log: RouterLog = { info: (message: string) => { ctx.logger.info(message) } }
   const warn = (message: string) => { ctx.logger?.warn?.(message) }
 
   // The strict persistence reader refuses logs with unknown event types.
@@ -308,26 +294,33 @@ export function apply(ctx: Context, config: Config = {}) {
     ctx.logger.warn('dsh-kimi-tide: panel event type registered on a local dsh-session copy; stored kimi-tide/panel events may refuse to load')
   }
 
-  const oauth = new KimiOAuthManager(ctx.logger, { home: config.kimiHome ?? '' })
+  // 0.4.x：零接入层——Kimi 模型经 settings.yaml 的 llm-pi-ai.providers.kimi-coding
+  // 路由（官方 Models 页维护）进 DSH LLM 注册表。本插件只负责读该路由的
+  // apiKeyEnv 引用名并解析 key（配额轮询用），永不触碰密钥本体。
+  const kimiApiKeyEnv = (): string => {
+    const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
+    const section = settings?.get?.('llm-pi-ai') as { providers?: Record<string, { apiKeyEnv?: string }> } | undefined
+    return section?.providers?.['kimi-coding']?.apiKeyEnv ?? 'KIMI_API_KEY'
+  }
+  const resolveKey = async (): Promise<string | null> => {
+    const env = kimiApiKeyEnv()
+    const credentials = ctx.get('credentials') as { resolve?: (ref: string) => Promise<{ value: string } | undefined> } | undefined
+    if (typeof credentials?.resolve === 'function') {
+      try {
+        const resolved = await credentials.resolve(env)
+        if (resolved !== undefined && resolved.value.length > 0) return resolved.value
+      } catch { /* 落到 env 兜底 */ }
+    }
+    const fromEnv = process.env[env]
+    return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
+  }
 
-  // Panel data source: quota polling + local token buckets. 0.4.x Task 3: the
-  // monitor resolves its credential per refresh via a thunk; until Task 4
-  // re-wires this to ctx.credentials, bridge it to the OAuth access token.
+  // Panel data source: quota polling（本地 token 统计随接入层退役，Task 6 移除）。
   const monitor = new UsageMonitor({
     pollMs: config.usagePollMs ?? 60_000,
     onUpdate: () => pushPanelToAllSessions(),
-    resolveKey: async () => oauth.getAccessToken() || null,
+    resolveKey,
   })
-
-  const adapter = new KimiAdapter(oauth, {
-    providerName,
-    onUsage: (usage) => monitor.tapUsage(usage),
-    // Durable attachment store for image conversion (optional service; the
-    // adapter falls back to the text-only error when it is absent) — mirrors
-    // the official dsh-llm-pi-ai resolveAttachments seam.
-    resolveAttachments: () => ctx.get('attachments') as never,
-  })
-  ctx.llm.registerAdapter([providerName], adapter)
 
   // Router persistence (0.4.0): the dsh-settings namespace `kimi-tide-router`
   // is the primary store (see the ctx.inject wiring below); the sidecar file
@@ -361,23 +354,18 @@ export function apply(ctx: Context, config: Config = {}) {
   // entry (and the legacy patch block) speak v1 (mode/primary/premium), and v1
   // keys mean nothing to routerConfigSchema — layering them raw would resolve
   // to the schema's DEFAULT targets and silently drop a composed route.
-  // migrateV1 is the same v1→v3 bridge the sidecar fallback chain uses; when
-  // that chain already ran it (source 'patch'), reuse its output rather than
-  // migrating — and warning — twice.
-  // A NULL seed must still be provider-parameterized, not `{}`: settings-schema
-  // resolves a bare base to D = DEFAULT_CONFIG_V3() (fixed), so a
-  // custom providerName with no composition seed would (a) resolve candidates/
-  // allowedProviders to the fixed 'kimi-coding' and mis-route, and (b) keep the
-  // migration dirty check (scope.get() vs mergeResolved(entry, providerName))
-  // permanently dirty, silently skipping the sidecar import forever. Building
-  // the full DEFAULT_CONFIG_V3() here aligns with mergeResolved's
-  // T2 clean predicate and the routerConfigV3 fallback at L354.
+  // coerceRouterConfig is the version-dispatching v1/v2→v3 bridge the sidecar
+  // fallback chain uses; when that chain already ran it (source 'patch'), reuse
+  // its output rather than migrating — and warning — twice.
+  // A NULL seed resolves to DEFAULT_CONFIG_V3() (fixed kimi-coding) so the
+  // namespace base aligns with mergeResolved's clean predicate and the
+  // routerConfigV3 fallback above.
   const settingsBase: Partial<RouterConfigV3> =
     seedRaw === null || seedRaw === undefined
       ? DEFAULT_CONFIG_V3()
       : loaded.source === 'patch' && loaded.config !== null
         ? loaded.config
-        : migrateV1(seedRaw, warn)
+        : coerceRouterConfig(seedRaw, warn)
 
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
@@ -466,9 +454,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // Projection: register the unit, then push the current snapshot into every
   // session as it appears (panel data is process-global, not per-session).
   ctx.sessionProjections.register(kimiTideProjectionDefinition)
-  // Dropdown model catalogs: kimi from the pi-ai catalog (sync), deepseek from
-  // the llm service (async; refreshed when adapters change).
-  let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: adapter.listModelIds(), deepseek: [] }
+  // Dropdown model catalogs: both enumerated async from the llm service
+  // (kimi-coding route + deepseek-official); refreshed when adapters change.
+  let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
   const panelSnapshot = (): KimiTidePanelProjection => ({
     quota: monitor.snapshot().quota,
     local: monitor.snapshot().local,
@@ -499,6 +487,12 @@ export function apply(ctx: Context, config: Config = {}) {
   const refreshModelOptions = () => {
     const llm = ctx.llm as { listModels?: (provider: string) => Promise<Array<{ id: string }>> }
     if (typeof llm.listModels !== 'function') return
+    void llm.listModels('kimi-coding')
+      .then((models) => {
+        modelOptions = { ...modelOptions, kimi: models.map((m) => m.id) }
+        pushPanelToAllSessions()
+      })
+      .catch(() => { /* kimi-coding 路由未注册：下拉回退空列表，面板给接入指引 */ })
     void llm.listModels('deepseek-official')
       .then((models) => {
         modelOptions = { ...modelOptions, deepseek: models.map((m) => m.id) }
@@ -574,10 +568,9 @@ export function apply(ctx: Context, config: Config = {}) {
       .then(({ migrateSidecarIntoScope }) => migrateSidecarIntoScope({
         sidecarFile,
         scope: port,
-        // MUST be the same v2-shaped base the namespace was registered with:
+        // MUST be the same v3-shaped base the namespace was registered with:
         // the dirty check compares scope.get() against mergeResolved(entry).
         entry: settingsBase,
-        providerName,
         onError: warn,
       }))
       .then((outcome) => {
@@ -586,14 +579,6 @@ export function apply(ctx: Context, config: Config = {}) {
         }
       })
       .catch((error) => warn(`dsh-kimi-tide: sidecar 迁移失败（${(error as Error).message}）`))
-  })
-
-  // OAuth refresh loop (0.1.x behavior).
-  const refresh = () => { void oauth.refresh().catch(() => {}) }
-  if (config.refreshOnStart !== false) void oauth.refresh().catch(() => {})
-  ctx.effect(() => {
-    const timer = ctx.setInterval(refresh, refreshIntervalMs)
-    return () => timer()
   })
 
   // Quota polling lifecycle.

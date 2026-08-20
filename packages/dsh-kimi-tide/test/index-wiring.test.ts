@@ -168,7 +168,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
     const descriptor = settings.describe().find((d) => d.ns === NS)
@@ -189,7 +189,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners, listModelsCalls, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
     expect(listeners.get('agent/pre-step') ?? []).toHaveLength(0) // mode off: no router mounted
     const enumerationsBeforeSave = listModelsCalls.length
@@ -221,7 +221,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
     await getCommand()!.handler({ rawInput: 'set lambda 0.7' })
@@ -241,7 +241,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
     expect((settings.get(NS) as RouterConfigV3).lambda).toBe(0.9)
@@ -272,7 +272,6 @@ describe('apply() settings namespace wiring (Task 4)', () => {
       patchFile,
       sidecarFile,
       usagePollOnStart: false,
-      refreshOnStart: false,
       // v1 composition entry (0.2.x shape) — the case a raw `entry` breaks.
       router: {
         mode: 'cost',
@@ -299,7 +298,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
     const resolved = settings.get(NS) as RouterConfigV3
@@ -316,14 +315,14 @@ describe('apply() settings namespace wiring (Task 4)', () => {
   it('layers the legacy patch static block under the namespace as base', async () => {
     writeFileSync(
       patchFile,
-      '- insert:\n    - id: dsh-kimi-tide\n      config:\n        router:\n          mode: cost\n          primary: { provider: deepseek-official, model: deepseek-v4-flash }\n          premium: { provider: kimi-tide, model: kimi-for-coding }\n',
+      '- insert:\n    - id: dsh-kimi-tide\n      config:\n        router:\n          mode: cost\n          primary: { provider: deepseek-official, model: deepseek-v4-flash }\n          premium: { provider: kimi-coding, model: kimi-for-coding }\n',
       'utf8',
     )
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
     const resolved = settings.get(NS) as RouterConfigV3
@@ -333,26 +332,12 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(lastSnapshot(agent).router).toMatchObject({ mode: 'cost' })
   })
 
-  /**
-   * 0.4.x (Task 1): DEFAULT_CONFIG_V3() 无参、固定 KIMI_PROVIDER 'kimi-coding'。
-   * NULL composition seed 的 settingsBase 不再按 providerName 参数化——custom
-   * providerName 仍用于 adapter 注册（Task 4 退役），但命名空间 base 恒为
-   * DEFAULT_CONFIG_V3()。此用例断言该固定 base 不受 providerName 影响。
-   */
-  it('resolves a NULL composition seed to the fixed kimi-coding base (providerName no longer parameterizes)', async () => {
+  it('uses the fixed kimi-coding base when there is no composition seed', async () => {
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
-
-    apply(ctx as never, {
-      patchFile,
-      sidecarFile,
-      usagePollOnStart: false,
-      refreshOnStart: false,
-      providerName: 'custom-provider',
-    })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
-
     const resolved = settings.get(NS) as RouterConfigV3
     expect(resolved.candidates[0].provider).toBe('kimi-coding')
     expect(resolved.allowedProviders).toContain('kimi-coding')
@@ -363,7 +348,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand, detachSettings } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
     detachSettings()
 

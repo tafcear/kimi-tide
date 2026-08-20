@@ -73,10 +73,10 @@ export class UsageMonitor {
   }
 
   private async fetchQuota(): Promise<QuotaSnapshot | null> {
-    // 每次轮询现取 key（dsh-credentials 契约：per-operation read）。
-    const key = await this.options.resolveKey()
-    if (key === null) return null
     try {
+      // 每次轮询现取 key（dsh-credentials 契约：per-operation read）。
+      const key = await this.options.resolveKey()
+      if (key === null || key.length === 0) return null
       const response = await this.fetchFn(USAGES_URL, {
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
       })

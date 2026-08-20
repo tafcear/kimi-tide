@@ -83,7 +83,7 @@ describe('apply() panel roster', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
 
     // Seeded on apply: the live agent got the initial panel snapshot.
     expect(agent.session.append).toHaveBeenCalledWith(KIMI_TIDE_PANEL_EVENT, expect.objectContaining({
@@ -103,7 +103,7 @@ describe('apply() panel roster', () => {
 
   it('still tracks agents created after apply', async () => {
     const { ctx, listeners } = makeCtx([])
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     const late: FakeAgent = { session: { append: vi.fn() } }
     for (const listener of listeners.get('agent/created') ?? []) listener({ agent: late })
     expect(late.session.append).toHaveBeenCalled()
@@ -126,7 +126,7 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     // Candidate enumeration is async (llm.listModels/resolveModelInfo).
     await new Promise((resolve) => setTimeout(resolve, 20))
 
@@ -143,16 +143,25 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
+  it('面板 models.kimi 来自 ctx.llm.listModels("kimi-coding")（异步枚举，无 adapter）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent])
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as { models?: { kimi: string[] } }
+    expect(snapshot.models?.kimi).toEqual(['kimi-for-coding'])
+  })
+
   it('reports configSource patch when the legacy patch router block is the only config', async () => {
     writeFileSync(
       patchFile,
-      '- insert:\n    - id: dsh-kimi-tide\n      config:\n        router:\n          mode: cost\n          primary: { provider: deepseek-official, model: deepseek-v4-flash }\n          premium: { provider: kimi-tide, model: kimi-for-coding }\n',
+      '- insert:\n    - id: dsh-kimi-tide\n      config:\n        router:\n          mode: cost\n          primary: { provider: deepseek-official, model: deepseek-v4-flash }\n          premium: { provider: kimi-coding, model: kimi-for-coding }\n',
       'utf8',
     )
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
 
     const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
     expect(snapshot.configSource).toBe('patch')
@@ -163,7 +172,7 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     expect(existsSync(sidecarFile)).toBe(false)
 
     agent.session.append.mockClear()
@@ -269,7 +278,7 @@ describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
     expect(await dispatchStep(listeners, '请审查这段代码 review')).toBe(true)
 
     const decision = lastSnapshot(agent).decision as { chosen: { provider: string; model: string }; reason: string; scoreDelta: number | null } | null
@@ -283,7 +292,7 @@ describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
     await dispatchStep(listeners, '请审查这段代码 review')
     expect(lastSnapshot(agent).decision).not.toBeNull()
 
@@ -295,7 +304,7 @@ describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     expect(await dispatchStep(listeners, '请审查这段代码 review')).toBe(false) // no router mounted
     expect(lastSnapshot(agent).decision).toBeNull()
     expect(lastSnapshot(agent).router).toMatchObject({ mode: 'off' })
@@ -305,7 +314,7 @@ describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners, getCommand } = makeCtx([agent])
 
-    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false, refreshOnStart: false })
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
     await dispatchStep(listeners, '请审查这段代码 review')
     expect(lastSnapshot(agent).decision).not.toBeNull()
 

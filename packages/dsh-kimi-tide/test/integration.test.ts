@@ -240,7 +240,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
   it('apply() 端到端：patch 静态块写 cost + sidecar 写 capability → capability 生效（有判别力）', async () => {
     writeFileSync(
       patchFile,
-      '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-tide, model: kimi-for-coding }\n',
+      '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-coding, model: kimi-for-coding }\n',
       'utf8',
     )
     const pre = new RouterSidecarStore({ file: sidecarFile, onError: () => {} })
@@ -252,7 +252,6 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
       patchFile,
       sidecarFile,
       usagePollOnStart: false,
-      refreshOnStart: false,
     })
     // 等候选枚举完成（kimi-tide 变多模态；fallback 种子池全部 text-only，
     // 带图消息会因 eligible 空而 keep——必须先等枚举替换候选池）。
@@ -292,7 +291,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     // configSource 'patch' + 决策 null（cost 对 delta 0 < 0.75 判 keep）。
     writeFileSync(
       patchFile,
-      '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-tide, model: kimi-for-coding }\n',
+      '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-coding, model: kimi-for-coding }\n',
       'utf8',
     )
     const agent = { session: { append: vi.fn() } }
@@ -301,7 +300,6 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
       patchFile,
       sidecarFile,
       usagePollOnStart: false,
-      refreshOnStart: false,
     })
     await new Promise((resolve) => setTimeout(resolve, 20))
 

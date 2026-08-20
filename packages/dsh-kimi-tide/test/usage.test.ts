@@ -31,6 +31,27 @@ describe('UsageMonitor quota polling (API key auth)', () => {
     expect(monitor.snapshot().quota).toBeNull()
   })
 
+  it('does not fetch when the key is an empty string', async () => {
+    const fetchFn = vi.fn()
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => '', fetchFn: fetchFn as unknown as typeof fetch })
+    await monitor.refresh()
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(monitor.snapshot().quota).toBeNull()
+  })
+
+  it('a rejecting resolveKey is swallowed: refresh() resolves and the snapshot stays null', async () => {
+    const fetchFn = vi.fn()
+    const monitor = new UsageMonitor({
+      pollMs: 60000,
+      onUpdate: () => {},
+      resolveKey: async () => { throw new Error('credential backend unavailable') },
+      fetchFn: fetchFn as unknown as typeof fetch,
+    })
+    await expect(monitor.refresh()).resolves.toBeUndefined()
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(monitor.snapshot().quota).toBeNull()
+  })
+
   it('on 401 marks stale without any refresh-retry (no OAuth anymore)', async () => {
     const fetchFn = vi.fn(async () => fetchResponse(401, {}))
     const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch })

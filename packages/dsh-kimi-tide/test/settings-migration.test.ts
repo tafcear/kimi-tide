@@ -25,7 +25,7 @@ describe('migrateSidecarIntoScope', () => {
     const cfg = { ...DEFAULT_CONFIG_V3(), mode: 'capability' as const }
     writeFileSync(file, YAML.stringify(cfg), 'utf8')
     const scope = fakeScope(mergeResolved({}))
-    const outcome = await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, providerName: 'kimi-coding', onError })
+    const outcome = await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, onError })
     expect(outcome).toBe('imported')
     expect((scope.replaced as RouterConfigV3).mode).toBe('capability')
     expect(existsSync(file)).toBe(false)
@@ -37,7 +37,7 @@ describe('migrateSidecarIntoScope', () => {
   it('is a no-op when the sidecar is absent', async () => {
     const dir = tmp()
     const scope = fakeScope(mergeResolved({}))
-    expect(await migrateSidecarIntoScope({ sidecarFile: join(dir, 'nope.yml'), scope, entry: {}, providerName: 'kimi-coding', onError })).toBe('no-sidecar')
+    expect(await migrateSidecarIntoScope({ sidecarFile: join(dir, 'nope.yml'), scope, entry: {}, onError })).toBe('no-sidecar')
     expect(scope.replaced).toBeNull()
     rmSync(dir, { recursive: true, force: true })
   })
@@ -50,7 +50,7 @@ describe('migrateSidecarIntoScope', () => {
     const dirty = { ...resolved, routeThreshold: 0.5 }
     const scope = fakeScope(dirty)
     const errors: string[] = []
-    expect(await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, providerName: 'kimi-coding', onError: (m) => errors.push(m) })).toBe('skipped-dirty')
+    expect(await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, onError: (m) => errors.push(m) })).toBe('skipped-dirty')
     expect(scope.replaced).toBeNull()
     expect(errors.some((m) => m.includes('跳过'))).toBe(true)
     expect(existsSync(file)).toBe(true)   // 未改名
@@ -62,7 +62,7 @@ describe('migrateSidecarIntoScope', () => {
     const file = join(dir, 'kimi-tide-router.yml')
     writeFileSync(file, '{{{', 'utf8')
     const scope = fakeScope(mergeResolved({}))
-    const outcome = await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, providerName: 'kimi-coding', onError })
+    const outcome = await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, onError })
     expect(outcome).toBe('no-sidecar')
     expect(scope.replaced).toBeNull()
     expect(existsSync(file + '.corrupt')).toBe(true)
