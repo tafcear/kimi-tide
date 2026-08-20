@@ -18,7 +18,7 @@
 
 ## 现状快照（2026-08-20）
 
-> **📌 开发计划（重要）**：**v0.4.0 已实施（分支 `feat/0.4.0-api-key-direct`，发布待定）**，内容 = 设置界面迁移（`bc31b69`）+ **「API key 直连」**——接入层切换为官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，自研 OAuth 接入层退役（约 740 行删除），provider 命名 `kimi-tide/*` → `kimi-coding/*` 自动迁移存量配置（实施 commit `ec7909e..123d4e7`，205/205 测试 + typecheck + build 绿）。设计稿：[`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。
+> **📌 开发计划（重要）**：**v0.4.0 已发布（2026-08-20，tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0) 附 dsh-kimi-tide-0.4.0.tgz，[Actions 流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152)）**，内容 = 设置界面迁移（`bc31b69`）+ **「API key 直连」**——接入层切换为官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，自研 OAuth 接入层退役（约 740 行删除），provider 命名 `kimi-tide/*` → `kimi-coding/*` 自动迁移存量配置（实施 commit `ec7909e..123d4e7`；发布版 216/216 测试 + typecheck + build 绿）。设计稿：[`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
@@ -26,9 +26,9 @@
 | 0.2.x 双模型路由器 | ✅ main 已落地 + 实机验证 | `71b1d18` / `16a75d0` / `fcbf421`，M5 双探针 + 带图闭环 |
 | 0.3.0 能力评分路由 | ✅ main 已实施 + 手工验收 7/7 | `86da918`（203/203 绿） |
 | 0.4.0 设置界面迁移 | ✅ main 已合并 | `bc31b69`；验收 ①-③ 通过 |
-| 0.4.x API key 直连 | ✅ 已实施（分支 `feat/0.4.0-api-key-direct`），发布待定 | `ec7909e..123d4e7`，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md) |
+| 0.4.x API key 直连 | ✅ 已发布 v0.4.0（2026-08-20） | tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，[流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
 
-⚠️ **已知限制**：带图会话会锁存多模态模型；若 Kimi 侧额度/Key 失效，该会话无法切回文本模型（死锁，只能新开会话）。根解「图像转述 / 子代理图片外包」规划中，详见[已知限制](#已知限制)。
+⚠️ **已知限制**：带图会话会锁存多模态模型；若 Kimi 侧额度/Key 失效，该会话无法切回文本模型（死锁，只能新开会话）。根解「图像转述模式」改设计中（子代理图片外包已裁撤：官方子代理仅文本），详见[已知限制](#已知限制)。
 
 ---
 
@@ -67,7 +67,7 @@ timeline
     0.2.x 路由 : 双模型自动分工 + dock 面板（会选了）
     0.3.0 评分 : 6 维能力评分引擎 + 决策留痕（选得有依据）
     0.4.x 收敛 : 官方设置卡片 + API key 直连，自研接入层退役（不重复造轮）
-    0.5.0 预设 : 官方 agent preset 模式预设（规划中）
+    0.5.x 转述 : 图像转述模式（读图付费、正文省钱，rc.8 改设计）
 ```
 
 - **第一段（自研接入）**：当初 DSH 没有 Kimi 通道，我们自研了 OAuth 适配器把订阅接进来。
@@ -110,7 +110,7 @@ flowchart LR
 
 ## 快速开始（v0.4.0 形态）
 
-> 本分支已实施 API key 直连（发布待定，见「开发计划」）；旧 OAuth 方案已退役，历史存档见 [`docs/legacy-setup.md`](docs/legacy-setup.md)。
+> 本分支已实施 API key 直连（v0.4.0 已发布，见「开发计划」）；旧 OAuth 方案已退役，历史存档见 [`docs/legacy-setup.md`](docs/legacy-setup.md)。
 
 ### 1. 前置条件
 
@@ -176,7 +176,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 ### 已知限制
 
-1. **带图会话锁存死锁**：锁存后整会话走多模态模型；若 Kimi 额度/Key 失效，会话**无法切回文本模型**（历史含图片）→ 只能新开会话。**根解 = 图片不进主历史**：「图像转述模式」与「子代理图片外包」规划中。
+1. **带图会话锁存死锁**：锁存后整会话走多模态模型；若 Kimi 额度/Key 失效，会话**无法切回文本模型**（历史含图片）→ 只能新开会话。**根解 = 图片不进主历史**：「图像转述模式」改设计中（rc.8 宿主已提供 Modality/准入机制；子代理图片外包已裁撤——官方子代理仅文本）。
 2. **设置卡片评分滑杆步进 0.5 且无手动输入**：无法设 4.6 这类细粒度值，待修（0.1 步进 + 数字输入框）。
 
 ---
@@ -229,7 +229,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 ## 文档索引
 
 - [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)：0.4.x API key 直连设计稿（已定稿）。
-- [`docs/host-platform-map.md`](docs/host-platform-map.md)：DSH 宿主平台契约调研（0.4.x/0.5.0 的认知基线）。
+- [`docs/host-platform-map.md`](docs/host-platform-map.md)：DSH 宿主平台契约调研（0.4.x/rc.8 升级的认知基线）。
 - [`docs/positioning.md`](docs/positioning.md)：项目定位与维护策略。
 - [`docs/development-plan-router.md`](docs/development-plan-router.md)：路由器开发计划（M1-M7）。
 - [`packages/dsh-kimi-tide/docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md)：0.3.0 能力评分路由引擎架构。
@@ -244,7 +244,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（当前 205/205 通过，21 个测试文件）
+npm test            # vitest（当前 216/216 通过，22 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
@@ -257,9 +257,8 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 - **0.1.x（已发布）**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
 - **0.2.x（main 已落地，未发布）**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
 - **0.3.0（main 已实施，未发布）**：能力评分路由（11 任务 TDD，`86da918`），手工验收 7/7 ✅。
-- **0.4.0（已实施，发布待定）**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线；评分基线 A 方案全维取证；滑杆步进修。
-- **0.5.0（规划）**：官方 agent preset 模式预设（桥接行 + `agent-presets.default` 绑定）。
-- **规划中**：图像转述模式 / 子代理图片外包（图片不入主历史，根解带图死锁）；kimi 子代理后端（subagents 命名注册表挂载）。
+- **0.4.0（已发布，2026-08-20）**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线 ✅（tag 触发全自动）；滑杆步进修 ✅（a45d722）。
+- **规划中（rc.8 重议后）**：图像转述模式（改设计——复用宿主 Modality/准入机制，端点不支持时转述降级；前置 deepseek vision 端点实测）；评分基线 A 方案全维取证。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
 
 ---
 
@@ -281,7 +280,7 @@ A：退役了。宿主调研实锤 pi-ai 原生内置 `kimi-coding` 路由（API
 A：v0.4.0 起不需要。一把 Console API Key + 官方 Models 页配置即可。
 
 **Q：带图会话有什么限制？**  
-A：图片进入会话历史后会话锁存多模态模型；若 Kimi 额度/Key 失效，会话无法切回文本模型 → 死锁，只能新开。根解（图像转述 / 子代理图片外包）规划中；落地前重要带图任务请保持 Kimi 侧额度健康。
+A：图片进入会话历史后会话锁存多模态模型；若 Kimi 额度/Key 失效，会话无法切回文本模型 → 死锁，只能新开。根解（图像转述模式）改设计中（子代理外包已裁撤）；落地前重要带图任务请保持 Kimi 侧额度健康。
 
 **Q：能力评分从哪里来？**  
 A：`src/scores.ts` 基线 v3：`code` / `reasoning` 有 SWE-bench / GPQA 一级证据或强相对推断，其余维度中性 2.5（vision 由模态决定）；每格标证据等级，可在设置卡片覆盖。
@@ -290,7 +289,7 @@ A：`src/scores.ts` 基线 v3：`code` / `reasoning` 有 SWE-bench / GPQA 一级
 A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无设置服务的宿主回退 sidecar 文件；0.4.x 升级自动把 `kimi-tide/*` 改名为 `kimi-coding/*`（留档 `.pre-v3`）。
 
 **Q：为什么 Release 页只有 v0.1.3？**  
-A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。v0.4.0（含设置迁移 + API key 直连）已在分支 `feat/0.4.0-api-key-direct` 实施（`ec7909e..123d4e7`，205/205 测试 + typecheck + build 绿），发布待定。
+A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布。v0.4.0（设置迁移 + API key 直连，`ec7909e..123d4e7` + 验收修复）已于 2026-08-20 发布（tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，216/216 + typecheck + build 绿）。
 
 </details>
 
@@ -314,7 +313,7 @@ A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。
 
 ## Current Status (2026-08-20)
 
-> **📌 Development plan (important)**: **v0.4.0 is implemented (branch `feat/0.4.0-api-key-direct`, release pending)**, containing the settings migration (`bc31b69`) plus **"API-key direct connection"** — the access layer switches to the official pi-ai native `kimi-coding` route + a Console API key; the self-built OAuth access layer is retired (~740 lines deleted); provider naming migrates `kimi-tide/*` → `kimi-coding/*` automatically (implementation `ec7909e..123d4e7`, 205/205 tests + typecheck + build green). Design spec: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md).
+> **📌 Development plan (important)**: **v0.4.0 is released (2026-08-20, tag `v0.4.0` — [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0) with dsh-kimi-tide-0.4.0.tgz, [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152))**, containing the settings migration (`bc31b69`) plus **"API-key direct connection"** — the access layer switches to the official pi-ai native `kimi-coding` route + a Console API key; the self-built OAuth access layer is retired (~740 lines deleted); provider naming migrates `kimi-tide/*` → `kimi-coding/*` automatically (implementation `ec7909e..123d4e7`; release version: 216/216 tests + typecheck + build green). Design spec: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md).
 
 | Line | Status | Evidence |
 |---|---|---|
@@ -322,9 +321,9 @@ A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。
 | 0.2.x dual-model router | ✅ Landed on main + verified live | `71b1d18` / `16a75d0` / `fcbf421`, M5 dual-probe + image roundtrip |
 | 0.3.0 capability-scored routing | ✅ Implemented on main + manual acceptance 7/7 | `86da918` (203/203 green) |
 | 0.4.0 settings migration | ✅ Merged on main | `bc31b69`; acceptance ①-③ passed |
-| 0.4.x API-key direct | ✅ Implemented (branch `feat/0.4.0-api-key-direct`), release pending | `ec7909e..123d4e7`, [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md) |
+| 0.4.x API-key direct | ✅ Released v0.4.0 (2026-08-20) | tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0), [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
 
-⚠️ **Known limitation**: image-bearing sessions latch onto the multimodal model; if the Kimi quota/key fails, that session cannot fall back to a text model (deadlock — start a new session). The root fix ("image transcription / subagent image outsourcing") is planned. See [Known Limitations](#known-limitations).
+⚠️ **Known limitation**: image-bearing sessions latch onto the multimodal model; if the Kimi quota/key fails, that session cannot fall back to a text model (deadlock — start a new session). The root fix (image transcription mode, redesigned for rc.8) is planned; subagent image outsourcing was dropped (official subagents are text-only). See [Known Limitations](#known-limitations).
 
 ---
 
@@ -363,7 +362,7 @@ timeline
     0.2.x Routing : Dual-model auto-routing + dock panel (it picks)
     0.3.0 Scoring : 6-dim capability engine + decision trails (picks with evidence)
     0.4.x Convergence : Official settings card + API-key direct; self-built access retired (no reinvented wheels)
-    0.5.0 Presets : Official agent-preset mode presets (planned)
+    0.5.x Transcription : Image transcription mode (pay for vision, not the body; redesigned for rc.8)
 ```
 
 - **Phase 1 (self-built access)**: DSH had no Kimi channel, so we built an OAuth adapter to bring the subscription in.
@@ -406,7 +405,7 @@ flowchart LR
 
 ## Quick Start (v0.4.0 form)
 
-> This branch implements API-key direct (release pending — see the development plan); the old OAuth form is retired, archived in [`docs/legacy-setup.md`](docs/legacy-setup.md).
+> This branch implements API-key direct (released as v0.4.0 — see the development plan); the old OAuth form is retired, archived in [`docs/legacy-setup.md`](docs/legacy-setup.md).
 
 ### 1. Prerequisites
 
@@ -472,7 +471,7 @@ Restart `dsh web`:
 
 ### Known Limitations
 
-1. **Image-latch deadlock**: after latching, the whole session runs on the multimodal model; if the Kimi quota/key fails, the session **cannot switch back to a text model** (history contains images) → open a new session. **Root fix = images never enter the main history**: "image transcription mode" and "subagent image outsourcing" are planned.
+1. **Image-latch deadlock**: after latching, the whole session runs on the multimodal model; if the Kimi quota/key fails, the session **cannot switch back to a text model** (history contains images) → open a new session. **Root fix = images never enter the main history**: the "image transcription mode" is being redesigned (the rc.8 host now ships the modality/admission machinery; subagent image outsourcing was dropped — official subagents are text-only).
 2. **Settings-card slider steps by 0.5 with no manual input**: fine-grained values like 4.6 cannot be set; fix pending (0.1 steps + numeric input).
 
 ---
@@ -525,7 +524,7 @@ Restart `dsh web`:
 ## Documentation Index
 
 - [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md): 0.4.x API-key direct-connection design (finalized).
-- [`docs/host-platform-map.md`](docs/host-platform-map.md): DSH host-platform contract research (the cognitive baseline for 0.4.x/0.5.0).
+- [`docs/host-platform-map.md`](docs/host-platform-map.md): DSH host-platform contract research (the cognitive baseline for 0.4.x and the rc.8 upgrade).
 - [`docs/positioning.md`](docs/positioning.md): project positioning & maintenance strategy.
 - [`docs/development-plan-router.md`](docs/development-plan-router.md): router development plan (M1-M7).
 - [`packages/dsh-kimi-tide/docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md): 0.3.0 routing-engine architecture.
@@ -540,7 +539,7 @@ Restart `dsh web`:
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (currently 205/205 passing across 21 test files)
+npm test            # vitest (currently 216/216 passing across 22 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
@@ -553,9 +552,8 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.1.x (released)**: native DSH Kimi provider, v0.1.3 (credential gating + OAuth hardening).
 - **0.2.x (landed on main, unreleased)**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
 - **0.3.0 (implemented on main, unreleased)**: capability-scored routing (11 TDD tasks, `86da918`), manual acceptance 7/7 ✅.
-- **0.4.0 (implemented, release pending)**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline; plan-A full scoring provenance; slider step fix.
-- **0.5.0 (planned)**: official agent-preset mode presets (bridge line + `agent-presets.default` binding).
-- **Planned**: image transcription mode / subagent image outsourcing (images never enter the main history — root fix for the image-latch deadlock); kimi subagent backend (subagents named-registry mount).
+- **0.4.0 (released, 2026-08-20)**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline ✅ (fully automatic on tag); slider step fix ✅ (a45d722).
+- **Planned (after the rc.8 re-review)**: image transcription mode (redesign — reuse the host modality/admission machinery, with transcription fallback until the DeepSeek vision endpoint is proven); plan-A full scoring provenance. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
 
@@ -577,7 +575,7 @@ A: Retired. Host research proved pi-ai natively ships the `kimi-coding` route (A
 A: Not since v0.4.0. One Console API key + the official Models page is all it takes.
 
 **Q: What are the image-session limitations?**  
-A: Once an image enters history, the session latches onto the multimodal model; if the Kimi quota/key fails, the session cannot switch back → deadlock; open a new session. The root fix (image transcription / subagent image outsourcing) is planned; until then keep the Kimi quota healthy for important image tasks.
+A: Once an image enters history, the session latches onto the multimodal model; if the Kimi quota/key fails, the session cannot switch back → deadlock; open a new session. The root fix (image transcription mode, redesigned for rc.8) is planned; until then keep the Kimi quota healthy for important image tasks.
 
 **Q: Where do the capability scores come from?**  
 A: `src/scores.ts` baseline v3: `code` / `reasoning` carry SWE-bench / GPQA primary evidence or strong relative inference; other dims are neutral 2.5 (vision is modality-driven); every cell is evidence-graded and overridable in the settings card.
@@ -586,6 +584,6 @@ A: `src/scores.ts` baseline v3: `code` / `reasoning` carry SWE-bench / GPQA prim
 A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月汐); hosts without a settings service fall back to the sidecar file; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` (`.pre-v3` backup).
 
 **Q: Why does the Release page only have v0.1.3?**  
-A: v0.1.3 shipped before the router wiring; every later feature lives on main, unreleased. v0.4.0 (settings migration + API-key direct) is implemented on branch `feat/0.4.0-api-key-direct` (`ec7909e..123d4e7`, 205/205 tests + typecheck + build green), release pending.
+A: v0.1.3 shipped before the router wiring; 0.2.x/0.3.0 shipped together with v0.4.0. v0.4.0 (settings migration + API-key direct, `ec7909e..123d4e7` + acceptance fixes) was released on 2026-08-20 (tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0); 216/216 + typecheck + build green).
 
 </details>
