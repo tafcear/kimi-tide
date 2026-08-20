@@ -588,22 +588,31 @@ export function apply(ctx: Context, config: Config = {}) {
     // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
     // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前 v2 形。
     // 持久化替换在后台完成；提交后 watch 会以相同值再触发 applyConfig，
-    // applyConfig 按值幂等（sameJson）不会重复挂载。
-    const current = scope.get()
-    const migrated = hasKimiTideResidue(current) ? migrateV2(current) : current
-    if (migrated !== current) {
-      const docPath = (sctx.settings as { documentPath?: string }).documentPath
-      if (typeof docPath === 'string' && docPath.length > 0) {
-        try { copyFileSync(docPath, docPath + '.pre-v3') } catch (error) {
-          warn(`dsh-kimi-tide: 设置文档 .pre-v3 快照失败（${(error as Error).message}）`)
+    // applyConfig 按值幂等（sameJson）不会重复挂载。整段迁移包在 try/catch
+    // 里：迁移失败只降级（保留旧形状），绝不把异常抛回 inject 回调使命名空间
+    // 半接（无 watch、无 sidecar 导入）。
+    let baseline: RouterConfigV3
+    try {
+      const current = scope.get()
+      const migrated = hasKimiTideResidue(current) ? migrateV2(current) : current
+      if (migrated !== current) {
+        const docPath = (sctx.settings as { documentPath?: string }).documentPath
+        if (typeof docPath === 'string' && docPath.length > 0) {
+          try { copyFileSync(docPath, docPath + '.pre-v3') } catch (error) {
+            warn(`dsh-kimi-tide: 设置文档 .pre-v3 快照失败（${(error as Error).message}）`)
+          }
         }
+        void scope.replace(migrated as unknown as object)
+          .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v3（kimi-coding/*）'))
+          .catch((error: unknown) =>
+            warn(`dsh-kimi-tide: 命名空间 v3 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
       }
-      void scope.replace(migrated as unknown as object)
-        .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v3（kimi-coding/*）'))
-        .catch((error: unknown) =>
-          warn(`dsh-kimi-tide: 命名空间 v3 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
+      baseline = migrated
+    } catch (error) {
+      warn(`dsh-kimi-tide: 命名空间 v3 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
+      baseline = scope.get()
     }
-    applyConfig(migrated)
+    applyConfig(baseline)
     // Detach (provider reload / service disposal) rides the scoped fiber: the
     // command layer falls back to the sidecar until the callback re-runs.
     sctx.effect(() => () => { settingsScope = null })
