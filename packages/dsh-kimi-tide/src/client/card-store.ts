@@ -10,7 +10,7 @@
  * 类型定义在本文件，SettingsCard.tsx 从这里 import（而非本文件反向 import
  * 组件），避免类型环。
  */
-import type { RouterConfigV3 } from '../config.js'
+import { configKey, type RouterConfigV4, type RouterPreset } from '../config.js'
 
 export const CARD_NAMESPACE = 'kimi-tide-router'
 
@@ -18,19 +18,25 @@ export const CARD_NAMESPACE = 'kimi-tide-router'
 export interface CardSnapshot {
   status: 'loading' | 'ready' | 'unavailable'
   /** 解析后的生效配置（schema 默认 → base → user 三层合并）。 */
-  config: RouterConfigV3 | null
+  config: RouterConfigV4 | null
   /** 组合 base 层（patch/entry 种子）；字段在此出现 = 继承自部署基座。 */
-  base: RouterConfigV3 | null
+  base: RouterConfigV4 | null
   /** 原始 user 层；字段在此出现 = 用户覆盖。 */
-  user: RouterConfigV3 | null
+  user: RouterConfigV4 | null
   writable: boolean
   /** 最近一次写失败的信息；成功读入/写回后清空。 */
   error: string | null
   /**
-   * 候选可用性映射（'provider/model' → available），来自宿主模型目录
-   * （connection.api.llm.models，settings.section 是 root 作用域 slot、
-   * 拿不到 session 级投影，验收⑥改由此通道取数）。null = 无灰态
-   * （无 connection 通道 / 目录拉取失败），不为可用性失败污染 error 通道。
+   * 宿主模型全量目录（connection.api.llm.models，settings.section 是 root
+   * 作用域 slot、拿不到 session 级投影，改由此通道取数）：下拉数据源，
+   * 不做任何裁剪。null = 无 connection 通道 / 目录拉取失败。
+   */
+  catalog: Array<{ provider: string; models: string[] }> | null
+  /**
+   * 候选可用性映射（'provider/model' → available）：目标集 = 所有预设的
+   * default + 规则 target 去重；命中目录即为可用（无 allowedProviders
+   * 白名单过滤）。null = 无灰态（无 connection 通道 / 目录拉取失败），
+   * 不为可用性失败污染 error 通道。
    */
   availability: Record<string, boolean> | null
 }
@@ -98,16 +104,24 @@ export interface CardStore {
   load(): Promise<void>
   /** 顶层标量字段写：scope.set 或 mutate set（单段 path）。 */
   saveTop(field: string, value: unknown): Promise<void>
-  /** 嵌套 scores 写：mutate set（多段 path：['scores', key, dim]）。 */
-  saveScores(key: string, dim: string, value: number): Promise<void>
+  /** 切换激活预设（null = 关闭路由，逃生舱）。 */
+  saveActivePreset(id: string | null): Promise<void>
+  /** 整体覆盖单个预设（组装下一个完整 presets 对象后整段写）。 */
+  savePreset(presetId: string, preset: RouterPreset): Promise<void>
+  /** 新建预设；id 冲突 → error 通道，不写。 */
+  createPreset(id: string, preset: RouterPreset): Promise<void>
+  /** 删除预设；删激活预设时同写 activePreset: null。 */
+  deletePreset(id: string): Promise<void>
+  /** 整段覆盖关键词组表。 */
+  saveKeywordGroups(groups: Record<string, string[]>): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
   getSnapshot(): CardSnapshot
   subscribe(listener: () => void): () => void
 }
 
-const asConfig = (value: unknown): RouterConfigV3 | null =>
-  typeof value === 'object' && value !== null ? (value as RouterConfigV3) : null
+const asConfig = (value: unknown): RouterConfigV4 | null =>
+  typeof value === 'object' && value !== null ? (value as RouterConfigV4) : null
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
@@ -123,6 +137,7 @@ export function createCardStore(
     user: null,
     writable: false,
     error: null,
+    catalog: null,
     availability: null,
   }
   // connection/mutate 路径的乐观并发栅栏：最近一次 describe 读到的命名空间
@@ -149,41 +164,52 @@ export function createCardStore(
       user: asConfig(s.user),
       writable: s.writable,
       error: null,
+      catalog: snapshot.catalog,
       availability: snapshot.availability,
     })
   }
 
   /**
-   * 候选灰态取数（验收⑥修复）：宿主模型目录（llm.models）= 可用集合；
-   * allowedProviders 之外的 provider 即使被目录列出也不可用（对齐宿主
-   * enumerateCandidates 的过滤语义）。失败/无通道 → availability null
-   * （无灰态），不占用 error 通道。
+   * 候选灰态取数：拉宿主模型目录（llm.models）→ catalog 全量入快照（下拉
+   * 数据源）；availability 目标集 = 所有预设 default + 规则 target 去重，
+   * 命中目录即可用（无 allowedProviders 白名单过滤）。失败/无通道 →
+   * catalog/availability 均 null（无灰态），不占用 error 通道。
    */
-  const loadAvailability = async (config: RouterConfigV3 | null): Promise<void> => {
+  const loadAvailability = async (config: RouterConfigV4 | null): Promise<void> => {
     const llm = connection?.api.llm
     if (config === null || llm === undefined) {
-      if (snapshot.availability !== null) publish({ ...snapshot, availability: null })
+      if (snapshot.availability !== null || snapshot.catalog !== null) {
+        publish({ ...snapshot, catalog: null, availability: null })
+      }
       return
     }
     try {
       const r = await llm.models({})
       if (!r.result.ok) {
-        publish({ ...snapshot, availability: null })
+        publish({ ...snapshot, catalog: null, availability: null })
         return
       }
+      const catalog = r.result.value.groups.map((group) => ({
+        provider: group.id,
+        models: group.models.map((model) => model.id),
+      }))
       const served = new Set<string>()
-      for (const group of r.result.value.groups) {
-        for (const model of group.models) served.add(`${group.id}/${model.id}`)
+      for (const group of catalog) {
+        for (const model of group.models) served.add(`${group.provider}/${model}`)
       }
-      const allowed = new Set(config.allowedProviders)
       const availability: Record<string, boolean> = {}
-      for (const target of [config.default, ...config.candidates]) {
-        const key = `${target.provider}/${target.model}`
-        availability[key] = allowed.has(target.provider) && served.has(key)
+      const seen = new Set<string>()
+      for (const preset of Object.values(config.presets)) {
+        for (const target of [preset.default, ...preset.rules.map((rule) => rule.target)]) {
+          const key = configKey(target)
+          if (seen.has(key)) continue
+          seen.add(key)
+          availability[key] = served.has(key)
+        }
       }
-      publish({ ...snapshot, availability })
+      publish({ ...snapshot, catalog, availability })
     } catch {
-      publish({ ...snapshot, availability: null })
+      publish({ ...snapshot, catalog: null, availability: null })
     }
   }
 
@@ -194,13 +220,13 @@ export function createCardStore(
       try {
         const r = await connection.api.settings.describe({})
         if (!r.result.ok) {
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, availability: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null })
           return
         }
         const view = r.result.value.namespaces.find((n) => n.ns === CARD_NAMESPACE)
         if (view === undefined) {
           revision = undefined
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, availability: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null })
           return
         }
         revision = view.revision
@@ -211,6 +237,7 @@ export function createCardStore(
           user: asConfig(view.user),
           writable: r.result.value.writable,
           error: null,
+          catalog: snapshot.catalog,
           availability: snapshot.availability,
         })
       } catch (error) {
@@ -243,25 +270,38 @@ export function createCardStore(
     }
   }
 
-  const saveScores = async (key: string, dim: string, value: number): Promise<void> => {
-    try {
-      // Nested scores writes only exist on the connection/mutate channel
-      // (multi-segment path); scope.set/unset speak top-level scalars only. A
-      // scope-only store would otherwise drop the write silently — degrade
-      // loudly through the snapshot error channel instead.
-      if (connection === null) {
-        fail(new Error('嵌套评分写入需要 connection 通道'))
-        return
-      }
-      await connection.api.settings.mutate({
-        ns: CARD_NAMESPACE,
-        ops: [{ op: 'set', path: ['scores', key, dim], value }],
-        ...(revision === undefined ? {} : { expectedRevision: revision }),
-      })
-      await load()
-    } catch (error) {
-      fail(error)
+  const saveActivePreset = async (id: string | null): Promise<void> => {
+    await saveTop('activePreset', id)
+  }
+
+  /** 组装「下一个完整 presets 对象」：当前快照 presets 的浅拷贝。 */
+  const nextPresets = (): Record<string, RouterPreset> => ({
+    ...(snapshot.config?.presets ?? {}),
+  })
+
+  const savePreset = async (presetId: string, preset: RouterPreset): Promise<void> => {
+    await saveTop('presets', { ...nextPresets(), [presetId]: preset })
+  }
+
+  const createPreset = async (id: string, preset: RouterPreset): Promise<void> => {
+    if (snapshot.config !== null && Object.hasOwn(snapshot.config.presets, id)) {
+      fail(new Error(`预设 id 冲突：${id} 已存在`))
+      return
     }
+    await saveTop('presets', { ...nextPresets(), [id]: preset })
+  }
+
+  const deletePreset = async (id: string): Promise<void> => {
+    const presets = nextPresets()
+    delete presets[id]
+    await saveTop('presets', presets)
+    if (snapshot.config?.activePreset === id) {
+      await saveTop('activePreset', null)
+    }
+  }
+
+  const saveKeywordGroups = async (groups: Record<string, string[]>): Promise<void> => {
+    await saveTop('keywordGroups', groups)
   }
 
   const resetField = async (field: string): Promise<void> => {
@@ -283,7 +323,11 @@ export function createCardStore(
   return {
     load,
     saveTop,
-    saveScores,
+    saveActivePreset,
+    savePreset,
+    createPreset,
+    deletePreset,
+    saveKeywordGroups,
     resetField,
     getSnapshot: () => snapshot,
     subscribe: (listener: () => void) => {
