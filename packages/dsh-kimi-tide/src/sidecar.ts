@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import YAML from 'yaml'
-import { DEFAULT_CONFIG_V2, type RouterConfigV2 } from './config.js'
+import { DEFAULT_CONFIG_V3, type RouterConfigV3 } from './config.js'
 import { migrateV1 } from './migrate.js'
 
 export interface SidecarOptions {
@@ -12,7 +12,7 @@ export interface SidecarOptions {
 export class RouterSidecarStore {
   constructor(private readonly o: SidecarOptions) {}
 
-  load(): { config: RouterConfigV2 | null; source: 'sidecar' | 'patch' | 'none' } {
+  load(): { config: RouterConfigV3 | null; source: 'sidecar' | 'patch' | 'none' } {
     if (!existsSync(this.o.file)) {
       const fb = this.fallback()
       // A patch fallback that yields nothing must not masquerade as a patch
@@ -43,12 +43,12 @@ export class RouterSidecarStore {
     }
   }
 
-  private fallback(): RouterConfigV2 | null {
+  private fallback(): RouterConfigV3 | null {
     if (this.o.patchFallback === undefined) return null
     return migrateV1(this.o.patchFallback(), this.o.onError)
   }
 
-  save(config: RouterConfigV2): void {
+  save(config: RouterConfigV3): void {
     if (existsSync(this.o.file)) copyFileSync(this.o.file, this.o.file + '.bak')
     const tmp = this.o.file + `.tmp-${process.pid}`
     writeFileSync(tmp, YAML.stringify(config), 'utf8')
@@ -56,15 +56,15 @@ export class RouterSidecarStore {
   }
 
   exportText(): string { return readFileSync(this.o.file, 'utf8') }
-  importFile(path: string): RouterConfigV2 {
+  importFile(path: string): RouterConfigV3 {
     const cfg = this.validate(YAML.parse(readFileSync(path, 'utf8')) as unknown)
     this.save(cfg)
     return cfg
   }
 
-  private validate(raw: unknown): RouterConfigV2 {
+  private validate(raw: unknown): RouterConfigV3 {
     const r = (raw ?? {}) as Record<string, unknown>
-    if (r.version === 2) {
+    if (r.version === 2 || r.version === 3) {
       // 损坏永不崩：手改 sidecar 删掉 default/candidates 的半损坏 v2 不能
       // 直通——否则 load 不崩但路由时 configKey(config.default) 抛 TypeError。
       // 浅结构检查不合格即视为损坏：warn（含原因）并走与 parse 失败相同的
@@ -76,9 +76,9 @@ export class RouterSidecarStore {
       if (!Array.isArray(r.candidates)) {
         throw new Error('sidecar v2 结构不合格：candidates 缺失或非数组')
       }
-      return raw as RouterConfigV2
+      return raw as RouterConfigV3
     }
     return migrateV1(raw, this.o.onError)   // 旧形状 sidecar 也走迁移
   }
 }
-export { DEFAULT_CONFIG_V2 }
+export { DEFAULT_CONFIG_V3 }

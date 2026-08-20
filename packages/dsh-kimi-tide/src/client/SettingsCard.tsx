@@ -14,7 +14,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { configKey, DIMS, type Dim, type RouteTarget, type RouterConfigV2 } from '../config.js'
+import { configKey, DIMS, type Dim, type RouteTarget, type RouterConfigV3 } from '../config.js'
 import { scoreFor } from '../scores.js'
 import type { KimiTidePanelProjection } from '../types.js'
 
@@ -31,8 +31,8 @@ export interface SettingsCardProps {
   useProjection?: (key: 'kimi-tide/panel') => KimiTidePanelProjection | null | undefined
 }
 
-const MODES: Array<RouterConfigV2['mode']> = ['off', 'cost', 'capability']
-const MODE_LABELS: Record<RouterConfigV2['mode'], string> = {
+const MODES: Array<RouterConfigV3['mode']> = ['off', 'cost', 'capability']
+const MODE_LABELS: Record<RouterConfigV3['mode'], string> = {
   off: '关闭',
   cost: '省钱',
   capability: '能力',
@@ -59,7 +59,7 @@ const NUM_FIELDS: Array<{ field: NumberField; label: string; step: number; min: 
 ]
 
 /** 把 default + candidates 去重成评分目标列表。 */
-function scoreTargets(config: RouterConfigV2): RouteTarget[] {
+function scoreTargets(config: RouterConfigV3): RouteTarget[] {
   const out: RouteTarget[] = []
   const seen = new Set<string>()
   for (const target of [config.default, ...config.candidates]) {

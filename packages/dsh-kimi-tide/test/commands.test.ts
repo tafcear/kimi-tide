@@ -4,18 +4,18 @@ import { join } from 'node:path'
 import YAML from 'yaml'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps, type SettingsNamespacePort } from '../src/commands.js'
-import { DEFAULT_CONFIG_V2, type RouterConfigV2 } from '../src/config.js'
+import { DEFAULT_CONFIG_V3, type RouterConfigV3 } from '../src/config.js'
 import { RouterSidecarStore } from '../src/sidecar.js'
 import type { UsageMonitor } from '../src/usage.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'kt-commands-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-function makeConfig(): RouterConfigV2 {
-  return { ...DEFAULT_CONFIG_V2('kimi-tide'), premiumBudget: 0.5 }
+function makeConfig(): RouterConfigV3 {
+  return { ...DEFAULT_CONFIG_V3(), premiumBudget: 0.5 }
 }
 
-function makeDeps(opts: { saved?: RouterConfigV2[]; file?: string; settings?: SettingsNamespacePort | null } = {}) {
+function makeDeps(opts: { saved?: RouterConfigV3[]; file?: string; settings?: SettingsNamespacePort | null } = {}) {
   const saved = opts.saved ?? []
   let current = makeConfig()
   const file = opts.file ?? join(dir, `sidecar-${Math.random().toString(36).slice(2)}.yml`)
@@ -25,7 +25,7 @@ function makeDeps(opts: { saved?: RouterConfigV2[]; file?: string; settings?: Se
     settings: opts.settings ?? null,
     monitor: { refresh: vi.fn(async () => {}) } as unknown as UsageMonitor,
     current: () => current,
-    onSaved: vi.fn((next: RouterConfigV2) => {
+    onSaved: vi.fn((next: RouterConfigV3) => {
       saved.push(next)
       current = next
     }),
@@ -70,7 +70,7 @@ describe('parseKimiTideCommand', () => {
     expect(parseKimiTideCommand('import-config C:/tmp/cfg.yml')).toEqual({ kind: 'import-config', path: 'C:/tmp/cfg.yml' })
   })
   it('parse: import-config keeps the full inline YAML (newlines/indent intact)', () => {
-    const text = 'version: 2\nscores:\n  "kimi-tide/kimi-for-coding":\n    code: 4.5'
+    const text = 'version: 2\nscores:\n  "kimi-coding/kimi-for-coding":\n    code: 4.5'
     const cmd = parseKimiTideCommand(`import-config ${text}`)
     expect(cmd).toEqual({ kind: 'import-config', path: text })
   })
@@ -115,12 +115,12 @@ describe('applyKimiTideCommand', () => {
     expect(deps.onSaved).not.toHaveBeenCalled()
   })
 
-  it('export-config: returns the sidecar YAML text, parseable back to RouterConfigV2', async () => {
+  it('export-config: returns the sidecar YAML text, parseable back to RouterConfigV3', async () => {
     const { deps, sidecar } = makeDeps()
     sidecar.save(makeConfig())
     const text = await applyKimiTideCommand({ kind: 'export-config' }, deps)
-    const parsed = YAML.parse(text) as RouterConfigV2
-    expect(parsed.version).toBe(2)
+    const parsed = YAML.parse(text) as RouterConfigV3
+    expect(parsed.version).toBe(3)
     expect(parsed.premiumBudget).toBe(0.5)
     expect(parsed.candidates[0].model).toBe('kimi-for-coding')
   })
@@ -134,7 +134,7 @@ describe('applyKimiTideCommand', () => {
 
   it('import-config: reads a YAML file, saves the sidecar, and the config takes effect', async () => {
     const { deps, saved, sidecar, readCurrent } = makeDeps()
-    const incoming: RouterConfigV2 = { ...makeConfig(), mode: 'capability', lambda: 0.9 }
+    const incoming: RouterConfigV3 = { ...makeConfig(), mode: 'capability', lambda: 0.9 }
     const src = join(dir, 'import-src.yml')
     writeFileSync(src, YAML.stringify(incoming), 'utf8')
     const reply = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
@@ -167,17 +167,17 @@ describe('applyKimiTideCommand', () => {
     const text = [
       'version: 2',
       'scores:',
-      '  "kimi-tide/kimi-for-coding":',
+      '  "kimi-coding/kimi-for-coding":',
       '    code: 4.5',
       '    vision: 3',
     ].join('\n')
     const reply = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
     expect(reply).toMatch(/import/i)
     const cfg = saved[0]
-    expect(cfg.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+    expect(cfg.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
     expect(cfg.premiumBudget).toBe(0.5)
     expect(cfg.candidates[0].model).toBe('kimi-for-coding')
-    expect(sidecar.load().config!.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+    expect(sidecar.load().config!.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
   })
 
   it('import-config: inline candidates text replaces the candidate table but keeps other fields', async () => {
@@ -185,16 +185,16 @@ describe('applyKimiTideCommand', () => {
     const text = [
       'version: 2',
       'default:',
-      '  provider: kimi-tide',
+      '  provider: kimi-coding',
       '  model: k3',
       'candidates:',
-      '  - provider: kimi-tide',
+      '  - provider: kimi-coding',
       '    model: k3',
     ].join('\n')
     const reply = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
     expect(reply).toMatch(/import/i)
     expect(saved[0].default.model).toBe('k3')
-    expect(saved[0].candidates).toEqual([{ provider: 'kimi-tide', model: 'k3' }])
+    expect(saved[0].candidates).toEqual([{ provider: 'kimi-coding', model: 'k3' }])
     expect(saved[0].premiumBudget).toBe(0.5)
   })
 
@@ -235,7 +235,7 @@ describe('applyKimiTideCommand with settings namespace', () => {
   it('export-config prints the resolved namespace value as YAML', async () => {
     const { deps } = makeDeps({
       settings: {
-        get: () => ({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'cost' }),
+        get: () => ({ ...DEFAULT_CONFIG_V3(), mode: 'cost' }),
         update: async () => {},
         replace: async () => {},
       },
@@ -266,7 +266,7 @@ describe('applyKimiTideCommand with settings namespace', () => {
         replace: async (s) => { replaces.push(s) },
       },
     })
-    const incoming: RouterConfigV2 = { ...makeConfig(), mode: 'capability', lambda: 0.9 }
+    const incoming: RouterConfigV3 = { ...makeConfig(), mode: 'capability', lambda: 0.9 }
     const src = join(dir, 'import-src-ns.yml')
     writeFileSync(src, YAML.stringify(incoming), 'utf8')
     const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
@@ -289,15 +289,15 @@ describe('applyKimiTideCommand with settings namespace', () => {
     const text = [
       'version: 2',
       'scores:',
-      '  "kimi-tide/kimi-for-coding":',
+      '  "kimi-coding/kimi-for-coding":',
       '    code: 4.5',
       '    vision: 3',
     ].join('\n')
     const out = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
     expect(replaces).toHaveLength(1)
-    const merged = replaces[0] as RouterConfigV2
+    const merged = replaces[0] as RouterConfigV3
     // patch 字段生效
-    expect(merged.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+    expect(merged.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
     // 未提及字段保留 current() 的值
     expect(merged.premiumBudget).toBe(0.5)
     expect(merged.routeThreshold).toBe(0.75)

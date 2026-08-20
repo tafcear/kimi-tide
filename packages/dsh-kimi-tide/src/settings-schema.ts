@@ -1,25 +1,24 @@
 // src/settings-schema.ts
 import Schema from 'schemastery'
-import { DIMS, DEFAULT_CONFIG_V2, type Dim, type RouterConfigV2 } from './config.js'
+import { DIMS, DEFAULT_CONFIG_V3, type Dim, type RouterConfigV3 } from './config.js'
 
-// 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V2 派生，不另抄一份（防漂移）。
-// 注：candidates/allowedProviders 在 DEFAULT_CONFIG_V2 中按 providerName 参数化，
-// schema 无法参数化，固定取生产 provider 'kimi-tide'；mergeResolved 路径不受影响
-// （它先以 DEFAULT_CONFIG_V2(providerName) 打底再过 schema，schema 默认值只在
-// 裸 section 经 T4 命名空间直接解析时生效，彼时 provider 即本插件自身）。
-const D = DEFAULT_CONFIG_V2('kimi-tide')
+// 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V3 派生，不另抄一份（防漂移）。
+// schema 无法参数化，固定取生产 provider 'kimi-coding'（KIMI_PROVIDER）。
+const D = DEFAULT_CONFIG_V3()
 
 // 分值域 0..5：归一化规则 score = 基准百分比 / 100 * 5（src/scores.ts），
 // 用户覆盖分与基线同槽位同标度。
 const dimSchema = Schema.object(Object.fromEntries(DIMS.map((d: Dim) => [d, Schema.number().min(0).max(5)])))
 export const routerConfigSchema = Schema.object({
-  version: Schema.const(2).default(D.version),
+  // 宽松读取存量 v2 用户层（dsh-settings 契约：存量节校验失败会拒绝整个命名空间
+  // 注册），Task 5 一次性迁移归 3。
+  version: Schema.union([Schema.const(2), Schema.const(3)]).default(D.version),
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]).default(D.mode),
   default: Schema.object({ provider: Schema.string(), model: Schema.string() }).default(D.default),
   candidates: Schema.array(Schema.object({ provider: Schema.string(), model: Schema.string() })).default(D.candidates),
   scores: Schema.dict(dimSchema).default(D.scores),
   // patterns 形状校验不能在 schema 内做：实测 schemastery dict 会把缺失键
-  // 解析为 {} 并注入（s({}) → { patterns: {} }），破坏与 DEFAULT_CONFIG_V2
+  // 解析为 {} 并注入（s({}) → { patterns: {} }），破坏与 DEFAULT_CONFIG_V3
   // classify:{} 的往返相等（审查者「缺失键不写入」的说法实测不成立）。
   // 故 classify 保留任意键透传，patterns 形状由 validateRouterConfig 把关。
   classify: Schema.object({}).default(D.classify),
@@ -32,9 +31,9 @@ export const routerConfigSchema = Schema.object({
   charsPerToken: Schema.number().default(D.charsPerToken),
 })
 
-export function validateRouterConfig(raw: RouterConfigV2): string | undefined {
-  // 语义裁决（控制器 Ruling 4，2026-08-19）：DEFAULT_CONFIG_V2 的 default
-  // （deepseek-official/...）本就不在 candidates（仅 kimi-tide/kimi-for-coding），
+export function validateRouterConfig(raw: RouterConfigV3): string | undefined {
+  // 语义裁决（控制器 Ruling 4，2026-08-19）：DEFAULT_CONFIG_V3 的 default
+  // （deepseek-official/...）本就不在 candidates（仅 kimi-coding/kimi-for-coding），
   // 计划模板的「default ∈ candidates」与其自带应通过用例互斥；故校验
   // default.provider ∈ allowedProviders。default.model 的存在性无注册表可查
   // （模型清单属 provider 侧），不做校验。
@@ -70,8 +69,8 @@ function deepMerge(base: unknown, patch: unknown): unknown {
   return out
 }
 
-export function mergeResolved(entry: unknown, providerName: string): RouterConfigV2 {
-  const defaults = DEFAULT_CONFIG_V2(providerName)
-  const resolved = deepMerge(defaults, entry) as RouterConfigV2
-  return routerConfigSchema(resolved) as RouterConfigV2
+export function mergeResolved(entry: unknown): RouterConfigV3 {
+  const defaults = DEFAULT_CONFIG_V3()
+  const resolved = deepMerge(defaults, entry) as RouterConfigV3
+  return routerConfigSchema(resolved) as RouterConfigV3
 }

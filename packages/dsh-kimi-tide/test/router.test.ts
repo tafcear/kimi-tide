@@ -7,7 +7,7 @@ import {
   messagesContainImage,
   type RouterConfigV1,
 } from '../src/router.js'
-import { DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from '../src/config.js'
+import { DEFAULT_CONFIG_V3, type CandidateMeta, type RouterConfigV3 } from '../src/config.js'
 
 /**
  * Real capability matrix (verified in @earendil-works/pi-ai provider data,
@@ -16,7 +16,7 @@ import { DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from '../s
  * v1 assumption was inverted — the image guard must move image-bearing
  * steps OFF the text-only primary ONTO multimodal Kimi, never the reverse.
  *
- * KimiRouter v2 (0.3.0) takes (RouterConfigV2, CandidateMeta[], log); the
+ * KimiRouter v2 (0.3.0) takes (RouterConfigV3, CandidateMeta[], log); the
  * guard/admission helpers keep their v1 config vocabulary but resolve the
  * text-only provider set from candidate modalities instead of a hard-coded
  * provider set. `shimMetas` below derives the candidate metadata a 0.2.x
@@ -25,8 +25,8 @@ import { DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from '../s
 const BASE: RouterConfigV1 = {
   mode: 'capability',
   primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
-  premiumLong: { provider: 'kimi-tide', model: 'k3' },
+  premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+  premiumLong: { provider: 'kimi-coding', model: 'k3' },
 }
 
 function userMessage(blocks: Array<{ type: string; text?: string }>): UserMessage {
@@ -48,7 +48,7 @@ function shimMetas(config: RouterConfigV1): CandidateMeta[] {
 
 /** A v2 KimiRouter reproducing a v1 config's routing surface (same semantics). */
 function shimRouter(config: RouterConfigV1): KimiRouter {
-  const v2 = DEFAULT_CONFIG_V2('kimi-tide')
+  const v2 = DEFAULT_CONFIG_V3()
   v2.mode = config.mode
   v2.default = config.primary
   if (config.premiumBudget !== undefined) v2.premiumBudget = config.premiumBudget
@@ -78,12 +78,12 @@ describe('image guard (direction: text-only route → multimodal Kimi; text-only
     const decision = router.decide([userMessage([{ type: 'image' }])], 1)
     expect(decision.kind).toBe('keep')
     const guard = router.guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, true)
-    expect(guard?.target.provider).toBe('kimi-tide')
+    expect(guard?.target.provider).toBe('kimi-coding')
   })
 
   it('leaves multimodal Kimi targets alone', () => {
-    expect(applyImageGuard({ provider: 'kimi-tide', model: 'k3' }, BASE, true, shimMetas(BASE))).toBeNull()
-    expect(applyImageGuard({ provider: 'kimi-tide', model: 'kimi-for-coding' }, BASE, true, shimMetas(BASE))).toBeNull()
+    expect(applyImageGuard({ provider: 'kimi-coding', model: 'k3' }, BASE, true, shimMetas(BASE))).toBeNull()
+    expect(applyImageGuard({ provider: 'kimi-coding', model: 'kimi-for-coding' }, BASE, true, shimMetas(BASE))).toBeNull()
   })
 
   it('leaves image-free steps alone', () => {
@@ -96,13 +96,13 @@ describe('image guard (direction: text-only route → multimodal Kimi; text-only
 
   it('bails out when the whole enumerated pool is text-only (degraded metas; host keeps the friendly rejection)', () => {
     // 8784f19 曾在此情形按 premium 身份强行改道，但那在生产 v2 形态（sidecar
-    // default=kimi-tide/k3 → legacyConfig.premium=deepseek-flash）下会把图片
+    // default=kimi-coding/k3 → legacyConfig.premium=deepseek-flash）下会把图片
     // ping-pong 到真文本-only 的 deepseek。正确语义：池里没有任何可验证的多模态
     // 候选时，不声明/不改道 —— 宿主以「当前模型不支持图片」友好拒绝，而不是让
     // 适配器抛 UNSUPPORTED_CONTENT（2026-08-19 实机复测回归即此症状）。
     const degraded: CandidateMeta[] = [
       { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
-      { provider: 'kimi-tide', model: 'kimi-for-coding', modalities: ['text'], costTier: 'mid', available: true },
+      { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text'], costTier: 'mid', available: true },
     ]
     expect(applyImageGuard({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, BASE, true, degraded)).toBeNull()
   })
@@ -179,7 +179,7 @@ describe('canClaimImageAdmission (host prompt pre-check deferral)', () => {
   })
 
   it('honors an explicit textOnlyProviders override listing the premium provider', () => {
-    const config: RouterConfigV1 = { ...BASE, mode: 'cost', textOnlyProviders: ['kimi-tide'] }
+    const config: RouterConfigV1 = { ...BASE, mode: 'cost', textOnlyProviders: ['kimi-coding'] }
     expect(canClaimImageAdmission(config, shimMetas(config))).toBe(false)
   })
 
@@ -195,29 +195,29 @@ const msg = (text: string): UserMessage => ({ role: 'user', content: [{ type: 't
 // 与真实能力矩阵相反，0.3.0 实施时不得沿用。step 参数按 dsh-agent-loop 已验证契约取 1（每轮首个模型步）。
 const metas: CandidateMeta[] = [
   { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
-  { provider: 'kimi-tide', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
 ]
 
 describe('KimiRouter v2', () => {
   it('capability routes code task to k3', () => {
-    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas, { info: () => {} })
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V3(), mode: 'capability' }, metas, { info: () => {} })
     expect(r.decide([msg('审查这段代码 review')], 1).kind).toBe('route')
   })
   it('image step lands on the multimodal candidate, never a vision=0 one', () => {
-    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas, { info: () => {} })
-    const d = r.decide([msg('看图 @kimi-tide')], 1)
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V3(), mode: 'capability' }, metas, { info: () => {} })
+    const d = r.decide([msg('看图 @kimi-coding')], 1)
     const target = d.kind === 'route' ? d.target : null
     expect(target?.model).toBe('k3')   // deepseek-v4-flash 文本-only（vision=0）被排除；k3 多模态承接
   })
   it('single eligible candidate degrades to keep', () => {
-    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas.slice(0, 1), { info: () => {} })
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V3(), mode: 'capability' }, metas.slice(0, 1), { info: () => {} })
     expect(r.decide([msg('审查代码')], 1).kind).toBe('keep')
   })
 })
 
 describe('KimiRouter v2 review fixes (round 1)', () => {
   it('capability keep decisions do not pollute the premium budget window', () => {
-    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, metas, { info: () => {} })
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V3(), mode: 'capability' }, metas, { info: () => {} })
     expect(r.decide([msg('审查这段代码 review')], 1).kind).toBe('route')
     // No weighted dims match → keep (default stays). 0.2.x semantics: only
     // cost-mode keep decisions record 'primary'; a capability keep records
@@ -228,11 +228,11 @@ describe('KimiRouter v2 review fixes (round 1)', () => {
   it('explicit directive picks the highest-scored candidate of that provider', () => {
     const multi: CandidateMeta[] = [
       { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
-      { provider: 'kimi-tide', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
-      { provider: 'kimi-tide', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+      { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
+      { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
     ]
-    const r = new KimiRouter({ ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }, multi, { info: () => {} })
-    const d = r.decide([msg('@kimi-tide 写代码')], 1)
+    const r = new KimiRouter({ ...DEFAULT_CONFIG_V3(), mode: 'capability' }, multi, { info: () => {} })
+    const d = r.decide([msg('@kimi-coding 写代码')], 1)
     // k3 code 4.5 > kimi-for-coding code 4.0 (scores.ts baseline) → k3 wins,
     // not the metas-array-first kimi-for-coding.
     expect(d.kind).toBe('route')
@@ -240,27 +240,27 @@ describe('KimiRouter v2 review fixes (round 1)', () => {
   })
 })
 
-// 生产 v2 sidecar 形态（2026-08-19 实机回归复现）：sidecar default = kimi-tide/k3
+// 生产 v2 sidecar 形态（2026-08-19 实机回归复现）：sidecar default = kimi-coding/k3
 // （面板验收保存），会话基础模型 = deepseek-v4-pro（settings.yaml agent-default-model）
 // —— 文本-only 目标是一个「候选」而非 v1「primary」。护栏必须按候选模态而非
 // primary 身份判定文本-only，否则图片留在 deepseek 上抛 UNSUPPORTED_CONTENT。
-describe('image guard under the production v2 sidecar shape (default = kimi-tide/k3)', () => {
+describe('image guard under the production v2 sidecar shape (default = kimi-coding/k3)', () => {
   const productionMetas: CandidateMeta[] = [
     { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'cheap', available: true },
     { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], costTier: 'mid', available: true },
-    { provider: 'kimi-tide', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
-    { provider: 'kimi-tide', model: 'k3-256k', modalities: ['text', 'image'], costTier: 'mid', available: true },
-    { provider: 'kimi-tide', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
-    { provider: 'kimi-tide', model: 'kimi-for-coding-highspeed', modalities: ['text', 'image'], costTier: 'mid', available: true },
+    { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+    { provider: 'kimi-coding', model: 'k3-256k', modalities: ['text', 'image'], costTier: 'mid', available: true },
+    { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
+    { provider: 'kimi-coding', model: 'kimi-for-coding-highspeed', modalities: ['text', 'image'], costTier: 'mid', available: true },
   ]
-  const productionConfig: RouterConfigV2 = {
+  const productionConfig: RouterConfigV3 = {
     version: 2,
     mode: 'capability',
-    default: { provider: 'kimi-tide', model: 'k3' },
+    default: { provider: 'kimi-coding', model: 'k3' },
     candidates: productionMetas.map(({ provider, model }) => ({ provider, model })),
-    scores: { 'kimi-tide/k3': { code: 4.7, reasoning: 4.5, writing: 2.5, tooluse: 2.5, vision: 5, longctx: 2.5 } },
+    scores: { 'kimi-coding/k3': { code: 4.7, reasoning: 4.5, writing: 2.5, tooluse: 2.5, vision: 5, longctx: 2.5 } },
     classify: {},
-    allowedProviders: ['kimi-tide', 'deepseek-official'],
+    allowedProviders: ['kimi-coding', 'deepseek-official'],
     costTiers: {},
     routeThreshold: 0.75,
     lambda: 0.5,
@@ -274,7 +274,7 @@ describe('image guard under the production v2 sidecar shape (default = kimi-tide
     // 2026-08-19 实机回归：图 → 会话基础模型 deepseek-v4-pro 被护栏放过 → 适配器 UNSUPPORTED_CONTENT。
     const guard = productionRouter().guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }, true)
     expect(guard).not.toBeNull()
-    if (guard !== null) expect(guard.target.provider).toBe('kimi-tide')
+    if (guard !== null) expect(guard.target.provider).toBe('kimi-coding')
   })
 
   it('applyImageGuard reroutes a text-only candidate target that is not the v1 primary', () => {

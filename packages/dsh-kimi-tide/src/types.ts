@@ -19,7 +19,7 @@ export interface CandidateSummary {
   provider: string
   model: string
   available: boolean
-  /** 用户覆盖分（RouterConfigV2.scores['provider/model']），无覆盖时缺省——
+  /** 用户覆盖分（RouterConfigV3.scores['provider/model']），无覆盖时缺省——
    *  ScoreEditor 用它做滑杆初值，避免已保存覆盖分显示成基线值。 */
   scores?: Partial<Record<Dim, number>>
 }

@@ -19,9 +19,9 @@ import type { CandidateSummary, KimiTidePanelProjection } from '../src/types.js'
 const noop = () => {}
 
 const CANDIDATES: CandidateSummary[] = [
-  { provider: 'kimi-tide', model: 'kimi-for-coding', available: true },
+  { provider: 'kimi-coding', model: 'kimi-for-coding', available: true },
   { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true, scores: { code: 4.5, vision: 3 } },
-  { provider: 'kimi-tide', model: 'k3', available: false },
+  { provider: 'kimi-coding', model: 'k3', available: false },
 ]
 
 const MODEL_OPTIONS = ['kimi-for-coding', 'deepseek-v4-flash', 'k3', 'deepseek-v4-pro']
@@ -33,7 +33,7 @@ function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePa
     router: {
       mode: 'capability',
       primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       premiumBudget: 0.2,
       budgetWindow: 20,
       charsPerToken: 2,
@@ -42,7 +42,7 @@ function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePa
     models: { kimi: ['kimi-for-coding', 'k3'], deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
     configSource: 'sidecar',
     candidates: CANDIDATES,
-    decision: { chosen: { provider: 'kimi-tide', model: 'kimi-for-coding' }, reason: '代码任务命中 Kimi 编码优势', scoreDelta: 1.5 },
+    decision: { chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '代码任务命中 Kimi 编码优势', scoreDelta: 1.5 },
     ...overrides,
   }
 }
@@ -68,7 +68,7 @@ describe('CandidateList', () => {
   it('marks the default candidate with a checked radio', () => {
     const html = renderToString(createElement(CandidateList, {
       candidates: CANDIDATES,
-      defaultTarget: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      defaultTarget: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       modelOptions: MODEL_OPTIONS,
       busy: false,
       onCommand: noop,
@@ -107,7 +107,7 @@ describe('CandidateList', () => {
 describe('ScoreEditor', () => {
   it('renders all six capability dimensions with 0–5 step-0.5 sliders', () => {
     const html = renderToString(createElement(ScoreEditor, {
-      target: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       busy: false,
       onCommand: noop,
     }))
@@ -121,7 +121,7 @@ describe('ScoreEditor', () => {
 
   it('shows baseline vs override scores and a one-shot save action', () => {
     const html = renderToString(createElement(ScoreEditor, {
-      target: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       busy: false,
       onCommand: noop,
     }))
@@ -136,7 +136,7 @@ describe('ReasonPanel', () => {
   it('shows configSource, decision reason/scoreDelta, and the actual-route chip', () => {
     const html = renderToString(createElement(ReasonPanel, {
       configSource: 'sidecar',
-      decision: { chosen: { provider: 'kimi-tide', model: 'kimi-for-coding' }, reason: '代码任务命中 Kimi 编码优势', scoreDelta: 1.5 },
+      decision: { chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '代码任务命中 Kimi 编码优势', scoreDelta: 1.5 },
       mode: 'capability',
     }))
     // Fails if: configSource / decision / actual-route observability is dropped.
@@ -226,20 +226,20 @@ describe('TideDock v3', () => {
 
 describe('panel v3 save channel (inline YAML via import-config)', () => {
   it('ScoreEditor 生成的 sidecar 文本被命令层识别为内联 YAML 且可解析', () => {
-    const text = scoresToSidecar({ provider: 'kimi-tide', model: 'kimi-for-coding' }, { code: 4.5, vision: 3 })
+    const text = scoresToSidecar({ provider: 'kimi-coding', model: 'kimi-for-coding' }, { code: 4.5, vision: 3 })
     expect(isInlineYamlText(text)).toBe(true)
     const parsed = YAML.parse(text) as { version: number; scores: Record<string, Record<string, number>> }
     expect(parsed.version).toBe(2)
-    expect(parsed.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
+    expect(parsed.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 4.5, vision: 3 })
   })
 
   it('CandidateList 生成的 sidecar 文本被命令层识别为内联 YAML 且可解析', () => {
     const text = candidatesToSidecar(
       [
-        { provider: 'kimi-tide', model: 'k3' },
+        { provider: 'kimi-coding', model: 'k3' },
         { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       ],
-      { provider: 'kimi-tide', model: 'k3' },
+      { provider: 'kimi-coding', model: 'k3' },
     )
     expect(isInlineYamlText(text)).toBe(true)
     const parsed = YAML.parse(text) as {
@@ -251,7 +251,7 @@ describe('panel v3 save channel (inline YAML via import-config)', () => {
   })
 
   it('面板发送的完整命令串经 parse 后保留完整内联 YAML（多行/缩进不丢失）', () => {
-    const text = scoresToSidecar({ provider: 'kimi-tide', model: 'kimi-for-coding' }, { code: 4.5 })
+    const text = scoresToSidecar({ provider: 'kimi-coding', model: 'kimi-for-coding' }, { code: 4.5 })
     const cmd = parseKimiTideCommand(`import-config ${text}`)
     expect(cmd.kind).toBe('import-config')
     if (cmd.kind !== 'import-config') return

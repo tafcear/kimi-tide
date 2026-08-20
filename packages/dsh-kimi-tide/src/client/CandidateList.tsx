@@ -1,7 +1,7 @@
 /**
  * CandidateList — 面板 v3 候选管理组件（Task 10 / Step 1）。
  *
- * 渲染 RouterConfigV2 的候选池：每行一对 provider/model 下拉（选项来自
+ * 渲染 RouterConfigV3 的候选池：每行一对 provider/model 下拉（选项来自
  * projection.models 全量）、「默认」单选、不可用候选标灰，以及增/删行。
  *
  * 命令面（Task 9）的 SETTABLE_KEYS 没有 candidates 键，因此增删改走简报
@@ -25,7 +25,7 @@ export interface CandidateListProps {
   onCommand: (sidecarText: string) => void
 }
 
-const PROVIDER_OPTIONS = ['kimi-tide', 'deepseek-official']
+const PROVIDER_OPTIONS = ['kimi-coding', 'deepseek-official']
 
 function sameTarget(a: RouteTarget, b: RouteTarget): boolean {
   return a.provider === b.provider && a.model === b.model

@@ -22,7 +22,7 @@ import { installRouter, KimiRouter, type RouterConfig } from '../src/router.js'
 const CONFIG: RouterConfig = {
   mode: 'cost',
   primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-tide', model: 'k3' },
+  premium: { provider: 'kimi-coding', model: 'k3' },
   escalateWhen: { patterns: ['审查'] },
   premiumBudget: 0.2,
 }
@@ -99,7 +99,7 @@ describe('installRouter step contract (regression: step===0 gate idled the route
     await dispatch.preStep({ agent, messages: [textMessage('@kimi 请审查这段代码')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
 
-    expect(config).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+    expect(config).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
   })
 
   it('escalates on pattern match at the first step of the turn', async () => {
@@ -109,7 +109,7 @@ describe('installRouter step contract (regression: step===0 gate idled the route
     await dispatch.preStep({ agent, messages: [textMessage('请审查一下这个实现')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
 
-    expect(config).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+    expect(config).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
   })
 
   it('does not re-decide inside the tool loop (step > 1 leaves the logged config alone)', async () => {
@@ -142,7 +142,7 @@ describe('installRouter image guard (direction: text-only primary → multimodal
     await dispatch.preStep({ agent, messages: [imageMessage], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
 
-    expect(config).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+    expect(config).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
   })
 
   it('leaves an image-bearing step already routed to multimodal Kimi untouched', async () => {
@@ -156,13 +156,13 @@ describe('installRouter image guard (direction: text-only primary → multimodal
     await dispatch.preStep({ agent, messages: [imageMessage], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
 
-    expect(config).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+    expect(config).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
   })
 })
 
 describe('installRouter session image latch (regression: text turn after an image turn must stay multimodal)', () => {
   // 2026-08-19 real-session regression: turn 3 committed an image message
-  // (routed to kimi-tide/k3 by the step-scoped guard); turn 4 carried only
+  // (routed to kimi-coding/k3 by the step-scoped guard); turn 4 carried only
   // text, so the per-step guard did not fire, the request went to
   // deepseek-v4-flash, and dsh-llm-deepseek's serializeMessages rejected the
   // FULL conversation (which still holds the image block) with
@@ -180,14 +180,14 @@ describe('installRouter session image latch (regression: text turn after an imag
     } as unknown as UserMessage
     await dispatch.preStep({ agent, messages: [imageMessage], turn: 1, step: 1, signal: signal() })
     const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
-    expect(first).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+    expect(first).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
 
     // Next turn: plain text only — the image is still in the session history,
     // so routing back to the text-only deepseek adapter would throw
     // UNSUPPORTED_CONTENT. The latch must keep this turn multimodal.
     await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
     const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
-    expect(second).toMatchObject({ provider: 'kimi-tide', model: 'k3' })
+    expect(second).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
   })
 
   it('latch is per-agent: a fresh agent with no image history routes normally', async () => {

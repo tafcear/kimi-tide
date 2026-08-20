@@ -28,12 +28,12 @@ function makeCtx(agents: FakeAgent[]) {
       registerAdapter: () => {},
       // Provider-agnostic catalog: the whitelist decides what becomes a candidate.
       listProviders: () => [
-        { id: 'kimi-tide', name: 'Kimi' },
+        { id: 'kimi-coding', name: 'Kimi' },
         { id: 'deepseek-official', name: 'DeepSeek' },
         { id: 'other-provider', name: 'Other' },
       ],
       listModels: async (provider: string) =>
-        provider === 'kimi-tide'
+        provider === 'kimi-coding'
           ? [{ id: 'kimi-for-coding' }]
           : provider === 'deepseek-official'
             ? [{ id: 'deepseek-v4-flash' }]
@@ -43,7 +43,7 @@ function makeCtx(agents: FakeAgent[]) {
         provider,
         id: model,
         name: model,
-        inputModalities: provider === 'kimi-tide' ? ['text', 'image'] : ['text'],
+        inputModalities: provider === 'kimi-coding' ? ['text', 'image'] : ['text'],
       }),
     },
     commands: { register: (def: never) => { commandDef = def as never; return () => {} } },
@@ -133,7 +133,7 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
     const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
     expect(snapshot.configSource).toBe('default')
     const candidates = snapshot.candidates as Array<{ provider: string; model: string; available: boolean }>
-    expect(candidates).toContainEqual(expect.objectContaining({ provider: 'kimi-tide', model: 'kimi-for-coding' }))
+    expect(candidates).toContainEqual(expect.objectContaining({ provider: 'kimi-coding', model: 'kimi-for-coding' }))
     expect(candidates).toContainEqual(expect.objectContaining({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }))
     // Whitelist (allowedProviders) excludes unlisted providers.
     expect(candidates.some((c) => c.provider === 'other-provider')).toBe(false)
@@ -194,7 +194,7 @@ describe('defaultSidecarFile', () => {
 describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
   const route = {
     kind: 'route' as const,
-    target: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+    target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
     reason: 'capability:code+reasoning',
     scoreDelta: 2,
   }
@@ -202,7 +202,7 @@ describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
   it('summarizes a capability route decision and passes the scoreDelta through', () => {
     const summary = buildDecisionSummary(route, 'capability')
     expect(summary).toEqual({
-      chosen: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       reason: 'capability:code+reasoning',
       scoreDelta: 2,
     })
@@ -236,7 +236,7 @@ describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
     router: {
       mode: 'capability',
       primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+      premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
     },
   }
 
@@ -274,7 +274,7 @@ describe('apply() decision lifecycle (0.3.0 review fixes)', () => {
 
     const decision = lastSnapshot(agent).decision as { chosen: { provider: string; model: string }; reason: string; scoreDelta: number | null } | null
     expect(decision).not.toBeNull()
-    expect(decision!.chosen).toEqual({ provider: 'kimi-tide', model: 'kimi-for-coding' })
+    expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
     expect(typeof decision!.scoreDelta).toBe('number')
     expect(decision!.scoreDelta!).toBeGreaterThan(0)
   })

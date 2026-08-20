@@ -10,7 +10,7 @@
  * 类型定义在本文件，SettingsCard.tsx 从这里 import（而非本文件反向 import
  * 组件），避免类型环。
  */
-import type { RouterConfigV2 } from '../config.js'
+import type { RouterConfigV3 } from '../config.js'
 
 export const CARD_NAMESPACE = 'kimi-tide-router'
 
@@ -18,11 +18,11 @@ export const CARD_NAMESPACE = 'kimi-tide-router'
 export interface CardSnapshot {
   status: 'loading' | 'ready' | 'unavailable'
   /** 解析后的生效配置（schema 默认 → base → user 三层合并）。 */
-  config: RouterConfigV2 | null
+  config: RouterConfigV3 | null
   /** 组合 base 层（patch/entry 种子）；字段在此出现 = 继承自部署基座。 */
-  base: RouterConfigV2 | null
+  base: RouterConfigV3 | null
   /** 原始 user 层；字段在此出现 = 用户覆盖。 */
-  user: RouterConfigV2 | null
+  user: RouterConfigV3 | null
   writable: boolean
   /** 最近一次写失败的信息；成功读入/写回后清空。 */
   error: string | null
@@ -89,8 +89,8 @@ export interface CardStore {
   subscribe(listener: () => void): () => void
 }
 
-const asConfig = (value: unknown): RouterConfigV2 | null =>
-  typeof value === 'object' && value !== null ? (value as RouterConfigV2) : null
+const asConfig = (value: unknown): RouterConfigV3 | null =>
+  typeof value === 'object' && value !== null ? (value as RouterConfigV3) : null
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)

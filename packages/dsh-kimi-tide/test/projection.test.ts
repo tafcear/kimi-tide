@@ -7,7 +7,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 const router: RouterConfig = {
   mode: 'off',
   primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+  premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
 }
 
 function panel(quotaUsed: number): KimiTidePanelProjection {
@@ -47,7 +47,7 @@ describe('panelSchema (candidates scores, 0.3.0 final review)', () => {
   it('keeps per-candidate override scores when present', () => {
     const p = panel(1)
     p.candidates = [
-      { provider: 'kimi-tide', model: 'kimi-for-coding', available: true, scores: { code: 4.5, vision: 3 } },
+      { provider: 'kimi-coding', model: 'kimi-for-coding', available: true, scores: { code: 4.5, vision: 3 } },
       { provider: 'deepseek-official', model: 'deepseek-v4-flash', available: true },
     ]
     p.configSource = 'sidecar'

@@ -15,7 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import type { CandidateMeta, Dim, RouteTarget, RouterConfigV2 } from './config.js'
+import type { CandidateMeta, Dim, RouteTarget, RouterConfigV3 } from './config.js'
 import { classify, explicitProvider, type ClassifyResult } from './classify.js'
 import { scoreCandidate, selectCandidate } from './scoring.js'
 import { scoreFor } from './scores.js'
@@ -44,7 +44,7 @@ export type { RouteTarget }
  * v1 (0.2.x) router config shape. Retained as the on-disk/panel schema while
  * the v2 engine is being wired in: settings.ts, commands.ts, types.ts,
  * index.ts and the wiring tests still operate on this shape; the v2 engine
- * itself is configured with RouterConfigV2 (config.ts).
+ * itself is configured with RouterConfigV3 (config.ts).
  */
 export interface RouterConfigV1 {
   /** off 关闭（默认，向后兼容）；cost 性价比；capability 能力最优。 */
@@ -89,7 +89,7 @@ export interface MatchRule {
 
 /**
  * Back-compat alias (0.2.x name) for the v1 router config shape. New code
- * should use RouterConfigV1 (v1 panel/settings shape) or RouterConfigV2
+ * should use RouterConfigV1 (v1 panel/settings shape) or RouterConfigV3
  * (0.3.0 engine config, config.ts).
  */
 export type RouterConfig = RouterConfigV1
@@ -120,7 +120,7 @@ export function textOnlyProviders(
     // Modality-based and identity-independent: a provider is text-only when
     // NONE of its candidate metas can carry an image. Keying on the v1
     // primary identity inverts under the v2 sidecar shape, where the default
-    // can be kimi-tide/k3 while the session base model is a deepseek candidate
+    // can be kimi-coding/k3 while the session base model is a deepseek candidate
     // (2026-08-19 regression: image steps stayed on deepseek and the adapter
     // threw UNSUPPORTED_CONTENT because the guard thought deepseek multimodal).
     const imageCapable = new Set(metas.filter((m) => m.modalities.includes('image')).map((m) => m.provider))
@@ -253,25 +253,25 @@ export interface RouterLog {
  *
  * The 0.2.x construction shape `new KimiRouter(v1Config, log)` is still
  * accepted (production wiring / panel settings are v1-shaped until the v2
- * sidecar lands): the v1 config is bridged to RouterConfigV2 with candidate
+ * sidecar lands): the v1 config is bridged to RouterConfigV3 with candidate
  * metadata derived from the real capability matrix (pi-ai catalog,
  * 2026-08-18: deepseek-v4-* text-only/cheap, Kimi k3 family multimodal/mid).
  */
 export class KimiRouter {
   private readonly budgetHistory: string[] = []
 
-  readonly config: RouterConfigV2
+  readonly config: RouterConfigV3
   /** Candidate metadata (modalities/costTier/availability); drives scoring and the image guard. */
   readonly metas: CandidateMeta[]
   private readonly log: RouterLog
   /** Present only when constructed with the legacy v1 config shape. */
   private readonly v1Config?: RouterConfigV1
 
-  constructor(config: RouterConfigV2, metas: CandidateMeta[], log: RouterLog)
+  constructor(config: RouterConfigV3, metas: CandidateMeta[], log: RouterLog)
   constructor(config: RouterConfigV1, log: RouterLog)
-  constructor(config: RouterConfigV2 | RouterConfigV1, metasOrLog: CandidateMeta[] | RouterLog, log?: RouterLog) {
+  constructor(config: RouterConfigV3 | RouterConfigV1, metasOrLog: CandidateMeta[] | RouterLog, log?: RouterLog) {
     if (Array.isArray(metasOrLog)) {
-      this.config = config as RouterConfigV2
+      this.config = config as RouterConfigV3
       this.metas = metasOrLog
       this.log = log as RouterLog
     } else {
@@ -421,10 +421,10 @@ export class KimiRouter {
   }
 }
 
-/** Bridge a v1 (0.2.x) config to RouterConfigV2 (see KimiRouter overload). */
-function legacyConfigToV2(v1: RouterConfigV1): RouterConfigV2 {
+/** Bridge a v1 (0.2.x) config to RouterConfigV3 (see KimiRouter overload). */
+function legacyConfigToV2(v1: RouterConfigV1): RouterConfigV3 {
   return {
-    version: 2,
+    version: 3,
     mode: v1.mode,
     default: v1.primary,
     candidates: [v1.premium, v1.premiumLong].filter((t): t is NonNullable<typeof t> => t !== undefined),

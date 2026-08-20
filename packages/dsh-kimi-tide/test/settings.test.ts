@@ -25,8 +25,8 @@ const BASE_YML = `# user patch — keep my comments!
 const NEW_CONFIG: RouterConfig = {
   mode: 'cost',
   primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
-  premiumLong: { provider: 'kimi-tide', model: 'k3' },
+  premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+  premiumLong: { provider: 'kimi-coding', model: 'k3' },
   escalateWhen: { explicit: true, estimatedTokensGt: 60000, patterns: ['审查', 'review'] },
   premiumBudget: 0.2,
   budgetWindow: 20,

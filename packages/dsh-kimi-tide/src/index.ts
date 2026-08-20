@@ -31,7 +31,7 @@ import {
   type RouterConfig,
   type RouterLog,
 } from './router.js'
-import { configKey, DEFAULT_CONFIG_V2, type CandidateMeta, type RouterConfigV2 } from './config.js'
+import { configKey, DEFAULT_CONFIG_V3, type CandidateMeta, type RouterConfigV3 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore } from './settings.js'
@@ -42,7 +42,7 @@ export const name = 'dsh-kimi-tide'
 
 export const inject = ['llm', 'timer', 'commands', 'sessionProjections']
 
-/** User-settings namespace owning RouterConfigV2 (dsh-settings). */
+/** User-settings namespace owning RouterConfigV3 (dsh-settings). */
 export const SETTINGS_NAMESPACE = 'kimi-tide-router'
 
 export interface Config {
@@ -69,8 +69,8 @@ export interface Config {
 export const DEFAULT_ROUTER_CONFIG: RouterConfig = {
   mode: 'off',
   primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-  premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
-  premiumLong: { provider: 'kimi-tide', model: 'k3' },
+  premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+  premiumLong: { provider: 'kimi-coding', model: 'k3' },
 }
 
 export function defaultPatchFile(): string {
@@ -85,10 +85,10 @@ export function defaultSidecarFile(): string {
 /**
  * Bridge a v1 (0.2.x) router config onto the v2 scoring engine. Kept for
  * tests and external callers that still hold the v1 shape; the production
- * wiring loads RouterConfigV2 through the sidecar chain.
+ * wiring loads RouterConfigV3 through the sidecar chain.
  */
-export function routerConfigToV2(config: RouterConfig): RouterConfigV2 {
-  const v2 = DEFAULT_CONFIG_V2('kimi-tide')
+export function routerConfigToV3(config: RouterConfig): RouterConfigV3 {
+  const v2 = DEFAULT_CONFIG_V3()
   return {
     ...v2,
     mode: config.mode,
@@ -120,7 +120,7 @@ export function candidateMetasFromConfig(config: RouterConfig): CandidateMeta[] 
 }
 
 export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
-  return new KimiRouter(routerConfigToV2(config), candidateMetasFromConfig(config), log)
+  return new KimiRouter(routerConfigToV3(config), candidateMetasFromConfig(config), log)
 }
 
 /**
@@ -132,7 +132,7 @@ export function buildRouter(config: RouterConfig, log: RouterLog): KimiRouter {
  */
 export function buildDecisionSummary(
   decision: RouteDecision,
-  mode: RouterConfigV2['mode'],
+  mode: RouterConfigV3['mode'],
 ): DecisionSummary | null {
   if (mode !== 'capability' || decision.kind !== 'route') return null
   return {
@@ -161,7 +161,7 @@ interface LlmCatalog {
  */
 async function enumerateCandidates(
   llm: LlmCatalog,
-  config: RouterConfigV2,
+  config: RouterConfigV3,
   onError: (message: string) => void,
 ): Promise<CandidateMeta[]> {
   const out: CandidateMeta[] = []
@@ -241,7 +241,7 @@ function sameJson(a: unknown, b: unknown): boolean {
 }
 
 /** Pool used before the first enumeration settles (router mounts immediately). */
-function fallbackCandidateMetas(config: RouterConfigV2): CandidateMeta[] {
+function fallbackCandidateMetas(config: RouterConfigV3): CandidateMeta[] {
   const targets = [config.default, ...config.candidates]
   const seen = new Set<string>()
   const out: CandidateMeta[] = []
@@ -292,7 +292,7 @@ function registerPanelEventType(): boolean {
 }
 
 export function apply(ctx: Context, config: Config = {}) {
-  const providerName = config.providerName ?? 'kimi-tide';
+  const providerName = config.providerName ?? 'kimi-coding';
   const refreshIntervalMs = config.refreshIntervalMs ?? 10 * 60 * 1000;
   const log: RouterLog = {
     info: (message: string) => { ctx.logger.info(message); },
@@ -331,7 +331,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // stays the live store for hosts WITHOUT a settings service and the one-shot
   // migration source for hosts that gained one. The patch file keeps only the
   // legacy static seed. Priority without settings: sidecar > patch static >
-  // DEFAULT_CONFIG_V2(providerName).
+  // DEFAULT_CONFIG_V3().
   const store = new RouterSettingsStore({
     patchFile: config.patchFile ?? defaultPatchFile(),
     onError: warn,
@@ -351,7 +351,7 @@ export function apply(ctx: Context, config: Config = {}) {
     onError: warn,
   })
   const loaded = sidecar.load()
-  let routerConfigV2: RouterConfigV2 = loaded.config ?? DEFAULT_CONFIG_V2(providerName)
+  let RouterConfigV3: RouterConfigV3 = loaded.config ?? DEFAULT_CONFIG_V3()
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
   // The settings namespace's `base` layer must be v2-shaped: the composition
@@ -362,16 +362,16 @@ export function apply(ctx: Context, config: Config = {}) {
   // that chain already ran it (source 'patch'), reuse its output rather than
   // migrating — and warning — twice.
   // A NULL seed must still be provider-parameterized, not `{}`: settings-schema
-  // resolves a bare base to D = DEFAULT_CONFIG_V2('kimi-tide') (fixed), so a
+  // resolves a bare base to D = DEFAULT_CONFIG_V3() (fixed), so a
   // custom providerName with no composition seed would (a) resolve candidates/
-  // allowedProviders to the fixed 'kimi-tide' and mis-route, and (b) keep the
+  // allowedProviders to the fixed 'kimi-coding' and mis-route, and (b) keep the
   // migration dirty check (scope.get() vs mergeResolved(entry, providerName))
   // permanently dirty, silently skipping the sidecar import forever. Building
-  // the full DEFAULT_CONFIG_V2(providerName) here aligns with mergeResolved's
-  // T2 clean predicate and the routerConfigV2 fallback at L354.
-  const settingsBase: Partial<RouterConfigV2> =
+  // the full DEFAULT_CONFIG_V3() here aligns with mergeResolved's
+  // T2 clean predicate and the RouterConfigV3 fallback at L354.
+  const settingsBase: Partial<RouterConfigV3> =
     seedRaw === null || seedRaw === undefined
-      ? DEFAULT_CONFIG_V2(providerName)
+      ? DEFAULT_CONFIG_V3()
       : loaded.source === 'patch' && loaded.config !== null
         ? loaded.config
         : migrateV1(seedRaw, warn)
@@ -379,11 +379,11 @@ export function apply(ctx: Context, config: Config = {}) {
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
-  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfigV2)
+  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(RouterConfigV3)
   let enumerationSeq = 0
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
-    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfigV2, warn)
+    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, RouterConfigV3, warn)
       .then((metas) => {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
@@ -397,8 +397,8 @@ export function apply(ctx: Context, config: Config = {}) {
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
-    if (routerConfigV2.mode !== 'off') {
-      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV2, candidateMetas, log), onDecision)
+    if (RouterConfigV3.mode !== 'off') {
+      disposeRouter = installRouter(ctx, new KimiRouter(RouterConfigV3, candidateMetas, log), onDecision)
     }
   }
 
@@ -407,7 +407,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // clears the summary so a stale decision never leaks into later snapshots.
   let latestDecision: DecisionSummary | null = null
   const onDecision = (_agent: Agent, decision: RouteDecision) => {
-    latestDecision = buildDecisionSummary(decision, routerConfigV2.mode)
+    latestDecision = buildDecisionSummary(decision, RouterConfigV3.mode)
     pushPanelToAllSessions()
   }
 
@@ -434,11 +434,11 @@ export function apply(ctx: Context, config: Config = {}) {
    * config must not re-mount the router or re-enumerate candidates. A source
    * flip alone (sidecar → settings at attach) still re-pushes the panel.
    */
-  const applyConfig = (next: RouterConfigV2) => {
+  const applyConfig = (next: RouterConfigV3) => {
     const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
-    const changed = !sameJson(routerConfigV2, next)
+    const changed = !sameJson(RouterConfigV3, next)
     if (!changed && configSource === source) return
-    routerConfigV2 = next
+    RouterConfigV3 = next
     configSource = source
     if (changed) {
       latestDecision = null
@@ -451,7 +451,7 @@ export function apply(ctx: Context, config: Config = {}) {
   registerKimiTideCommands(ctx, {
     sidecar,
     monitor,
-    current: () => routerConfigV2,
+    current: () => RouterConfigV3,
     // A getter, not a snapshot: the settings service attaches asynchronously
     // (ctx.inject) and can detach, so the command layer must read the CURRENT
     // port — a value captured here would pin `null` and degrade every save to
@@ -469,14 +469,14 @@ export function apply(ctx: Context, config: Config = {}) {
   const panelSnapshot = (): KimiTidePanelProjection => ({
     quota: monitor.snapshot().quota,
     local: monitor.snapshot().local,
-    router: v2ToV1View(routerConfigV2),
+    router: v2ToV1View(RouterConfigV3),
     reasoning: { enabled: true },
     models: modelOptions,
     configSource,
     candidates: candidateMetas.map((m) => {
       const summary: CandidateSummary = { provider: m.provider, model: m.model, available: m.available }
       // 用户覆盖分下发给面板（ScoreEditor 滑杆初值）；无覆盖时缺省。
-      const override = routerConfigV2.scores[configKey(m)]
+      const override = RouterConfigV3.scores[configKey(m)]
       if (override !== undefined) summary.scores = override
       return summary
     }),
@@ -534,16 +534,16 @@ export function apply(ctx: Context, config: Config = {}) {
   // panel roster exists, because attaching immediately applies the resolved
   // config and pushes a snapshot.
   ctx.inject(['settings'], (sctx) => {
-    let scope: SettingsScope<RouterConfigV2>
+    let scope: SettingsScope<RouterConfigV3>
     try {
       scope = sctx.settings.register(SETTINGS_NAMESPACE as never, routerConfigSchema as never, {
         base: settingsBase,
         // dsh-settings' validate throws to refuse a write; T1's returns a message.
-        validate: (value: RouterConfigV2) => {
+        validate: (value: RouterConfigV3) => {
           const message = validateRouterConfig(value)
           if (message !== undefined) throw new Error(message)
         },
-      }) as unknown as SettingsScope<RouterConfigV2>
+      }) as unknown as SettingsScope<RouterConfigV3>
     } catch (error) {
       // A stored section that already fails schema/validate rejects the
       // registration itself. Degrade loudly to the sidecar instead of leaving
@@ -603,7 +603,7 @@ export function apply(ctx: Context, config: Config = {}) {
  * The panel form still speaks the v1 shape (primary/premium); project the v2
  * config back for display until the panel v3 task (Task 10) lands.
  */
-function v2ToV1View(config: RouterConfigV2): RouterConfig {
+function v2ToV1View(config: RouterConfigV3): RouterConfig {
   const premium = config.candidates.find(
     (c) => c.provider !== config.default.provider || c.model !== config.default.model,
   ) ?? config.default

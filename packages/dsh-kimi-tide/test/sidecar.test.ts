@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { RouterSidecarStore } from '../src/sidecar.js'
-import { DEFAULT_CONFIG_V2 } from '../src/config.js'
+import { DEFAULT_CONFIG_V3 } from '../src/config.js'
 
 describe('RouterSidecarStore', () => {
   const dir = mkdtempSync(join(tmpdir(), 'kt-sidecar-'))
@@ -11,7 +11,7 @@ describe('RouterSidecarStore', () => {
 
   it('save→load round-trips and reports source sidecar', () => {
     const store = new RouterSidecarStore({ file, onError: () => {} })
-    const cfg = { ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' as const }
+    const cfg = { ...DEFAULT_CONFIG_V3(), mode: 'capability' as const }
     store.save(cfg)
     const out = store.load()
     expect(out.source).toBe('sidecar')

@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { configKey, DEFAULT_CONFIG_V2 } from '../src/config.js'
+import { configKey, DEFAULT_CONFIG_V3 } from '../src/config.js'
 
-describe('RouterConfigV2 defaults', () => {
-  it('dynamic whitelist contains the actual providerName plus deepseek-official', () => {
-    const cfg = DEFAULT_CONFIG_V2('moonshot-code')
-    expect(cfg.allowedProviders).toEqual(['moonshot-code', 'deepseek-official'])
-    expect(cfg.version).toBe(2)
+describe('RouterConfigV3 defaults', () => {
+  it('whitelist contains kimi-coding plus deepseek-official', () => {
+    const cfg = DEFAULT_CONFIG_V3()
+    expect(cfg.allowedProviders).toEqual(['kimi-coding', 'deepseek-official'])
+    expect(cfg.version).toBe(3)
     expect(cfg.mode).toBe('off')
   })
   it('configKey joins provider and model', () => {
-    expect(configKey({ provider: 'kimi-tide', model: 'k3' })).toBe('kimi-tide/k3')
+    expect(configKey({ provider: 'kimi-coding', model: 'k3' })).toBe('kimi-coding/k3')
   })
 })

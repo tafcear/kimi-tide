@@ -1,11 +1,11 @@
 // src/settings-migration.ts
 import { existsSync, renameSync } from 'node:fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-settings'
-import type { RouterConfigV2 } from './config.js'
+import type { RouterConfigV3 } from './config.js'
 import { mergeResolved } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 
-export interface MigrationScope { get(): RouterConfigV2; replace(section: object): Promise<void> }
+export interface MigrationScope { get(): RouterConfigV3; replace(section: object): Promise<void> }
 export type MigrationOutcome = 'imported' | 'skipped-clean' | 'skipped-dirty' | 'no-sidecar'
 
 export interface MigrationDeps {
@@ -23,7 +23,7 @@ export async function migrateSidecarIntoScope(d: MigrationDeps): Promise<Migrati
   const store = new RouterSidecarStore({ file: d.sidecarFile, onError: d.onError })
   const loaded = store.load()
   if (loaded.config === null) return 'no-sidecar'   // 损坏已被 load 改名 .corrupt
-  const clean = deepEqualJson(d.scope.get(), mergeResolved(d.entry, d.providerName))
+  const clean = deepEqualJson(d.scope.get(), mergeResolved(d.entry))
   if (!clean) {
     d.onError('dsh-kimi-tide: 设置命名空间已有用户编辑，跳过 sidecar 迁移（保留 sidecar 未改名）；如需导入请先 /kimi-tide import-config')
     return 'skipped-dirty'

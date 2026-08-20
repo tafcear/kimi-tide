@@ -10,13 +10,13 @@
  * 一次性落盘生效。baseline 取自 scores.ts 的内置基线表（与 host 同源）。
  */
 import { useEffect, useState } from 'react'
-import { DIMS, configKey, type Dim, type RouteTarget, type RouterConfigV2 } from '../config.js'
+import { DIMS, configKey, type Dim, type RouteTarget, type RouterConfigV3 } from '../config.js'
 import { scoreFor } from '../scores.js'
 
 export interface ScoreEditorProps {
   /** 当前选中要编辑评分的候选。 */
   target: RouteTarget
-  /** 已有的用户覆盖分（RouterConfigV2.scores[configKey]，可空）。 */
+  /** 已有的用户覆盖分（RouterConfigV3.scores[configKey]，可空）。 */
   overrideScores?: Partial<Record<Dim, number>>
   busy: boolean
   /** 一次性保存：携带一段 sidecar YAML 文本，由宿主经 import-config 落盘。 */
@@ -36,7 +36,7 @@ const SNAP = (v: number): number => Math.min(5, Math.max(0, Math.round(v * 2) / 
 
 /** 用默认 host 名构造一个最小 v2，只为复用 scoreFor 的基线合并逻辑。 */
 function baselineFor(target: RouteTarget): Record<Dim, number> {
-  const stub: RouterConfigV2 = {
+  const stub: RouterConfigV3 = {
     version: 2, mode: 'off', default: target, candidates: [target],
     scores: {}, classify: {}, allowedProviders: [], costTiers: {},
     routeThreshold: 0.75, lambda: 0.5, premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2,

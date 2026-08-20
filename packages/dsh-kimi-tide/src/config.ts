@@ -6,8 +6,10 @@ export interface CandidateMeta extends RouteTarget {
   costTier: 'cheap' | 'mid' | 'expensive'
   available: boolean
 }
-export interface RouterConfigV2 {
-  version: 2
+/** 0.4.x：插件固定的 Kimi provider 路由（pi-ai catalog 原生名）。 */
+export const KIMI_PROVIDER = 'kimi-coding'
+export interface RouterConfigV3 {
+  version: 3
   mode: 'off' | 'cost' | 'capability'
   default: RouteTarget
   candidates: RouteTarget[]
@@ -22,12 +24,12 @@ export interface RouterConfigV2 {
   charsPerToken: number
 }
 export const configKey = (t: RouteTarget): string => `${t.provider}/${t.model}`
-export function DEFAULT_CONFIG_V2(providerName: string): RouterConfigV2 {
+export function DEFAULT_CONFIG_V3(): RouterConfigV3 {
   return {
-    version: 2, mode: 'off',
+    version: 3, mode: 'off',
     default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-    candidates: [{ provider: providerName, model: 'kimi-for-coding' }],
-    scores: {}, classify: {}, allowedProviders: [providerName, 'deepseek-official'],
+    candidates: [{ provider: KIMI_PROVIDER, model: 'kimi-for-coding' }],
+    scores: {}, classify: {}, allowedProviders: [KIMI_PROVIDER, 'deepseek-official'],
     costTiers: {}, routeThreshold: 0.75, lambda: 0.5,
     premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2,
   }

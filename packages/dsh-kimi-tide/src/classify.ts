@@ -1,5 +1,5 @@
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import type { Dim } from './config.js'
+import { KIMI_PROVIDER, type Dim } from './config.js'
 
 const DEFAULT_PATTERNS: Record<string, string[]> = {
   code: ['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试'],
@@ -15,7 +15,7 @@ export interface ClassifyResult {
 }
 export function explicitProvider(text: string): string | null {
   const m = /@([\w-]{2,20})\b/.exec(text)
-  if (m === null || m[1] === 'kimi') return m?.[1] === 'kimi' ? 'kimi-tide' : null
+  if (m === null || m[1] === 'kimi') return m?.[1] === 'kimi' ? KIMI_PROVIDER : null
   return m[1]
 }
 export function classify(messages: readonly UserMessage[], opts: { charsPerToken: number; patterns?: Record<string, string[]> }): ClassifyResult {

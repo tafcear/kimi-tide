@@ -6,7 +6,7 @@ import { toPiContext } from '../src/context.js'
 /**
  * Image conversion contract (2026-08-18, user-reported production failure:
  * "dsh-kimi-tide v1 supports text only"). The router fix (71b1d18) correctly
- * routes image-bearing steps to kimi-tide/k3, but the adapter still held the
+ * routes image-bearing steps to kimi-coding/k3, but the adapter still held the
  * v1 "Kimi is text-only" assumption. Aligns with the official dsh-llm-pi-ai
  * conversion: image blocks resolve through the durable attachment service
  * (readImage → base64 bytes + mediaType); without an attachment service the
@@ -30,7 +30,7 @@ function userMessage(content: readonly unknown[]): GenerateOptions['messages'][n
 }
 
 function optionsWith(messages: GenerateOptions['messages']): GenerateOptions {
-  return { provider: 'kimi-tide', model: 'k3', messages } as unknown as GenerateOptions
+  return { provider: 'kimi-coding', model: 'k3', messages } as unknown as GenerateOptions
 }
 
 function fakeAttachments(stored: StoredImageAttachment | Error) {

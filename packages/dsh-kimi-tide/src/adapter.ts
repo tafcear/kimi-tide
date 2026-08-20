@@ -20,7 +20,7 @@ import { KimiOAuthManager } from './oauth.js'
 import { toStreamChunks } from './stream.js'
 
 export interface KimiAdapterOptions {
-  /** Route name this adapter owns (default 'kimi-tide'). */
+  /** Route name this adapter owns (default 'kimi-coding'). */
   providerName: string
   /** Optional tap for usage chunks (feeds UsageMonitor local stats). */
   onUsage?: (usage: TokenUsage) => void

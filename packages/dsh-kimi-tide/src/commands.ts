@@ -5,7 +5,7 @@
  *
  * Subcommands (0.3.0, v2):
  *   /kimi-tide mode off|cost|capability
- *   /kimi-tide set <key> <value>     (keys into RouterConfigV2 — SETTABLE_KEYS)
+ *   /kimi-tide set <key> <value>     (keys into RouterConfigV3 — SETTABLE_KEYS)
  *   /kimi-tide export-config         (print the sidecar YAML text)
  *   /kimi-tide import-config <path|inline YAML>  (load a file OR inline YAML text)
  *   /kimi-tide refresh               (re-poll the usages endpoint now)
@@ -19,7 +19,7 @@
  *     替换会丢 lambda/routeThreshold/既有 scores 等未投影字段。
  *   - 其余（不存在路径/不可解析） → 报错，路径形态行为不变
  *
- * Persistence contract: every mutating subcommand writes RouterConfigV2
+ * Persistence contract: every mutating subcommand writes RouterConfigV3
  * through the settings namespace (KimiTideCommandDeps.settings) when one is
  * wired — never the v1 patch file; when settings is absent the sidecar
  * (RouterSidecarStore) remains the fallback store. The sidecar is the
@@ -31,13 +31,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
-import type { RouterConfigV2 } from './config.js'
+import type { RouterConfigV3 } from './config.js'
 import { migrateV1 } from './migrate.js'
 import type { RouterSidecarStore } from './sidecar.js'
 import type { UsageMonitor } from './usage.js'
 
 export type KimiTideCommand =
-  | { kind: 'mode'; mode: RouterConfigV2['mode'] }
+  | { kind: 'mode'; mode: RouterConfigV3['mode'] }
   | { kind: 'set'; key: string; value: unknown }
   | { kind: 'export-config' }
   | { kind: 'import-config'; path: string }
@@ -47,7 +47,7 @@ export type KimiTideCommand =
 
 /** Settings namespace port: primary read/write channel for the router config. */
 export interface SettingsNamespacePort {
-  get(): RouterConfigV2
+  get(): RouterConfigV3
   update(patch: object): Promise<void>
   replace(section: object): Promise<void>
 }
@@ -58,12 +58,12 @@ export interface KimiTideCommandDeps {
   /** Primary settings namespace; absent/null → fall back to sidecar read/write. */
   settings?: SettingsNamespacePort | null
   monitor: UsageMonitor
-  current: () => RouterConfigV2
+  current: () => RouterConfigV3
   /** Called after a successful save: rebuild the router + push projection. */
-  onSaved: (config: RouterConfigV2) => void
+  onSaved: (config: RouterConfigV3) => void
 }
 
-/** Keys settable via `/kimi-tide set` — paths into RouterConfigV2. */
+/** Keys settable via `/kimi-tide set` — paths into RouterConfigV3. */
 const SETTABLE_KEYS: Record<string, 'number' | 'string'> = {
   lambda: 'number',
   routeThreshold: 'number',
@@ -153,7 +153,7 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
     }
     case 'import-config': {
       const inline = isInlineYamlText(cmd.path)
-      let next: RouterConfigV2
+      let next: RouterConfigV3
       try {
         if (deps.settings != null) {
           next = inline ? mergeInlineText(cmd.path, deps.current()) : parseImportedFile(cmd.path)
@@ -173,7 +173,7 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
   }
 }
 
-async function persist(config: RouterConfigV2, deps: KimiTideCommandDeps, what: string): Promise<string> {
+async function persist(config: RouterConfigV3, deps: KimiTideCommandDeps, what: string): Promise<string> {
   if (deps.settings != null) {
     try { await deps.settings.update(config as unknown as object) } catch (error) {
       return `kimi-tide: save failed — ${(error as Error).message}`
@@ -233,13 +233,13 @@ function deepMerge(base: unknown, patch: unknown): unknown {
  * 注释——面板各区块文本只带各自字段，必须合并而非整表替换，否则未投影字段
  * （lambda/routeThreshold/既有 scores）会丢。
  */
-function mergeInlineText(text: string, current: RouterConfigV2): RouterConfigV2 {
+function mergeInlineText(text: string, current: RouterConfigV3): RouterConfigV3 {
   const patch = YAML.parse(text) as unknown
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
     throw new Error('inline YAML must be a mapping (object)')
   }
-  const merged = deepMerge(structuredClone(current), patch) as RouterConfigV2
-  merged.version = 2
+  const merged = deepMerge(structuredClone(current), patch) as RouterConfigV3
+  merged.version = 3
   return merged
 }
 
@@ -248,10 +248,10 @@ function mergeInlineText(text: string, current: RouterConfigV2): RouterConfigV2 
  * import-config 文件形态使用——镜像 RouterSidecarStore.validate 的 v2 结构
  * 检查 + v1 迁移，与 sidecar.importFile 保持相同解析语义但不写入 sidecar。
  */
-function parseImportedFile(path: string): RouterConfigV2 {
+function parseImportedFile(path: string): RouterConfigV3 {
   const raw = YAML.parse(readFileSync(path, 'utf8')) as unknown
   const r = (raw ?? {}) as Record<string, unknown>
-  if (r.version === 2) {
+  if (r.version === 2 || r.version === 3) {
     const d = (r.default ?? {}) as Record<string, unknown>
     if (typeof d.provider !== 'string' || typeof d.model !== 'string') {
       throw new Error('config v2 结构不合格：default.provider/default.model 缺失或非字符串')
@@ -259,7 +259,7 @@ function parseImportedFile(path: string): RouterConfigV2 {
     if (!Array.isArray(r.candidates)) {
       throw new Error('config v2 结构不合格：candidates 缺失或非数组')
     }
-    return raw as RouterConfigV2
+    return raw as RouterConfigV3
   }
   return migrateV1(raw, () => {})
 }
@@ -271,7 +271,7 @@ function parseImportedFile(path: string): RouterConfigV2 {
 export function registerKimiTideCommands(ctx: Context, deps: KimiTideCommandDeps): void {
   ctx.effect(() => {
     return ctx.commands.register({
-      name: 'kimi-tide',
+      name: 'kimi-coding',
       description: '月汐 panel: route mode / settings / config export-import / quota refresh',
       input: { hint: 'mode off|cost|capability · set <key> <value> · export-config · import-config <path|inline YAML> · refresh' },
       handler: async (invocation: CommandInvocation): Promise<CommandResult> => {

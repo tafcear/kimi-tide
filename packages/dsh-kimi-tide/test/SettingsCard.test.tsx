@@ -13,7 +13,7 @@ import { createCardStore } from '../src/client/card-store.js'
 import type { ConnectionLike, SettingsScopeLike } from '../src/client/card-store.js'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import { apply } from '../src/client/index.js'
-import { DEFAULT_CONFIG_V2 } from '../src/config.js'
+import { DEFAULT_CONFIG_V3 } from '../src/config.js'
 
 const noop = () => {}
 
@@ -21,7 +21,7 @@ const noop = () => {}
 function makeScope(snapshotOverrides: Record<string, unknown> = {}) {
   let snapshot = {
     status: 'ready' as const,
-    value: DEFAULT_CONFIG_V2('kimi-tide'),
+    value: DEFAULT_CONFIG_V3(),
     base: undefined as unknown,
     user: undefined as unknown,
     writable: true,
@@ -67,15 +67,15 @@ describe('createCardStore write paths', () => {
   })
 
   it('saveScores writes through connection.api.settings.mutate with a multi-segment path', async () => {
-    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V2('kimi-tide') }])
+    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V3() }])
     const store = createCardStore(null, connection)
 
-    await store.saveScores('kimi-tide/k3', 'code', 4.7)
+    await store.saveScores('kimi-coding/k3', 'code', 4.7)
 
     // Fails if: the nested scores write stops being a multi-segment path op.
     expect(mutate).toHaveBeenCalledWith({
       ns: 'kimi-tide-router',
-      ops: [{ op: 'set', path: ['scores', 'kimi-tide/k3', 'code'], value: 4.7 }],
+      ops: [{ op: 'set', path: ['scores', 'kimi-coding/k3', 'code'], value: 4.7 }],
     })
   })
 
@@ -83,7 +83,7 @@ describe('createCardStore write paths', () => {
     const { scope } = makeScope()
     const store = createCardStore(scope, null)
 
-    await store.saveScores('kimi-tide/k3', 'code', 4.7)
+    await store.saveScores('kimi-coding/k3', 'code', 4.7)
 
     // Fails if: a nested scores write with no connection channel silently drops.
     expect(store.getSnapshot().error).toContain('connection 通道')
@@ -100,7 +100,7 @@ describe('createCardStore write paths', () => {
   })
 
   it('passes the describe revision as expectedRevision on connection mutate', async () => {
-    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V2('kimi-tide'), revision: 7 }])
+    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V3(), revision: 7 }])
     const store = createCardStore(null, connection)
 
     await store.load()
@@ -128,7 +128,7 @@ describe('createCardStore write paths', () => {
 
 describe('SettingsCard render', () => {
   it('renders the mode segmented control bound to the snapshot', () => {
-    const config = { ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' as const }
+    const config = { ...DEFAULT_CONFIG_V3(), mode: 'capability' as const }
     const { scope } = makeScope({ value: config })
 
     const html = renderToString(createElement(SettingsCard, { scope, connection: null, close: noop }))
@@ -143,10 +143,10 @@ describe('SettingsCard render', () => {
   })
 
   it('shows inherited vs overridden score values from the base/user layers', () => {
-    const overriddenScores = { 'kimi-tide/kimi-for-coding': { code: 4.5 } }
+    const overriddenScores = { 'kimi-coding/kimi-for-coding': { code: 4.5 } }
 
     // base 有值、user 无 → 继承。
-    const inherited = { ...DEFAULT_CONFIG_V2('kimi-tide'), scores: overriddenScores }
+    const inherited = { ...DEFAULT_CONFIG_V3(), scores: overriddenScores }
     const inheritedHtml = renderToString(createElement(SettingsCard, {
       scope: makeScope({ value: inherited, base: { scores: overriddenScores }, user: undefined }).scope,
       connection: null,
@@ -155,7 +155,7 @@ describe('SettingsCard render', () => {
     expect(inheritedHtml).toContain('继承')
 
     // user 有 → 覆盖。
-    const overridden = { ...DEFAULT_CONFIG_V2('kimi-tide'), scores: overriddenScores }
+    const overridden = { ...DEFAULT_CONFIG_V3(), scores: overriddenScores }
     const overriddenHtml = renderToString(createElement(SettingsCard, {
       scope: makeScope({ value: overridden, base: undefined, user: { scores: overriddenScores } }).scope,
       connection: null,
@@ -165,16 +165,16 @@ describe('SettingsCard render', () => {
   })
 
   it('greys out unavailable candidates from the panel projection', () => {
-    const config = { ...DEFAULT_CONFIG_V2('kimi-tide') }
+    const config = { ...DEFAULT_CONFIG_V3() }
     const { scope } = makeScope({ value: config })
-    // 投影说 kimi-tide/kimi-for-coding 不可用（configured target 不在 live catalog）。
+    // 投影说 kimi-coding/kimi-for-coding 不可用（configured target 不在 live catalog）。
     const useProjection = () => ({
       quota: null,
       local: { today: {}, session: {}, calls: 0 },
       router: { mode: 'off' },
       reasoning: { enabled: true },
       configSource: 'settings',
-      candidates: [{ provider: 'kimi-tide', model: 'kimi-for-coding', available: false }],
+      candidates: [{ provider: 'kimi-coding', model: 'kimi-for-coding', available: false }],
       decision: null,
     })
 

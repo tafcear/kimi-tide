@@ -22,9 +22,9 @@ import {
   type KimiTideCommandDeps,
 } from '../src/commands.js'
 import {
-  DEFAULT_CONFIG_V2,
+  DEFAULT_CONFIG_V3,
   type CandidateMeta,
-  type RouterConfigV2,
+  type RouterConfigV3,
 } from '../src/config.js'
 import { apply, buildRouter, defaultPatchFile, defaultSidecarFile } from '../src/index.js'
 import type { KimiRouter, RouterLog } from '../src/router.js'
@@ -40,8 +40,8 @@ const image = (t: string): UserMessage =>
 
 const silentLog: RouterLog = { info: () => {} }
 
-function capabilityConfig(): RouterConfigV2 {
-  return { ...DEFAULT_CONFIG_V2('kimi-tide'), mode: 'capability' }
+function capabilityConfig(): RouterConfigV3 {
+  return { ...DEFAULT_CONFIG_V3(), mode: 'capability' }
 }
 
 /** 与 index-apply.test.ts 相同的 fake ctx（llm 枚举面 stub，kimi-tide 多模态）。 */
@@ -53,16 +53,16 @@ function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }
       llm: {
         registerAdapter: () => {},
         listProviders: () => [
-          { id: 'kimi-tide', name: 'Kimi' },
+          { id: 'kimi-coding', name: 'Kimi' },
           { id: 'deepseek-official', name: 'DeepSeek' },
         ],
         listModels: async (provider: string) =>
-          provider === 'kimi-tide' ? [{ id: 'kimi-for-coding' }] : [{ id: 'deepseek-v4-flash' }],
+          provider === 'kimi-coding' ? [{ id: 'kimi-for-coding' }] : [{ id: 'deepseek-v4-flash' }],
         resolveModelInfo: async (provider: string, model: string) => ({
           provider,
           id: model,
           name: model,
-          inputModalities: provider === 'kimi-tide' ? ['text', 'image'] : ['text'],
+          inputModalities: provider === 'kimi-coding' ? ['text', 'image'] : ['text'],
         }),
       },
       commands: { register: () => () => {} },
@@ -114,14 +114,14 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
     const store = new RouterSidecarStore({ file: sidecarFile, onError: () => {} })
     const cfg = capabilityConfig()
     cfg.lambda = 0.7
-    cfg.scores = { 'kimi-tide/kimi-for-coding': { code: 5 } }
+    cfg.scores = { 'kimi-coding/kimi-for-coding': { code: 5 } }
     store.save(cfg)
 
     const out = store.load()
     expect(out.source).toBe('sidecar')
     expect(out.config!.mode).toBe('capability')
     expect(out.config!.lambda).toBe(0.7)
-    expect(out.config!.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 5 })
+    expect(out.config!.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 5 })
   })
 
   it('corrupt：.corrupt 副本保留、警告触发、回退 patch 静态块', () => {
@@ -133,7 +133,7 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
       patchFallback: () => ({
         mode: 'cost',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       }),
     })
 
@@ -147,7 +147,7 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
 
   it('import-config 文件形态：整表替换并落盘 sidecar', async () => {
     const store = new RouterSidecarStore({ file: sidecarFile, onError: () => {} })
-    const imported: RouterConfigV2 = {
+    const imported: RouterConfigV3 = {
       ...capabilityConfig(),
       lambda: 0.9,
       default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
@@ -161,7 +161,7 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
       default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
     }), 'utf8')
 
-    let current: RouterConfigV2 = capabilityConfig()
+    let current: RouterConfigV3 = capabilityConfig()
     const deps: KimiTideCommandDeps = {
       sidecar: store,
       monitor: { refresh: async () => {} } as never,
@@ -182,7 +182,7 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
     const base = capabilityConfig()
     base.routeThreshold = 0.8 // 未出现在补丁里的字段必须保留
     store.save(base)
-    let current: RouterConfigV2 = base
+    let current: RouterConfigV3 = base
     const deps: KimiTideCommandDeps = {
       sidecar: store,
       monitor: { refresh: async () => {} } as never,
@@ -193,7 +193,7 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
     const inlineYaml = [
       'mode: capability',
       'scores:',
-      '  kimi-tide/kimi-for-coding:',
+      '  kimi-coding/kimi-for-coding:',
       '    code: 5',
       '    reasoning: 5',
     ].join('\n')
@@ -204,9 +204,9 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
     expect(result).toContain('inline YAML')
     const loaded = store.load()
     expect(loaded.source).toBe('sidecar')
-    expect(loaded.config!.scores['kimi-tide/kimi-for-coding']).toEqual({ code: 5, reasoning: 5 })
+    expect(loaded.config!.scores['kimi-coding/kimi-for-coding']).toEqual({ code: 5, reasoning: 5 })
     expect(loaded.config!.routeThreshold).toBe(0.8)
-    expect(loaded.config!.version).toBe(2)
+    expect(loaded.config!.version).toBe(3)
   })
 })
 
@@ -227,7 +227,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
       patchFallback: () => ({
         mode: 'cost',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       }),
       onError: () => {},
     })
@@ -284,7 +284,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     const decision = (agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>)
       .decision as { chosen: { provider: string; model: string } } | null
     expect(decision).not.toBeNull()
-    expect(decision!.chosen).toEqual({ provider: 'kimi-tide', model: 'kimi-for-coding' })
+    expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
   })
 
   it('负向对照：仅 patch 静态块（cost）时同一带图消息 keep——判别器有效', async () => {
@@ -337,7 +337,7 @@ describe('integration: modality 护栏端到端（decide 级）', () => {
       available: true,
     },
     {
-      provider: 'kimi-tide',
+      provider: 'kimi-coding',
       model: 'kimi-for-coding',
       modalities: ['text', 'image'],
       costTier: 'mid',
@@ -350,14 +350,14 @@ describe('integration: modality 护栏端到端（decide 级）', () => {
       {
         mode: 'capability',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       },
       silentLog,
     )
     const decision = router.decide([image('看看这张图')], 1)
     expect(decision.kind).toBe('route')
     if (decision.kind === 'route') {
-      expect(decision.target).toEqual({ provider: 'kimi-tide', model: 'kimi-for-coding' })
+      expect(decision.target).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
       expect(decision.reason).toContain('capability')
     }
   })
@@ -367,8 +367,8 @@ describe('integration: modality 护栏端到端（decide 级）', () => {
       {
         mode: 'capability',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
-        textOnlyProviders: ['deepseek-official', 'kimi-tide'],
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+        textOnlyProviders: ['deepseek-official', 'kimi-coding'],
       },
       silentLog,
     )
@@ -381,7 +381,7 @@ describe('integration: modality 护栏端到端（decide 级）', () => {
       {
         mode: 'capability',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       },
       silentLog,
     )
@@ -398,7 +398,7 @@ describe('integration: cost 预算窗口序列', () => {
       {
         mode: 'cost',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
         premiumBudget: 0.4,
         budgetWindow: 4,
         escalateWhen: { patterns: ['审查'] },
@@ -410,7 +410,7 @@ describe('integration: cost 预算窗口序列', () => {
     for (let i = 0; i < 4; i++) {
       const d = router.decide([text('请审查这段代码')], 1)
       expect(d.kind).toBe('route')
-      if (d.kind === 'route') expect(d.target.provider).toBe('kimi-tide')
+      if (d.kind === 'route') expect(d.target.provider).toBe('kimi-coding')
     }
     expect(router.budgetUsage()).toEqual({ premium: 4, window: 4, ratio: 1 })
 
@@ -427,7 +427,7 @@ describe('integration: cost 预算窗口序列', () => {
       {
         mode: 'cost',
         primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-tide', model: 'kimi-for-coding' },
+        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
         premiumBudget: 0.4,
         budgetWindow: 4,
         escalateWhen: { patterns: ['审查'] },
@@ -443,6 +443,6 @@ describe('integration: cost 预算窗口序列', () => {
     // 窗口 [P, p, p, p] → 1/4 < 0.4 → 预算恢复，重新升级。
     const recovered = router.decide([text('请审查这段代码')], 1)
     expect(recovered.kind).toBe('route')
-    if (recovered.kind === 'route') expect(recovered.target.provider).toBe('kimi-tide')
+    if (recovered.kind === 'route') expect(recovered.target.provider).toBe('kimi-coding')
   })
 })
