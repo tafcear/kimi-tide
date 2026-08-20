@@ -45,7 +45,7 @@
   - `RouterConfigV4 { version: 4; activePreset: string | null; presets: Record<string, RouterPreset>; keywordGroups: Record<string, string[]> }`
   - `DEFAULT_CONFIG_V4(): RouterConfigV4`、`DEFAULT_KEYWORD_GROUPS: Record<string, string[]>`
   - 保留：`RouteTarget`、`configKey`、`KIMI_PROVIDER`、`RouterConfigV3`（@legacy 迁移输入专用）、`DEFAULT_CONFIG_V3()`（@legacy，migrateV1/V2 的 base）、`Dim`/`DIMS`（@legacy）
-  - **变更**：`CandidateMeta` 删 `costTier` 字段（= RouteTarget + modalities + available）
+  - **变更（Ruling 7 修订）**：`CandidateMeta.costTier` 字段**本任务保留**——删除推迟到 T9（scoring.ts 退役时一并删，爆炸半径 scoring.ts/index.ts/router.ts 8 处引用）。T3/T6/T7 测试夹具凡构造 CandidateMeta 必须带 `costTier: 'mid'`；T6 enumerateCandidates 写死 `costTier: 'mid'`（v4 无 costTiers 配置）。
 
 - [ ] **Step 1: 写 schemastery 未知键探测测试（RED→行为钉桩）**
 
@@ -416,11 +416,12 @@ import { DEFAULT_CONFIG_V4, type CandidateMeta } from '../src/config.js'
 import { KimiRouter } from '../src/router.js'
 
 const log = { info: () => {} }
+// Ruling 7：costTier 字段 T9 才删，夹具必须带 costTier: 'mid'
 const METAS: CandidateMeta[] = [
-  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true },
-  { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], available: true },
-  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true },
-  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], costTier: 'mid', available: true },
+  { provider: 'deepseek-official', model: 'deepseek-v4-pro', modalities: ['text'], costTier: 'mid', available: true },
+  { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
+  { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], costTier: 'mid', available: true },
 ]
 const textMsg = (t: string) => ({ role: 'user', content: [{ type: 'text', text: t }] }) as never
 const imageMsg = () => ({ role: 'user', content: [{ type: 'image', attachment: 'a' }] }) as never
@@ -477,8 +478,8 @@ describe('KimiRouter v4 decide', () => {
   })
   it('显式 @kimi 且带图：池限定多模态候选', () => {
     const metas: CandidateMeta[] = [
-      { provider: 'kimi-coding', model: 'text-only-x', modalities: ['text'], available: true },
-      { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true },
+      { provider: 'kimi-coding', model: 'text-only-x', modalities: ['text'], costTier: 'mid', available: true },
+      { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], costTier: 'mid', available: true },
       ...METAS.filter((m) => m.provider !== 'kimi-coding'),
     ]
     const r = new KimiRouter(cfg('saving'), metas, log)
@@ -827,7 +828,7 @@ Expected: FAIL
 
 - [ ] **Step 3: 实现（GREEN）**
 
-schema 结构（v4 字段 + version union；v3 遗留字段按 T1 探测结论处理——剥离语义则只列 `mode`/`default` 两个 v3 字段保 migrateV3 输入，拒绝语义则列全量遗留字段并加注释「仅为存量注册兼容」）：
+schema 结构（Ruling 8 修订：schemastery 实测=**非 strict 模式下未知键透传**——schema 只需列 v4 字段 + version union + `mode`/`default` 两个 v3 字段保 migrateV3 输入；其余 v3 遗留字段透传保留，**不得**写「解析结果不含遗留字段」类断言；本 schema 一律非 strict 直接调用，不经 intersect/config 包装）：
 
 ```typescript
 const D4 = DEFAULT_CONFIG_V4()
@@ -964,7 +965,7 @@ case 'show': {
 
 index.ts：
 - 删：`routerConfigToV3`、`candidateMetasFromConfig`、`buildRouter`、`v3ToV1View`、`DEFAULT_ROUTER_CONFIG`（确认无外部引用后删；index-wiring 有引用则同步删用例）。
-- `enumerateCandidates`：删 `allowed` 集合与过滤两行；`costTier` 字段删除（CandidateMeta 已无）；「configured targets 补登记」目标集 = 所有预设 default + 所有规则 target（去重）：
+- `enumerateCandidates`：删 `allowed` 集合与过滤两行；`costTier` 不再从 config 读——**写死 `costTier: 'mid'`**（Ruling 7：字段 T9 才从 CandidateMeta 删除，本任务只断 config 侧依赖）；「configured targets 补登记」目标集 = 所有预设 default + 所有规则 target（去重）：
 
 ```typescript
 const configuredTargets = (): RouteTarget[] => {
@@ -1226,7 +1227,7 @@ git commit -m "feat(settings-card): 预设管理器重做——预设选择/规�
 
 **Files:**
 - Modify: `<pkg>/src/client/TideDock.tsx`、`<pkg>/src/client/ReasonPanel.tsx`
-- Delete: `<pkg>/src/client/ScoreEditor.tsx`、`<pkg>/src/client/CandidateList.tsx`、`<pkg>/src/scores.ts`、`<pkg>/src/scoring.ts`（预检修订④明确归入本任务）、`<pkg>/test/panel-v3.test.tsx`、`<pkg>/test/scores.test.ts`、`<pkg>/test/scoring.test.ts`
+- Delete: `<pkg>/src/client/ScoreEditor.tsx`、`<pkg>/src/client/CandidateList.tsx`、`<pkg>/src/scores.ts`、`<pkg>/src/scoring.ts`（预检修订④明确归入本任务）、`<pkg>/test/panel-v3.test.tsx`、`<pkg>/test/scores.test.ts`、`<pkg>/test/scoring.test.ts`；**并删除 `CandidateMeta.costTier` 字段**（Ruling 7 的最终落点）与所有测试夹具中的 `costTier: 'mid'` 行
 - Test: `<pkg>/test/TideDock.test.tsx`（若不存在则新建，钉桩 dock v4 视图）
 
 **Interfaces:**
