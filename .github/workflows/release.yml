@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        working-directory: packages/dsh-kimi-tide
+      - name: Build
+        working-directory: packages/dsh-kimi-tide
+        run: npm run build
+      - name: Test
+        working-directory: packages/dsh-kimi-tide
+        run: npm test
+      - name: Version consistency check
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./packages/dsh-kimi-tide/package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "tag v${TAG_VERSION} != package.json ${PKG_VERSION}" >&2
+            exit 1
+          fi
+      - name: Bundle-patch field guard
+        shell: bash
+        run: |
+          node -e "
+            const p = require('./packages/dsh-kimi-tide/package.json');
+            if (!p.dsh?.bundle?.patch) { console.error('dsh.bundle.patch missing'); process.exit(1); }
+          "
+      - name: Pack
+        working-directory: packages/dsh-kimi-tide
+        run: npm pack
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: packages/dsh-kimi-tide
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
+            --notes "Automated release from tag $GITHUB_REF_NAME（构建/测试通过，附 npm pack tgz）" \
+            dsh-kimi-tide-*.tgz
