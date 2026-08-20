@@ -170,7 +170,7 @@ describe('SettingsCard render', () => {
     // 投影说 kimi-coding/kimi-for-coding 不可用（configured target 不在 live catalog）。
     const useProjection = () => ({
       quota: null,
-      local: { today: {}, session: {}, calls: 0 },
+      kimi: { route: true, key: true },
       router: { mode: 'off' },
       reasoning: { enabled: true },
       configSource: 'settings',

@@ -3,7 +3,7 @@
  *
  * Task 5（设置界面迁移）：路由设置表单整体迁至官方设置页「月汐」卡片
  * （settings.section，见 SettingsCard）。本 dock 只渲染只读信息 + 指引行：
- * 主行 chips（mode 徽标 / 路由 chip / 配额 / 用量 / 本地 token / decision chip）、
+ * 主行 chips（mode 徽标 / 路由 chip / kimi 接入指引 / 配额 / decision chip）、
  * ReasonPanel 决策可观测区（configSource/decision 展示，本身只读）、推理状态行，
  * 以及一行「路由设置已迁至 设置 → 月汐」。全部写控件（mode 按钮 / 设置折叠区
  * 内的候选、评分、预算滑杆、输入框、保存按钮）已移除；仅保留主行只读侧
@@ -67,15 +67,11 @@ export function TideDock(props: TideDockProps) {
     return <div className="kimi-tide-dock"><span className="kt-label">🌙 月汐</span><span>⏳ 面板数据加载中…</span></div>
   }
 
-  const { quota, local, router } = panel
+  const { quota, router, kimi } = panel
   const weekUsedPct = quota === null ? 0 : pct(quota.weekly.used, quota.weekly.limit)
   const fiveUsedPct = quota === null ? 0 : pct(quota.fiveHour.used, quota.fiveHour.limit)
   const weekRemain = quota === null ? 0 : Math.max(0, quota.weekly.limit - quota.weekly.used)
   const fiveRemain = quota === null ? 0 : Math.max(0, quota.fiveHour.limit - quota.fiveHour.used)
-  const inTok = local.today.inputTokens ?? 0
-  const outTok = local.today.outputTokens ?? 0
-  const cacheTok = local.today.cacheReadTokens ?? 0
-  const cachePct = inTok + cacheTok > 0 ? Math.round((cacheTok / (inTok + cacheTok)) * 100) : 0
 
   return (
     <div className="kimi-tide-dock">
@@ -96,6 +92,12 @@ export function TideDock(props: TideDockProps) {
         </span>
       )}
 
+      {(!kimi.route || !kimi.key) && (
+        <span style={chip} className="kt-warn" title="缺少 kimi-coding 路由或 API key（设置 → Models 配置，apiKeyEnv 指向你的凭据）">
+          ⚠️ Kimi 未接入：设置 → Models
+        </span>
+      )}
+
       {quota === null ? (
         <span style={chip} className="kt-stale">🌫️ 配额不可用</span>
       ) : (
@@ -107,8 +109,6 @@ export function TideDock(props: TideDockProps) {
           {quota.stale && ' (过期)'}
         </span>
       )}
-
-      <span style={chip}>📥 {inTok} · 📤 {outTok} · 💾 {cachePct}%</span>
 
       <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>
 

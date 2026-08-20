@@ -2,7 +2,8 @@
  * kimi-tide: panel projection — key 'kimi-tide/panel', whole-value push.
  * The payload is process-global (quota/router are not per-session), so the
  * host appends the same snapshot to every live session's log; the framework
- * folds and pushes it. Pure unit functions + the SessionProjectionMap merge
+ * folds and pushes it. v3 payload: quota + router + kimi 二态接入指示 +
+ * candidates + decision. Pure unit functions + the SessionProjectionMap merge
  * that types both ends (host register / client useProjection).
  */
 import { z } from 'zod'
@@ -15,7 +16,7 @@ export const KIMI_TIDE_PANEL_EVENT = 'kimi-tide/panel' as const
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
-    /** Whole panel snapshot (quota + local stats + router config). */
+    /** Whole panel snapshot (quota + router + kimi 二态 + candidates + decision). */
     'kimi-tide/panel': KimiTidePanelProjection
   }
 }
@@ -35,11 +36,9 @@ const panelSchema = z.object({
     fetchedAt: z.number(),
     stale: z.boolean(),
   }).nullable(),
-  local: z.object({
-    today: z.record(z.string(), z.number()),
-    session: z.record(z.string(), z.number()),
-    calls: z.number(),
-  }),
+  // projection v3 (0.4.x): 二态接入指示（spec §3.5/验收 5）——路由已注册 + key
+  // 可解析，绝不携带 key 值。
+  kimi: z.object({ route: z.boolean(), key: z.boolean() }),
   router: z.record(z.string(), z.unknown()),
   reasoning: z.object({ enabled: z.literal(true) }),
   models: z.object({ kimi: z.array(z.string()), deepseek: z.array(z.string()) }).optional(),
@@ -71,7 +70,7 @@ export const kimiTideProjectionDefinition:
 ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null> = {
   key: KIMI_TIDE_PANEL_KEY,
   schema: bridgedSchema,
-  stateVersion: 2,
+  stateVersion: 3,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;

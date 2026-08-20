@@ -1,9 +1,8 @@
 /**
- * kimi-tide: shared types for the 月汐 panel (quota / local tokens / projection).
+ * kimi-tide: shared types for the 月汐 panel (quota / kimi 二态接入指示 / projection).
  * The usages endpoint is undocumented — parsing is deliberately lenient
  * (string-or-number fields, missing sections degrade instead of throwing).
  */
-import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { Dim } from './config.js'
 import type { RouterConfig } from './router.js'
 
@@ -50,18 +49,16 @@ export interface QuotaSnapshot {
   stale: boolean
 }
 
-export interface LocalTokenStats {
-  /** Counters reset at local midnight. */
-  today: TokenUsage
-  /** Counters for the whole process lifetime. */
-  session: TokenUsage
-  /** Number of usage chunks observed. */
-  calls: number
+/** 0.4.x 二态接入指示：kimi-coding 路由已注册（llm 目录）+ API key 可解析。 */
+export interface KimiAccessStatus {
+  route: boolean
+  key: boolean
 }
 
 export interface KimiTidePanelProjection {
   quota: QuotaSnapshot | null
-  local: LocalTokenStats
+  /** 0.4.x 二态接入指示（spec §3.5/验收 5）：路由已注册 + key 可解析。 */
+  kimi: KimiAccessStatus
   /** Currently effective router config (panel form initial values). */
   router: RouterConfig
   reasoning: { enabled: true }
@@ -111,8 +108,4 @@ export function parseQuotaSnapshot(json: unknown, fetchedAt: number): QuotaSnaps
     fetchedAt,
     stale: false,
   }
-}
-
-export function emptyLocalTokenStats(): LocalTokenStats {
-  return { today: { inputTokens: 0, outputTokens: 0 }, session: { inputTokens: 0, outputTokens: 0 }, calls: 0 }
 }

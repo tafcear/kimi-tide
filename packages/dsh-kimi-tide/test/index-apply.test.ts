@@ -132,6 +132,9 @@ describe('apply() projection v2 + sidecar wiring (0.3.0)', () => {
 
     const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
     expect(snapshot.configSource).toBe('default')
+    // 0.4.x Task 6: the panel snapshot carries the kimi 二态接入指示 (route
+    // observed from the fake llm catalog; key is env-dependent, asserted loosely).
+    expect(snapshot.kimi).toMatchObject({ route: true })
     const candidates = snapshot.candidates as Array<{ provider: string; model: string; available: boolean }>
     expect(candidates).toContainEqual(expect.objectContaining({ provider: 'kimi-coding', model: 'kimi-for-coding' }))
     expect(candidates).toContainEqual(expect.objectContaining({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }))

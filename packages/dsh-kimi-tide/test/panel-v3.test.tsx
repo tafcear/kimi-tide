@@ -29,7 +29,7 @@ const MODEL_OPTIONS = ['kimi-for-coding', 'deepseek-v4-flash', 'k3', 'deepseek-v
 function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePanelProjection {
   return {
     quota: null,
-    local: { today: { inputTokens: 0, outputTokens: 0 }, session: { inputTokens: 0, outputTokens: 0 }, calls: 0 },
+    kimi: { route: true, key: true },
     router: {
       mode: 'capability',
       primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -191,12 +191,10 @@ describe('TideDock v3', () => {
     expect(html).not.toContain('Kimi 模型')
   })
 
-  it('keeps the quota/tokens environment readouts', () => {
+  it('keeps the quota readout', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
-    // Fails if: usage/quota readouts are dropped during the v3 re-mount.
+    // Fails if: the quota readout is dropped during the v3 re-mount.
     expect(html).toContain('配额不可用')
-    expect(html).toContain('📥')
-    expect(html).toContain('📤')
   })
 
   it('renders the read-only migration hint and no settings write controls', () => {
@@ -211,16 +209,29 @@ describe('TideDock v3', () => {
     expect(html).not.toContain('<select')
   })
 
-  it('still renders quota/usage/decision chips', () => {
+  it('still renders quota/decision chips', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
     // Fails if: the read-only mode badge is dropped along with the mode buttons.
     expect(html).toContain('📡')
-    // Fails if: quota/usage readouts are dropped.
+    // Fails if: the quota readout is dropped.
     expect(html).toContain('配额不可用')
-    expect(html).toContain('📥')
-    expect(html).toContain('📤')
     // Fails if: the decision chip is dropped.
     expect(html).toContain('代码任务命中 Kimi 编码优势')
+  })
+
+  it('shows the kimi access guide chip when the route or key is missing', () => {
+    const html = renderToString(createElement(TideDock, {
+      sessionId: 's1',
+      useProjection: () => makePanel({ kimi: { route: false, key: true } }),
+    }))
+    // Fails if: the 0.4.x access guide chip (spec §3.5/验收 5) is dropped.
+    expect(html).toContain('Kimi 未接入')
+    expect(html).toContain('设置 → Models')
+  })
+
+  it('omits the access guide chip when route and key are both present', () => {
+    const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
+    expect(html).not.toContain('Kimi 未接入')
   })
 })
 

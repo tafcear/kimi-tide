@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { kimiTideProjectionDefinition, KIMI_TIDE_PANEL_EVENT } from '../src/projection.js'
-import { emptyLocalTokenStats, type KimiTidePanelProjection } from '../src/types.js'
+import type { KimiTidePanelProjection } from '../src/types.js'
 import type { RouterConfig } from '../src/router.js'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
@@ -19,7 +19,7 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
       fetchedAt: 1,
       stale: false,
     },
-    local: emptyLocalTokenStats(),
+    kimi: { route: true, key: true },
     router,
     reasoning: { enabled: true },
   }
@@ -55,6 +55,17 @@ describe('panelSchema (candidates scores, 0.3.0 final review)', () => {
     const out = parse(p)
     expect(out!.candidates[0].scores).toEqual({ code: 4.5, vision: 3 })
     expect(out!.candidates[1].scores).toBeUndefined()
+  })
+
+  it('projection v3：携带 kimi 二态接入指示，拒绝缺失字段', () => {
+    const p = panel(1)
+    p.candidates = []
+    p.decision = null
+    p.configSource = 'default'
+    const out = parse(p)
+    expect(out!.kimi).toEqual({ route: true, key: true })
+    const { kimi: _kimi, ...rest } = p
+    expect(() => parse(rest as never)).toThrow()
   })
 })
 

@@ -2,9 +2,9 @@
  * dsh-kimi-tide — 月汐
  *
  * Kimi Code (Moonshot) subscription as a native DeepSeek Harness LLM
- * provider, plus the 月汐 dock panel: official quota display, local token
- * stats, and the 0.3.0 capability-scored router with provider-agnostic
- * candidate enumeration and sidecar persistence.
+ * provider, plus the 月汐 dock panel: official quota display, the 0.4.x
+ * kimi 二态接入指示, and the 0.3.0 capability-scored router with
+ * provider-agnostic candidate enumeration and sidecar persistence.
  */
 import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
@@ -35,7 +35,7 @@ import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore } from './settings.js'
 import { UsageMonitor } from './usage.js'
-import type { CandidateSummary, ConfigSource, DecisionSummary, KimiTidePanelProjection } from './types.js'
+import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -316,10 +316,32 @@ export function apply(ctx: Context, config: Config = {}) {
     return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
   }
 
+  // 0.4.x 二态接入指示：路由注册 + key 可解析。缺任一 → 面板显示配置指引
+  // （spec §3.5/验收 5）。刷新触发：启动、llm/adapters-updated、设置文档变化
+  // （llm-pi-ai 节经 settings 服务提交）、配额轮询（顺带 60s 兜底）、
+  // credentials/updated（凭据落盘即生效，无需重启）。
+  let kimiStatus: KimiAccessStatus = { route: false, key: false }
+  const refreshKimiStatus = async () => {
+    let route = false
+    try {
+      route = (ctx.llm as unknown as LlmCatalog).listProviders().some((p) => p.id === 'kimi-coding')
+    } catch { /* llm 不可用：保持 false */ }
+    let key = false
+    try { key = (await resolveKey()) !== null } catch { /* 同上 */ }
+    if (route !== kimiStatus.route || key !== kimiStatus.key) {
+      kimiStatus = { route, key }
+      pushPanelToAllSessions()
+    }
+  }
+  void refreshKimiStatus()
+
   // Panel data source: quota polling（本地 token 统计随接入层退役，Task 6 移除）。
   const monitor = new UsageMonitor({
     pollMs: config.usagePollMs ?? 60_000,
-    onUpdate: () => pushPanelToAllSessions(),
+    onUpdate: () => {
+      pushPanelToAllSessions()
+      void refreshKimiStatus()
+    },
     resolveKey,
   })
 
@@ -460,7 +482,7 @@ export function apply(ctx: Context, config: Config = {}) {
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
   const panelSnapshot = (): KimiTidePanelProjection => ({
     quota: monitor.snapshot().quota,
-    local: monitor.snapshot().local,
+    kimi: kimiStatus,
     router: v3ToV1View(routerConfigV3),
     reasoning: { enabled: true },
     models: modelOptions,
@@ -505,6 +527,13 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.on('llm/adapters-updated', () => {
     refreshModelOptions()
     refreshCandidates()
+    void refreshKimiStatus()
+  })
+  // 凭据落盘即生效：credentials 服务发出 updated 事件时重读接入指示与配额。
+  // 事件未声明（宿主无凭据服务时永不触发）：经宽化类型注册，避免给 Events 增补类型。
+  ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/updated', () => {
+    void refreshKimiStatus()
+    void monitor.refresh()
   })
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     liveAgents.add(payload.agent)

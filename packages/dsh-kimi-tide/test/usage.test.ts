@@ -84,26 +84,3 @@ describe('UsageMonitor quota polling (API key auth)', () => {
     expect(onUpdate).toHaveBeenCalledTimes(2)
   })
 })
-
-describe('UsageMonitor local token stats', () => {
-  it('accumulates today/session buckets and call count', () => {
-    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', now: () => Date.parse('2026-08-17T10:00:00') })
-    monitor.tapUsage({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 20 })
-    monitor.tapUsage({ inputTokens: 30, outputTokens: 10 })
-    const { local } = monitor.snapshot()
-    expect(local.calls).toBe(2)
-    expect(local.today).toEqual({ inputTokens: 130, outputTokens: 60, cacheReadTokens: 20 })
-    expect(local.session.inputTokens).toBe(130)
-  })
-
-  it('resets the today bucket across a local-day boundary', () => {
-    let now = Date.parse('2026-08-17T23:59:00')
-    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', now: () => now })
-    monitor.tapUsage({ inputTokens: 100, outputTokens: 0 })
-    now = Date.parse('2026-08-18T00:01:00')
-    monitor.tapUsage({ inputTokens: 5, outputTokens: 0 })
-    const { local } = monitor.snapshot()
-    expect(local.today.inputTokens).toBe(5)
-    expect(local.session.inputTokens).toBe(105)
-  })
-})
