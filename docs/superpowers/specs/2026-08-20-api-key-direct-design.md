@@ -144,6 +144,6 @@ kimi-tide 现行接入层为自研 `KimiAdapter`（OAuth 进程内刷新 + pi-ai
 
 ## 6. 待核实项
 
-1. `/coding/v1/usages` 对 Console Key 的接受性 → 验收④实机落锤。
+1. ~~`/coding/v1/usages` 对 Console Key 的接受性~~ **已落锤（2026-08-20 验收④实机探针）**：Console Key Bearer 实返 200（`authentication.method=METHOD_API_KEY`、`scope=FEATURE_CODING`）；响应五小时窗数字嵌套在 `limits[0].detail` 下（与实施夹具的平铺假设不符），解析修复见 `d5256d8`。
 2. ~~`dsh-credentials-local` 对插件暴露的解析 API 形状~~ **已落锤（实施时实读）**：`ctx.credentials.resolve(CredentialRef) → { value, source }`（`@deepseek-ai/dsh-credentials` lib/types/index.d.ts:46-56）；apiKeyEnv 引用名从 `ctx.settings.get('llm-pi-ai')` 的 `providers['kimi-coding'].apiKeyEnv` 读取（`@deepseek-ai/dsh-llm-pi-ai` lib/types/config.d.ts:40-42，README.md:108），兜底 `'KIMI_API_KEY'` 与 `process.env`。
-3. `k3-256k`/`kimi-for-coding` 是否需在本机 kimi-coding 路由补声明（用户决策；不补则标灰，机制已兜）。
+3. ~~`k3-256k`/`kimi-for-coding` 是否需在本机 kimi-coding 路由补声明~~ **已决策（2026-08-20 用户）：暂不补**，保持路由声明 k3 + kimi-for-coding-highspeed 两模型；未声明两模型候选池 `available:false` 已实机验证（投影帧 + 设置卡片置灰「（不可用）」，灰态通道修复见 `84f9b72`）。
