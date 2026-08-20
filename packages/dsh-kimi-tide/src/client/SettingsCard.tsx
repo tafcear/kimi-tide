@@ -1,105 +1,128 @@
 /**
  * SettingsCard — 官方设置页的「月汐」卡片（settings.section，id kimi-tide-router）。
  *
- * 渲染 mode 三选、候选 + 每候选评分滑杆（继承/覆盖显示）、数值区，以及高级
- * 折叠（classify.patterns / costTiers / allowedProviders 只读 + textarea 整值）。
- * 所有写操作都经 card-store 的 saveTop / saveScores 路由到 scope.set 或
- * connection.api.settings.mutate（多段 path），不经过 dock 的 import-config 通道。
+ * 0.5.0 预设管理器（spec §8）：预设选择行（关闭/各预设，点击即写 activePreset）
+ * + 当前预设编辑器（默认模型下拉 = 全量目录、规则表 = 条件/目标/上移/下移/删除
+ * + 新增规则）+ 预设操作（新建/复制/删除）+ 关键词组管理（组词表 textarea，
+ * 逗号/换行分隔，新建/删除组）。
  *
- * 候选/评分 UI 自包含实现（而非直接 import CandidateList/ScoreEditor）：那两个
- * 组件的写通道是 onCommand(sidecar YAML) → import-config，与设置命名空间的
- * scope/connection 写路径在架构上不兼容；本文件复用它们的展示惯例与 scores.ts
- * 的 scoreFor 基线合并逻辑。Files 清单也未授权改动那两个组件文件。
+ * 所有写操作都经 card-store v4 方法整段写（saveActivePreset / savePreset /
+ * createPreset / deletePreset / saveKeywordGroups）路由到 scope.set 或
+ * connection.api.settings.mutate，不经过 dock 的 import-config 通道。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { configKey, DIMS, type Dim, type RouteTarget, type RouterConfigV3 } from '../config.js'
-import { scoreFor } from '../scores.js'
+import { configKey, type RouteTarget, type RouterRule, type RuleCondition } from '../config.js'
 
 export interface SettingsCardProps {
   scope: SettingsScopeLike | null
   connection: ConnectionLike | null
-  close: () => void
+  close?: () => void
   /**
    * store 工厂缝（测试用）：默认 createCardStore。renderToString 不跑
    * effect，异步 availability 只能靠预制快照的 store 注入来覆盖渲染断言。
    */
   storeFactory?: (scope: SettingsScopeLike | null, connection: ConnectionLike | null) => CardStore
-  /** 测试缝/深链：初始展开的候选 key 列表（候选手风琴默认全部折叠）。 */
-  initialExpanded?: string[]
 }
 
-const MODES: Array<RouterConfigV3['mode']> = ['off', 'cost', 'capability']
-const MODE_LABELS: Record<RouterConfigV3['mode'], string> = {
-  off: '关闭',
-  cost: '省钱',
-  capability: '能力',
-}
-
-const DIM_LABELS: Record<Dim, string> = {
-  code: '代码',
-  reasoning: '推理',
-  writing: '写作',
-  tooluse: '工具',
-  vision: '视觉',
-  longctx: '长上下文',
-}
-
-const SNAP = (v: number): number => Math.min(5, Math.max(0, Math.round(v * 10) / 10))
-
-type NumberField = 'routeThreshold' | 'lambda' | 'premiumBudget' | 'budgetWindow' | 'charsPerToken'
-const NUM_FIELDS: Array<{ field: NumberField; label: string; step: number; min: number; max: number }> = [
-  { field: 'routeThreshold', label: '升级阈值', step: 0.05, min: 0, max: 1 },
-  { field: 'lambda', label: 'λ 权衡', step: 0.05, min: 0, max: 1 },
-  { field: 'premiumBudget', label: '预算比例', step: 0.05, min: 0, max: 1 },
-  { field: 'budgetWindow', label: '预算窗口', step: 1, min: 1, max: 1000 },
-  { field: 'charsPerToken', label: '每 token 字符', step: 0.5, min: 0.5, max: 10 },
-]
-
-/** 把 default + candidates 去重成评分目标列表。 */
-function scoreTargets(config: RouterConfigV3): RouteTarget[] {
-  const out: RouteTarget[] = []
-  const seen = new Set<string>()
-  for (const target of [config.default, ...config.candidates]) {
-    const key = configKey(target)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(target)
+/**
+ * 预设 id 的 slug 化（brief Task 8 Step 3 逐字规则）：trim + 小写 +
+ * 非 [a-z0-9\u4e00-\u9fff] 折叠为 '-'；空 → `preset-<Date.now()%100000>`；
+ * 与现有预设键冲突 → 递增后缀 `-2/-3…`（竞态冲突由 store.createPreset 的
+ * error 通道兜底）。
+ */
+export function presetSlug(name: string, existing: Record<string, unknown>): string {
+  const folded = name.trim().toLowerCase().replace(/[^a-z0-9一-鿿]+/g, '-')
+  const base = folded !== '' ? folded : `preset-${Date.now() % 100000}`
+  if (!Object.hasOwn(existing, base)) return base
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}-${n}`
+    if (!Object.hasOwn(existing, candidate)) return candidate
   }
-  return out
 }
 
-/** 高级折叠区的一段 JSON 文本域：只读摘要 + textarea 整值保存。 */
-function JsonField(props: {
+/** 规则条件下拉的取值编码：image 条件用字面量 'image'，关键词组用 'kw:<组名>'。 */
+const IMAGE_VALUE = 'image'
+const kwValue = (group: string): string => `kw:${group}`
+
+const conditionValue = (rule: RouterRule): string =>
+  rule.when.kind === 'image' ? IMAGE_VALUE : kwValue(rule.when.group)
+
+const parseCondition = (value: string): RuleCondition =>
+  value === IMAGE_VALUE ? { kind: 'image' } : { kind: 'keywords', group: value.slice(3) }
+
+/** 'provider/model' → RouteTarget（configKey 的逆运算；无 '/' 时整段作 provider）。 */
+const parseTarget = (value: string): RouteTarget => {
+  const slash = value.indexOf('/')
+  return slash < 0
+    ? { provider: value, model: '' }
+    : { provider: value.slice(0, slash), model: value.slice(slash + 1) }
+}
+
+/** 规则 id 生成：rule-<n> 递增避让（预设内唯一即可，React key 用）。 */
+const newRuleId = (rules: RouterRule[]): string => {
+  const ids = new Set(rules.map((rule) => rule.id))
+  let n = rules.length + 1
+  while (ids.has(`rule-${n}`)) n += 1
+  return `rule-${n}`
+}
+
+/** 词表文本域解析：逗号（中英文）/分号（中英文）/换行分隔，去空白空串。 */
+const parseWords = (text: string): string[] =>
+  text.split(/[\n,，;；]+/).map((word) => word.trim()).filter((word) => word !== '')
+
+const omitKey = (obj: Record<string, string[]>, key: string): Record<string, string[]> => {
+  const next = { ...obj }
+  delete next[key]
+  return next
+}
+
+/** 目标下拉：全量目录 options + 当前值兜底 option（目录缺失/未拉取时仍显示当前值）。 */
+function TargetSelect(props: {
   label: string
-  value: unknown
-  writable: boolean
-  onSave: (parsed: unknown) => void
+  value: string
+  options: string[]
+  unavailable: boolean
+  disabled: boolean
+  onChange: (value: string) => void
 }) {
-  const { label, value, writable, onSave } = props
-  const [draft, setDraft] = useState(() => JSON.stringify(value ?? {}, null, 2))
-
-  const save = () => {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(draft)
-    } catch {
-      return
-    }
-    onSave(parsed)
-  }
-
+  const options = props.options.includes(props.value) ? props.options : [...props.options, props.value]
   return (
-    <div className="kt-row kt-json">
-      <span className="kt-field-label">{label}</span>
+    <select
+      aria-label={props.label}
+      className={props.unavailable ? 'kt-unavailable' : undefined}
+      value={props.value}
+      disabled={props.disabled}
+      onChange={(e) => props.onChange(e.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option} value={option}>{option}</option>
+      ))}
+    </select>
+  )
+}
+
+/** 关键词组行：组名 + 词表 textarea（失焦整段保存）+ 删除组。 */
+function KeywordGroupRow(props: {
+  name: string
+  words: string[]
+  writable: boolean
+  onSave: (words: string[]) => void
+  onDelete: () => void
+}) {
+  const [draft, setDraft] = useState(() => props.words.join('\n'))
+  return (
+    <div className="kt-group-row">
+      <span className="kt-field-label">{props.name}</span>
       <textarea
-        aria-label={label}
-        disabled={!writable}
+        aria-label={`${props.name} 词表`}
+        disabled={!props.writable}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => props.onSave(parseWords(draft))}
       />
-      <button type="button" disabled={!writable} onClick={save}>保存</button>
+      <button type="button" disabled={!props.writable} onClick={props.onDelete}>删除组</button>
     </div>
   )
 }
@@ -111,27 +134,17 @@ export function SettingsCard(props: SettingsCardProps) {
   useEffect(() => {
     void store.load()
   }, [store])
-
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const config = snapshot.config
 
-  // 候选手风琴（2026-08-20 用户裁定）：默认全部折叠为一行摘要，点击展开
-  // 该候选的 6 维评分区；展开是纯查看动作，不受 writable 门控。
-  // hooks 纪律：本 useState 必须位于下方 `config === null` 提前返回之前——
-  // 首帧 loading → ready 的重渲染若 hook 数变化，React 直接卸载整卡
-  // （2026-08-20 生产事故：设置页「月汐」卡片空白；回归见
-  // test/SettingsCard.dom.test.tsx）。
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
-    () => new Set(props.initialExpanded ?? []),
-  )
-  const toggleCandidate = (key: string): void => {
-    const next = new Set(expandedKeys)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    setExpandedKeys(next)
-  }
+  // hooks 纪律（2026-08-20 生产事故回归钉）：全部 useState 必须先于下方
+  // `config === null` 提前返回——首帧 loading → ready 的重渲染若 hook 数变化，
+  // React 直接卸载整卡（设置页「月汐」卡片空白；回归见 test/SettingsCard.dom.test.tsx）。
+  const [newPresetName, setNewPresetName] = useState('')
+  const [newGroupName, setNewGroupName] = useState('')
 
   if (config === null) {
+    // 现状不可用态原样保留。
     return (
       <div className="kimi-tide-settings">
         <span className="kt-hint">⚙️ 路由设置不可用</span>
@@ -141,137 +154,239 @@ export function SettingsCard(props: SettingsCardProps) {
   }
 
   const writable = snapshot.writable
-  const targets = scoreTargets(config)
-
-  // 候选灰态：读快照 availability（数据源 = connection.api.llm.models，
+  // T7 延期 Minor 门控：createPreset 在未就绪时会整段覆盖 presets、deletePreset
+  // 双写非原子——新建/复制/删除按钮只在 status==='ready' && config!==null（此点
+  // 之后 config 恒非 null）且可写时可用，UI 层门控是既定缓解。
+  const canManagePresets = writable && snapshot.status === 'ready'
+  const activeId = config.activePreset
+  const active = activeId !== null ? config.presets[activeId] ?? null : null
+  const catalog = snapshot.catalog ?? []
+  const modelOptions = catalog.flatMap((group) => group.models.map((model) => `${group.provider}/${model}`))
+  // 目标灰态：读快照 availability（数据源 = connection.api.llm.models，
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
+  const groupNames = Object.keys(config.keywordGroups)
+
+  // 规则编辑：全部组装 next 后经 store 整段写。
+  const updateRules = (presetId: string, rules: RouterRule[]): void => {
+    const preset = config.presets[presetId]
+    if (preset === undefined) return
+    void store.savePreset(presetId, { ...preset, rules })
+  }
+
+  const editActiveRule = (index: number, patch: Partial<RouterRule>): void => {
+    if (activeId === null || active === null) return
+    updateRules(activeId, active.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)))
+  }
+
+  const moveRule = (index: number, delta: -1 | 1): void => {
+    if (activeId === null || active === null) return
+    const next = [...active.rules]
+    const [rule] = next.splice(index, 1)
+    next.splice(index + delta, 0, rule)
+    updateRules(activeId, next)
+  }
+
+  const removeRule = (index: number): void => {
+    if (activeId === null || active === null) return
+    updateRules(activeId, active.rules.filter((_, i) => i !== index))
+  }
+
+  const addRule = (): void => {
+    if (activeId === null || active === null) return
+    updateRules(activeId, [
+      ...active.rules,
+      { id: newRuleId(active.rules), when: { kind: 'image' }, target: active.default },
+    ])
+  }
+
+  const saveDefault = (value: string): void => {
+    if (activeId === null || active === null) return
+    void store.savePreset(activeId, { ...active, default: parseTarget(value) })
+  }
+
+  const createPreset = (): void => {
+    const name = newPresetName.trim()
+    const id = presetSlug(name, config.presets)
+    const fallbackDefault: RouteTarget = active?.default
+      ?? (modelOptions.length > 0
+        ? parseTarget(modelOptions[0])
+        : { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    void store.createPreset(id, { name: name !== '' ? name : id, default: fallbackDefault, rules: [] })
+    setNewPresetName('')
+  }
+
+  const duplicateActive = (): void => {
+    if (activeId === null || active === null) return
+    const name = `${active.name} 副本`
+    void store.createPreset(presetSlug(name, config.presets), { ...active, name, rules: [...active.rules] })
+  }
+
+  const deleteActive = (): void => {
+    if (activeId === null) return
+    void store.deletePreset(activeId)
+  }
+
+  const addGroup = (): void => {
+    const name = newGroupName.trim()
+    if (name === '' || Object.hasOwn(config.keywordGroups, name)) return
+    void store.saveKeywordGroups({ ...config.keywordGroups, [name]: [] })
+    setNewGroupName('')
+  }
 
   return (
     <div className="kimi-tide-settings">
       {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
 
-      <div className="kt-mode-row">
-        {MODES.map((m) => (
+      {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
+      <div className="kt-preset-row">
+        <button
+          type="button"
+          className={activeId === null ? 'kt-preset kt-active' : 'kt-preset'}
+          aria-pressed={activeId === null}
+          disabled={!writable}
+          onClick={() => void store.saveActivePreset(null)}
+        >
+          关闭
+        </button>
+        {Object.entries(config.presets).map(([id, preset]) => (
           <button
-            key={m}
+            key={id}
             type="button"
-            className={m === config.mode ? 'kt-mode kt-active' : 'kt-mode'}
-            aria-pressed={m === config.mode}
+            className={id === activeId ? 'kt-preset kt-active' : 'kt-preset'}
+            aria-pressed={id === activeId}
             disabled={!writable}
-            onClick={() => void store.saveTop('mode', m)}
+            onClick={() => void store.saveActivePreset(id)}
           >
-            {MODE_LABELS[m]}
+            {preset.name}
           </button>
         ))}
       </div>
 
-      <div className="kt-candidates">
-        <span className="kt-h">🧩 候选模型（点击展开评分，0–5 步长 0.1）</span>
-        {targets.map((target) => {
-          const key = configKey(target)
-          const effective = scoreFor(config, target)
-          const isDefault = target.provider === config.default.provider && target.model === config.default.model
-          const unavailable = availability?.[key] === false
-          const overrideCount = (() => {
-            const s = config.scores[key]
-            return s === undefined || s === null ? 0 : Object.keys(s).length
-          })()
-          const open = expandedKeys.has(key)
-          return (
-            <div key={key} className={`kt-candidate${unavailable ? ' kt-unavailable' : ''}`}>
-              <button
-                type="button"
-                className="kt-candidate-head"
-                aria-expanded={open}
-                onClick={() => toggleCandidate(key)}
-              >
-                <span>{open ? '▾' : '▸'}</span>
-                <span className="kt-meta">
-                  {key}
-                  {isDefault ? '（默认）' : ''}
-                  {unavailable ? '（不可用）' : ''}
-                </span>
-                <span className="kt-hint">{overrideCount > 0 ? `覆盖 ${overrideCount} 维` : '全继承'}</span>
-              </button>
-              {open && (
-                <div className="kt-score-grid">
-                  {DIMS.map((dim) => {
-                    const overridden = typeof snapshot.user?.scores?.[key]?.[dim] === 'number'
-                    return (
-                      <label key={dim} className="kt-score-row">
-                        <span className="kt-field-label">{DIM_LABELS[dim]}</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={5}
-                          step={0.1}
-                          value={effective[dim]}
-                          disabled={!writable}
-                          onChange={(e) => void store.saveScores(key, dim, SNAP(Number(e.target.value)))}
-                        />
-                        <input
-                          type="number"
-                          className="kt-score-input"
-                          min={0}
-                          max={5}
-                          step={0.1}
-                          value={effective[dim]}
-                          disabled={!writable}
-                          onChange={(e) => void store.saveScores(key, dim, SNAP(Number(e.target.value)))}
-                        />
-                        <span className="kt-score-values">
-                          <span className={overridden ? 'kt-score-override' : 'kt-score-baseline'}>
-                            {overridden ? '覆盖' : '继承'}
-                          </span>
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="kt-grid">
-        {NUM_FIELDS.map(({ field, label, step, min, max }) => (
-          <label key={field} className="kt-row">
-            <span className="kt-field-label">{label}</span>
-            <input
-              type="number"
-              step={step}
-              min={min}
-              max={max}
-              value={config[field]}
+      {/* 当前预设编辑器（选中非「关闭」时显示）。 */}
+      {active !== null && activeId !== null && (
+        <div className="kt-editor">
+          <label className="kt-row">
+            <span className="kt-field-label">默认模型</span>
+            <TargetSelect
+              label="默认模型"
+              value={configKey(active.default)}
+              options={modelOptions}
+              unavailable={availability?.[configKey(active.default)] === false}
               disabled={!writable}
-              onChange={(e) => void store.saveTop(field, Number(e.target.value))}
+              onChange={saveDefault}
             />
           </label>
-        ))}
+
+          <div className="kt-rules">
+            <span className="kt-h">规则（有序，首条命中生效）</span>
+            {active.rules.map((rule, index) => {
+              const targetKey = configKey(rule.target)
+              const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
+              return (
+                <div key={rule.id} className="kt-rule-row">
+                  <select
+                    aria-label="条件"
+                    value={conditionValue(rule)}
+                    disabled={!writable}
+                    onChange={(e) => editActiveRule(index, { when: parseCondition(e.target.value) })}
+                  >
+                    <option value={IMAGE_VALUE}>带图</option>
+                    {groupNames.map((group) => (
+                      <option key={group} value={kwValue(group)}>{group}</option>
+                    ))}
+                    {rule.when.kind === 'keywords' && missingGroup && (
+                      <option value={kwValue(rule.when.group)}>{rule.when.group}（缺失）</option>
+                    )}
+                  </select>
+                  <TargetSelect
+                    label="目标"
+                    value={targetKey}
+                    options={modelOptions}
+                    unavailable={availability?.[targetKey] === false}
+                    disabled={!writable}
+                    onChange={(value) => editActiveRule(index, { target: parseTarget(value) })}
+                  />
+                  <button
+                    type="button"
+                    aria-label="上移"
+                    disabled={!writable || index === 0}
+                    onClick={() => moveRule(index, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="下移"
+                    disabled={!writable || index === active.rules.length - 1}
+                    onClick={() => moveRule(index, 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="删除规则"
+                    disabled={!writable}
+                    onClick={() => removeRule(index)}
+                  >
+                    删除
+                  </button>
+                </div>
+              )
+            })}
+            <button type="button" disabled={!writable} onClick={addRule}>新增规则</button>
+          </div>
+        </div>
+      )}
+
+      {/* 预设操作：新建（输入显示名 → slug id）/ 复制当前 / 删除当前。
+          仅 ready 且可写时可用（T7 延期 Minor 门控）。 */}
+      <div className="kt-preset-ops">
+        <input
+          aria-label="新预设名"
+          placeholder="新预设名"
+          value={newPresetName}
+          disabled={!canManagePresets}
+          onChange={(e) => setNewPresetName(e.target.value)}
+        />
+        <button type="button" disabled={!canManagePresets} onClick={createPreset}>新建预设</button>
+        {active !== null && (
+          <>
+            <button type="button" disabled={!canManagePresets} onClick={duplicateActive}>复制</button>
+            <button type="button" disabled={!canManagePresets} onClick={deleteActive}>删除</button>
+          </>
+        )}
       </div>
 
-      <details className="kt-advanced">
-        <summary>高级</summary>
-        <JsonField
-          label="classify.patterns"
-          value={config.classify?.patterns ?? {}}
-          writable={writable}
-          onSave={(parsed) => void store.saveTop('classify', { ...config.classify, patterns: parsed })}
-        />
-        <JsonField
-          label="costTiers"
-          value={config.costTiers}
-          writable={writable}
-          onSave={(parsed) => void store.saveTop('costTiers', parsed)}
-        />
-        <JsonField
-          label="allowedProviders"
-          value={config.allowedProviders}
-          writable={writable}
-          onSave={(parsed) => void store.saveTop('allowedProviders', parsed)}
-        />
+      {/* 关键词组管理区：组列表 + 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
+      <details className="kt-groups">
+        <summary>关键词组</summary>
+        {groupNames.map((name) => (
+          <KeywordGroupRow
+            key={name}
+            name={name}
+            words={config.keywordGroups[name]}
+            writable={writable}
+            onSave={(words) => void store.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
+            onDelete={() => void store.saveKeywordGroups(omitKey(config.keywordGroups, name))}
+          />
+        ))}
+        <div className="kt-row">
+          <input
+            aria-label="新组名"
+            placeholder="新组名"
+            value={newGroupName}
+            disabled={!writable}
+            onChange={(e) => setNewGroupName(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={!writable || newGroupName.trim() === '' || Object.hasOwn(config.keywordGroups, newGroupName.trim())}
+            onClick={addGroup}
+          >
+            新建组
+          </button>
+        </div>
       </details>
     </div>
   )

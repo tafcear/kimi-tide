@@ -6,7 +6,8 @@
  * `if (config === null) return …` 提前返回之后。真实浏览器里首帧快照
  * loading（config=null）→ store.load() 完成后 ready（config≠null）的
  * 重渲染多出一个 hook，React 抛「Rendered more hooks than during the
- * previous render」，整个设置内容区崩溃为空白。
+ * previous render」，整个设置内容区崩溃为空白。0.5.0 预设管理器重做后
+ * 本钉继续生效：所有 useState 必须先于 config===null 提前返回。
  *
  * renderToString 单遍渲染永远不会暴露 hook 数变化，故本文件用
  * react-dom/client + jsdom 做真实挂载→发布→重渲染。每个用例注释标注
@@ -17,7 +18,7 @@ import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import type { CardSnapshot, CardStore } from '../src/client/card-store.js'
-import { DEFAULT_CONFIG_V3 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4 } from '../src/config.js'
 
 declare global {
   // React 18 act 环境开关（react-dom/client 在非测试构建下需要）。
@@ -34,13 +35,18 @@ function makeDeferredStore() {
     user: null,
     writable: false,
     error: null,
+    catalog: null,
     availability: null,
   }
   const listeners = new Set<() => void>()
   const store: CardStore = {
     load: async () => {},
     saveTop: async () => {},
-    saveScores: async () => {},
+    saveActivePreset: async () => {},
+    savePreset: async () => {},
+    createPreset: async () => {},
+    deletePreset: async () => {},
+    saveKeywordGroups: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
@@ -55,13 +61,15 @@ function makeDeferredStore() {
   return { store, publish }
 }
 
+/** v4 就绪快照：激活省钱预设（编辑器路径一并渲染，回归覆盖更全）。 */
 const readySnapshot = (): CardSnapshot => ({
   status: 'ready',
-  config: DEFAULT_CONFIG_V3(),
+  config: { ...DEFAULT_CONFIG_V4(), activePreset: 'saving' },
   base: null,
   user: null,
   writable: true,
   error: null,
+  catalog: null,
   availability: null,
 })
 
@@ -108,10 +116,10 @@ describe('SettingsCard DOM lifecycle', () => {
     // runs a different number of hooks and React unmounts the whole card
     // (生产事故 2026-08-20：设置页「月汐」卡片空白).
     expect(container.textContent).toContain('关闭')
-    expect(container.textContent).toContain('候选模型')
+    expect(container.textContent).toContain('新增规则')
   })
 
-  it('keeps the accordion state stable across config republishes', async () => {
+  it('keeps rendering stable across config republishes', async () => {
     const { store, publish } = makeDeferredStore()
 
     await act(async () => {
@@ -131,10 +139,12 @@ describe('SettingsCard DOM lifecycle', () => {
 
     // 再发布一次同形快照（document-updated 推送路径）：组件不得因重渲染崩溃。
     await act(async () => {
-      publish({ ...readySnapshot(), availability: { 'kimi-coding/k3': false } })
+      publish({ ...readySnapshot(), availability: { 'kimi-coding/kimi-for-coding': false } })
     })
 
     // Fails if: republish-driven re-renders change hook order or throw.
-    expect(container.textContent).toContain('候选模型')
+    expect(container.textContent).toContain('新增规则')
+    // Fails if: availability 灰态不再到达规则目标（kt-unavailable 类出现在 DOM 上）。
+    expect(container.querySelector('.kt-unavailable')).not.toBeNull()
   })
 })
