@@ -2,12 +2,14 @@
  * TideDock — the 月汐 composer-dock panel, degraded to a read-only dashboard.
  *
  * Task 5（设置界面迁移）：路由设置表单整体迁至官方设置页「月汐」卡片
- * （settings.section，见 SettingsCard）。本 dock 只渲染只读信息 + 指引行：
- * 主行 chips（mode 徽标 / 路由 chip / kimi 接入指引 / 配额 / decision chip）、
- * ReasonPanel 决策可观测区（configSource/decision 展示，本身只读）、推理状态行，
- * 以及一行「路由设置已迁至 设置 → 月汐」。全部写控件（mode 按钮 / 设置折叠区
- * 内的候选、评分、预算滑杆、输入框、保存按钮）已移除；仅保留主行只读侧
- * 「🔄 刷新配额」按钮（/kimi-tide refresh 重读配额数据，不写配置）。
+ * （settings.section，见 SettingsCard）。本 dock 只渲染只读信息：
+ * 主行 chips（mode 徽标 / 路由 chip / kimi 接入指引 / 配额 / 决策 chip）。
+ * 布局（2026-08-20 用户裁定）：紧凑单行——ReasonPanel 决策可观测区默认
+ * 折叠（有决策时点 🧭 chip 展开/收起），「推理输出已启用」与「路由设置
+ * 已迁至 设置 → 月汐」两条静态提示并入 🌙 标签的 hover tooltip。
+ * 全部写控件（mode 按钮 / 设置折叠区内的候选、评分、预算滑杆、输入框、
+ * 保存按钮）已移除；仅保留主行只读侧「🔄 刷新配额」按钮
+ * （/kimi-tide refresh 重读配额数据，不写配置）。
  */
 import { useState, type CSSProperties } from 'react'
 import type { KimiTidePanelProjection } from '../types.js'
@@ -16,6 +18,8 @@ import { ReasonPanel } from './ReasonPanel.js'
 export interface TideDockProps {
   sessionId: string
   useProjection: (key: 'kimi-tide/panel') => KimiTidePanelProjection | null | undefined
+  /** 测试缝/深链：初始即展开决策可观测区（默认折叠，点 🧭 chip 展开）。 */
+  defaultExpanded?: boolean
 }
 
 /** Wired in client/index.ts apply(): the dock component calls back into cordis ctx. */
@@ -47,6 +51,8 @@ export function TideDock(props: TideDockProps) {
   const panel = props.useProjection('kimi-tide/panel')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  // 决策可观测区默认折叠（紧凑单行布局）；有决策时点 🧭 chip 展开。
+  const [expanded, setExpanded] = useState(props.defaultExpanded ?? false)
 
   const run = async (line: string) => {
     setBusy(true)
@@ -75,7 +81,7 @@ export function TideDock(props: TideDockProps) {
 
   return (
     <div className="kimi-tide-dock">
-      <span className="kt-label">🌙 月汐</span>
+      <span className="kt-label" title="✨ 推理输出已启用（DSH 原生渲染 reasoning-delta） · 路由设置已迁至 设置 → 月汐">🌙 月汐</span>
 
       <span style={chip} title="当前路由模式">📡 {router.mode}</span>
 
@@ -87,9 +93,16 @@ export function TideDock(props: TideDockProps) {
       )}
 
       {panel.decision !== null && (
-        <span style={chip} className="kt-decision-chip" title={`Δ ${panel.decision.scoreDelta ?? '—'}`}>
-          🧭 {panel.decision.chosen.model} · {panel.decision.reason}
-        </span>
+        <button
+          type="button"
+          style={chip}
+          className="kt-decision-chip kt-decision-toggle"
+          title={`${expanded ? '收起' : '展开'}决策可观测 · Δ ${panel.decision.scoreDelta ?? '—'}`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? '▾' : '▸'} 🧭 {panel.decision.chosen.model} · {panel.decision.reason}
+        </button>
       )}
 
       {(!kimi.route || !kimi.key) && (
@@ -112,10 +125,10 @@ export function TideDock(props: TideDockProps) {
 
       <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>
 
-      <ReasonPanel configSource={panel.configSource} decision={panel.decision} mode={router.mode} />
+      {expanded && panel.decision !== null && (
+        <ReasonPanel configSource={panel.configSource} decision={panel.decision} mode={router.mode} />
+      )}
 
-      <span className="kt-meta">✨ 推理输出已启用（DSH 原生渲染 reasoning-delta）</span>
-      <span className="kt-hint">路由设置已迁至 设置 → 月汐</span>
       {notice !== '' && <span className="kt-warn">⚠️ {notice}</span>}
     </div>
   )

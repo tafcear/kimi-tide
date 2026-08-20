@@ -175,12 +175,22 @@ describe('ReasonPanel', () => {
 describe('TideDock v3', () => {
   const useProjection = () => makePanel()
 
-  it('renders the read-only reason panel and the decision chip', () => {
+  it('collapses the decision observability block by default (chip stays on the main row)', () => {
     const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection }))
-    // Reason panel (configSource/decision observability) stays read-only on the main row.
-    expect(html).toContain('实际路由')
-    // Decision chip on the main row.
+    // Decision chip stays on the main row, with a closed caret affordance.
     expect(html).toContain('代码任务命中 Kimi 编码优势')
+    expect(html).toContain('▸')
+    // Fails if: the expanded detail block renders without an explicit expand.
+    expect(html).not.toContain('实际路由')
+    expect(html).not.toContain('配置来源')
+  })
+
+  it('expands the decision detail via defaultExpanded', () => {
+    const html = renderToString(createElement(TideDock, { sessionId: 's1', useProjection, defaultExpanded: true }))
+    // Fails if: the expanded state stops rendering the read-only reason panel.
+    expect(html).toContain('实际路由')
+    expect(html).toContain('配置来源')
+    expect(html).toContain('▾')
   })
 
   it('no longer emits the removed v1-only settings fields', () => {

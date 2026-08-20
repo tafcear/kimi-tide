@@ -229,6 +229,39 @@ describe('SettingsCard render', () => {
     expect(html).toContain('aria-pressed="true">能力')
   })
 
+  it('collapses candidates to summary rows by default (no sliders until expanded)', () => {
+    const overridden = { ...DEFAULT_CONFIG_V3(), scores: { 'kimi-coding/kimi-for-coding': { code: 4.5 } } }
+    const { scope } = makeScope({ value: overridden })
+
+    const html = renderToString(createElement(SettingsCard, { scope, connection: null, close: noop }))
+
+    // Fails if: collapsed candidates still render score sliders.
+    expect(html).not.toContain('type="range"')
+    // Summary rows still name every candidate, the default badge, and the
+    // override-count summary (覆盖 N 维 / 全继承).
+    expect(html).toContain('deepseek-official/deepseek-v4-flash')
+    expect(html).toContain('kimi-coding/kimi-for-coding')
+    expect(html).toContain('（默认）')
+    expect(html).toContain('覆盖 1 维')
+    expect(html).toContain('全继承')
+  })
+
+  it('renders step-0.1 sliders plus a manual number input once the candidate is expanded', () => {
+    const { scope } = makeScope()
+
+    const html = renderToString(createElement(SettingsCard, {
+      scope,
+      connection: null,
+      close: noop,
+      initialExpanded: ['kimi-coding/kimi-for-coding'],
+    }))
+
+    // Fails if: the slider step regresses to 0.5 or the manual score input disappears.
+    expect(html).toContain('type="range"')
+    expect(html).toContain('step="0.1"')
+    expect(html).toContain('kt-score-input')
+  })
+
   it('shows inherited vs overridden score values from the base/user layers', () => {
     const overriddenScores = { 'kimi-coding/kimi-for-coding': { code: 4.5 } }
 
@@ -238,6 +271,7 @@ describe('SettingsCard render', () => {
       scope: makeScope({ value: inherited, base: { scores: overriddenScores }, user: undefined }).scope,
       connection: null,
       close: noop,
+      initialExpanded: ['kimi-coding/kimi-for-coding'],
     }))
     expect(inheritedHtml).toContain('继承')
 
@@ -247,6 +281,7 @@ describe('SettingsCard render', () => {
       scope: makeScope({ value: overridden, base: undefined, user: { scores: overriddenScores } }).scope,
       connection: null,
       close: noop,
+      initialExpanded: ['kimi-coding/kimi-for-coding'],
     }))
     expect(overriddenHtml).toContain('覆盖')
   })

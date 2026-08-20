@@ -26,6 +26,8 @@ export interface SettingsCardProps {
    * effect，异步 availability 只能靠预制快照的 store 注入来覆盖渲染断言。
    */
   storeFactory?: (scope: SettingsScopeLike | null, connection: ConnectionLike | null) => CardStore
+  /** 测试缝/深链：初始展开的候选 key 列表（候选手风琴默认全部折叠）。 */
+  initialExpanded?: string[]
 }
 
 const MODES: Array<RouterConfigV3['mode']> = ['off', 'cost', 'capability']
@@ -44,7 +46,7 @@ const DIM_LABELS: Record<Dim, string> = {
   longctx: '长上下文',
 }
 
-const SNAP = (v: number): number => Math.min(5, Math.max(0, Math.round(v * 2) / 2))
+const SNAP = (v: number): number => Math.min(5, Math.max(0, Math.round(v * 10) / 10))
 
 type NumberField = 'routeThreshold' | 'lambda' | 'premiumBudget' | 'budgetWindow' | 'charsPerToken'
 const NUM_FIELDS: Array<{ field: NumberField; label: string; step: number; min: number; max: number }> = [
@@ -129,6 +131,18 @@ export function SettingsCard(props: SettingsCardProps) {
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
 
+  // 候选手风琴（2026-08-20 用户裁定）：默认全部折叠为一行摘要，点击展开
+  // 该候选的 6 维评分区；展开是纯查看动作，不受 writable 门控。
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
+    () => new Set(props.initialExpanded ?? []),
+  )
+  const toggleCandidate = (key: string): void => {
+    const next = new Set(expandedKeys)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setExpandedKeys(next)
+  }
+
   return (
     <div className="kimi-tide-settings">
       {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
@@ -149,43 +163,69 @@ export function SettingsCard(props: SettingsCardProps) {
       </div>
 
       <div className="kt-candidates">
-        <span className="kt-h">🧩 候选模型（0–5 步长 0.5）</span>
+        <span className="kt-h">🧩 候选模型（点击展开评分，0–5 步长 0.1）</span>
         {targets.map((target) => {
           const key = configKey(target)
           const effective = scoreFor(config, target)
           const isDefault = target.provider === config.default.provider && target.model === config.default.model
           const unavailable = availability?.[key] === false
+          const overrideCount = (() => {
+            const s = config.scores[key]
+            return s === undefined || s === null ? 0 : Object.keys(s).length
+          })()
+          const open = expandedKeys.has(key)
           return (
             <div key={key} className={`kt-candidate${unavailable ? ' kt-unavailable' : ''}`}>
-              <span className="kt-meta">
-                {key}
-                {isDefault ? '（默认）' : ''}
-                {unavailable ? '（不可用）' : ''}
-              </span>
-              <div className="kt-score-grid">
-                {DIMS.map((dim) => {
-                  const overridden = typeof snapshot.user?.scores?.[key]?.[dim] === 'number'
-                  return (
-                    <label key={dim} className="kt-score-row">
-                      <span className="kt-field-label">{DIM_LABELS[dim]}</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={5}
-                        step={0.5}
-                        value={effective[dim]}
-                        disabled={!writable}
-                        onChange={(e) => void store.saveScores(key, dim, SNAP(Number(e.target.value)))}
-                      />
-                      <span className="kt-score-values">
-                        <span className={overridden ? 'kt-score-override' : 'kt-score-baseline'}>
-                          {overridden ? `覆盖 ${effective[dim].toFixed(1)}` : `继承 ${effective[dim].toFixed(1)}`}
+              <button
+                type="button"
+                className="kt-candidate-head"
+                aria-expanded={open}
+                onClick={() => toggleCandidate(key)}
+              >
+                <span>{open ? '▾' : '▸'}</span>
+                <span className="kt-meta">
+                  {key}
+                  {isDefault ? '（默认）' : ''}
+                  {unavailable ? '（不可用）' : ''}
+                </span>
+                <span className="kt-hint">{overrideCount > 0 ? `覆盖 ${overrideCount} 维` : '全继承'}</span>
+              </button>
+              {open && (
+                <div className="kt-score-grid">
+                  {DIMS.map((dim) => {
+                    const overridden = typeof snapshot.user?.scores?.[key]?.[dim] === 'number'
+                    return (
+                      <label key={dim} className="kt-score-row">
+                        <span className="kt-field-label">{DIM_LABELS[dim]}</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          value={effective[dim]}
+                          disabled={!writable}
+                          onChange={(e) => void store.saveScores(key, dim, SNAP(Number(e.target.value)))}
+                        />
+                        <input
+                          type="number"
+                          className="kt-score-input"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          value={effective[dim]}
+                          disabled={!writable}
+                          onChange={(e) => void store.saveScores(key, dim, SNAP(Number(e.target.value)))}
+                        />
+                        <span className="kt-score-values">
+                          <span className={overridden ? 'kt-score-override' : 'kt-score-baseline'}>
+                            {overridden ? '覆盖' : '继承'}
+                          </span>
                         </span>
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )
         })}

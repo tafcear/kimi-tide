@@ -86,6 +86,7 @@ export function apply(ctx: Context): void {
     .kimi-tide-dock .kt-reason { display: flex; flex-direction: column; gap: 4px; padding: 4px 0;
       border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
     .kimi-tide-dock .kt-decision-chip { color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-dock .kt-decision-toggle { border: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
 
     /* ---- settings card（设置页「月汐」）---- */
     .kimi-tide-settings { display: flex; flex-direction: column; gap: 10px; font-size: 12px;
@@ -102,6 +103,11 @@ export function apply(ctx: Context): void {
     .kimi-tide-settings .kt-candidate { display: flex; flex-direction: column; gap: 4px; padding: 4px 0;
       border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
     .kimi-tide-settings .kt-candidate.kt-unavailable { opacity: 0.5; }
+    .kimi-tide-settings .kt-candidate-head { display: flex; align-items: center; gap: 8px; width: 100%;
+      text-align: left; cursor: pointer; border: none; background: transparent; color: inherit;
+      font-size: 12px; padding: 2px 0; }
+    .kimi-tide-settings .kt-candidate-head .kt-hint { margin-left: auto; }
+    .kimi-tide-settings .kt-score-input { width: 52px; flex: none; }
     .kimi-tide-settings .kt-score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2px 14px; }
     .kimi-tide-settings .kt-score-row { display: flex; align-items: center; gap: 6px; }
     .kimi-tide-settings .kt-field-label { width: 108px; flex: none; opacity: 0.85; }
