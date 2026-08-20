@@ -1,17 +1,14 @@
 # Bundle patch layer for dsh-kimi-tide (月汐).
 # Applied when a profile lists this bundle (dsh plugin --profile <name> add .).
 # A patch replaces a row's whole config; rows are addressed by id, later
-# layers win. The row mounts the provider plugin after the dsh-base layer
-# provides `llm` (adapter registry) and `timer` (token-refresh loop).
+# layers win. 0.4.x: the plugin owns NO access-layer code — Kimi models arrive
+# via the llm-pi-ai `kimi-coding` route (Settings → Models) with an API key;
+# this row only carries the router/panel knobs.
 - insert:
     - id: dsh-kimi-tide
       name: dsh-kimi-tide
       config:
-        providerName: kimi-tide     # LLM provider route registered into ctx.llm
-        kimiHome: ''                # '' = KIMI_CODE_HOME, else ~/.kimi-code
-        refreshIntervalMs: 600000   # access-token refresh period (~15 min lifetime)
-        refreshOnStart: true        # refresh the OAuth token on startup
         # usagePollMs: 60000      # quota poll period (月汐 dock)
         # usagePollOnStart: true  # poll quota on startup
-        # router:                 # managed by the 月汐 dock panel; default off
+        # router:                 # legacy static seed; the 月汐 settings card owns the live config
         #   mode: off             # off | cost | capability
