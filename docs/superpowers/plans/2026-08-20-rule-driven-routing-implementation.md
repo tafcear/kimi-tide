@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **预检修订（2026-08-20 SDD preflight）**：初版 11 任务在 spine 接缝处无法逐任务全量绿（index.ts 是 KimiRouter/config/schema/types/commands 的公共消费者，上游任何变更都使其类型红）。裁定：①T2 不删 classify.ts（折叠进 T3）；②settings-migration.ts 类型适配从 T4 移入 T5；③旧 T6(index)+T7(types/projection/commands) 合并为新 T6「宿主 spine 总收口」；④scores.ts/scoring.ts 及其测试的删除明确归入退役任务（T9）；⑤全量门槛改为分级（见 Global Constraints）。任务数 11 → 10。
+
 **Goal:** 把 kimi-tide 路由器从六维评分引擎换成「预设 + 规则」驱动（RouterConfigV4），含迁移链、全量候选池、设置卡片预设管理器重做与评分面整体退役。
 
 **Architecture:** 换核不换壳——保留事件接线（agent/pre-step 槽位、agent/request 改道、图片锁存、image-admission bail、面板投影、配额/二态指示）与持久化管线（settings 命名空间 + sidecar + patch 链），只替换决策核心（scoring→rules）、配置形状（v3→v4）、设置 UI 与迁移。决策语义：显式 @指令 → 预设规则链（列表顺序首命中，目标不可用跳过）→ 未命中路由到预设默认模型（打底）。
@@ -14,10 +16,14 @@
 
 - 包路径：`packages/dsh-kimi-tide/`（下文 `<pkg>` 指代）；所有测试命令在 `<pkg>` 下执行。
 - TDD：每个任务先写失败测试（RED）再实现（GREEN）；提交粒度 = 任务。
-- 全量门槛（每个任务完成后）：`npm test` 全绿 + `npm run typecheck` 0 错 + `npm run build` 通过。
+- **分级全量门槛**（预检修订⑤）：
+  - T1-T2：`npm test` 全绿 + `npm run typecheck` 0 错 + `npm run build` 通过。
+  - **T3-T5 红窗期**：本任务自带测试必须全绿；全量红仅限已声明清单——`src/index.ts`、`src/commands.ts`、`src/types.ts`、`src/projection.ts`、`src/client/*` 及其测试（`index-apply`/`index-wiring`/`integration`/`commands`/`types`/`projection`/`SettingsCard*`/`panel-v3`）——spine 在 T6 总收口。typecheck 允许仅这些文件报错。
+  - T6：恢复全量绿（唯一例外：`src/client/SettingsCard.tsx` 及其两个测试可留红，T8 收口）。
+  - T7 允许 `src/client/SettingsCard.tsx` 及其测试类型红（T8 收口）；T8 起全量绿。
 - 配置 schema 单一真相源：所有默认值从 `DEFAULT_CONFIG_V4()` 派生，不另抄。
 - 内置预设按**官方 catalog id** 书写（`kimi-coding/kimi-for-coding`，非 highspeed）；不可用目标由降级语义兜住（spec §5.3）。
-- 文件名不承载版本号（长期偏好）：`docs/router-v3.md` → `docs/router.md`（T11 git mv + 全库引用更新）。
+- 文件名不承载版本号（长期偏好）：`docs/router-v3.md` → `docs/router.md`（T10 git mv + 全库引用更新）。
 - 护栏/锁存/准入 bail 语义不变（spec §5.2），只改配置词汇（v1/v3 → v4）。
 - 决策摘要上屏规则：`via: explicit | rule` 且 activePreset 非 null 才显示；`via: default`/keep/关闭不上屏（spec §9）。
 - 决策原因文案（测试钉桩用词，逐字）：`规则「<条件名>」命中`、`预设「<name>」默认`、`显式 @<provider> 指令`、`router off`。
@@ -38,8 +44,8 @@
   - `RouterPreset { name: string; default: RouteTarget; rules: RouterRule[] }`
   - `RouterConfigV4 { version: 4; activePreset: string | null; presets: Record<string, RouterPreset>; keywordGroups: Record<string, string[]> }`
   - `DEFAULT_CONFIG_V4(): RouterConfigV4`、`DEFAULT_KEYWORD_GROUPS: Record<string, string[]>`
-  - 保留：`RouteTarget`、`configKey`、`KIMI_PROVIDER`、`RouterConfigV3`（@legacy 迁移输入专用）、`DEFAULT_CONFIG_V3()`（@legacy，migrateV1/V2 的 base）
-  - **删除**：`Dim`、`DIMS`、`CandidateMeta.costTier` 字段（CandidateMeta = RouteTarget + modalities + available）
+  - 保留：`RouteTarget`、`configKey`、`KIMI_PROVIDER`、`RouterConfigV3`（@legacy 迁移输入专用）、`DEFAULT_CONFIG_V3()`（@legacy，migrateV1/V2 的 base）、`Dim`/`DIMS`（@legacy）
+  - **变更**：`CandidateMeta` 删 `costTier` 字段（= RouteTarget + modalities + available）
 
 - [ ] **Step 1: 写 schemastery 未知键探测测试（RED→行为钉桩）**
 
@@ -207,11 +213,10 @@ git commit -m "feat(config): RouterConfigV4 预设+规则形状（内置省钱/�
 
 ---
 
-### Task 2: 规则引擎 rules.ts（classify.ts 退役并入）
+### Task 2: 规则引擎 rules.ts（纯函数新文件，本任务不删 classify）
 
 **Files:**
 - Create: `<pkg>/src/rules.ts`
-- Delete: `<pkg>/src/classify.ts`、`<pkg>/test/classify.test.ts`
 - Test: `<pkg>/test/rules.test.ts`（新建）
 
 **Interfaces:**
@@ -222,6 +227,8 @@ git commit -m "feat(config): RouterConfigV4 预设+规则形状（内置省钱/�
   - `messagesContainImage(messages: readonly UserMessage[]): boolean`
   - `matchingRules(config: RouterConfigV4, text: string, hasImage: boolean): RouterRule[]`（按序全部命中，含目标不可用者；可用性过滤在 T3 路由层）
   - `ruleLabel(rule: RouterRule): string`（`带图` 或组名）
+
+（预检修订①：classify.ts 与 classify.test.ts 的删除折叠进 T3——本任务只做新增，保持全量绿。）
 
 - [ ] **Step 1: 写 rules 测试（RED）**
 
@@ -363,42 +370,42 @@ export function ruleLabel(rule: RouterRule): string {
 }
 ```
 
-- [ ] **Step 4: 删除 classify.ts 与其测试，跑测试**
+- [ ] **Step 4: 跑测试 + 全量**
 
-```bash
-git rm packages/dsh-kimi-tide/src/classify.ts packages/dsh-kimi-tide/test/classify.test.ts
-npx vitest run test/rules.test.ts
-```
-Expected: PASS。（此时全量测试会红——router.ts 等仍 import classify/scoring，属预期，T3 收口；本任务只要求 rules.test 绿 + 删除完成，全量绿在 T6 恢复。例外纪律：若 CI/评审要求每任务全量绿，则把 T2 的删除推迟到 T3 合并执行。）
+Run: `npx vitest run test/rules.test.ts`，随后 `npm test && npm run typecheck`
+Expected: rules.test PASS；全量绿（纯新增，无破坏面）
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add packages/dsh-kimi-tide/src/rules.ts packages/dsh-kimi-tide/test/rules.test.ts
-git commit -m "feat(rules): 0.5.0 规则引擎（matchingRules 按序全命中/ruleLabel/显式@与消息工具）；classify.ts 权重分类退役"
+git commit -m "feat(rules): 0.5.0 规则引擎（matchingRules 按序全命中/ruleLabel/显式@与消息工具）"
 ```
 
 ---
 
-### Task 3: KimiRouter v4 换核（护栏/锁存/准入保留，词汇改 v4）
+### Task 3: KimiRouter v4 换核（护栏/锁存/准入保留，词汇改 v4；红窗期开始）
 
 **Files:**
 - Modify: `<pkg>/src/router.ts`（decide 换核 + RouteDecision via + 删预算/评分/v1 桥；护栏函数签名改 v4）
+- Delete: `<pkg>/src/classify.ts`、`<pkg>/test/classify.test.ts`（预检修订①并入本任务）
 - Test: `<pkg>/test/router.test.ts`（重写）
 - Test: `<pkg>/test/router-wiring.test.ts`（适配 v4 配置夹具）
 - Test: `<pkg>/test/smoke.test.ts`（estimateTokens 退役适配）
+
+**红窗声明（T3-T5）**：本任务后 `src/index.ts`、`src/commands.ts`、`src/types.ts`、`src/projection.ts`、`src/client/*` 及其测试文件允许红（spine 在 T6 收口）；本任务只要求 router/router-wiring/smoke 三个测试文件绿 + 未声明文件（config/rules/migrate/sidecar/settings*/usage/scores/scoring 及其测试）不被破坏。
 
 **Interfaces:**
 - Consumes: T1 `RouterConfigV4`/`CandidateMeta`（无 costTier）、T2 `matchingRules`/`ruleLabel`/`explicitProvider`/`latestUserText`/`messagesContainImage`
 - Produces:
   - `RouteDecision = { kind: 'route'; target; reason; via: 'explicit'|'rule'|'default' } | { kind: 'keep'; reason }`（**scoreDelta 删除**）
   - `class KimiRouter`：构造 `new KimiRouter(config: RouterConfigV4, metas: CandidateMeta[], log: RouterLog)`（**v1 重载删除**）；`decide(messages, step, hasImageOverride?)`、`applyTo(config, decision)`、`guardImage(target, hasImage)`
-  - `textOnlyProviders(metas): Set<string>`（签名简化：不再吃 config；metas 缺省时返回空集——护栏调用方总有 metas）
+  - `textOnlyProviders(metas): Set<string>`（签名简化：不再吃 config）
   - `applyImageGuard(target, hasImage, metas): { target, reason } | null`（签名简化）
   - `canClaimImageAdmission(config: RouterConfigV4, metas): boolean`（`activePreset !== null` 且池内有多模态可用候选）
   - `installRouter(ctx, router, onDecision?)`（不变）
   - re-export：`latestUserText`、`messagesContainImage`（来自 rules.js，保 smoke/外部 import 路径）
-  - **删除**：`RouterConfigV1`/`RouterConfig`/`MatchRule`/`matchesPatterns`/`estimateTokens`/`estimateContextTokens`、预算史（budgetHistory/record/budgetUsage）、`legacyConfig` getter、`legacyConfigToV3`/`legacyMetasFromConfig`/`legacyWeights`
+  - **删除**：`RouterConfigV1`/`RouterConfig`/`MatchRule`/`matchesPatterns`/`estimateTokens`/`estimateContextTokens`、预算史（budgetHistory/record/budgetUsage）、`legacyConfig` getter、`legacyConfigToV3`/`legacyMetasFromConfig`/`legacyWeights`；classify.ts 与 classify.test.ts 删除（scoring.ts/scores.ts 文件保留到 T9，router 不再引用）
 
 - [ ] **Step 1: 重写 router.test.ts（RED）——核心用例逐字钉桩**
 
@@ -593,7 +600,11 @@ export function canClaimImageAdmission(config: RouterConfigV4, metas: readonly C
 
 `guardImage(target, hasImage)` 方法体 = `applyImageGuard(target, hasImage, this.metas)`；`installRouter` 保留现状（step===1 门控 / slots WeakMap / imageSeen 锁存 / admission bail），仅把 `canClaimImageAdmission(router.legacyConfig, ...)` 改 `canClaimImageAdmission(router.config, ...)`；删除文件头 v1 注释块与全部预算/v1 桥代码。`step` 参数保留（契约占位注释沿用）。
 
-- [ ] **Step 4: 适配 router-wiring.test.ts 与 smoke.test.ts**
+- [ ] **Step 4: 删除 classify + 适配 router-wiring.test.ts 与 smoke.test.ts**
+
+```bash
+git rm packages/dsh-kimi-tide/src/classify.ts packages/dsh-kimi-tide/test/classify.test.ts
+```
 
 - router-wiring.test.ts：夹具 `new KimiRouter(v1Config, log)` → `new KimiRouter(v4Config, METAS, log)`（v4Config = DEFAULT_CONFIG_V4() + activePreset 按需）；step=1 门控/锁存/admission 断言语义不变，配置词汇改 v4。
 - smoke.test.ts：`estimateTokens` 删除 → 改为 `latestUserText` + `messagesContainImage` 钉桩：
@@ -611,25 +622,26 @@ describe('scaffold smoke', () => {
 - [ ] **Step 5: 跑测试**
 
 Run: `npx vitest run test/router.test.ts test/router-wiring.test.ts test/smoke.test.ts`
-Expected: PASS（其余测试红属预期，T4-T6 收口）
+Expected: PASS（红窗声明外的文件不被破坏）
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/dsh-kimi-tide/src/router.ts packages/dsh-kimi-tide/test/router.test.ts packages/dsh-kimi-tide/test/router-wiring.test.ts packages/dsh-kimi-tide/test/smoke.test.ts
-git commit -m "feat(router): KimiRouter v4 换核——显式@→规则链首命中(目标不可用跳过)→预设默认打底；预算/评分/v1 桥退役；护栏/锁存/准入语义不变改 v4 词汇"
+git add -A packages/dsh-kimi-tide/src packages/dsh-kimi-tide/test
+git commit -m "feat(router): KimiRouter v4 换核——显式@→规则链首命中(目标不可用跳过)→预设默认打底；预算/评分/v1 桥与 classify.ts 退役；护栏/锁存/准入语义不变改 v4 词汇"
 ```
 
 ---
 
-### Task 4: 迁移链 v4（migrateV3 + sidecar/settings-migration 适配）
+### Task 4: 迁移链 v4（migrateV3 + sidecar 适配）
 
 **Files:**
 - Modify: `<pkg>/src/migrate.ts`（+migrateV3/+coerceRouterConfigV4/hasKimiTideResidue v4 化）
 - Modify: `<pkg>/src/sidecar.ts`（validate/write-back v4 化）
-- Modify: `<pkg>/src/settings-migration.ts`（类型改 v4，逻辑不变）
 - Test: `<pkg>/test/migrate.test.ts`（+migrateV3/链式用例）
-- Test: `<pkg>/test/sidecar.test.ts`、`<pkg>/test/settings-migration.test.ts`（适配）
+- Test: `<pkg>/test/sidecar.test.ts`（适配）
+
+（预检修订②：settings-migration.ts 类型适配与其测试移入 T5；本任务结束后 settings-migration.ts 经宽松断言仍可通过 typecheck——其内部 `replace(loaded.config as unknown as object)` 已擦型。）
 
 **Interfaces:**
 - Consumes: T1 v4/v3 类型
@@ -727,32 +739,32 @@ export function coerceRouterConfigV4(raw: unknown, warn: (m: string) => void): R
 
 sidecar.ts：类型 `RouterConfigV3` → `RouterConfigV4`；`validate()` 增 v4 分支（结构检查：`presets` 为对象且非数组、`activePreset` 为 string|null，不合格抛错走 .corrupt；合格直通），v2/v3 分支尾部改 `coerceRouterConfigV4`，v1 分支 `migrateV1(...)` 改 `coerceRouterConfigV4(...)`；load() 写回迁移条件 `version === 2` 改 `version !== 4`，留档名 `.pre-v3` 改 `.pre-v4`（注释同步：v2/v3→v4 写回）；`export { DEFAULT_CONFIG_V3 }` 改 `export { DEFAULT_CONFIG_V4 }`。
 
-settings-migration.ts：`MigrationScope.get(): RouterConfigV4`、`replace` 不变；`mergeResolved` 返回类型改 v4（T5 落地后对齐——本任务先改类型引用，schema 实现属 T5；两任务接口以 `mergeResolved(entry: unknown): RouterConfigV4` 为准）。
-
-- [ ] **Step 4: 适配 sidecar.test/settings-migration.test 并跑**
+- [ ] **Step 4: 适配 sidecar.test 并跑**
 
 夹具 v3 配置 → v4（`DEFAULT_CONFIG_V4()` 改造）；「v2 写回 .pre-v3」用例改「v2/v3 写回 .pre-v4」。
-Run: `npx vitest run test/migrate.test.ts test/sidecar.test.ts test/settings-migration.test.ts`
+Run: `npx vitest run test/migrate.test.ts test/sidecar.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/dsh-kimi-tide/src/migrate.ts packages/dsh-kimi-tide/src/sidecar.ts packages/dsh-kimi-tide/src/settings-migration.ts packages/dsh-kimi-tide/test/migrate.test.ts packages/dsh-kimi-tide/test/sidecar.test.ts packages/dsh-kimi-tide/test/settings-migration.test.ts
+git add packages/dsh-kimi-tide/src/migrate.ts packages/dsh-kimi-tide/src/sidecar.ts packages/dsh-kimi-tide/test/migrate.test.ts packages/dsh-kimi-tide/test/sidecar.test.ts
 git commit -m "feat(migrate): v3→v4 语义映射链（mode→预设/default→预设默认，评分参数不迁移）；sidecar v4 校验+写回留档 .pre-v4"
 ```
 
 ---
 
-### Task 5: settings-schema v4 兼容层
+### Task 5: settings-schema v4 兼容层 + settings-migration 类型适配（红窗期收尾准备）
 
 **Files:**
 - Modify: `<pkg>/src/settings-schema.ts`
+- Modify: `<pkg>/src/settings-migration.ts`（类型改 v4，逻辑不变）
 - Test: `<pkg>/test/settings-schema.test.ts`
+- Test: `<pkg>/test/settings-migration.test.ts`（适配）
 
 **Interfaces:**
-- Consumes: T1 v4 + Step 1 落锤的 schemastery 行为；T4 `RouterConfigV4`
-- Produces: `routerConfigSchema`（接受 version 2/3/4 存量）、`validateRouterConfig(raw: RouterConfigV4): string | undefined`、`mergeResolved(entry: unknown): RouterConfigV4`
+- Consumes: T1 v4 + T1 Step 2 落锤的 schemastery 行为；T4 `RouterConfigV4`
+- Produces: `routerConfigSchema`（接受 version 2/3/4 存量）、`validateRouterConfig(raw: RouterConfigV4): string | undefined`、`mergeResolved(entry: unknown): RouterConfigV4`、`MigrationScope { get(): RouterConfigV4; replace(section: object): Promise<void> }`
 
 - [ ] **Step 1: 写测试（RED）**
 
@@ -806,9 +818,11 @@ describe('validateRouterConfig v4', () => {
 })
 ```
 
+settings-migration.test.ts：夹具改 v4（scope.get 返回 v4 配置；mergeResolved 现在返回 v4）。
+
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `npx vitest run test/settings-schema.test.ts`
+Run: `npx vitest run test/settings-schema.test.ts test/settings-migration.test.ts`
 Expected: FAIL
 
 - [ ] **Step 3: 实现（GREEN）**
@@ -843,54 +857,114 @@ export const routerConfigSchema = Schema.object({
 })
 ```
 
-validate/mergeResolved 按上面测试语义实现（mergeResolved 沿用 deepMerge + schema 两段式，返回类型改 v4）。
+`validateRouterConfig`/`mergeResolved` 按测试语义实现（mergeResolved 沿用 deepMerge + schema 两段式，返回类型改 v4）；settings-migration.ts 的 `MigrationScope.get()` 与相关类型改 `RouterConfigV4`。
 
 - [ ] **Step 4: 跑测试**
 
-Run: `npx vitest run test/settings-schema.test.ts`
+Run: `npx vitest run test/settings-schema.test.ts test/settings-migration.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/dsh-kimi-tide/src/settings-schema.ts packages/dsh-kimi-tide/test/settings-schema.test.ts
-git commit -m "feat(settings-schema): v4 兼容层（version 2/3/4 存量可注册；validate 按 v4 语义校验预设/规则/组引用）"
+git add packages/dsh-kimi-tide/src/settings-schema.ts packages/dsh-kimi-tide/src/settings-migration.ts packages/dsh-kimi-tide/test/settings-schema.test.ts packages/dsh-kimi-tide/test/settings-migration.test.ts
+git commit -m "feat(settings-schema): v4 兼容层（version 2/3/4 存量可注册；validate 按 v4 语义校验预设/规则/组引用）；settings-migration 类型 v4 化"
 ```
 
 ---
 
-### Task 6: index.ts 接线 v4（全量枚举 / mount 门控 / 决策摘要 / 投影）
+### Task 6: 宿主 spine 总收口（types + projection + commands + index 一体化，恢复全量绿）
+
+> 预检修订③：旧 T6(index) 与旧 T7(types/projection/commands) 合并——四者互为类型上下游，拆开必留类型红窗。
 
 **Files:**
-- Modify: `<pkg>/src/index.ts`
-- Test: `<pkg>/test/index-wiring.test.ts`、`<pkg>/test/index-apply.test.ts`（适配 v4）
-- Test: `<pkg>/test/integration.test.ts`（适配 v4）
+- Modify: `<pkg>/src/types.ts`、`<pkg>/src/projection.ts`、`<pkg>/src/commands.ts`、`<pkg>/src/index.ts`
+- Test: `<pkg>/test/types.test.ts`、`<pkg>/test/projection.test.ts`、`<pkg>/test/commands.test.ts`、`<pkg>/test/index-wiring.test.ts`、`<pkg>/test/index-apply.test.ts`、`<pkg>/test/integration.test.ts`（全部适配 v4）
 
 **Interfaces:**
 - Consumes: T1-T5 全部
-- Produces（T7/T9 依赖的投影形状）:
+- Produces（T7/T8 依赖）:
+  - `RouterPanelView { activePreset: string | null; presetName: string | null; defaultTarget: RouteTarget | null; ruleCount: number }`
+  - `CandidateSummary { provider; model; available }`（scores 删）、`DecisionSummary { chosen; reason }`（scoreDelta 删）
+  - `KimiTidePanelProjection.router: RouterPanelView`
   - `buildDecisionSummary(decision: RouteDecision): DecisionSummary | null`（删 mode 参数；`via !== 'default'` 且 kind route 才返回 `{ chosen, reason(≤120) }`）
-  - 投影 `router` 视图：`{ activePreset, presetName, defaultTarget, ruleCount }`（T7 types 落地 `RouterPanelView`）
-  - `enumerateCandidates` 全量化（无白名单）、`fallbackCandidateMetas(config: RouterConfigV4)`
+  - 命令：`/kimi-tide preset <id|off>`、`/kimi-tide show`、`/kimi-tide set activePreset <id|off>`、`export-config`/`import-config`（v4）、`refresh`、`help`
 
-- [ ] **Step 1: 适配测试（RED）——按以下映射机械更新三个测试文件的夹具与断言**
+- [ ] **Step 1: 改六个测试文件（RED）——映射表**
 
-- 配置夹具：v3 `{mode:'capability', default, candidates, scores...}` → `DEFAULT_CONFIG_V4()` + `activePreset` 按需 + 必要时改 `presets.<id>.default/rules`。
+fixture 映射（机械）：
+- v3 配置夹具 `{mode:'capability', default, candidates, scores...}` → `DEFAULT_CONFIG_V4()` + `activePreset` 按需 + 必要时改 `presets.<id>.default/rules`。
 - mount 断言：`mode !== 'off'` → `activePreset !== null`。
-- 决策摘要断言：capability route → 现 `via:'rule'|'explicit'` 上屏；`via:'default'` 不上屏（新增钉桩）；`scoreDelta` 断言删除。
-- 枚举断言：白名单外 provider 被跳过 → 现全量入池（改断言：非枚举失败即入池）。
+- 决策摘要断言：capability route → `via:'rule'|'explicit'` 上屏；新增钉桩 `via:'default'` 不上屏；`scoreDelta` 断言全删。
+- 枚举断言：白名单外 provider 被跳过 → 全量入池（非枚举失败即入池）。
 - `routerConfigToV3`/`candidateMetasFromConfig`/`buildRouter`/`v3ToV1View` 的 import/用例删除。
-- integration.test.ts：显式@/规则命中/打底/护栏 端到端断言改 v4 配置与 via 语义（保留原有场景：双源优先级、锁存、护栏兜底）。
+- integration.test.ts：显式@/规则命中/打底/护栏端到端断言改 v4 配置与 via 语义（保留原场景：双源优先级、锁存、护栏兜底）。
+
+commands.test.ts 关键新用例（逐字）：
+
+```typescript
+it('/kimi-tide preset saving → activePreset=saving 持久化', async () => {
+  const saved: RouterConfigV4[] = []
+  const deps = makeDeps(v4cfg(null), (c) => saved.push(c))   // 测试夹具工厂按现状文件调整
+  const out = await applyKimiTideCommand(parseKimiTideCommand('preset saving'), deps)
+  expect(saved[0].activePreset).toBe('saving')
+  expect(out).toContain('saving')
+})
+it('/kimi-tide preset off → activePreset=null', async () => { /* … */ })
+it('/kimi-tide preset ghost → error 且不落盘', async () => {
+  const out = await applyKimiTideCommand(parseKimiTideCommand('preset ghost'), deps)
+  expect(out).toContain('不存在')
+})
+it('/kimi-tide show → 输出当前预设/默认/规则数', async () => {
+  const out = await applyKimiTideCommand(parseKimiTideCommand('show'), depsWithSaving)
+  expect(out).toContain('省钱').toContain('deepseek-v4-flash').toContain('2')
+})
+it('/kimi-tide mode … 子命令已退役 → error 提示 preset', async () => {
+  expect(await applyKimiTideCommand(parseKimiTideCommand('mode cost'), deps)).toContain('preset')
+})
+it('import-config 内联 YAML 合并 version 置 4；文件形态走 v4 结构校验', async () => { /* 沿用现双形态用例改 v4 断言 */ })
+```
+
+projection.test.ts 钉桩：`stateVersion === 4`；candidates 无 scores、decision 无 scoreDelta 的合法负载 parse 通过。
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `npx vitest run test/index-wiring.test.ts test/index-apply.test.ts test/integration.test.ts`
+Run: `npx vitest run test/types.test.ts test/projection.test.ts test/commands.test.ts test/index-wiring.test.ts test/index-apply.test.ts test/integration.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 index.ts 改造（GREEN）**
+- [ ] **Step 3: 实现（GREEN）**
 
+types.ts：`Dim`/`RouterConfig` import 删除；`CandidateSummary.scores` 删；`DecisionSummary.scoreDelta` 删；新增 `RouterPanelView`；`KimiTidePanelProjection.router: RouterPanelView`；`models` 字段保留（零成本）。
+
+projection.ts：candidates 对象删 `scores` 行；decision 删 `scoreDelta` 行；`stateVersion: 3 → 4`；router 保持 `z.record(z.string(), z.unknown())` 透传。
+
+commands.ts：
+- `KimiTideCommand`：`mode` 换 `{ kind: 'preset'; preset: string | null }`；增 `{ kind: 'show' }`；parse：`preset <id|off>`（`off`→null）；`mode` 子命令返回 error「已退役，请用 /kimi-tide preset」。
+- `SETTABLE_KEYS` → `{ activePreset: 'string' }`（'off'→null；其余值须存在于 presets，否则 error 不落盘）。
+- preset/show 实现：
+
+```typescript
+case 'preset': {
+  if (cmd.preset !== null && deps.current().presets[cmd.preset] === undefined) {
+    return `kimi-tide: 预设 '${cmd.preset}' 不存在（现有：${Object.keys(deps.current().presets).join(', ') || '无'}）`
+  }
+  return persist({ ...deps.current(), activePreset: cmd.preset }, deps, `preset → ${cmd.preset ?? 'off'}`)
+}
+case 'show': {
+  const c = deps.current()
+  if (c.activePreset === null) return 'kimi-tide: 路由关闭（/kimi-tide preset <id> 启用）'
+  const p = c.presets[c.activePreset]
+  return p === undefined
+    ? `kimi-tide: activePreset '${c.activePreset}' 缺失（配置异常）`
+    : `kimi-tide: 预设「${p.name}」· 默认 ${p.default.provider}/${p.default.model} · 规则 ${p.rules.length} 条 · 关键词组 ${Object.keys(c.keywordGroups).length} 个`
+}
+```
+
+- import-config：`mergeInlineText` 的 `merged.version = 3` 改 `= 4`；`parseImportedFile` 增 v4 分支（结构检查 presets/activePreset 后直通）并把旧分支尾部分派到 `coerceRouterConfigV4`；HELP_TEXT/input hint 更新。
+
+index.ts：
 - 删：`routerConfigToV3`、`candidateMetasFromConfig`、`buildRouter`、`v3ToV1View`、`DEFAULT_ROUTER_CONFIG`（确认无外部引用后删；index-wiring 有引用则同步删用例）。
-- `enumerateCandidates`：删 `allowed` 集合与过滤两行；`costTier` 字段删除（CandidateMeta 已无）；「configured targets 补登记」循环的目标集 = 所有预设的 default + 所有规则 target（去重）：
+- `enumerateCandidates`：删 `allowed` 集合与过滤两行；`costTier` 字段删除（CandidateMeta 已无）；「configured targets 补登记」目标集 = 所有预设 default + 所有规则 target（去重）：
 
 ```typescript
 const configuredTargets = (): RouteTarget[] => {
@@ -919,130 +993,39 @@ export function buildDecisionSummary(decision: RouteDecision): DecisionSummary |
 
 - `onDecision` 去掉 mode 传参；`applyConfig(next: RouterConfigV4)` 逻辑不变（sameJson 幂等）。
 - settings attach 迁移段：`hasKimiTideResidue(current)` → `coerceRouterConfigV4(current, warn)`；留档名 `.pre-v3` → `.pre-v4`；日志文案「已迁移至 v3」→「已迁移至 v4（预设+规则）」。
-- `settingsBase`：`seedRaw === null → DEFAULT_CONFIG_V4()`；否则 `coerceRouterConfigV4(seedRaw, warn)`（patch 静态 v1 经 v1→v3→v4 链）。
-- `panelSnapshot`：`router: { activePreset, presetName, defaultTarget, ruleCount }`（按 T7 `RouterPanelView`）；candidates 摘要删 scores 字段。
+- `settingsBase`：`seedRaw === null → DEFAULT_CONFIG_V4()`；否则 `coerceRouterConfigV4(seedRaw, warn)`。
+- `panelSnapshot`：`router: { activePreset, presetName, defaultTarget, ruleCount }`（`RouterPanelView`）；candidates 摘要删 scores 字段。
 - `Config` 接口注释更新（seed 仍为 v1 词汇，经迁移链进 v4）。
 
-- [ ] **Step 4: 跑测试 + 全量**
+- [ ] **Step 4: 全量绿恢复验证**
 
-Run: `npx vitest run test/index-wiring.test.ts test/index-apply.test.ts test/integration.test.ts`，随后 `npm test`
-Expected: PASS；全量红应只剩 client 侧（SettingsCard/panel-v3/types/projection/commands/card-store 相关），T7-T10 收口
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add packages/dsh-kimi-tide/src/index.ts packages/dsh-kimi-tide/test/index-wiring.test.ts packages/dsh-kimi-tide/test/index-apply.test.ts packages/dsh-kimi-tide/test/integration.test.ts
-git commit -m "feat(index): 0.5.0 接线——全量候选枚举去白名单、activePreset 门控、via 语义决策摘要、v4 投影视图与迁移留档 .pre-v4"
-```
-
----
-
-### Task 7: types + projection + commands v4
-
-**Files:**
-- Modify: `<pkg>/src/types.ts`、`<pkg>/src/projection.ts`、`<pkg>/src/commands.ts`
-- Test: `<pkg>/test/types.test.ts`、`<pkg>/test/projection.test.ts`、`<pkg>/test/commands.test.ts`
-
-**Interfaces:**
-- Produces:
-  - `RouterPanelView { activePreset: string | null; presetName: string | null; defaultTarget: RouteTarget | null; ruleCount: number }`
-  - `CandidateSummary { provider; model; available }`（scores 删）、`DecisionSummary { chosen; reason }`（scoreDelta 删）
-  - `KimiTidePanelProjection.router: RouterPanelView`
-  - 命令：`/kimi-tide preset <id|off>`、`/kimi-tide show`、`/kimi-tide set activePreset <id|off>`、`export-config`/`import-config`（v4）、`refresh`、`help`
-
-- [ ] **Step 1: 写/改测试（RED）**
-
-types.test.ts：parseQuotaSnapshot 用例不动；删 scores/scoreDelta 相关断言（若有）。
-projection.test.ts：zod schema 断言更新——candidates 无 scores、decision 无 scoreDelta、`stateVersion` 4（钉桩）：
-
-```typescript
-it('panel schema v4：candidates 无 scores、decision 无 scoreDelta、stateVersion 4', () => {
-  expect(kimiTideProjectionDefinition.stateVersion).toBe(4)
-  const payload = { /* 合法 v4 投影全字段 */ }
-  // parse 通过 + 带 scores/scoreDelta 的旧负载被拒（schema 严格段）或透传（passthrough 段）按实现断言
-})
-```
-
-commands.test.ts（关键新用例）：
-
-```typescript
-it('/kimi-tide preset saving → activePreset=saving 持久化', async () => {
-  const saved: RouterConfigV4[] = []
-  const deps = makeDeps(v4cfg(null), (c) => saved.push(c))   // 测试夹具工厂按现状文件调整
-  const out = await applyKimiTideCommand(parseKimiTideCommand('preset saving'), deps)
-  expect(saved[0].activePreset).toBe('saving')
-  expect(out).toContain('saving')
-})
-it('/kimi-tide preset off → activePreset=null', async () => { /* … */ })
-it('/kimi-tide preset ghost → error 且不落盘', async () => {
-  const out = await applyKimiTideCommand(parseKimiTideCommand('preset ghost'), deps)
-  expect(out).toContain('不存在')
-})
-it('/kimi-tide show → 输出当前预设/默认/规则数', async () => {
-  const out = await applyKimiTideCommand(parseKimiTideCommand('show'), depsWithSaving)
-  expect(out).toContain('省钱').toContain('deepseek-v4-flash').toContain('2')
-})
-it('/kimi-tide mode … 子命令已退役 → error 提示 preset', async () => {
-  expect(await applyKimiTideCommand(parseKimiTideCommand('mode cost'), deps)).toContain('preset')
-})
-it('import-config 内联 YAML 合并 version 置 4；文件形态走 v4 结构校验', async () => { /* 沿用现双形态用例改 v4 断言 */ })
-```
-
-- [ ] **Step 2: 跑测试确认失败** → Expected: FAIL
-
-- [ ] **Step 3: 实现（GREEN）**
-
-types.ts：`Dim`/`RouterConfig` import 删除；`CandidateSummary.scores` 删；`DecisionSummary.scoreDelta` 删；新增 `RouterPanelView`；`KimiTidePanelProjection.router: RouterPanelView`；`models` 字段保留（T9 卡片下拉仍可用，但主要数据源改 card-store catalog——保留不删，零成本）。
-projection.ts：candidates 对象删 `scores` 行；decision 删 `scoreDelta` 行；`stateVersion: 3 → 4`；router 保持 `z.record(z.string(), z.unknown())` 透传。
-commands.ts：
-- `KimiTideCommand`：`mode` 换 `{ kind: 'preset'; preset: string | null }`；增 `{ kind: 'show' }`；parse：`preset <id|off>`（`off`→null）；`mode` 子命令返回 error「已退役，请用 /kimi-tide preset」。
-- `SETTABLE_KEYS` → `{ activePreset: 'string' }`（set activePreset 时 'off'→null；其余值须存在于 presets，否则 error 不落盘）。
-- preset/show 实现：
-
-```typescript
-case 'preset': {
-  if (cmd.preset !== null && deps.current().presets[cmd.preset] === undefined) {
-    return `kimi-tide: 预设 '${cmd.preset}' 不存在（现有：${Object.keys(deps.current().presets).join(', ') || '无'}）`
-  }
-  return persist({ ...deps.current(), activePreset: cmd.preset }, deps, `preset → ${cmd.preset ?? 'off'}`)
-}
-case 'show': {
-  const c = deps.current()
-  if (c.activePreset === null) return 'kimi-tide: 路由关闭（/kimi-tide preset <id> 启用）'
-  const p = c.presets[c.activePreset]
-  return p === undefined
-    ? `kimi-tide: activePreset '${c.activePreset}' 缺失（配置异常）`
-    : `kimi-tide: 预设「${p.name}」· 默认 ${p.default.provider}/${p.default.model} · 规则 ${p.rules.length} 条 · 关键词组 ${Object.keys(c.keywordGroups).length} 个`
-}
-```
-
-- import-config：`mergeInlineText` 的 `merged.version = 3` 改 `= 4`；`parseImportedFile` 增 v4 分支（结构检查 presets/activePreset 后直通）并把旧分支尾部分派到 `coerceRouterConfigV4`；HELP_TEXT/input hint 更新。
-
-- [ ] **Step 4: 跑测试** → `npx vitest run test/types.test.ts test/projection.test.ts test/commands.test.ts` Expected: PASS
+Run: `npm test && npm run typecheck && npm run build`
+Expected: **全量绿**（红窗期结束；唯一例外：`src/client/SettingsCard.tsx` 及其两个测试可留红——它读 v3 的 `config.scores`，T8 收口）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/dsh-kimi-tide/src/types.ts packages/dsh-kimi-tide/src/projection.ts packages/dsh-kimi-tide/src/commands.ts packages/dsh-kimi-tide/test/types.test.ts packages/dsh-kimi-tide/test/projection.test.ts packages/dsh-kimi-tide/test/commands.test.ts
-git commit -m "feat(types,projection,commands): v4 投影（去 scores/scoreDelta、RouterPanelView、stateVersion 4）+ 命令族 preset/show 化"
+git add packages/dsh-kimi-tide/src/types.ts packages/dsh-kimi-tide/src/projection.ts packages/dsh-kimi-tide/src/commands.ts packages/dsh-kimi-tide/src/index.ts packages/dsh-kimi-tide/test
+git commit -m "feat(spine): 0.5.0 宿主 spine 总收口——v4 投影（去 scores/scoreDelta、RouterPanelView、stateVersion 4）+ 命令族 preset/show 化 + 全量枚举/activePreset 门控/via 决策摘要/迁移留档 .pre-v4"
 ```
 
 ---
 
-### Task 8: card-store v4（预设/规则/组写方法 + 全量目录）
+### Task 7: card-store v4（预设/规则/组写方法 + 全量目录）
 
 **Files:**
 - Modify: `<pkg>/src/client/card-store.ts`
-- Test: `<pkg>/test/card-store.test.ts`（新建——store 层独立钉桩，UI 测试在 T9）
+- Test: `<pkg>/test/card-store.test.ts`（新建——store 层独立钉桩，UI 测试在 T8）
+
+**红窗声明**：本任务允许 `src/client/SettingsCard.tsx` 及其测试类型红（T8 收口）。
 
 **Interfaces:**
-- Consumes: T1 v4、T7 类型
-- Produces（T9 依赖）:
+- Consumes: T1 v4、T6 类型
+- Produces（T8 依赖）:
   - `CardSnapshot` 增 `catalog: Array<{ provider: string; models: string[] }> | null`（全量模型目录，下拉数据源）；`config/base/user` 类型改 `RouterConfigV4`
   - `CardStore` 新方法（全部经既有 saveTop 整段写）：
     - `saveActivePreset(id: string | null): Promise<void>`
     - `savePreset(presetId: string, preset: RouterPreset): Promise<void>`（整体覆盖该预设）
-    - `renamePresetId(oldId, newId)` 不做——新建/复制/删除替代：
     - `createPreset(id: string, preset: RouterPreset): Promise<void>`（id 冲突 → error 通道）
     - `deletePreset(id: string): Promise<void>`（删激活预设时同写 `activePreset: null`）
     - `saveKeywordGroups(groups: Record<string, string[]>): Promise<void>`
@@ -1140,7 +1123,7 @@ git commit -m "feat(card-store): v4 数据面——预设/规则/组整段写方
 
 ---
 
-### Task 9: SettingsCard 预设管理器重做
+### Task 8: SettingsCard 预设管理器重做
 
 **Files:**
 - Modify: `<pkg>/src/client/SettingsCard.tsx`（整体重写）
@@ -1149,7 +1132,7 @@ git commit -m "feat(card-store): v4 数据面——预设/规则/组整段写方
 - Test: `<pkg>/test/SettingsCard.dom.test.tsx`（适配——hooks 顺序回归钉必须保留）
 
 **Interfaces:**
-- Consumes: T8 CardStore 全部方法 + snapshot.catalog/availability
+- Consumes: T7 CardStore 全部方法 + snapshot.catalog/availability
 - Produces: 预设管理器 UI（spec §8）
 
 - [ ] **Step 1: 写 UI 测试（RED）——renderToString 断言关键结构**
@@ -1190,7 +1173,7 @@ it('预设操作：新建/复制/删除按钮在', () => {
 })
 ```
 
-dom 测试适配：保留「loading→ready 重渲染不崩（hooks 顺序）」用例（`test/SettingsCard.dom.test.tsx` 现 RED 复现钉），快照工厂换 v4 配置即可，断言改为新结构存在（如「关闭」按钮）。
+dom 测试适配：保留「loading→ready 重渲染不崩（hooks 顺序）」用例（现 RED 复现钉），快照工厂换 v4 配置，断言改为新结构存在（如「关闭」按钮）。
 
 - [ ] **Step 2: 跑测试确认失败** → Expected: FAIL
 
@@ -1211,7 +1194,7 @@ export function SettingsCard(props: SettingsCardProps) {
   const active = config.activePreset !== null ? config.presets[config.activePreset] ?? null : null
   const catalog = snapshot.catalog ?? []
   const modelOptions = catalog.flatMap((g) => g.models.map((m) => `${g.provider}/${m}`))
-  // 规则编辑：全部组装 next presets 后 store.savePreset / store 层整段写
+  // 规则编辑：全部组装 next 后经 store 整段写
   const updateRules = (presetId: string, rules: RouterRule[]) => {
     const preset = config.presets[presetId]
     void store.savePreset(presetId, { ...preset, rules })
@@ -1225,7 +1208,10 @@ export function SettingsCard(props: SettingsCardProps) {
 
 slug 规则：`name.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')`，空 → `preset-<Date.now()%100000>`；冲突 → 后缀 `-2/-3…`（冲突检测由 store.createPreset 的 error 通道兜底）。
 
-- [ ] **Step 4: 跑测试 + styles 清理** → `npx vitest run test/SettingsCard.test.tsx test/SettingsCard.dom.test.tsx` Expected: PASS
+- [ ] **Step 4: 跑测试 + styles 清理**
+
+Run: `npx vitest run test/SettingsCard.test.tsx test/SettingsCard.dom.test.tsx`，随后 `npm run typecheck`
+Expected: PASS（client 侧类型红窗结束）
 
 - [ ] **Step 5: Commit**
 
@@ -1236,15 +1222,15 @@ git commit -m "feat(settings-card): 预设管理器重做——预设选择/规�
 
 ---
 
-### Task 10: TideDock + ReasonPanel v4 + 评分组件退役
+### Task 9: TideDock + ReasonPanel v4 + 评分组件整体退役
 
 **Files:**
 - Modify: `<pkg>/src/client/TideDock.tsx`、`<pkg>/src/client/ReasonPanel.tsx`
-- Delete: `<pkg>/src/client/ScoreEditor.tsx`、`<pkg>/src/client/CandidateList.tsx`、`<pkg>/test/panel-v3.test.tsx`
+- Delete: `<pkg>/src/client/ScoreEditor.tsx`、`<pkg>/src/client/CandidateList.tsx`、`<pkg>/src/scores.ts`、`<pkg>/src/scoring.ts`（预检修订④明确归入本任务）、`<pkg>/test/panel-v3.test.tsx`、`<pkg>/test/scores.test.ts`、`<pkg>/test/scoring.test.ts`
 - Test: `<pkg>/test/TideDock.test.tsx`（若不存在则新建，钉桩 dock v4 视图）
 
 **Interfaces:**
-- Consumes: T7 `RouterPanelView`/`DecisionSummary`
+- Consumes: T6 `RouterPanelView`/`DecisionSummary`
 
 - [ ] **Step 1: 写测试（RED）**
 
@@ -1271,23 +1257,23 @@ it('决策 chip 显示 reason，无 scoreDelta', () => {
 
 TideDock：`router.mode` → `router.presetName ?? '关闭'`（chip `📡`）；`⚡ {router.primary.model}` → `⚡ {router.defaultTarget?.model}`（activePreset null 时不渲染）；删 `💰 premiumBudget` 段；决策 chip title 去 `Δ scoreDelta`；ReasonPanel 调用改 `presetName={router.presetName}`。
 ReasonPanel props：`{ configSource, decision, presetName: string | null }`——`mode==='off'` 文案改 `presetName === null`；删 Δ 评分差行。
-删除 ScoreEditor.tsx/CandidateList.tsx/panel-v3.test.tsx（git rm）。
+删除 ScoreEditor.tsx/CandidateList.tsx/scores.ts/scoring.ts/panel-v3.test.tsx/scores.test.ts/scoring.test.ts（git rm）。
 
 - [ ] **Step 4: 全量回归**
 
 Run: `npm test && npm run typecheck && npm run build`
-Expected: **全绿**（退役面收口完成；若 panel-v3 之外的测试仍引用被删组件，按编译错误逐个清理）
+Expected: **全绿**（退役面收口完成；若仍有引用被删组件的残留，按编译错误逐个清理）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A packages/dsh-kimi-tide/src/client packages/dsh-kimi-tide/test
-git commit -m "feat(dock): TideDock/ReasonPanel v4 视图（预设名/默认模型/规则命中摘要）；ScoreEditor/CandidateList 评分组件退役"
+git add -A packages/dsh-kimi-tide/src packages/dsh-kimi-tide/test
+git commit -m "feat(dock): TideDock/ReasonPanel v4 视图（预设名/默认模型/规则命中摘要）；scores/scoring/ScoreEditor/CandidateList 评分面整体退役"
 ```
 
 ---
 
-### Task 11: 文档 + 打包面 0.5.0 + 全量回归
+### Task 10: 文档 + 打包面 0.5.0 + 全量回归
 
 **Files:**
 - Rename: `<pkg>/docs/router-v3.md` → `<pkg>/docs/router.md`（内容重写为规则驱动架构）
@@ -1324,6 +1310,7 @@ git commit -m "docs+release: 0.5.0 规则驱动路由——router.md 重写（�
 
 ## Self-Review 记录
 
-- Spec 覆盖：§4 配置→T1；§5 引擎→T2/T3；§5.2 不变量→T3；§5.3 降级→T3/T8/T9；§6 迁移→T4/T5/T6；§7 候选池→T6/T8；§8 UI→T8/T9；§9 可观测→T6/T7/T10；§10 命令→T7；§11 退役→T2/T3/T10/T11；§12 测试→各任务；§13 验收→收尾节。无缺口。
+- Spec 覆盖：§4 配置→T1；§5 引擎→T2/T3；§5.2 不变量→T3；§5.3 降级→T3/T7/T8；§6 迁移→T4/T5/T6；§7 候选池→T6/T7；§8 UI→T7/T8；§9 可观测→T6/T9；§10 命令→T6；§11 退役→T3/T9/T10；§12 测试→各任务；§13 验收→收尾节。无缺口。
 - 占位符扫描：T6 Step 1 的测试适配为机械映射指令（38K 测试文件不宜逐字内联），已给出逐条映射表；其余代码步骤均含实码。
-- 类型一致性：RouteDecision.via / matchingRules / RouterPanelView / CardStore 方法名跨任务一致；`mergeResolved` 返回 v4 在 T4/T5 接口块对齐。
+- 类型一致性：RouteDecision.via / matchingRules / RouterPanelView / CardStore 方法名跨任务一致；`mergeResolved` 返回 v4 在 T5/T6 接口块对齐。
+- 预检修订（5 条）见文首引用块。
