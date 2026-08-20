@@ -8,7 +8,8 @@
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Release-v0.1.3-blue" alt="release">
+    <img src="https://img.shields.io/badge/Next%20Release-v0.4.0-orange" alt="next release">
     <img src="https://img.shields.io/badge/Tests-205%2F205-brightgreen" alt="tests">
   </p>
 </p>
@@ -303,7 +304,8 @@ A：v0.1.3 发布于路由器接线之前；后续特性均在 main 未发布。
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Release-v0.1.3-blue" alt="release">
+    <img src="https://img.shields.io/badge/Next%20Release-v0.4.0-orange" alt="next release">
     <img src="https://img.shields.io/badge/Tests-205%2F205-brightgreen" alt="tests">
   </p>
 </p>

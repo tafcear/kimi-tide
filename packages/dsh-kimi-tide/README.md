@@ -71,7 +71,7 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 - **刷新配额**：主行只读侧保留「🔄 刷新配额」按钮（`/kimi-tide refresh`，不写配置）。
 - **推理状态**：推理输出已由 DSH 原生渲染（reasoning-delta），面板仅提示「已启用」。
 
-面板命令族（也可在输入框直接敲，0.3.0 起为 v3 键表）：
+面板命令族（也可在输入框直接敲，0.4.0 起为 v3 键表）：
 - `/kimi-tide mode off|cost|capability`
 - `/kimi-tide set <key> <value>`（v3 键：`lambda` / `routeThreshold` / `premiumBudget` / `budgetWindow` / `charsPerToken` / `default.model`）
 - `/kimi-tide export-config`（打印 resolved 配置 YAML）/ `/kimi-tide import-config <path|内联 YAML>`（文件整表替换，或多行内联 YAML 合并补丁）
@@ -89,4 +89,4 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 
 ## 许可
 
-[MIT](../../LICENSE)
+[MIT](../../LICENSE) · 依赖 `@earendil-works/pi-ai`（MIT）
