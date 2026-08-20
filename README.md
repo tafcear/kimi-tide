@@ -8,15 +8,15 @@
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.1.3-blue" alt="release">
-    <img src="https://img.shields.io/badge/Next%20Release-v0.4.0-orange" alt="next release">
-    <img src="https://img.shields.io/badge/Tests-205%2F205-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Next%20Release-v0.5.0-orange" alt="next release">
+    <img src="https://img.shields.io/badge/Tests-203%2F203-brightgreen" alt="tests">
   </p>
 </p>
 
 ---
 
-## 现状快照（2026-08-20）
+## 现状快照（2026-08-21）
 
 > **📌 开发计划（重要）**：**v0.4.0 已发布（2026-08-20，tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0) 附 dsh-kimi-tide-0.4.0.tgz，[Actions 流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152)）**，内容 = 设置界面迁移（`bc31b69`）+ **「API key 直连」**——接入层切换为官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，自研 OAuth 接入层退役（约 740 行删除），provider 命名 `kimi-tide/*` → `kimi-coding/*` 自动迁移存量配置（实施 commit `ec7909e..123d4e7`；发布版 216/216 测试 + typecheck + build 绿）。设计稿：[`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。
 
@@ -27,6 +27,7 @@
 | 0.3.0 能力评分路由 | ✅ main 已实施 + 手工验收 7/7 | `86da918`（203/203 绿） |
 | 0.4.0 设置界面迁移 | ✅ main 已合并 | `bc31b69`；验收 ①-③ 通过 |
 | 0.4.x API key 直连 | ✅ 已发布 v0.4.0（2026-08-20） | tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，[流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
+| 0.5.0 规则驱动路由 | ✅ 已实施（分支 `feat-0.5.0-rule-routing`，未发布） | 预设+规则引擎取代评分引擎，203/203 绿 + typecheck 0 + build 过 |
 
 ⚠️ **已知限制**：带图会话会锁存多模态模型；若 Kimi 侧额度/Key 失效，该会话无法切回文本模型（死锁，只能新开会话）。根解「图像转述模式」改设计中（子代理图片外包已裁撤：官方子代理仅文本），详见[已知限制](#已知限制)。
 
@@ -45,14 +46,14 @@ DSH 里一个会话从头到尾只用一个模型。可现实是：
 
 ## 特性一览
 
-- 🚦 **双模型自动分工**：`off` / `cost`（省着用）/ `capability`（谁厉害谁上）三种模式；按**每个步骤**决策，不是一会话绑定到死。
-- 🎯 **能力评分引擎**：6 维评分（代码/推理/写作/工具/视觉/长上下文），每个分数标注**证据等级**（一级基准 / 推断 / 待核实），可在设置卡片里用滑杆覆盖。
+- 🚦 **预设自动分工**：内置「省钱」「能力」双预设，可自建命名预设，设置卡片一键全局切换；按**每个步骤**决策，不是一会话绑定到死。
+- 🎯 **规则驱动路由**（0.5.0）：规则 = 带图 / 命名关键词组（内置「代码」「闲聊」，可自建组），列表顺序首条命中；未命中走预设默认模型（打底），规则目标未接入自动降级跳过。
 - 🖼️ **图像护栏**：带图消息自动改道多模态模型；会话锁存防止历史含图后文本模型崩溃（`UNSUPPORTED_CONTENT`）。
 - 👁️ **决策可观测**：dock 面板实时显示「这步选了谁、为什么」，会话日志留痕可复查——不黑箱。
 - ⚙️ **官方设置卡片**：路由配置就在 DSH「设置 → 月汐」里编辑，原生分层持久化，重启保持。
 - 🔌 **官方接入层**（0.4.x）：Kimi 模型经 pi-ai 原生 `kimi-coding` 路由接入，**一把 Console API Key 即可**，不再需要 Kimi CLI 登录与令牌刷新。
 - 📊 **官方配额显示**：dock 面板轮询 Kimi Code 用量接口，周配额 / 5h 窗口一目了然。
-- ⌨️ **`/kimi-tide` 命令族**：`mode` / `set` / `export-config` / `import-config` / `refresh`，配置可导出备份、可导入恢复。
+- ⌨️ **`/kimi-tide` 命令族**：`preset` / `show` / `set` / `export-config` / `import-config` / `refresh`，配置可导出备份、可导入恢复。
 
 ---
 
@@ -67,17 +68,18 @@ timeline
     0.2.x 路由 : 双模型自动分工 + dock 面板（会选了）
     0.3.0 评分 : 6 维能力评分引擎 + 决策留痕（选得有依据）
     0.4.x 收敛 : 官方设置卡片 + API key 直连，自研接入层退役（不重复造轮）
-    0.5.x 转述 : 图像转述模式（读图付费、正文省钱，rc.8 改设计）
+    0.5.0 规则 : 规则驱动路由——命名预设 + 关键词组，评分引擎退役（简单可配）
+    0.5.x+ 转述 : 图像转述模式（读图付费、正文省钱，rc.8 改设计）
 ```
 
 - **第一段（自研接入）**：当初 DSH 没有 Kimi 通道，我们自研了 OAuth 适配器把订阅接进来。
 - **第二段（路由与评分）**：接进来之后发现真正的痛点是「哪个任务该用谁」——于是有了双模型路由、能力评分和图像护栏。
-- **第三段（收敛聚焦）**：宿主平台调研实锤 pi-ai 已**原生内置** kimi-coding 路由（API key + 订阅 OAuth 双凭据）。自研接入层成了重复造轮，果断退役——**月汐只做官方没有的事：路由、护栏、观测**。
+- **第三段（收敛聚焦）**：宿主平台调研实锤 pi-ai 已**原生内置** kimi-coding 路由（API key + 订阅 OAuth 双凭据）。自研接入层成了重复造轮，果断退役——**月汐只做官方没有的事：路由、护栏、观测**。0.5.0 再进一步：六维评分引擎退役，换成用户看得懂、改得动的**预设 + 规则**。
 
 三条原则：
 
 1. **官方优先**：动手前先查官方生态；官方已提供的（适配器/设置页/模型选择器），坚决不重造。
-2. **证据分级**：每个能力分数都标出处（一级基准 / 推断 / 待核实），推断永不冒充事实。
+2. **规则透明**：路由依据是人能读懂的预设与关键词组，不经黑箱打分；每条规则都可改、可排序、可删除。
 3. **决策可观测**：每一次自动选路都有理由、有留痕、可复盘。
 
 ---
@@ -92,18 +94,17 @@ timeline
 
 ```mermaid
 flowchart LR
-    A["💬 你的消息<br>（本轮新消息）"] --> B{"带图？or<br>显式 @模型？"}
-    B -- 带图 --> G["🖼️ 图像护栏<br>改道多模态候选"]
+    A["💬 你的消息<br>（本轮新消息）"] --> B{"显式 @模型？"}
     B -- "@kimi 等" --> H["🎯 显式指令<br>最高优先"]
-    B -- 普通文本 --> C["🧮 classify 分类<br>关键词/长度 → 维度权重"]
-    G --> D
-    H --> D
-    C --> D["⚖️ selectCandidate<br>加权能力分 − λ×成本档"]
-    D --> E{"过路由阈值？"}
-    E -- 是 --> F["🌙 Kimi 候选<br>（kimi-coding/*）"]
-    E -- 否/平局 --> I["💰 默认主力<br>（deepseek-v4-flash）"]
-    F --> J["📋 dock 面板留痕<br>选谁 + 为什么"]
-    I --> J
+    B -- 否 --> C["📏 预设规则链<br>带图 / 关键词组<br>首条命中生效"]
+    C -- 命中 --> D["🌙 规则目标<br>（未接入则降级跳过）"]
+    C -- 未命中 --> E["💰 预设默认模型<br>（打底）"]
+    H --> J
+    D --> F{"带图且目标<br>文本-only？"}
+    E --> F
+    F -- 是 --> G["🖼️ 图像护栏<br>改道多模态候选"]
+    F -- 否 --> J["📋 dock 面板留痕<br>选谁 + 为什么"]
+    G --> J
 ```
 
 ---
@@ -134,8 +135,8 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 重启 `dsh web`：
 
-- **设置 → 月汐**：把 `mode` 调到 `cost` 或 `capability`，路由器即刻上岗；
-- 消息里 **`@kimi`** 显式点将，或配置关键词（如「审查」）自动升级；
+- **设置 → 月汐**：在预设行选「省钱」或「能力」，路由器即刻上岗；
+- 消息里 **`@kimi`** 显式点将，或靠内置关键词组（如「代码」）自动改道；
 - dock 面板的 chip 实时显示每一步选了谁、为什么。
 
 > **发布规范（重要）**：DSH 插件必须声明 `dsh.bundle.patch`（指向 `cordis.patch.yml`）才能作为 profile 层加载。本插件已按官方规范声明，升级版本时请勿移除该字段。
@@ -144,40 +145,34 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 ## 路由器详解
 
-### 三种模式
+### 内置预设
 
-| 模式 | 一句话 | 适合谁 |
-|---|---|---|
-| `off` | 不挂载路由器，DSH 原生行为 | 想完全手动选模型的人 |
-| `cost` | 默认便宜主力，必要时才升级 Kimi（占比 ≤ `premiumBudget`） | 额度敏感、日常杂活多 |
-| `capability` | 按任务类型选评分最高者（过 `routeThreshold` 才切换） | 追求最佳产出质量 |
-
-### 能力评分引擎
-
-- **6 维评分**：`code` / `reasoning` / `writing` / `tooluse` / `vision` / `longctx`；设置卡片滑杆可覆盖任意维度。
-- **决策流**：`classify`（关键词/长度 → 维度权重）→ 显式 `@provider`（最高优先）→ `selectCandidate`（加权分 − λ×成本档）；平局/不达标回退默认路由。
-- **候选枚举**：从 `ctx.llm` 实时目录枚举白名单 provider 的模型并解析模态；配了但未接入的模型在面板标灰，不参与评分。
-- **评分基线 v3**（`src/scores.ts`，`SCORES_VERSION = 3`，证据分级标注）：
-
-| 模型 | code | reasoning | 其余维度 |
+| 预设 | 默认模型（打底） | 规则 | 适合谁 |
 |---|---|---|---|
-| `kimi-coding/k3` | 4.7（一级：SWE-bench 93.4%） | 4.5（推断） | 中性 2.5；vision 由模态决定 |
-| `kimi-coding/kimi-for-coding` | 4.5（推断） | 3.5（推断） | 同上 |
-| `deepseek-v4-pro` | 4.0（一级：SWE-bench 80.6%） | 4.5（一级：GPQA 90.1%） | 同上 |
-| `deepseek-v4-flash` | 3.0（推断） | 3.0（推断） | 同上 |
+| 关闭 | — | — | 想完全手动选模型的人 |
+| 省钱 | `deepseek-v4-flash` | 带图 → `k3`；代码关键词 → `kimi-for-coding` | 额度敏感、日常杂活多 |
+| 能力 | `k3` | 闲聊关键词 → `deepseek-v4-flash`；代码关键词 → `kimi-for-coding` | 追求最佳产出质量 |
 
-> 出处锚点见 `src/scores.ts` 注释与 [`docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md)；「推断」格计划由 A 方案全维取证替换。（0.4.x 起基线键为 `kimi-coding/*`。）
+预设即数据：内置预设与自定义预设同构，可在设置卡片新建/复制/删除命名预设、编辑规则与关键词组；`activePreset` 一键全局切换。
+
+### 规则引擎（0.5.0）
+
+- **规则条件**：`带图` / 命名关键词组（内置「代码」「闲聊」两组，词表可改、可自建组）。
+- **决策流**：显式 `@provider`（最高优先）→ 预设规则链（列表顺序、首条目标可用者命中）→ 打底（预设默认模型）——未命中 ≠ 不动，而是路由到打底。
+- **降级**：规则目标未接入（不在全量枚举池）→ 自动跳过该规则，继续匹配/落打底；面板标灰提示。
+- **候选枚举**：从 `ctx.llm` 实时目录**全量**枚举所有 provider 的模型并解析模态（0.5.0 起无白名单）；配了但未接入的模型在面板标灰，不参与路由。
+
+> 0.5.0 起能力评分引擎（六维评分/评分基线/预算窗口）整体退役——路由依据从「分数」变为「你写的规则」。v3 评分配置升级时自动迁移为预设（留档 `.pre-v4`），架构细节见 [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md)。
 
 ### 图像护栏与锁存
 
-- **per-step 护栏**：带图步骤命中文本-only 路由时按模态改道多模态候选，不占预算窗口。
+- **per-step 护栏**：带图步骤命中文本-only 路由时按模态改道多模态候选（正确性护栏）。
 - **宿主准入声明**（`agent/image-admission`，配合宿主补丁）：新会话默认模型为文本-only 时，入口层先放行「会改道」的声明，带图轮才进得了 agent 循环。
-- **会话锁存**：图片一旦进入会话历史，该会话后续轮次强制按 vision 评分（多模态必胜出），防止文本模型序列化图片历史时崩溃。
+- **会话锁存**：图片一旦进入会话历史，该会话后续轮次强制按带图处理（带图规则必命中 + 护栏兜底改道多模态），防止文本模型序列化图片历史时崩溃。
 
 ### 已知限制
 
 1. **带图会话锁存死锁**：锁存后整会话走多模态模型；若 Kimi 额度/Key 失效，会话**无法切回文本模型**（历史含图片）→ 只能新开会话。**根解 = 图片不进主历史**：「图像转述模式」改设计中（rc.8 宿主已提供 Modality/准入机制；子代理图片外包已裁撤——官方子代理仅文本）。
-2. **设置卡片评分滑杆步进 0.5 且无手动输入**：无法设 4.6 这类细粒度值，待修（0.1 步进 + 数字输入框）。
 
 ---
 
@@ -196,24 +191,17 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 ## 配置
 
-### 路由配置（设置 → 月汐，命名空间 `kimi-tide-router`）
+### 路由配置（设置 → 月汐，命名空间 `kimi-tide-router`，v4）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `mode` | `off` | `off` / `cost` / `capability` |
-| `default` | `deepseek-official/deepseek-v4-flash` | 默认主力路由（便宜/快） |
-| `candidates` | `[kimi-coding/kimi-for-coding]` | 候选路由表（0.4.x 迁移后） |
-| `scores` | `{}` | 用户覆盖分（未覆盖用基线） |
-| `classify.patterns` | `{}` | 关键词 → 维度权重 |
-| `allowedProviders` | `[kimi-coding, deepseek-official]` | 候选枚举白名单 |
-| `costTiers` | `{}` | 每候选成本档（`cheap`/`mid`/`expensive`，缺省 mid） |
-| `routeThreshold` | `0.75` | capability 模式路由阈值 |
-| `lambda` | `0.5` | 成本惩罚系数 |
-| `premiumBudget` | `0.2` | cost 模式 Kimi 占比上限（滑动窗口） |
-| `budgetWindow` | `20` | 预算窗口大小（决策次数） |
-| `charsPerToken` | `2` | token 估算字符折算 |
+| `activePreset` | `null` | 激活预设 id（`saving` / `capability` / 自定义）；`null` = 关闭 |
+| `presets` | 内置「省钱」「能力」 | 预设表：显示名 + 默认模型 + 有序规则表 |
+| `presets.<id>.default` | — | 打底模型（未命中规则时的路由目标） |
+| `presets.<id>.rules` | — | 规则表：条件（`带图` / 关键词组）+ 目标模型，首条命中生效 |
+| `keywordGroups` | 内置 `code` / `chitchat` | 命名关键词组词表（用户可增删改） |
 
-> **持久化**：设置命名空间（base 层 = 部署基座 / user 层 = 用户编辑，revision 冲突检测）→ 无设置服务的宿主回退 sidecar 文件 → 旧 sidecar 迁移后留档 `.legacy-imported`；0.4.x 升级时 `kimi-tide/*` 命名自动迁移为 `kimi-coding/*` 并留档 `.pre-v3`。
+> **持久化**：设置命名空间（base 层 = 部署基座 / user 层 = 用户编辑，revision 冲突检测）→ 无设置服务的宿主回退 sidecar 文件 → 旧 sidecar 迁移后留档 `.legacy-imported`；0.4.x 升级时 `kimi-tide/*` 命名自动迁移为 `kimi-coding/*` 并留档 `.pre-v3`；**0.5.0 升级时 v1-v3 评分配置自动迁移为预设/规则（v4）并留档 `.pre-v4`**（scores/预算参数不迁移）。
 
 ### 插件级配置（`cordis.patch.yml`，0.4.x 起大幅精简）
 
@@ -232,7 +220,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 - [`docs/host-platform-map.md`](docs/host-platform-map.md)：DSH 宿主平台契约调研（0.4.x/rc.8 升级的认知基线）。
 - [`docs/positioning.md`](docs/positioning.md)：项目定位与维护策略。
 - [`docs/development-plan-router.md`](docs/development-plan-router.md)：路由器开发计划（M1-M7）。
-- [`packages/dsh-kimi-tide/docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md)：0.3.0 能力评分路由引擎架构。
+- [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md)：0.5.0 规则驱动路由架构（预设/规则/打底/降级/迁移链）。
 - [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)：双模型协作闭环方法论（本项目自己的开发方式）。
 - [`docs/legacy-setup.md`](docs/legacy-setup.md)：旧接入方案存档（0.4.x 起被官方路由取代）。
 
@@ -244,7 +232,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（当前 216/216 通过，22 个测试文件）
+npm test            # vitest（当前 203/203 通过，22 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
@@ -258,7 +246,8 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 - **0.2.x（main 已落地，未发布）**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
 - **0.3.0（main 已实施，未发布）**：能力评分路由（11 任务 TDD，`86da918`），手工验收 7/7 ✅。
 - **0.4.0（已发布，2026-08-20）**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线 ✅（tag 触发全自动）；滑杆步进修 ✅（a45d722）。
-- **规划中（rc.8 重议后）**：图像转述模式（改设计——复用宿主 Modality/准入机制，端点不支持时转述降级；前置 deepseek vision 端点实测）；评分基线 A 方案全维取证。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
+- **0.5.0（已实施，未发布）**：**规则驱动路由**——命名预设（省钱/能力/可自建）+ 有序规则（带图 / 关键词组）+ 打底语义 + 不可用降级，一键全局切换；能力评分引擎整体退役（scores/classify/预算窗/评分滑杆全删），候选池改全量枚举，v1-v3 存量配置自动迁移留档 `.pre-v4`（[设计稿](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md)，203/203 绿）。
+- **规划中（rc.8 重议后）**：图像转述模式（改设计——复用宿主 Modality/准入机制，端点不支持时转述降级；前置 deepseek vision 端点实测）。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
 
 ---
 
@@ -282,11 +271,11 @@ A：v0.4.0 起不需要。一把 Console API Key + 官方 Models 页配置即可
 **Q：带图会话有什么限制？**  
 A：图片进入会话历史后会话锁存多模态模型；若 Kimi 额度/Key 失效，会话无法切回文本模型 → 死锁，只能新开。根解（图像转述模式）改设计中（子代理外包已裁撤）；落地前重要带图任务请保持 Kimi 侧额度健康。
 
-**Q：能力评分从哪里来？**  
-A：`src/scores.ts` 基线 v3：`code` / `reasoning` 有 SWE-bench / GPQA 一级证据或强相对推断，其余维度中性 2.5（vision 由模态决定）；每格标证据等级，可在设置卡片覆盖。
+**Q：0.5.0 的能力评分引擎去哪了？**  
+A：退役了。规则驱动取代六维评分：预设（默认模型 + 有序规则）+ 关键词组，命中即路由、未命中走打底——每个决策你都能读懂、改得动。v3 评分配置升级时自动迁移为预设（`.pre-v4` 留档），评分表本身不迁移。
 
 **Q：路由配置存在哪里？**  
-A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无设置服务的宿主回退 sidecar 文件；0.4.x 升级自动把 `kimi-tide/*` 改名为 `kimi-coding/*`（留档 `.pre-v3`）。
+A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无设置服务的宿主回退 sidecar 文件；0.4.x 升级自动把 `kimi-tide/*` 改名为 `kimi-coding/*`（留档 `.pre-v3`），0.5.0 升级自动迁移为 v4 预设/规则形状（留档 `.pre-v4`）。
 
 **Q：为什么 Release 页只有 v0.1.3？**  
 A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布。v0.4.0（设置迁移 + API key 直连，`ec7909e..123d4e7` + 验收修复）已于 2026-08-20 发布（tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，216/216 + typecheck + build 绿）。
@@ -303,15 +292,15 @@ A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布�
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.1.3-blue" alt="release">
-    <img src="https://img.shields.io/badge/Next%20Release-v0.4.0-orange" alt="next release">
-    <img src="https://img.shields.io/badge/Tests-205%2F205-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Next%20Release-v0.5.0-orange" alt="next release">
+    <img src="https://img.shields.io/badge/Tests-203%2F203-brightgreen" alt="tests">
   </p>
 </p>
 
 ---
 
-## Current Status (2026-08-20)
+## Current Status (2026-08-21)
 
 > **📌 Development plan (important)**: **v0.4.0 is released (2026-08-20, tag `v0.4.0` — [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0) with dsh-kimi-tide-0.4.0.tgz, [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152))**, containing the settings migration (`bc31b69`) plus **"API-key direct connection"** — the access layer switches to the official pi-ai native `kimi-coding` route + a Console API key; the self-built OAuth access layer is retired (~740 lines deleted); provider naming migrates `kimi-tide/*` → `kimi-coding/*` automatically (implementation `ec7909e..123d4e7`; release version: 216/216 tests + typecheck + build green). Design spec: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md).
 
@@ -322,6 +311,7 @@ A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布�
 | 0.3.0 capability-scored routing | ✅ Implemented on main + manual acceptance 7/7 | `86da918` (203/203 green) |
 | 0.4.0 settings migration | ✅ Merged on main | `bc31b69`; acceptance ①-③ passed |
 | 0.4.x API-key direct | ✅ Released v0.4.0 (2026-08-20) | tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0), [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
+| 0.5.0 rule-driven routing | ✅ Implemented (branch `feat-0.5.0-rule-routing`, unreleased) | preset+rule engine replaces the scoring engine; 203/203 green + typecheck 0 + build ok |
 
 ⚠️ **Known limitation**: image-bearing sessions latch onto the multimodal model; if the Kimi quota/key fails, that session cannot fall back to a text model (deadlock — start a new session). The root fix (image transcription mode, redesigned for rc.8) is planned; subagent image outsourcing was dropped (official subagents are text-only). See [Known Limitations](#known-limitations).
 
@@ -340,14 +330,14 @@ Mid-task you want to paste a screenshot — switch models by hand; then you forg
 
 ## Features
 
-- 🚦 **Automatic dual-model routing**: three modes — `off` / `cost` (frugal) / `capability` (best model for the job); decisions are made **per step**, not per session.
-- 🎯 **Capability scoring engine**: 6 dimensions (code/reasoning/writing/tooluse/vision/longctx), every score tagged with an **evidence grade** (primary benchmark / inferred / pending), overridable via sliders in the settings card.
+- 🚦 **Preset-based routing**: built-in "saving" and "capability" presets, plus your own named presets, switched globally from the settings card; decisions are made **per step**, not per session.
+- 🎯 **Rule-driven routing** (0.5.0): a rule is *image-bearing* or a *named keyword group* (built-in "code" and "chitchat", custom groups allowed); first hit in list order wins; a miss routes to the preset default (baseline), and unavailable rule targets are skipped automatically.
 - 🖼️ **Image guard**: image-bearing steps reroute to multimodal candidates automatically; session latching prevents text-model crashes (`UNSUPPORTED_CONTENT`) once images enter history.
 - 👁️ **Observable decisions**: the dock panel shows "who was picked and why" for every step, with session-log traceability — no black box.
 - ⚙️ **Official settings card**: router config lives in DSH "Settings → 月汐", natively persisted with layered overrides and restart-safe storage.
 - 🔌 **Official access layer** (0.4.x): Kimi models arrive via the pi-ai native `kimi-coding` route — **one Console API key is all you need**; no Kimi CLI login or token refresh anymore.
 - 📊 **Official quota display**: the dock polls the Kimi Code usage endpoint — weekly quota and 5h window at a glance.
-- ⌨️ **`/kimi-tide` command family**: `mode` / `set` / `export-config` / `import-config` / `refresh` — export, back up, and restore your config.
+- ⌨️ **`/kimi-tide` command family**: `preset` / `show` / `set` / `export-config` / `import-config` / `refresh` — export, back up, and restore your config.
 
 ---
 
@@ -362,17 +352,18 @@ timeline
     0.2.x Routing : Dual-model auto-routing + dock panel (it picks)
     0.3.0 Scoring : 6-dim capability engine + decision trails (picks with evidence)
     0.4.x Convergence : Official settings card + API-key direct; self-built access retired (no reinvented wheels)
-    0.5.x Transcription : Image transcription mode (pay for vision, not the body; redesigned for rc.8)
+    0.5.0 Rules : Rule-driven routing — named presets + keyword groups; scoring engine retired (simple to configure)
+    0.5.x+ Transcription : Image transcription mode (pay for vision, not the body; redesigned for rc.8)
 ```
 
 - **Phase 1 (self-built access)**: DSH had no Kimi channel, so we built an OAuth adapter to bring the subscription in.
 - **Phase 2 (routing & scoring)**: once connected, the real pain became "which model should take which task" — hence the dual-model router, capability scoring, and the image guard.
-- **Phase 3 (convergence)**: host-platform research proved pi-ai **natively ships** the `kimi-coding` route (API key + subscription OAuth). The self-built access layer became a reinvented wheel and was retired — **kimi-tide now does only what the official ecosystem lacks: routing, guarding, and observability**.
+- **Phase 3 (convergence)**: host-platform research proved pi-ai **natively ships** the `kimi-coding` route (API key + subscription OAuth). The self-built access layer became a reinvented wheel and was retired — **kimi-tide now does only what the official ecosystem lacks: routing, guarding, and observability**. In 0.5.0 we went one step further: the six-dimension scoring engine is retired in favor of **presets + rules** you can read and edit.
 
 Three principles:
 
 1. **Official first**: check the official ecosystem before writing code; never rebuild what it already provides (adapters / settings pages / model pickers).
-2. **Evidence-graded scores**: every capability score carries its source (primary benchmark / inferred / pending); inference never masquerades as fact.
+2. **Transparent rules**: routing decisions come from presets and keyword groups a human can read — no black-box scoring; every rule is editable, reorderable, deletable.
 3. **Observable decisions**: every automatic routing choice has a reason, a trail, and a replay path.
 
 ---
@@ -387,18 +378,17 @@ The decision flow of one request:
 
 ```mermaid
 flowchart LR
-    A["💬 Your message<br>(new this turn)"] --> B{"Image? or<br>explicit @model?"}
-    B -- image --> G["🖼️ Image guard<br>reroute to multimodal"]
+    A["💬 Your message<br>(new this turn)"] --> B{"Explicit @model?"}
     B -- "@kimi etc." --> H["🎯 Explicit directive<br>highest priority"]
-    B -- plain text --> C["🧮 classify<br>keywords/length → dim weights"]
-    G --> D
-    H --> D
-    C --> D["⚖️ selectCandidate<br>weighted score − λ×cost tier"]
-    D --> E{"above route threshold?"}
-    E -- yes --> F["🌙 Kimi candidate<br>(kimi-coding/*)"]
-    E -- no/tie --> I["💰 default workhorse<br>(deepseek-v4-flash)"]
-    F --> J["📋 dock trail<br>who + why"]
-    I --> J
+    B -- no --> C["📏 Preset rule chain<br>image / keyword groups<br>first hit wins"]
+    C -- hit --> D["🌙 Rule target<br>(skipped if unavailable)"]
+    C -- miss --> E["💰 Preset default<br>(baseline)"]
+    H --> J
+    D --> F{"Image step on a<br>text-only target?"}
+    E --> F
+    F -- yes --> G["🖼️ Image guard<br>reroute to multimodal"]
+    F -- no --> J["📋 dock trail<br>who + why"]
+    G --> J
 ```
 
 ---
@@ -429,8 +419,8 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 Restart `dsh web`:
 
-- **Settings → 月汐**: set `mode` to `cost` or `capability` — the router is on duty;
-- Type **`@kimi`** in a message for an explicit pick, or configure keywords (e.g. "review") for automatic escalation;
+- **Settings → 月汐**: pick the "saving" or "capability" preset — the router is on duty;
+- Type **`@kimi`** in a message for an explicit pick, or let the built-in keyword groups (e.g. "code") reroute automatically;
 - The dock chip shows who was picked and why, for every step.
 
 > **Release rule (important)**: a DSH plugin must declare `dsh.bundle.patch` (pointing at `cordis.patch.yml`) to load as a profile layer. This plugin follows the official spec — do not remove the field when bumping versions.
@@ -439,40 +429,34 @@ Restart `dsh web`:
 
 ## Router in Detail
 
-### Modes
+### Built-in Presets
 
-| Mode | In one line | Best for |
-|---|---|---|
-| `off` | Router unmounted; native DSH behavior | full manual control |
-| `cost` | Cheap default, escalate to Kimi only when needed (share ≤ `premiumBudget`) | quota-sensitive daily work |
-| `capability` | Pick the highest scorer per task type (switch only past `routeThreshold`) | best output quality |
-
-### Capability Scoring Engine
-
-- **6 dimensions**: `code` / `reasoning` / `writing` / `tooluse` / `vision` / `longctx`; sliders in the settings card override any dimension.
-- **Decision flow**: `classify` (keywords/length → dimension weights) → explicit `@provider` (highest priority) → `selectCandidate` (weighted score − λ×cost tier); ties/shortfalls keep the default route.
-- **Candidate enumeration**: models are enumerated live from the `ctx.llm` catalog for whitelisted providers, with modalities resolved; configured-but-unavailable models render greyed out and skip scoring.
-- **Baseline scores v3** (`src/scores.ts`, `SCORES_VERSION = 3`, evidence-graded):
-
-| Model | code | reasoning | other dims |
+| Preset | Default model (baseline) | Rules | Best for |
 |---|---|---|---|
-| `kimi-coding/k3` | 4.7 (primary: SWE-bench 93.4%) | 4.5 (inferred) | neutral 2.5; vision is modality-driven |
-| `kimi-coding/kimi-for-coding` | 4.5 (inferred) | 3.5 (inferred) | same |
-| `deepseek-v4-pro` | 4.0 (primary: SWE-bench 80.6%) | 4.5 (primary: GPQA 90.1%) | same |
-| `deepseek-v4-flash` | 3.0 (inferred) | 3.0 (inferred) | same |
+| Off | — | — | full manual control |
+| Saving (省钱) | `deepseek-v4-flash` | image → `k3`; code keywords → `kimi-for-coding` | quota-sensitive daily work |
+| Capability (能力) | `k3` | chitchat keywords → `deepseek-v4-flash`; code keywords → `kimi-for-coding` | best output quality |
 
-> Provenance anchors live in `src/scores.ts` comments and [`docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md); "inferred" cells will be replaced by fully-sourced values (plan A). (Since 0.4.x, baseline keys are `kimi-coding/*`.)
+Presets are data: built-ins and custom presets share one shape — create/duplicate/delete named presets and edit rules and keyword groups in the settings card; `activePreset` switches globally in one click.
+
+### Rule Engine (0.5.0)
+
+- **Rule conditions**: `image` / a named keyword group (built-in "code" and "chitchat"; editable word lists, custom groups allowed).
+- **Decision flow**: explicit `@provider` (highest priority) → preset rule chain (list order, first hit with an available target wins) → baseline (preset default) — a miss is not "do nothing", it routes to the baseline.
+- **Degradation**: a rule target absent from the full enumeration pool is skipped automatically (fall through to later rules / baseline) and greyed out in the panel.
+- **Candidate enumeration**: models are enumerated live from the `ctx.llm` catalog across **all** providers (no whitelist since 0.5.0), with modalities resolved; configured-but-unavailable models render greyed out and are skipped when routing.
+
+> Since 0.5.0 the capability scoring engine (six dimensions / score baselines / budget window) is fully retired — routing now follows "rules you wrote", not scores. v3 scoring configs auto-migrate into presets on upgrade (`.pre-v4` backup); architecture details: [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md).
 
 ### Image Guard and Latching
 
-- **Per-step guard**: an image step hitting a text-only route is rerouted to a multimodal candidate by modality, without consuming the budget window.
+- **Per-step guard**: an image step hitting a text-only route is rerouted to a multimodal candidate by modality (a correctness guard).
 - **Host admission claim** (`agent/image-admission`, with a host hotfix): on a fresh session whose default model is text-only, the router claims "will reroute" at the entry gate so the image step reaches the agent loop.
-- **Session latching**: once an image enters history, later turns force vision scoring (a multimodal candidate must win), preventing text-only serialization from crashing on image history.
+- **Session latching**: once an image enters history, later turns are forced to be treated as image-bearing (image rules always hit + the guard reroutes to multimodal), preventing text-only serialization from crashing on image history.
 
 ### Known Limitations
 
 1. **Image-latch deadlock**: after latching, the whole session runs on the multimodal model; if the Kimi quota/key fails, the session **cannot switch back to a text model** (history contains images) → open a new session. **Root fix = images never enter the main history**: the "image transcription mode" is being redesigned (the rc.8 host now ships the modality/admission machinery; subagent image outsourcing was dropped — official subagents are text-only).
-2. **Settings-card slider steps by 0.5 with no manual input**: fine-grained values like 4.6 cannot be set; fix pending (0.1 steps + numeric input).
 
 ---
 
@@ -491,24 +475,17 @@ Restart `dsh web`:
 
 ## Configuration
 
-### Router config (Settings → 月汐, namespace `kimi-tide-router`)
+### Router config (Settings → 月汐, namespace `kimi-tide-router`, v4)
 
 | Key | Default | Description |
 |---|---|---|
-| `mode` | `off` | `off` / `cost` / `capability` |
-| `default` | `deepseek-official/deepseek-v4-flash` | default route (cheap/fast) |
-| `candidates` | `[kimi-coding/kimi-for-coding]` | candidate routes (after 0.4.x migration) |
-| `scores` | `{}` | user overrides (baseline used where absent) |
-| `classify.patterns` | `{}` | keyword → dimension weights |
-| `allowedProviders` | `[kimi-coding, deepseek-official]` | candidate-enumeration whitelist |
-| `costTiers` | `{}` | per-candidate cost tier (`cheap`/`mid`/`expensive`; default mid) |
-| `routeThreshold` | `0.75` | capability-mode route threshold |
-| `lambda` | `0.5` | cost penalty coefficient |
-| `premiumBudget` | `0.2` | max Kimi share in the sliding budget window (cost mode) |
-| `budgetWindow` | `20` | budget window size (decisions) |
-| `charsPerToken` | `2` | token-estimation ratio |
+| `activePreset` | `null` | active preset id (`saving` / `capability` / custom); `null` = off |
+| `presets` | built-in saving/capability | preset table: display name + default model + ordered rules |
+| `presets.<id>.default` | — | baseline model (route target when no rule hits) |
+| `presets.<id>.rules` | — | rule table: condition (`image` / keyword group) + target model, first hit wins |
+| `keywordGroups` | built-in `code` / `chitchat` | named keyword-group word lists (user-editable) |
 
-> **Persistence**: settings namespace (base layer = deployment seed / user layer = edits, revision conflict detection) → sidecar fallback on hosts without a settings service → the old sidecar is archived as `.legacy-imported`; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` with a `.pre-v3` backup.
+> **Persistence**: settings namespace (base layer = deployment seed / user layer = edits, revision conflict detection) → sidecar fallback on hosts without a settings service → the old sidecar is archived as `.legacy-imported`; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` with a `.pre-v3` backup; **on 0.5.0 upgrade, v1-v3 scoring configs auto-migrate into the v4 preset/rule shape with a `.pre-v4` backup** (scores/budget knobs are not migrated).
 
 ### Plugin-level (`cordis.patch.yml`, greatly slimmed since 0.4.x)
 
@@ -527,7 +504,7 @@ Restart `dsh web`:
 - [`docs/host-platform-map.md`](docs/host-platform-map.md): DSH host-platform contract research (the cognitive baseline for 0.4.x and the rc.8 upgrade).
 - [`docs/positioning.md`](docs/positioning.md): project positioning & maintenance strategy.
 - [`docs/development-plan-router.md`](docs/development-plan-router.md): router development plan (M1-M7).
-- [`packages/dsh-kimi-tide/docs/router-v3.md`](packages/dsh-kimi-tide/docs/router-v3.md): 0.3.0 routing-engine architecture.
+- [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md): 0.5.0 rule-driven routing architecture (presets / rules / baseline / degradation / migration chain).
 - [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md): the dual-model collaboration loop this project itself is built with.
 - [`docs/legacy-setup.md`](docs/legacy-setup.md): legacy access paths archive (superseded by the official route in 0.4.x).
 
@@ -539,7 +516,7 @@ Restart `dsh web`:
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (currently 216/216 passing across 22 test files)
+npm test            # vitest (currently 203/203 passing across 22 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
@@ -553,7 +530,8 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.2.x (landed on main, unreleased)**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
 - **0.3.0 (implemented on main, unreleased)**: capability-scored routing (11 TDD tasks, `86da918`), manual acceptance 7/7 ✅.
 - **0.4.0 (released, 2026-08-20)**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline ✅ (fully automatic on tag); slider step fix ✅ (a45d722).
-- **Planned (after the rc.8 re-review)**: image transcription mode (redesign — reuse the host modality/admission machinery, with transcription fallback until the DeepSeek vision endpoint is proven); plan-A full scoring provenance. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
+- **0.5.0 (implemented, unreleased)**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md), 203/203 green).
+- **Planned (after the rc.8 re-review)**: image transcription mode (redesign — reuse the host modality/admission machinery, with transcription fallback until the DeepSeek vision endpoint is proven). ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
 
@@ -577,11 +555,11 @@ A: Not since v0.4.0. One Console API key + the official Models page is all it ta
 **Q: What are the image-session limitations?**  
 A: Once an image enters history, the session latches onto the multimodal model; if the Kimi quota/key fails, the session cannot switch back → deadlock; open a new session. The root fix (image transcription mode, redesigned for rc.8) is planned; until then keep the Kimi quota healthy for important image tasks.
 
-**Q: Where do the capability scores come from?**  
-A: `src/scores.ts` baseline v3: `code` / `reasoning` carry SWE-bench / GPQA primary evidence or strong relative inference; other dims are neutral 2.5 (vision is modality-driven); every cell is evidence-graded and overridable in the settings card.
+**Q: Where did the capability scoring engine go in 0.5.0?**  
+A: Retired. Rule-driven routing replaces six-dimension scoring: a preset (default model + ordered rules) plus keyword groups — a hit routes, a miss falls to the baseline, and every decision is readable and editable. v3 scoring configs auto-migrate into presets on upgrade (`.pre-v4` backup); the score tables themselves are not migrated.
 
 **Q: Where is the router configuration stored?**  
-A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月汐); hosts without a settings service fall back to the sidecar file; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` (`.pre-v3` backup).
+A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月汐); hosts without a settings service fall back to the sidecar file; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` (`.pre-v3` backup), and on 0.5.0 upgrade configs auto-migrate into the v4 preset/rule shape (`.pre-v4` backup).
 
 **Q: Why does the Release page only have v0.1.3?**  
 A: v0.1.3 shipped before the router wiring; 0.2.x/0.3.0 shipped together with v0.4.0. v0.4.0 (settings migration + API-key direct, `ec7909e..123d4e7` + acceptance fixes) was released on 2026-08-20 (tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0); 216/216 + typecheck + build green).

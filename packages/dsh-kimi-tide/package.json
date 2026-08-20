@@ -1,7 +1,7 @@
 {
   "name": "dsh-kimi-tide",
-  "version": "0.4.0",
-  "description": "kimi-tide（月汐）— capability-scored dual-model router for DeepSeek Harness: routes each agent step between Kimi (kimi-coding) and DeepSeek by task type and budget, with image guard, quota panel, and decision observability.",
+  "version": "0.5.0",
+  "description": "kimi-tide（月汐）— preset-and-rule model router for DeepSeek Harness（预设+规则驱动的模型路由）：named presets (saving/capability/custom) with ordered image/keyword-group rules route each agent step between Kimi (kimi-coding) and DeepSeek, with image guard, quota panel, and decision observability.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

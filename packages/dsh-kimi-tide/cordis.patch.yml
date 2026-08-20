@@ -10,5 +10,6 @@
       config:
         # usagePollMs: 60000      # quota poll period (月汐 dock)
         # usagePollOnStart: true  # poll quota on startup
-        # router:                 # legacy static seed; the 月汐 settings card owns the live config
-        #   mode: off             # off | cost | capability
+        # router:                 # legacy static seed (v1 vocabulary, auto-migrated to the v4
+        #                         # preset/rule shape); the 月汐 settings card owns the live config
+        #                         # (or /kimi-tide preset <id|off>)

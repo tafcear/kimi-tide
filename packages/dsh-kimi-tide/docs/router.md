@@ -1,0 +1,291 @@
+# kimi-tide 路由（规则驱动，0.5.0）
+
+本文以 `src/` 现行实现为准，描述 0.5.0 起的**规则驱动路由**架构：预设（Preset）
+= 默认模型 + 有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到
+预设默认模型（打底语义）。0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
+selectCandidate，配 lambda/routeThreshold/预算窗口）已整体退役；v1/v2/v3 存量
+配置经迁移链自动桥接到 v4（见下文「迁移链」）。设计定稿见
+`docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md`。
+
+## 总览
+
+```
+agent/pre-step ──► decide(messages, step, hasImageOverride?)
+                          │
+        1. 显式 @provider（最高优先级，via: 'explicit'）
+        2. 预设规则链（列表顺序，首条目标可用者生效，via: 'rule'）
+        3. 打底：预设默认模型（未命中 ≠ keep，via: 'default'）
+                          │
+agent/request ──► applyTo(callConfig) ──► guardImage（模态护栏）
+```
+
+事件流（DSH 官方机制，`router.ts: installRouter`）：
+
+- `agent/pre-step`：每轮只在**首个模型步**（`payload.step === 1`）判定一次，
+  决策存入 per-agent WeakMap 槽位；工具循环步骤（step > 1）不切模型。
+- `agent/request`：消费槽位，`applyTo` 替换 callConfig 的 provider/model
+  （同时剥离继承的 `reasoningEffort`）。
+- `agent/image-admission`：宿主在图像入队前的准入探针（serial bail 语义）。
+  当前选择是 text-only 时宿主本会直接拒图；路由器在「激活预设非 null 且池内
+  有多模态可用候选」时认领（返回 true），让 per-step 护栏得到执行机会。
+
+## 预设与规则（`src/config.ts`）
+
+```ts
+export type RuleCondition =
+  | { kind: 'image' }                    // 带图（本轮或历史含图，锁存后恒真）
+  | { kind: 'keywords'; group: string }  // 命名关键词组命中（大小写不敏感子串）
+
+export interface RouterRule {
+  id: string                  // 稳定 id（排序/编辑/测试锚点）
+  when: RuleCondition
+  target: RouteTarget         // { provider, model }
+}
+
+export interface RouterPreset {
+  name: string                // 显示名
+  default: RouteTarget        // 打底模型（未命中规则时的路由目标）
+  rules: RouterRule[]         // 有序；首条命中生效
+}
+
+export interface RouterConfigV4 {
+  version: 4
+  /** null = 关闭（逃生舱）；否则为 presets 的键（内置: saving / capability） */
+  activePreset: string | null
+  presets: Record<string, RouterPreset>
+  /** 组名 → 词表；全局共享，内置 code / chitchat，用户可增删改 */
+  keywordGroups: Record<string, string[]>
+}
+```
+
+`DEFAULT_CONFIG_V4()`（内置真相源）：
+
+```yaml
+version: 4
+activePreset: null            # 默认关闭：装插件不改路由（保守默认）
+presets:
+  saving:                     # 省钱：默认 flash，带图升 k3，代码关键词升 kimi-for-coding
+    name: 省钱
+    default: { provider: deepseek-official, model: deepseek-v4-flash }
+    rules:
+      - { id: image-k3,  when: { kind: image },                 target: { kimi-coding, k3 } }
+      - { id: code-kfc,  when: { kind: keywords, group: code }, target: { kimi-coding, kimi-for-coding } }
+  capability:                 # 能力：默认 k3，闲聊关键词降级 flash，代码走 kimi-for-coding
+    name: 能力
+    default: { provider: kimi-coding, model: k3 }
+    rules:
+      - { id: chitchat-flash, when: { kind: keywords, group: chitchat }, target: { deepseek-official, deepseek-v4-flash } }
+      - { id: code-kfc,       when: { kind: keywords, group: code },     target: { kimi-coding, kimi-for-coding } }
+keywordGroups:
+  code:     [代码, code, bug, 重构, refactor, 实现, 函数, 测试]
+  chitchat: [你好, 谢谢, 怎么样, 随便, 聊聊, 翻译, 总结, 天气]
+```
+
+要点：
+
+- **内置预设即数据**：与自定义预设同构，无特例；可编辑、可删除。预设 id 为
+  `presets` 的 Record 键；新建预设时 UI 输入显示名，id 由名称派生 slug。
+- **全局切换**：`activePreset` 单选全局生效（设置卡片主写、dock 只读）；删除
+  当前激活预设时同一次写入把 `activePreset` 置 null。
+- **打底语义**：预设激活时未命中规则即路由到预设默认模型，覆盖会话手动选
+  模型；需手动控制时把预设切到「关闭」（`activePreset: null`）。
+
+## 决策流程（`src/router.ts: KimiRouter.decide`）
+
+```
+decide(messages, step, hasImageOverride?):
+  if activePreset === null → keep('router off')                       // 逃生舱
+  text = latestUserText(messages)
+  hasImage = hasImageOverride ?? messagesContainImage(messages)       // 锁存并入
+  1. 显式 @指令（最高优先级）：
+     explicit = explicitProvider(text)                                // @kimi/@kimi-tide → kimi-coding
+     if explicit:
+       pool = metas.filter(provider === explicit && available && (!hasImage || 模态含 image))
+       pool 空 → keep('explicit @x: no available candidate')
+       否则 route(pool 首个候选, '显式 @x 指令', via: 'explicit')      // 只锁 provider 层；模型=枚举序首个可用
+  2. 预设规则链（首条目标可用者生效）：
+     preset = presets[activePreset]；缺失 → keep('active preset not found') + warn
+     for rule of matchingRules(config, text, hasImage):               // 按序返回全部命中
+       if 目标不在枚举池或 available:false → 跳过该规则（降级，继续）    // 见「降级语义」
+       else → route(rule.target, `规则「<条件名>」命中`, via: 'rule')
+  3. 打底：route(preset.default, `预设「<name>」默认`, via: 'default')
+```
+
+- `RouteDecision`：`{ kind: 'route'; target; reason; via: 'explicit'|'rule'|'default' } | { kind: 'keep'; reason }`；0.3.x 的 `scoreDelta` 已退役。
+- 规则匹配（`src/rules.ts: matchingRules`）：规则列表顺序、首条命中生效；
+  关键词为大小写不敏感子串匹配；引用不存在的关键词组 → 不命中。
+- **显式 @指令的模型选择**：`@provider` 只锁 provider 层，目标 = 该 provider
+  枚举序首个可用候选（带图时限定多模态），不再按评分挑最优。
+
+## 降级语义（规则目标不可用）
+
+「不可用」= 目标 id 不在全量枚举池（或枚举标记 `available: false`）。命中规则
+但目标不可用 → **跳过该规则**（继续匹配后续规则，最终可能落到打底）。图像场景
+的最后正确性轨仍是护栏：全池无多模态可用候选时 keep（宿主友好拒绝接管）。
+UI 对不可用目标标灰（规则编辑器与默认模型下拉均标灰）。
+
+## 候选池（全量枚举）
+
+```ts
+interface CandidateMeta extends RouteTarget {
+  modalities: string[]            // 来自 llm.resolveModelInfo().inputModalities
+  available: boolean              // 不在实时目录 → false（面板标灰、路由跳过）
+}
+```
+
+- **Provider 无关全量枚举**（`index.ts: enumerateCandidates`）：`listProviders()`
+  全量 → 逐个 `listModels(id)` → `resolveModelInfo` 取模态；0.3.x 的
+  `allowedProviders` 白名单已删除。单 provider/model 枚举失败只告警不中断
+  （模态解析失败降级 text-only 可用，不丢弃）。
+- 路由器**立即挂载**：首个枚举完成前用 `fallbackCandidateMetas`（全部预设
+  default + 规则 target 的并集，text-only 种子池）；`llm/adapters-updated`
+  事件触发重新枚举。
+- 配置目标不在实时目录中时保留为 `available: false`（路由跳过、面板标灰）。
+
+## 不变量（保留的正确性轨）
+
+- **图像护栏**（`applyImageGuard`）：决策/改道后目标仍 text-only 且带图 →
+  改道首个可用多模态候选；全池无多模态可用 → 不改道（留给宿主报错），防乒乓。
+- **带图会话锁存**：见下节。
+- **准入 bail**（`canClaimImageAdmission`）：`activePreset !== null` 且池内有
+  多模态可用候选才认领图像。
+- **applyTo**：剥 `reasoningEffort`、替换 provider/model——语义不变。
+
+## 带图会话锁存
+
+**为何锁存**：`agent/pre-step` 的 payload 只含本轮 claimed 消息；文本-only
+适配器（deepseek）序列化**全量**历史时对任一 image 块抛 `UNSUPPORTED_CONTENT`
+→ 图片一旦进入历史，后续文本轮选文本-only 候选必崩。
+
+**机制**：`installRouter` 持 per-agent `imageSeen` WeakMap——任一 pre-step 含图
+即永久锁存；锁存值作为 `decide` 第三参 `hasImageOverride` 强制 `hasImage = true`
+→ 带图规则（如内置 saving 预设的 `image-k3`）必然命中，且 request 钩子
+`applyImageGuard` 兜底改道。子代理（独立上下文）不受锁存影响。
+
+**⚠️ 已知限制（2026-08-19 实测）**：锁存后会话锁死多模态模型；该模型额度/Key
+失效（AUTH 报错）时会话无法切文本模型（`model-unavailable`：历史含图片）
+→ **死锁**，存量会话无法救回（历史图片不可逆）。锁存判定不可作为终态方案。
+根解（规划中）= 图片不进主会话历史的「图像转述模式」。
+
+## 迁移链（v1 → v3 → v4）
+
+统一入口 `coerceRouterConfigV4`（`src/migrate.ts`），按 `version` 分派：
+
+- **v1（0.2.x，patch 静态块形状）**：`migrateV1` 产出 v2 形 → `migrateV2`；
+  `premiumLong` 丢弃并告警；`primary/premium` 映射为 default/candidates。
+- **v2**：`migrateV2` 做 provider 改名 `kimi-tide/*` → `kimi-coding/*`
+  （scores/costTiers 键前缀同步），version 置 3。**这是纯迁移输入契约**——
+  v3 的评分字段只在迁移期被读取，运行面不消费。
+- **v3 → v4**：`migrateV3` 语义映射——`mode: off` → `activePreset: null`；
+  `cost` → `saving` 预设、`capability` → `capability` 预设；v3 `default` 与
+  内置预设默认不同时写入该预设的 `default`（规则保留内置）。**scores /
+  candidates / classify / costTiers / routeThreshold / lambda / 预算参数一律
+  不迁移**（评分引擎已退役，无从映射）。
+- **链路落点**：
+  - **settings 命名空间**（主存储，rc.7+）：schema 接受 `version: 2|3|4`
+    存量（v3 遗留字段靠 schemastery 非 strict 透传保活）；attach 时
+    `hasKimiTideResidue`（version≠4 或含 `kimi-tide` 残留）→ 迁移链 →
+    设置文档 `copyFileSync` 留档 `.pre-v4` → `scope.replace` 持久化 →
+    迁移值同步直喂首个 `applyConfig`。
+  - **sidecar**（无 settings 服务的宿主）：读旧形状 → 同一迁移链 → 写回
+    v4，原文件改名 `.pre-v4`；sidecar → 命名空间一次性导入机制保留
+    （导入后留档 `.legacy-imported`）。
+  - **patch 静态块**（v1 词汇）：`coerceRouterConfigV4` 链整体桥接，仅作
+    部署基座（settings base 层）。
+
+## 配置参考（v4 全字段）
+
+| 键 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `version` | `4` | `4` | 配置形状版本（schema 兼容接受 2/3/4 存量） |
+| `activePreset` | `string \| null` | `null` | 激活预设 id；`null` = 关闭（逃生舱） |
+| `presets` | `Record<string, RouterPreset>` | 内置 saving/capability | 预设表；键即预设 id |
+| `presets.<id>.name` | `string` | — | 显示名（非空，校验拒绝空名） |
+| `presets.<id>.default` | `{provider, model}` | — | 打底模型（未命中规则时的路由目标） |
+| `presets.<id>.rules` | `RouterRule[]` | — | 有序规则表；首条目标可用者生效 |
+| `rules[].id` | `string` | — | 稳定 id（排序/编辑/测试锚点） |
+| `rules[].when` | `{kind:'image'} \| {kind:'keywords', group}` | — | 规则条件：带图 / 命名关键词组 |
+| `rules[].target` | `{provider, model}` | — | 命中后的路由目标（provider/model 非空字符串） |
+| `keywordGroups` | `Record<string, string[]>` | 内置 code/chitchat | 组名 → 词表；全局共享，用户可增删改 |
+
+**校验**（`settings-schema.ts: validateRouterConfig`，仅对 v4 生效）：
+`activePreset` 必须存在于 `presets`；预设名非空；每条规则 `target` 完整；
+`when.kind === 'keywords'` 时 `group` 必须存在于 `keywordGroups`（删除被规则
+引用的组会被拒绝——先把规则改掉）。legacy version（≠4）直通不校验（迁移兜底）。
+
+**退役字段**（不再出现在 v4）：`mode`、`scores`、`classify`、`allowedProviders`、
+`costTiers`、`routeThreshold`、`lambda`、`premiumBudget`、`budgetWindow`、
+`charsPerToken`、`candidates`（被 presets 取代）。
+
+## 命令面（`/kimi-tide`）
+
+| 子命令 | 行为 |
+|--------|------|
+| `preset <id\|off>` | 全局切换激活预设（写 `activePreset`；id 须存在于 presets） |
+| `show` | 打印 v4 摘要：当前预设 / 默认目标 / 规则数 / 关键词组数 |
+| `set activePreset <id\|off>` | 同 `preset`（`set` 键白名单仅此一键；细粒度编辑由设置卡片承担） |
+| `export-config` | 打印当前配置 YAML（settings 命名空间优先，无则 sidecar） |
+| `import-config <path\|inline YAML>` | 双形态（见下） |
+| `refresh` | 立即轮询配额 |
+| `mode …` | **已退役**：报错并提示改用 `preset` |
+
+**import-config 双形态**（沿用 0.3.0 裁定）：
+
+- 参数是已存在文件路径 → 整表替换（validate 后落盘；v2/v3 文件走迁移链）。
+- 参数是内联 YAML 文本（`{`/`-` 开头、含换行，或可解析为 mapping）→
+  **合并补丁**：深合并进当前配置（对象按字段合并、数组/标量整体替换），
+  未出现的字段保留。
+- `parseKimiTideCommand` 对 import-config 取子命令后的**完整剩余参数**
+  （保留换行/缩进），多行 YAML 原样送达。
+
+所有变更类子命令写 settings 命名空间（无则 sidecar），成功后回调 `onSaved`：
+重建路由器、清掉旧决策摘要、重枚举候选、推送面板快照。
+
+## 面板与投影（projection v4）
+
+`kimi-tide/panel` 投影（stateVersion 4）携带：`quota` / **`router`（v4 视图：
+`{ activePreset, presetName, defaultTarget, ruleCount }`）**/ **`kimi` 二态接入
+指示**（`{ route, key }`）/ `models` 下拉选项 / `configSource` / `candidates`
+（provider/model/available 摘要，完整 metas 留在 host）/ `reasoning` /
+**`decision`**。
+
+- **决策可观测**（`buildDecisionSummary`）：`DecisionSummary = { chosen, reason }`
+  （reason 截断 120 字符，`scoreDelta` 字段已删除）。**上屏规则**：仅
+  `via: explicit | rule` 的路由决策上浮；`via: default`（打底，每轮都发生，
+  太吵）/ keep / 关闭一律返回 null。配置变更即清空（旧决策不泄漏）。
+  示例：`规则「代码」命中 → kimi-coding/kimi-for-coding`、
+  `显式 @kimi 指令 → kimi-coding/k3`。
+- **组件**（`src/client/`）：
+  - `TideDock`（`conversation.composer.dock` 只读仪表）：主行 chips（📡 预设名
+    或「关闭」、⚡ 预设默认模型、路由 chip、kimi 接入指引 chip、配额 chip、
+    决策 chip）+ 「🔄 刷新配额」按钮 + ReasonPanel（configSource 标签 + 决策
+    摘要）+ 推理状态行；写控件已整体移除（0.4.0 起）。
+  - `SettingsCard`（`settings.section`，id `kimi-tide-router`）：官方设置页
+    「月汐」卡片，0.5.0 重做为**预设管理器**——预设选择行（关闭/省钱/能力/
+    自定义预设单选）、当前预设编辑器（默认模型下拉 + 规则表：条件下拉/目标
+    下拉/上移下移删除/新增）、预设操作（新建/复制/删除）、关键词组管理区
+    （折叠；组词表编辑 + 新建/删除组）。写通道经 card-store 的
+    `setActivePreset` / `savePresetField` / `addRule` / `updateRule` /
+    `moveRule` / `removeRule` / `createPreset` / `duplicatePreset` /
+    `deletePreset` / `saveKeywordGroup` / `deleteKeywordGroup`，全部经
+    `scope.update` 整段写（settings 数组全替换语义）。
+- 写通道：设置卡片直接写 settings 命名空间；dock 的命令通道（`/kimi-tide …`）
+  经 remote 执行、多行文本换行保真，写 settings 命名空间（无则 sidecar）。
+
+## 退役面（0.5.0 删除清单）
+
+- `src/scoring.ts`、`src/scores.ts`（SCORES_VERSION/六维基线/证据分级注释）
+- `src/client/ScoreEditor.tsx`、`src/client/CandidateList.tsx`
+- classify 的维度权重分类与 `DEFAULT_PATTERNS`（词表迁入
+  `DEFAULT_KEYWORD_GROUPS`；`explicitProvider` 与消息工具保留为 `src/rules.ts`）
+- 预算窗全部：`premiumBudget`/`budgetWindow`/`routeThreshold`/`lambda`/
+  `charsPerToken`、`estimateTokens`、budgetHistory/record/budgetUsage
+- `KimiRouter` v1 构造重载、`legacyConfigToV3`/`legacyMetasFromConfig` 等
+  v1 桥接导出；`CandidateMeta.costTier` 字段
+- 对应测试（scoring/scores/classify 权重断言/评分 UI 测试）
+
+## 逃生
+
+设置卡片切「关闭」或 `/kimi-tide preset off`：`decide` 立即返回 keep，
+`installRouter` 不再挂载（`activePreset === null` 时宿主侧不注册
+pre-step/request/admission 监听），行为回到原生直通。

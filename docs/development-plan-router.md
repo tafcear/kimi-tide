@@ -1,6 +1,6 @@
 # 开发计划：kimi-tide 0.2.x — 双模型自动分工 + 能力缺口补偿
 
-> 状态：**计划主体已落地（main 分支，v0.1.3 之后提交，未发布），架构已由 0.3.0 能力评分路由承接（2026-08-18 实施完成，见 [`superpowers/plans/2026-08-17-capability-routing-implementation.md`](superpowers/plans/2026-08-17-capability-routing-implementation.md) 与 [`../packages/dsh-kimi-tide/docs/router-v3.md`](../packages/dsh-kimi-tide/docs/router-v3.md)；v1 配置形状仍被接受并桥接 v2）**——M1-M3 路由器核心/能力缺口补偿/index 集成已接线（64c22cd 起）；**路由器失效已修复（2026-08-18 commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正 + `textOnlyProviders` 可配置，全量 66/66 测试绿）**；M3.5-M3.7 面板三件套代码完成（实机验证待人工）；M4 单元测试收尾、M6 文档发布为待办；**M5 实机集成验证已通过 ✅（2026-08-18 双探针 + 2026-08-19 带图实机闭环，见 §4 M5 行）**；**⚠️ 带图会话锁存已知限制（fcbf421，2026-08-19 实测死锁），见 §2.3.1**；**0.4.x（2026-08-20）已实施（分支 `feat/0.4.0-api-key-direct`，发布待定）：provider 改名 `kimi-tide` → `kimi-coding`、自研 OAuth 接入层退役切换为 pi-ai 原生 `kimi-coding` 路由 + API key（本文 0.2.x 表格中的 `kimi-tide/*` 为历史 provider 名，0.4.x 起现行名 `kimi-coding/*`）。**
+> 状态：**计划主体已落地（main 分支，v0.1.3 之后提交，未发布），架构已由 0.3.0 能力评分路由承接（2026-08-18 实施完成，见 [`superpowers/plans/2026-08-17-capability-routing-implementation.md`](superpowers/plans/2026-08-17-capability-routing-implementation.md) 与 [`../packages/dsh-kimi-tide/docs/router.md`](../packages/dsh-kimi-tide/docs/router.md)；v1 配置形状仍被接受并桥接 v2）**——M1-M3 路由器核心/能力缺口补偿/index 集成已接线（64c22cd 起）；**路由器失效已修复（2026-08-18 commit 71b1d18：step 门控改 `payload.step === 1` + 图像护栏方向修正 + `textOnlyProviders` 可配置，全量 66/66 测试绿）**；M3.5-M3.7 面板三件套代码完成（实机验证待人工）；M4 单元测试收尾、M6 文档发布为待办；**M5 实机集成验证已通过 ✅（2026-08-18 双探针 + 2026-08-19 带图实机闭环，见 §4 M5 行）**；**⚠️ 带图会话锁存已知限制（fcbf421，2026-08-19 实测死锁），见 §2.3.1**；**0.4.x（2026-08-20）已实施（分支 `feat/0.4.0-api-key-direct`，v0.4.0 已发布）：provider 改名 `kimi-tide` → `kimi-coding`、自研 OAuth 接入层退役切换为 pi-ai 原生 `kimi-coding` 路由 + API key（本文 0.2.x 表格中的 `kimi-tide/*` 为历史 provider 名，0.4.x 起现行名 `kimi-coding/*`）。**；**0.5.0 规则驱动路由已实施（2026-08-21，分支 `feat-0.5.0-rule-routing`，未发布）：0.3.0 能力评分引擎整体退役，由「命名预设 + 有序规则（带图/关键词组）+ 打底语义」承接——架构实况见 [`../packages/dsh-kimi-tide/docs/router.md`](../packages/dsh-kimi-tide/docs/router.md)，设计稿见 [`superpowers/specs/2026-08-20-rule-driven-routing-design.md`](superpowers/specs/2026-08-20-rule-driven-routing-design.md)；v1→v3→v4 存量配置自动迁移（设置文档留档 `.pre-v4`）。**
 > 2026-08-17 扩展：用量显示/路由设置面板/推理状态，设计稿见 [`superpowers/specs/2026-08-17-usage-panel-router-settings-design.md`](superpowers/specs/2026-08-17-usage-panel-router-settings-design.md)
 > 定位：月汐项目的核心愿景功能——让 DeepSeek 与 Kimi 按策略自动互补，而非手动切换。
 > 现有实现：[`packages/dsh-kimi-tide/src/router.ts`](../packages/dsh-kimi-tide/src/router.ts)（已实现并接线：`KimiRouter` 决策 + `installRouter` 挂 `agent/pre-step` + `agent/request`）
@@ -80,7 +80,7 @@
 - **图像转述模式**（模型级）：pre-step 调多模态模型把图片转述为文本块注入，后续请求全为纯文本；
 - **子代理图片外包**（子代理级）：独立上下文子代理读图回传文字（前置=kimi 子代理后端落地，扩展点为 subagents 命名注册表 + host plane opt-in 挂载，见 §7）。
 
-**现状**：0.3.0 评分路由中锁存以 `hasImageOverride` 强制 vision 评分等价实现（见 router-v3.md「带图会话锁存」节），根解同样适用。
+**现状**：现行路由（0.5.0 规则驱动）中锁存以 `hasImageOverride` 强制按带图处理等价实现——带图规则必命中 + 图像护栏兜底（见 router.md「带图会话锁存」节），根解同样适用。
 
 ### 2.4 非目标（v1 明确不做）
 
