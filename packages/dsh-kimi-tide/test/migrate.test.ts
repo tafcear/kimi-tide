@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG_V3, type RouterConfigV3 } from '../src/config.js'
-import { coerceRouterConfig, hasKimiTideResidue, migrateV1, migrateV2 } from '../src/migrate.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, type RouterConfigV3 } from '../src/config.js'
+import { coerceRouterConfig, coerceRouterConfigV4, hasKimiTideResidue, migrateV1, migrateV2, migrateV3 } from '../src/migrate.js'
 
 const V1 = {
   mode: 'cost',
@@ -71,7 +71,7 @@ describe('migrateV2（kimi-tide → kimi-coding）', () => {
   it('is idempotent: a v3 config with no residue passes through unchanged', () => {
     const out = migrateV2(migrateV2(V2))
     expect(out).toEqual(migrateV2(V2))
-    expect(hasKimiTideResidue(out)).toBe(false)
+    expect(JSON.stringify(out).includes('kimi-tide')).toBe(false)
     expect(migrateV2(out)).toBe(out)   // 原引用返回 = 幂等
   })
 })
@@ -86,5 +86,45 @@ describe('coerceRouterConfig 版本分派', () => {
     expect(fromV1.version).toBe(3)
     expect(fromV1.candidates[0]).toEqual({ provider: 'kimi-coding', model: 'k3' })
     expect(migrateV1(v1, () => {}).default).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+})
+
+describe('migrateV3', () => {
+  it('mode off → activePreset null，预设保持内置', () => {
+    const v4 = migrateV3({ version: 3, mode: 'off', default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } })
+    expect(v4.version).toBe(4)
+    expect(v4.activePreset).toBeNull()
+    expect(v4.presets.saving.default.model).toBe('deepseek-v4-flash')
+  })
+  it('mode cost → saving；default 与内置相同 → 不覆盖', () => {
+    const v4 = migrateV3({ version: 3, mode: 'cost', default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(v4.activePreset).toBe('saving')
+    expect(v4.presets.saving.default.model).toBe('deepseek-v4-flash')
+  })
+  it('mode capability + 自定义 default → capability 且 default 写入该预设', () => {
+    const v4 = migrateV3({ version: 3, mode: 'capability', default: { provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' } })
+    expect(v4.activePreset).toBe('capability')
+    expect(v4.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' })
+    expect(v4.presets.saving.default.model).toBe('deepseek-v4-flash')  // 另一预设不动
+  })
+  it('scores/candidates/classify/预算参数一律不迁移', () => {
+    const v4 = migrateV3({ version: 3, mode: 'cost', default: { provider: 'a', model: 'b' }, scores: { 'a/b': { code: 5 } }, premiumBudget: 0.9 })
+    expect(v4).not.toHaveProperty('scores')
+    expect(v4).not.toHaveProperty('premiumBudget')
+  })
+  it('v4 直通（幂等）', () => {
+    const c = DEFAULT_CONFIG_V4()
+    expect(migrateV3(c)).toBe(c)
+  })
+  it('coerceRouterConfigV4：v2 链（kimi-tide 改名 → 语义映射）', () => {
+    const v4 = coerceRouterConfigV4({ version: 2, mode: 'cost', default: { provider: 'kimi-tide', model: 'k3' }, candidates: [] }, () => {})
+    expect(v4.activePreset).toBe('saving')
+    expect(v4.presets.saving.default.provider).toBe('kimi-coding')
+  })
+  it('hasKimiTideResidue：version!==4 → true；v4 无残留 → false', () => {
+    expect(hasKimiTideResidue({ version: 3 })).toBe(true)
+    expect(hasKimiTideResidue(DEFAULT_CONFIG_V4())).toBe(false)
+    const dirty = DEFAULT_CONFIG_V4(); dirty.presets.saving.name = 'kimi-tide 遗留'
+    expect(hasKimiTideResidue(dirty)).toBe(true)
   })
 })

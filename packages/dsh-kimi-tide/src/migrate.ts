@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG_V3, KIMI_PROVIDER, type RouterConfigV3, type RouteTarget } from './config.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, KIMI_PROVIDER, type RouterConfigV3, type RouterConfigV4, type RouteTarget } from './config.js'
 
 function target(v: unknown): RouteTarget | null {
   const r = (v ?? {}) as Record<string, unknown>
@@ -81,9 +81,36 @@ export function coerceRouterConfig(raw: unknown, warn: (m: string) => void): Rou
   return migrateV1(raw, warn)
 }
 
-/** 命名空间用户层残留检测（Task 5）：version≠3 或序列化含 'kimi-tide'。 */
+/** v3 → v4 语义映射（spec §6.1）：mode→预设选择；default 与内置不同则写入该预设；
+ *  scores/candidates/classify/预算参数一律不迁移。v4 直通幂等。 */
+export function migrateV3(raw: unknown): RouterConfigV4 {
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 4) return raw as RouterConfigV4
+  const v4 = DEFAULT_CONFIG_V4()
+  const presetId = r.mode === 'cost' ? 'saving' : r.mode === 'capability' ? 'capability' : null
+  if (presetId !== null) {
+    v4.activePreset = presetId
+    const d = target(r.default)
+    if (d !== null) {
+      const builtin = v4.presets[presetId]
+      if (d.provider !== builtin.default.provider || d.model !== builtin.default.model) {
+        v4.presets[presetId] = { ...builtin, default: d }
+      }
+    }
+  }
+  return v4
+}
+
+/** 版本分派到 v4：4 直通；其余走 v1/v2→v3 链后 migrateV3。 */
+export function coerceRouterConfigV4(raw: unknown, warn: (m: string) => void): RouterConfigV4 {
+  const v = (raw as { version?: unknown } | null)?.version
+  if (v === 4) return raw as RouterConfigV4
+  return migrateV3(coerceRouterConfig(raw, warn))
+}
+
+/** 命名空间用户层残留检测（Task 5）：version≠4 或序列化含 'kimi-tide'。 */
 export function hasKimiTideResidue(config: unknown): boolean {
   const v = (config as { version?: unknown } | null)?.version
-  if (v !== 3) return true
+  if (v !== 4) return true
   return JSON.stringify(config).includes('kimi-tide')
 }
