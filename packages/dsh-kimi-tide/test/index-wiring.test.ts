@@ -358,6 +358,45 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(settings.doc[NS]).toBeUndefined()
     expect(lastSnapshot(agent).configSource).toBe('sidecar')
   })
+
+  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding，version 3，文档 .pre-v3 快照）', async () => {
+    // 预置一个「用户编辑过」的 v2 命名空间节（0.3.0 面板写出来的形状）
+    const seed = {
+      [NS]: {
+        version: 2, mode: 'capability',
+        default: { provider: 'kimi-tide', model: 'k3' },
+        candidates: [{ provider: 'kimi-tide', model: 'k3' }, { provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
+        allowedProviders: ['kimi-tide', 'deepseek-official'],
+        scores: { 'kimi-tide/k3': { code: 4.7 } },
+        classify: {}, costTiers: {}, routeThreshold: 0.75, lambda: 0.5, premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2,
+      },
+    }
+    const settings = await bootSettings(seed)
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent], settings)
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await tick()
+
+    const resolved = settings.get(NS) as RouterConfigV3
+    expect(resolved.version).toBe(3)
+    expect(resolved.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(resolved.allowedProviders).toEqual(['kimi-coding', 'deepseek-official'])
+    expect(resolved.scores).toEqual({ 'kimi-coding/k3': { code: 4.7 } })
+    // 用户编辑保留（非 dirty 跳过）；sidecar 不存在 → 无导入行为
+    expect(existsSync(sidecarFile)).toBe(false)
+  })
+
+  it('干净的 v3 用户层不触发迁移（无替换写、无 .pre-v3 快照）', async () => {
+    const settings = await bootSettings({ [NS]: { lambda: 0.31 } })
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent], settings)
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await tick()
+    const resolved = settings.get(NS) as RouterConfigV3
+    expect(resolved.version).toBe(3)
+    expect(resolved.lambda).toBe(0.31)
+  })
 })
 
 /**

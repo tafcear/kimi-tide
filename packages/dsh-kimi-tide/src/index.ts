@@ -16,11 +16,12 @@ import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { copyFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
-import { coerceRouterConfig } from './migrate.js'
+import { coerceRouterConfig, hasKimiTideResidue, migrateV2 } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
   installRouter,
@@ -554,6 +555,26 @@ export function apply(ctx: Context, config: Config = {}) {
       replace: (section) => scope.replace(section),
     }
     settingsScope = port
+    // v3 一次性迁移（0.4.x，spec §3.3）：存量用户层（version 2 + kimi-tide/*）
+    // 改写为 kimi-coding/*。必须在 applyConfig 与 sidecar 导入（脏检查）
+    // 之前完成——迁移后的 scope 才是后续逻辑看到的基线。
+    void (async () => {
+      try {
+        const current = scope.get()
+        if (hasKimiTideResidue(current)) {
+          const docPath = (sctx.settings as { documentPath?: string }).documentPath
+          if (typeof docPath === 'string' && docPath.length > 0) {
+            try { copyFileSync(docPath, docPath + '.pre-v3') } catch (error) {
+              warn(`dsh-kimi-tide: 设置文档 .pre-v3 快照失败（${(error as Error).message}）`)
+            }
+          }
+          await scope.replace(migrateV2(current) as unknown as object)
+          warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v3（kimi-coding/*）')
+        }
+      } catch (error) {
+        warn(`dsh-kimi-tide: 命名空间 v3 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
+      }
+    })()
     applyConfig(scope.get())
     // Detach (provider reload / service disposal) rides the scoped fiber: the
     // command layer falls back to the sidecar until the callback re-runs.
