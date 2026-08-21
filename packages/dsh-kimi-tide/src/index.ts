@@ -243,6 +243,13 @@ function registerPanelEventType(): boolean {
 }
 
 export function apply(ctx: Context, config: Config = {}) {
+  // The shipped cordis.patch.yml documents every knob as a comment, so a
+  // profile applying that layer as-is composes `config: null` (YAML null) —
+  // and the `= {}` default only catches `undefined`. Null then flows through
+  // and the first property read (config.usagePollMs) throws, killing the
+  // loader entry and with it the whole plugin tree (live incident on DSH
+  // desktop 4.0.1, 2026-08-21).
+  config = config ?? {}
   const log: RouterLog = { info: (message: string) => { ctx.logger.info(message) } }
   const warn = (message: string) => { ctx.logger?.warn?.(message) }
 
