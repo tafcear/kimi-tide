@@ -50,16 +50,30 @@ function imageCapablePicks(metas: readonly CandidateMeta[]): CandidateMeta[] {
   return metas.filter((m) => m.modalities.includes('image') && m.available)
 }
 
+/**
+ * 图像护栏（模型级判定）。rc.2 起 deepseek 目录混入 vision 模型
+ * （deepseek-v4-flash-vision-exp），provider 级判定会把文本模型目标放行进
+ * 宿主 projectImagesForTextModel 的 hash 占位投影——判定必须落到目标模型自身。
+ * 改道目标按用户意图序选择：预设默认 → 规则目标序 → 目录序首个多模态可用候选，
+ * 未声明过的模型（如目录自带的试验性 vision 模型）不主动改道过去。
+ */
 export function applyImageGuard(
   target: RouteTarget,
   hasImage: boolean,
   metas: readonly CandidateMeta[],
+  intent?: readonly RouteTarget[],
 ): { target: RouteTarget; reason: string } | null {
   if (!hasImage) return null
-  if (!textOnlyProviders(metas).has(target.provider)) return null
+  const targetMeta = metas.find((m) => m.provider === target.provider && m.model === target.model)
+  // 目录读不到的目标保持历史宽容，绝不劫持读不准能力的路由。
+  if (targetMeta === undefined) return null
+  if (targetMeta.modalities.includes('image')) return null
   const picks = imageCapablePicks(metas)
   if (picks.length === 0) return null
-  return { target: { provider: picks[0].provider, model: picks[0].model }, reason: 'image input: rerouted to multimodal candidate' }
+  const chosen = intent === undefined
+    ? picks[0]
+    : picks.find((pick) => intent.some((t) => t.provider === pick.provider && t.model === pick.model)) ?? picks[0]
+  return { target: { provider: chosen.provider, model: chosen.model }, reason: 'image input: rerouted to multimodal candidate' }
 }
 
 export function canClaimImageAdmission(config: RouterConfigV4, metas: readonly CandidateMeta[]): boolean {
@@ -185,7 +199,9 @@ export class KimiRouter {
 
   /** Image guard bound to this router's candidates (see applyImageGuard). */
   guardImage(target: RouteTarget, hasImage: boolean): { target: RouteTarget; reason: string } | null {
-    return applyImageGuard(target, hasImage, this.metas)
+    const preset = this.config.activePreset === null ? undefined : this.config.presets[this.config.activePreset]
+    const intent = preset === undefined ? undefined : [preset.default, ...preset.rules.map((r) => r.target)]
+    return applyImageGuard(target, hasImage, this.metas, intent)
   }
 }
 

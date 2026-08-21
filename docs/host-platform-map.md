@@ -176,6 +176,14 @@
 - 备份 `.dsh-rc2-upgrade\`（rc8-patched / rc2-orig / patched-live 三份 SHA256，MANIFEST.txt）。
 - 实机验收清单 = 计划 Task 7（重启后执行）。
 
+### 4.5 验收期实机回归：图像护栏粒度失效（已修复）
+
+- **现象**（Task 7 第 4 项）：新会话带图发送，消息不再拒收（探针认领链完整），但图片轮停在文本模型 deepseek-v4-flash 上，宿主 `projectImagesForTextModel` 把图片投影为 hash 占位，模型盲答「看不到图」。
+- **根因**：rc.2 的 deepseek-official 目录新增 `deepseek-v4-flash-vision-exp`（`inputModalities:[text,image]`），kimi-tide 图像护栏的 `textOnlyProviders()` 是 **provider 级**判定——同 provider 任一模型有图能力即整体豁免，文本模型目标由此漏判。rc.8 目录无 vision 模型，该缺陷不可见。
+- **定位方法备查**：动态诊断插件（被动 `agent/image-admission` 监听器 + 模型工具直读活体 `llm` 服务/面板投影）+ zstd 多帧会话日志离线解码（帧扫描器移植自 dsh-session-persistence-jsonl `scanZstdFrames`，lib/index.js:503-566）。
+- **修复**（main 直提）：护栏改**模型级**判定（目标模型自身 modalities 为准；目录读不到的目标保持宽容不改道）；改道目标按用户意图序（预设默认 → 规则目标序 → 目录序首个多模态可用候选），不主动改道到用户未声明的模型。测试 217→220。
+- **旁证**：`agent/image-admission` 探针重移植在 rc.2 工作正常——认领成功才会放行入会话，本次回归恰证明认领链完好。
+
 ---
 
 ## 结尾：结论与对 kimi-tide 的启示

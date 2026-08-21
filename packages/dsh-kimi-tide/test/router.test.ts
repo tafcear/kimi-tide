@@ -95,6 +95,35 @@ describe('图像护栏（v4 词汇）', () => {
     const textOnly = METAS.map((m) => ({ ...m, modalities: ['text'] }))
     expect(new KimiRouter(cfg('saving'), textOnly, log).guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, true)).toBeNull()
   })
+  // rc.2 实机回归（2026-08-22）：deepseek 目录新增 deepseek-v4-flash-vision-exp 后，
+  // provider 级 textOnlyProviders 判定把 deepseek-official 整体视为「有图能力」，
+  // 带图轮停在文本模型 flash 上，被宿主 projectImagesForTextModel 投影成 hash 占位。
+  const MIXED: CandidateMeta[] = [
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true },
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', modalities: ['text', 'image'], available: true },
+    { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true },
+  ]
+  it('混合模态目录：文本模型目标仍被改道（模型级判定）', () => {
+    const r = new KimiRouter(cfg('capability'), MIXED, log)
+    const g = r.guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, true)
+    expect(g).not.toBeNull()
+    expect(g?.target.model).not.toBe('deepseek-v4-flash')
+  })
+  it('混合模态目录：目标模型自身多模态 → 不改道；未知目标 → 保持宽容', () => {
+    const r = new KimiRouter(cfg('capability'), MIXED, log)
+    expect(r.guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' }, true)).toBeNull()
+    expect(r.guardImage({ provider: 'ghost', model: 'x' }, true)).toBeNull()
+  })
+  it('改道目标按用户意图序：预设默认（多模态）优先于目录序候选', () => {
+    // capability 默认 k3（多模态）→ k3 优先于目录序在前的 vision-exp
+    const r = new KimiRouter(cfg('capability'), MIXED, log)
+    expect(r.guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, true)?.target)
+      .toEqual({ provider: 'kimi-coding', model: 'k3' })
+    // saving 默认 flash（文本）→ 规则目标序中首个多模态（image-k3 规则目标 k3）
+    const r2 = new KimiRouter(cfg('saving'), MIXED, log)
+    expect(r2.guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, true)?.target)
+      .toEqual({ provider: 'kimi-coding', model: 'k3' })
+  })
 })
 
 describe('推理等级映射（2026-08-25）', () => {
