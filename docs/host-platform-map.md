@@ -3,6 +3,7 @@
 # DSH 宿主平台契约调研（host-platform-map）
 
 - 调研日期：2026-08-20
+- 复核日期：2026-08-22（rc.2 事实锚点更新）
 - 调研对象：本地 DSH 安装 `C:\Users\tafce\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh`（下称 `$DSH`，各包根为 `$DSH/node_modules/@deepseek-ai/<pkg>`，只有 `lib/` 编译产物 .js/.d.ts）；GitHub 仓库 `deepseek-ai/deepseek-harness`（master）用于补查本地没有源码的内容。
 - 锚点约定：`包名/lib/文件:行号` 指 `$DSH/node_modules/@deepseek-ai/包名/lib/文件` 的绝对行号（实读验证）；`README` 锚点指包根 README.md 行号。
 
@@ -22,12 +23,15 @@
 - 签名：`'agent/request'(this: Scoped<Agent>, payload: { agent, turn, step, signal }, next): Promise<LlmCallConfig>`；`await next()` 产出宿主本来要用的 config（首次请求取 agent options，之后取日志 request/header），返回替换值即改道；**payload 不含消息**。锚点：dsh-tool-cordis/lib/index.js:3459-3468；调用点 dsh-agent-loop/lib/index.js:685-691。
 - 约束：返回的 config 必须带 provider+model，否则抛错（L691）；随后经 `ctx.llm.prepareCall(proposedConfig)` 绑定适配器并实例化默认值（L695-699）；**只能换 provider/model/reasoningEffort/maxTokens 等 LlmCallConfig 字段，不能改消息**（消息须走 logged channels，dsh-tool-cordis L3464 描述）。
 
-### 1.3 `agent/image-admission`（serial，宿主图片准入探针）
+### 1.3 `agent/image-admission`（serial，本地补丁探针）
 
-- 触发时机：**仅在 API 面 `session.prompt` 收到含图消息时**，在消息入 agent 循环之前。流程：`hasImage = content.some(p => p.type === "image")` → 取当前选中模型 `selectionFor(agent).current` → `ctx.llm.resolveModelInfo(provider, model)` → 若 `inputModalities` 已声明且不含 "image"，发 serial 探针 `ctx.serial(agentCarrier(agent), "agent/image-admission", { provider, model })`。锚点：dsh-host-apiproxy/lib/index.js:2783-2803。
-- **bail 语义**：无监听者认领（serial 返回 `undefined`）→ 拒绝 `attachment-error / MODEL_DOES_NOT_SUPPORT_IMAGES`；任一监听者返回 truthy → 视为「该插件会把图改道到多模态路由」，放行。锚点：L2800-2808（含 HOTFIX 2026-08-18 注释，明说为 kimi-tide 场景加）。
-- **时序坑**：该探针在**消息入循环之前**、按**当前选中模型**（非路由器的 per-step 决策）执行——默认模型为 text-only 的新会话附图会被先拦，必须由 image-admission 监听者先 bail 才能进入循环让路由器改道。带图 prompt 还经 `serializeImageAdmission`（per-agent WeakMap 链）串行化。锚点：L2790-2799（注释）、L1702-1708（串行链）。
-- 官方 Event 目录（dsh-tool-cordis Inspect Provider）未列出 image-admission（grep 全包仅 apiproxy 一处出现），属 **apiproxy 私有探针，非注册表公开契约**——kimi-tide 依赖它属于依赖半内部接缝，升级风险自担。
+- **官方包从未包含该探针**：rc.8 官方 tarball（npm pack）grep `image-admission` 零命中，rc.2 亦然——本机探针 = **2026-08-18 HOTFIX 本地补丁**，08-20 重打 rc.8，**08-22 已重打 rc.2**。
+- rc.2 上游代码 = 直接拒绝（无探针）：`dsh-host-apiproxy/lib/index.js:2755-2759`（`inputModalities` 不含 image 即 `attachment-error / MODEL_DOES_NOT_SUPPORT_IMAGES`）。
+- rc.2 补丁后：探针在 `dsh-host-apiproxy/lib/index.js:2765`（`ctx.serial(agentCarrier(agent), "agent/image-admission", …)`，bail 语义不变：无认领才拒绝）；补丁导入 `agentCarrier` 自 `@deepseek-ai/dsh-agent`（rc.2 仍导出：`dsh-agent/lib/index.js:323` 定义、`L794` 导出表）。
+- 准入串行化 `serializeImageAdmission` 仍在：`dsh-host-apiproxy/lib/index.js:1675`、调用点 L2600/L2797（补丁后行号）。
+- 备份与哈希：`.dsh-rc2-upgrade\`（rc8-patched / rc2-orig / patched-live 三份 SHA256，MANIFEST.txt）。
+- 语义冒烟：node --check PASS、探针 ×1、与原版 diff 恰 +21/-6 两 hunk。
+- **时序坑**：该探针（补丁后）在**消息入 agent 循环之前**、按**当前选中模型**（非路由器的 per-step 决策）执行——默认模型为 text-only 的新会话附图会被先拦，必须由 image-admission 监听者先 bail 才能进入循环让路由器改道。带图 prompt 还经 `serializeImageAdmission`（per-agent WeakMap 链）串行化。锚点：L2765（探针调用，补丁后）、L1675（串行链定义）、L2600/L2797（调用点，补丁后）。
 
 ### 1.4 生命周期与通知事件
 
@@ -43,6 +47,7 @@
 - `subagent/start` / `subagent/end`：scoped emit，分别携带 `SubagentRunInfo` / `SubagentRunEndInfo`（含 provider/runId/id/parent 等）；invariant 强制成对且身份一致。锚点：dsh-tool-cordis/lib/index.js:3806-3843；dsh-subagent/lib/invariant.js:34-44。
 - `skills/change`：emit 无 payload；skill 目录失效时发（注册/注销、provider invalidate）。锚点：dsh-skill/lib/index.js:403-412。
 - `agent-preset/selected`：非 scoped 宿主事件 `(sessionId, agentPreset)`，blank 会话 preset 切换提交后由服务重发。锚点：dsh-agent-presets/lib/index.js:869-870；README.md:45。
+- **`credentials/reference-updated`**（rc.2 新增，拆分自 `credentials/updated`）：provider-managed source 变更后发射，供配置 UI 刷新「已配置」标识。原 `credentials/updated` 退役。锚点：dsh-credentials/README.md:49；转发表 dsh-api-remotes/lib/types/remote-events.d.ts:16（`API_REMOTE_FORWARDED_EVENTS` 含 `credentials/reference-updated`，不含原 `credentials/updated`）。
 
 ### 1.5 LLM 适配器接口（`ctx.llm`）
 
@@ -51,6 +56,9 @@
 - **`listModelIds` 不存在**：宿主只有 `listModels(provider)`（返回 `LlmModelInfo[]`：provider/id/name/description?/inputModalities?）。kimi-tide 若有按 id 列举的逻辑须自建映射。锚点：dsh-llm/lib/index.js:1183-1198（全库 grep 无 listModelIds）。
 - `resolveModelInfo(provider, model, signal?)` → `LlmResolvedModelInfo`：**含 `inputModalities?: readonly ModelModality[]`、`context?: { contextWindow }`、`defaultMaxTokens?`、`reasoning?: { efforts, defaultEffort? }`**；context 非正整数抛 `INVALID_MODEL_CONTEXT`。锚点：dsh-llm/lib/index.js:1208-1250；类型 dsh-llm/lib/types/types.d.ts:214-258。
 - `prepareCall(config, signal?)` → `{ config, retryPolicy, adapterDefaults, context?, stream }`；一次性（二次 dispatch 抛 `INVALID_PREPARED_CALL`），绑定当时的注册（HMR 不会跨适配器拼状态）。锚点：dsh-llm/lib/index.js:1298-1323。agent-loop buildRequest 正是用它冻结每步请求（dsh-agent-loop/lib/index.js:695-707）。
+- **rc.2 增量——`prepareCall` 捕获 modalities 元数据并绑定适配器 dispatch generation**：HMR/动态设置不能跨代拼图像能力与端点（dsh-llm README.md:28-41）。
+- **rc.2 增量——`offloadRequestImagesWithPolicy()`**：确定性最老先出图像卸载（raw/base64 计量，count/byte 配额）。锚点：dsh-llm/lib/index.js:722。
+- **rc.2 增量——ContentBlockMap 核心块集新增 `image`**（ImageBlock 只带 durable ImageAttachmentRef）；text-only 路由收**确定性附件占位文本**（含嵌套 tool-result 图），append-only 历史不变。锚点：dsh-llm README.md:58-60。
 - 其他注册表：`registerConfigurableProviders(entries)`（声明可被设置页配置的 provider 目录，settingsNs+settingsPath）、`registerModelDiscovery(settingsNs, discover)`（端点探活列模型）。锚点：dsh-llm/lib/index.js:1062-1136。
 
 ### 1.6 已知坑汇总（kimi-tide 历史踩坑 ↔ 宿主事实）
@@ -59,13 +67,15 @@
 |---|---|---|
 | step 门控误读：以为 step 全局递增 | 每 turn 首步恒 `step=1`（turn 结束 `phase.step=0`，preStep 前 `step=phase.step+1`） | dsh-agent-loop/lib/index.js:533、603 |
 | pre-step 看不到历史 | payload.messages = 本轮 claimed，不含历史 | dsh-agent-loop/lib/index.js:496、502 |
-| 「带图轮走 k3、后续文本轮回 deepseek」物理不可行 | deepseek 适配器 `serializeMessages` 遍历**全量历史**逐条 `assertTextOnly`，历史含图必抛 `UNSUPPORTED_CONTENT` | dsh-llm-deepseek/lib/index.js:40-41、70-73 |
-| image-admission 时序 | 探针在消息入 agent 循环**之前**，按当前选中模型判定；路由器必须先 bail 再改道 | dsh-host-apiproxy/lib/index.js:2783-2808 |
+| ~~「带图轮走 k3、后续文本轮回 deepseek」物理不可行~~ | **前提已于 rc.2 失效**——运行时对 text-only 路由预投影占位符，适配器不再收到 image block（dsh-llm/pi-ai README 互证）；deepseek 适配器 `assertTextOnly` 仍在（dsh-llm-deepseek/lib/index.js:46-47、51、136）但仅作兜底安全网。**锁存暂留（本次升级为行为保持），退役列入后续迭代** | dsh-llm/lib/index.js:685（`projectImagesForTextModel`） |
+| image-admission 时序 | 探针系**本地补丁（官方从无）**，rc.2 已重移植；时序语义不变：在消息入 agent 循环**之前**，按当前选中模型判定；路由器必须先 bail 再改道 | dsh-host-apiproxy/lib/index.js:2755-2759（上游拒绝）、L2765（补丁后探针） |
 | per-agent 锁存（imageSeen WeakMap）合理性 | 正确性优先的唯一可行解：图片一旦入历史，该会话任何文本轮都不能回 text-only 模型（历史回放必炸）；与官方 pi-ai README 的同一判断互证（over-claim 模态 → 消息 durable 后不可回收） | dsh-llm-pi-ai/README.md:199（Known Limitations） |
 
 ---
 
 ## 二、机制（服务与注册表）
+
+> **rc.2 实测标注**：以下各节 rc.8→rc.2 仅 package.json+README 变化（逐文件哈希 diff 实证），既有锚点全部有效，不再重复行号。
 
 ### 2.1 `ctx.skills`（dsh-skill）——分层注册表
 
@@ -115,6 +125,8 @@
 
 ## 三、生态（官方已有什么）
 
+> **rc.2 实测标注**：以下各节 rc.8→rc.2 仅 package.json+README 变化（逐文件哈希 diff 实证），既有锚点全部有效，不再重复行号。
+
 | 能力 | 官方包 | 关键事实 | 锚点 |
 |---|---|---|---|
 | web_search / web_fetch 工具 | dsh-tool-web | **内置但 dsh-base 默认 disabled**；fetch 独立开关；search 默认 true、fetch 默认 true（代码默认）、searchMaxResults 8、**searchTimeoutMs/fetchTimeoutMs 默认 30000**（3e4，非常见误传的 60000——本机 cordis.patch.yml 显式覆盖成 60000）、fetchMaxOutputChars 200000；「注册即稳定」——provider 缺失时执行期抛 WebError 而非隐藏工具 | dsh-tool-web/lib/index.js:739-752；README.md:20-31、38-42；本机 `C:\Users\tafce\.dsh\profiles\web\cordis.patch.yml` tool-web 行（disabled:false + fetch:true + searchTimeoutMs:60000） |
@@ -126,13 +138,43 @@
 | 设置域槽位 | dsh-client-ui-settings / ui-settings-general | `settings.trigger/header/close/action/section/plugins.tab/onboarding` + `settings.general.item`（单行偏好位）；client 侧写设置一律 `ctx.settingsScope.bind` | dsh-client-ui-settings/README.md:5；dsh-cordis-client-runner/lib/client.js:3049-3077、3213 |
 | 会话/composer 槽位 | dsh-cordis-client-runner（槽位类型注册处） | `conversation.composer.dock`（卡片下环境读数行）、`conversation.input.model/.left/.right`、上方整行位、`tool.call.toolview`（keyed，按工具 wire 名分发） | dsh-cordis-client-runner/lib/client.js:2375、2509、2601、3427 |
 | pi-ai 多 provider 适配器 | dsh-llm-pi-ai | 通用适配器（`@earendil-works/pi-ai` 后端）；**原生内置 `kimi-coding` provider（4 模型 + OAuth + anthropic 协议 + kimi 工具兼容）与 `moonshotai`/`moonshotai-cn`（开放平台 key）**；hand-declared route 支持任意 OpenAI-compatible 网关；settings 命名空间 `llm-pi-ai` 用户层可按 provider 合并覆盖；`inputModalities` 声明即准入依据 | dsh-llm-pi-ai/README.md:9-14、94-98、199；pi-ai `dist/providers/data/kimi-coding.json`、`dist/auth/oauth/kimi-coding.d.ts` |
-| Kimi 模型目录（pi-ai 内置 catalog 是否含 kimi-for-coding/k3） | — | **待核实**：本地 `dsh-llm-pi-ai/lib` grep 无 kimi 字样（目录来自 npm 包 `@earendil-works/pi-ai` 的 catalog，不在本包内）；GitHub deepseek-harness 搜 kimi-for-coding 0 命中。若 pi-ai catalog 含 Kimi 则可直接 hand-declared 或 catalog 路由接入；否则须自研适配器或手工声明 route。需另查 pi-ai 包 catalog（`$DSH/node_modules/@earendil-works/pi-ai`） | 反证锚点：grep 无命中（dsh-llm-pi-ai/lib） |
+| Kimi 模型目录（pi-ai 内置 catalog 是否含 kimi-for-coding/k3） | — | **已核实：pi-ai 原生内置 kimi-coding provider**——catalog `dist/providers/data/kimi-coding.json` 含 `k3`/`k3-256k`/`kimi-for-coding`/`kimi-for-coding-highspeed` 四模型（anthropic-messages 协议 + baseUrl `https://api.kimi.com/coding` + `input:["text","image"]` + k3 `thinkingLevelMap` low/high/max）；另有 `auth/oauth/kimi-coding`（RFC 8628 设备授权 OAuth，auth.kimi.com）+ `deferredToolsMode:"kimi"` 工具兼容 + `moonshotai`/`moonshotai-cn`（开放平台 API key 路径）。**结论：dsh-kimi-tide 自研 KimiAdapter 疑似重复造轮，0.4.x 应优先复用 pi-ai 原生 kimi 路径**（kimi-coding=订阅 OAuth / moonshotai=开放平台 key）。 | 反证锚点：grep 无命中（dsh-llm-pi-ai/lib） |
 | 动态 Cordis 插件机制 | dsh-tool-cordis 等 | define/run/stop/undefine + Inspect Provider 目录（事件签名目录 dsh-tool-cordis/lib/index.js:3383+ 即其一） | 本调研多处引用 |
 
 ### 结论：官方已提供 vs kimi-tide 独占价值
 
-- **官方已提供（勿重复造）**：LLM 适配器 seam（registerAdapter/resolveModelInfo/prepareCall）、模型选择与部署默认（agent-default-model + session.selectModel + ui-model-selection）、agent preset 机制与全套 UI、设置命名空间与设置页槽位、web 工具链、skill 注册表与 slash UI、子代理注册表（含 composeFrom 父 preset 绑定）、image-admission 准入探针（半内部）。
+- **官方已提供（勿重复造）**：LLM 适配器 seam（registerAdapter/resolveModelInfo/prepareCall）、模型选择与部署默认（agent-default-model + session.selectModel + ui-model-selection）、agent preset 机制与全套 UI、设置命名空间与设置页槽位、web 工具链、skill 注册表与 slash UI、子代理注册表（含 composeFrom 父 preset 绑定）、image-admission 准入探针（本地补丁，半内部）。
 - **kimi-tide 独占价值**：双模型**路由器**（per-step agent/request 改道 + 评分/能力决策）、**图像护栏**（锁存 + image-admission bail 联动）、**决策观测**（面板/sidecar 留痕）。这些在官方包中无对应物（grep 与目录阅读均无）。
+
+---
+
+## 四、2026-08-22 rc.2 复核
+
+### 4.1 三破与迁移（kimi-tide 0.5.0 → rc.2 跟进，commits a2de84d..429a5fe）
+
+1. **ProjectionDefinition 变形**：新契约 `{key, stateSchema, init, apply, wire?:{viewSchema, view}, stateVersion}`（rc.2 类型锚点 `dsh-session-projection/lib/types/index.d.ts:37-74`；官方范例 dsh-tool-todo rc.2 lib/index.js:80-96）。省略 `wire` = host-only 单元；新增 `stateOf(session, key)` 与 `SessionProjectionStateMap`；register 双 overload（index.d.ts:143-152）。
+2. **`credentials/updated` 拆分**：`credentials/reference-updated` + `credentials/record-updated`（dsh-credentials rc.2 README.md:49；转发表 dsh-api-remotes/lib/types/remote-events.d.ts:16 已更新为 `credentials/reference-updated`）。
+3. **image-admission 探针补丁重移植**：官方 tarball 从无该探针，本机补丁 08-22 已重打 rc.2（见 1.3）。
+
+### 4.2 新能力
+
+- **`deepseek-v4-flash-vision-exp` 视觉模型**：dsh-llm-deepseek 目录新增（lib/index.js:1604），另含 v4-flash（L1594）、v4-pro（L1599）。图片经 Files API 引用 + inline base64 兜底。
+- **附件规范化编码**：准入 32MiB/100MP/16384px，EXIF 定向烘焙、元数据剥离、长边 2048px、JPEG 85/75/60/45 阶梯、1MiB 字节目标、GIF 恒转首帧 PNG；dsh-attachment-local 新增类型 compression-limiter/encoding/normalization/request-image。
+- **`read_image` 结果增强**：+`originalDimensions?` + 坐标映射（dsh-commands/lib/typert.host.js:337-342 `ImageAttachmentRef` 声明）。
+- **image-region 工具退役**：dsh-tool-fs rc.2 README「No attachment-region tool」。
+- **会话头新增 `conversation.session.header.lineage` 槽**：面包屑标题与谱系控制（dsh-client-ui-conversation/lib/types/client/contract/slots.d.ts:77-84）。
+- **pi-ai 凭据 store + OAuth 登录缝**：新包 dsh-authorization；事件 `authorization/settled`；`UNSTORABLE_PROVIDER_ID`；**kimi-coding 订阅 OAuth 首次可用**；新配置 `requestImagePixelBudget`/`requestImageMaxBytes`（dsh-llm-pi-ai/README.md:23-24）。
+- **api-remotes 转发表改名**：`credentials/reference-updated`（dsh-api-remotes/lib/types/remote-events.d.ts:16）。
+- **ask-user 待答问题不跨宿主重启**：`events.mux` 仅覆盖浏览器重连，宿主重启后待答 turn 丢失（dsh-host-apiproxy/README.md:79）。
+
+### 4.3 peer 范围陷阱
+
+- `^0.1.0-rc.8` 按 semver 不含 `0.1.1-rc.2`（prerelease 元组规则，npx semver@7 实证）——kimi-tide peerDeps 已抬 `^0.1.1-rc.2`。
+
+### 4.4 升级作业留档
+
+- 备份 `.dsh-rc2-upgrade\`（rc8-patched / rc2-orig / patched-live 三份 SHA256，MANIFEST.txt）。
+- 实机验收清单 = 计划 Task 7（重启后执行）。
 
 ---
 
@@ -154,12 +196,12 @@
 
 - **自研「凭据门控/评分 UI」若与官方 agent preset + model selection 重叠**（评分引擎的模型挑选职能）→ 退役评分做模型选择的职能，保留评分做**路由决策观测**。
 - **自研设置卡片已迁官方设置页**（0.3.0 已完成，settings.section + settingsScope）——维持，不回退。
-- **自研会话锁存**：机制上仍必需（1.6 表），但应写成「对官方 image-admission 探针的 bail 应答 + per-agent imageSeen」而非另立门控。
+- **自研会话锁存**：机制上仍必需（1.6 表），但应写成「对官方 image-admission 探针的 bail 应答 + per-agent imageSeen」而非另立门控；rc.2 后 text-only 路由已支持占位投影，锁存退役条件趋于成熟。
 - **web 工具/API 直连**：已全部官方化（tool-web + 两个 provider），无任何自研必要。
 
 ### 主要待核实项
 
 1. ~~pi-ai catalog 是否内置 kimi-for-coding/k3~~ **已核实：pi-ai 原生内置 kimi-coding provider**——catalog `dist/providers/data/kimi-coding.json` 含 `k3`/`k3-256k`/`kimi-for-coding`/`kimi-for-coding-highspeed` 四模型（anthropic-messages 协议 + baseUrl `https://api.kimi.com/coding` + `input:["text","image"]` + k3 `thinkingLevelMap` low/high/max）；另有 `auth/oauth/kimi-coding`（RFC 8628 设备授权 OAuth，auth.kimi.com）+ `deferredToolsMode:"kimi"` 工具兼容 + `moonshotai`/`moonshotai-cn`（开放平台 API key 路径）。**结论：dsh-kimi-tide 自研 KimiAdapter 疑似重复造轮，0.4.x 应优先复用 pi-ai 原生 kimi 路径**（kimi-coding=订阅 OAuth / moonshotai=开放平台 key）。
-2. `agent/image-admission` 是否有官方文档/类型导出（当前仅 apiproxy 源码与 HOTFIX 注释，属半内部接缝）。
+2. `agent/image-admission` 是否有官方文档/类型导出（当前仅 apiproxy 源码与 HOTFIX 注释，属半内部接缝；rc.2 官方仍无）。
 3. `session.selectModel` 的「同时写回部署默认」在 0.4.x 设计中的取舍（per-session 选择被写成部署默认可能非 kimi-tide 预期行为，锚点 dsh-host-apiproxy/README.md:13）。
 4. ~~settings 域 apiproxy 命名空间 allowlist~~ **已核实（无 allowlist）**：apiproxy settings 写入对任何已注册命名空间开放——未知/未注册/校验失败统一折叠为 `settings-rejected`（dsh-host-apiproxy/lib/index.js:2377-2395）；README 亦明说「没有任何注册应答的名字会折叠为 seam 自己的 settings-rejected……插件只要注册自己的分节即可浏览器配置」（dsh-host-apiproxy/README.md:61）。dsh-client-ui-agent-preset README.md:51 提到的 allowlist 是指**宿主事件转发** allowlist（dsh-api-remotes/lib/types/remote-events.d.ts:16 的 `API_REMOTE_FORWARDED_EVENTS`），与 settings 命名空间无关。

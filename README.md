@@ -137,7 +137,7 @@ timeline
 
 ### 已知限制
 
-1. **带图会话锁存死锁**：锁存后整会话走多模态模型；若 Kimi 额度/Key 失效，会话**无法切回文本模型**（历史含图片）→ 只能新开会话。**根解 = 图片不进主历史**：「图像转述模式」改设计中（rc.8 宿主已提供 Modality/准入机制；子代理图片外包已裁撤——官方子代理仅文本）。
+1. **带图会话锁存死锁**：锁存后整会话走多模态模型；若 Kimi 额度/Key 失效，会话**无法切回文本模型**（历史含图片）→ 只能新开会话。**根解 = 图片不进主历史**：「图像转述模式」改设计中（rc.2 宿主已提供 Modality/准入机制；子代理图片外包已裁撤——官方子代理仅文本）。
 
 ---
 
@@ -182,7 +182,7 @@ timeline
 ## 文档索引
 
 - [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)：0.4.x API key 直连设计稿（已定稿）。
-- [`docs/host-platform-map.md`](docs/host-platform-map.md)：DSH 宿主平台契约调研（0.4.x/rc.8 升级的认知基线）。
+- [`docs/host-platform-map.md`](docs/host-platform-map.md)：DSH 宿主平台契约调研（0.4.x/rc.2 升级的认知基线）。
 - [`docs/positioning.md`](docs/positioning.md)：项目定位与维护策略。
 - [`docs/development-plan-router.md`](docs/development-plan-router.md)：路由器开发计划（M1-M7）。
 - [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md)：0.5.0 规则驱动路由架构（预设/规则/打底/降级/迁移链）。
@@ -397,7 +397,7 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 
 ### Known Limitations
 
-1. **Image-latch deadlock**: after latching, the whole session runs on the multimodal model; if the Kimi quota/key fails, the session **cannot switch back to a text model** (history contains images) → open a new session. **Root fix = images never enter the main history**: the "image transcription mode" is being redesigned (the rc.8 host now ships the modality/admission machinery; subagent image outsourcing was dropped — official subagents are text-only).
+1. **Image-latch deadlock**: after latching, the whole session runs on the multimodal model; if the Kimi quota/key fails, the session **cannot switch back to a text model** (history contains images) → open a new session. **Root fix = images never enter the main history**: the "image transcription mode" is being redesigned (the rc.2 host now ships the modality/admission machinery; subagent image outsourcing was dropped — official subagents are text-only).
 
 ---
 
@@ -442,7 +442,7 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 ## Documentation Index
 
 - [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md): 0.4.x API-key direct-connection design (finalized).
-- [`docs/host-platform-map.md`](docs/host-platform-map.md): DSH host-platform contract research (the cognitive baseline for 0.4.x and the rc.8 upgrade).
+- [`docs/host-platform-map.md`](docs/host-platform-map.md): DSH host-platform contract research (the cognitive baseline for 0.4.x and the rc.2 upgrade).
 - [`docs/positioning.md`](docs/positioning.md): project positioning & maintenance strategy.
 - [`docs/development-plan-router.md`](docs/development-plan-router.md): router development plan (M1-M7).
 - [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md): 0.5.0 rule-driven routing architecture (presets / rules / baseline / degradation / migration chain).
