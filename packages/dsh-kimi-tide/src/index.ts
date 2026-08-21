@@ -431,7 +431,7 @@ export function apply(ctx: Context, config: Config = {}) {
 
   // Projection: register the unit, then push the current snapshot into every
   // session as it appears (panel data is process-global, not per-session).
-  ctx.sessionProjections.register(kimiTideProjectionDefinition as Extract<typeof kimiTideProjectionDefinition, { wire: unknown }>)
+  ctx.sessionProjections.register(kimiTideProjectionDefinition)
   // Dropdown model catalogs: both enumerated async from the llm service
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }

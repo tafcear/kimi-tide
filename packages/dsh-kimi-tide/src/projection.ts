@@ -59,22 +59,23 @@ const panelSchema = z.object({
   }).nullable(),
 }).nullable()
 
+/** This unit's definition shape (rc.2 contract) — shared by the bridges and the export annotation. */
+type PanelProjectionDefinition = ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null>
+
 // dsh-session-projection depends on zod v4 while this package uses zod v3;
 // the schema is structurally compatible at runtime (both validate plain JSON),
 // so we bridge the type gap through unknown.
-const bridgedStateSchema = panelSchema as unknown as
-  import('@deepseek-ai/dsh-session-projection').ProjectionDefinition<
-    typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null
-  >['stateSchema']
+const bridgedStateSchema = panelSchema as unknown as PanelProjectionDefinition['stateSchema']
 
-const bridgedViewSchema = panelSchema as unknown as NonNullable<
-  import('@deepseek-ai/dsh-session-projection').ProjectionDefinition<
-    typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null
-  >['wire']
->['viewSchema']
+const bridgedViewSchema = panelSchema as unknown as
+  NonNullable<PanelProjectionDefinition['wire']>['viewSchema']
 
+// Annotated with the registry's wire-required shape (register overload 1:
+// Omit<Def,'wire'> & { wire: NonNullable<Def['wire']> }) so the register call
+// needs no cast — and dropping `wire` here becomes a compile error instead of
+// a silently host-only unit.
 export const kimiTideProjectionDefinition:
-ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null> = {
+  Omit<PanelProjectionDefinition, 'wire'> & { wire: NonNullable<PanelProjectionDefinition['wire']> } = {
   key: KIMI_TIDE_PANEL_KEY,
   stateSchema: bridgedStateSchema,
   stateVersion: 5,
