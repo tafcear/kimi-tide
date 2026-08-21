@@ -489,9 +489,9 @@ export function apply(ctx: Context, config: Config = {}) {
     refreshCandidates()
     void refreshKimiStatus()
   })
-  // 凭据落盘即生效：credentials 服务发出 updated 事件时重读接入指示与配额。
+  // 凭据引用落盘即生效：credentials 服务发出 reference-updated 事件时重读接入指示与配额。
   // 事件未声明（宿主无凭据服务时永不触发）：经宽化类型注册，避免给 Events 增补类型。
-  ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/updated', () => {
+  ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/reference-updated', () => {
     void refreshKimiStatus()
     void monitor.refresh()
   })

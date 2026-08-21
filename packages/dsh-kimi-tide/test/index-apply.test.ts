@@ -197,18 +197,18 @@ describe('apply() kimi 二态 change-gate（0.4.x 终审跟进：二态变化才
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-  it('二态未变：refreshKimiStatus 不增推面板（credentials/updated 节流窗口内隔离）', async () => {
+  it('二态未变：refreshKimiStatus 不增推面板（credentials/reference-updated 节流窗口内隔离）', async () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners } = makeCtx([agent])
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 25))
     agent.session.append.mockClear()
 
-    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    for (const listener of listeners.get('credentials/reference-updated') ?? []) listener()
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(agent.session.append).toHaveBeenCalledTimes(1)
 
-    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    for (const listener of listeners.get('credentials/reference-updated') ?? []) listener()
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(agent.session.append).toHaveBeenCalledTimes(1)
   })
@@ -222,12 +222,12 @@ describe('apply() kimi 二态 change-gate（0.4.x 终审跟进：二态变化才
     const { ctx, listeners } = makeCtx([agent], providers)
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 25))
-    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    for (const listener of listeners.get('credentials/reference-updated') ?? []) listener()
     await new Promise((resolve) => setTimeout(resolve, 10))
     agent.session.append.mockClear()
 
     providers.length = 0 // kimi-coding 路由消失 → route true→false
-    for (const listener of listeners.get('credentials/updated') ?? []) listener()
+    for (const listener of listeners.get('credentials/reference-updated') ?? []) listener()
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(agent.session.append).toHaveBeenCalledTimes(1)
     const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
