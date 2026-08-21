@@ -28,13 +28,13 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
   }
 }
 
-describe('panelSchema (projection v4)', () => {
-  const parse = (kimiTideProjectionDefinition.schema as { parse: (v: unknown) => unknown }).parse.bind(
-    kimiTideProjectionDefinition.schema as never,
+describe('panelSchema (projection v5)', () => {
+  const parse = (kimiTideProjectionDefinition.stateSchema as { parse: (v: unknown) => unknown }).parse.bind(
+    kimiTideProjectionDefinition.stateSchema as never,
   ) as (v: unknown) => KimiTidePanelProjection | null
 
-  it('pins stateVersion 4 (v4 投影)', () => {
-    expect(kimiTideProjectionDefinition.stateVersion).toBe(4)
+  it('pins stateVersion 5 (v5 投影)', () => {
+    expect(kimiTideProjectionDefinition.stateVersion).toBe(5)
   })
 
   it("accepts configSource 'settings' and still rejects unknown sources", () => {
@@ -97,9 +97,15 @@ describe('kimiTideProjectionDefinition', () => {
     expect(kimiTideProjectionDefinition.apply(before, other)).toBe(before)
   })
 
-  it('view passes the state through', () => {
+  it('wire.view passes the state through', () => {
     const p = panel(3)
-    expect(kimiTideProjectionDefinition.view(p)).toBe(p)
-    expect(kimiTideProjectionDefinition.view(null)).toBeNull()
+    expect(kimiTideProjectionDefinition.wire!.view(p)).toBe(p)
+    expect(kimiTideProjectionDefinition.wire!.view(null)).toBeNull()
+  })
+
+  it('wire.viewSchema accepts valid payload and rejects invalid', () => {
+    const p = panel(3)
+    expect(kimiTideProjectionDefinition.wire!.viewSchema.parse(p)).toEqual(p)
+    expect(() => kimiTideProjectionDefinition.wire!.viewSchema.parse({ nope: true })).toThrow()
   })
 })

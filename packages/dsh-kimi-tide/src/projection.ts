@@ -25,6 +25,9 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'kimi-tide/panel': KimiTidePanelProjection | null
   }
+  interface SessionProjectionStateMap {
+    'kimi-tide/panel': KimiTidePanelProjection | null
+  }
 }
 
 /** Wire-payload guard. Structural (passthrough) — the payload crosses one process boundary only. */
@@ -59,16 +62,22 @@ const panelSchema = z.object({
 // dsh-session-projection depends on zod v4 while this package uses zod v3;
 // the schema is structurally compatible at runtime (both validate plain JSON),
 // so we bridge the type gap through unknown.
-const bridgedSchema = panelSchema as unknown as
+const bridgedStateSchema = panelSchema as unknown as
   import('@deepseek-ai/dsh-session-projection').ProjectionDefinition<
     typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null
-  >['schema']
+  >['stateSchema']
+
+const bridgedViewSchema = panelSchema as unknown as NonNullable<
+  import('@deepseek-ai/dsh-session-projection').ProjectionDefinition<
+    typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null
+  >['wire']
+>['viewSchema']
 
 export const kimiTideProjectionDefinition:
 ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null> = {
   key: KIMI_TIDE_PANEL_KEY,
-  schema: bridgedSchema,
-  stateVersion: 4,
+  stateSchema: bridgedStateSchema,
+  stateVersion: 5,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;
@@ -78,5 +87,8 @@ ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null>
     }
     return state
   },
-  view: (state) => state,
+  wire: {
+    viewSchema: bridgedViewSchema,
+    view: (state) => state,
+  },
 }
