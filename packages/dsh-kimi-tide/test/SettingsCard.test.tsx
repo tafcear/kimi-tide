@@ -131,6 +131,13 @@ describe('SettingsCard 预设管理器（render，brief Task 8 Step 1）', () =>
     // Fails if: availability===false 的规则目标丢失 kt-unavailable 灰态类。
     expect(html).toMatch(/kt-unavailable[^]*kimi-for-coding|kimi-for-coding[^]*kt-unavailable/)
   })
+  it('用户裁定：未挂载模型不进入目标下拉 option（灰字提示代替），下拉只列可用模型', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWithAvailability(v4cfg('saving'), { 'kimi-coding/kimi-for-coding': false }) }))
+    // Fails if: kimi-for-coding 仍作为兜底 option 出现在 <select> 内（TargetSelect 的 fallback 未移除）。
+    expect(html).toContain('未挂载')
+    expect(html).not.toMatch(/<option[^>]*>kimi-coding\/kimi-for-coding<\/option>/)
+    expect(html).toMatch(/<option[^>]*>kimi-coding\/k3<\/option>/)
+  })
   it('关闭态：只显示预设行，不显示编辑器', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg(null)) }))
     // Fails if: activePreset===null 时仍渲染当前预设编辑器（新增规则按钮泄漏）。

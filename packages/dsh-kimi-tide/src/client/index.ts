@@ -118,6 +118,9 @@ export function apply(ctx: Context): void {
     .kimi-tide-settings .kt-groups { display: flex; flex-direction: column; gap: 6px; }
     .kimi-tide-settings .kt-group-row { display: flex; align-items: flex-start; gap: 6px; }
     .kimi-tide-settings .kt-group-row textarea { flex: 1; min-height: 40px; font-family: inherit; resize: vertical; }
+    .kimi-tide-settings .kt-target-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+    .kimi-tide-settings .kt-target-wrap select { flex: 1; min-width: 0; }
+    .kimi-tide-settings .kt-target-missing { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .kimi-tide-settings input, .kimi-tide-settings select, .kimi-tide-settings textarea { font-size: 12px; padding: 2px 6px;
       border: 1px solid var(--dsw-alias-border-l2, #d4d9e3); border-radius: 6px; background: var(--dsw-alias-bg-base, #fff);
       color: var(--dsw-alias-label-primary, #2b3245); }

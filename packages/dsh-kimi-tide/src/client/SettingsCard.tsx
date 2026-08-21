@@ -78,7 +78,8 @@ const omitKey = (obj: Record<string, string[]>, key: string): Record<string, str
   return next
 }
 
-/** 目标下拉：全量目录 options + 当前值兜底 option（目录缺失/未拉取时仍显示当前值）。 */
+/** 目标下拉：只列可用（已挂载）模型；当前值未挂载时不作为 option 兜底，改灰字提示
+ *  （用户裁定 2026-08-21：未接入的模型不应出现在下拉选择里）。 */
 function TargetSelect(props: {
   label: string
   value: string
@@ -87,19 +88,27 @@ function TargetSelect(props: {
   disabled: boolean
   onChange: (value: string) => void
 }) {
-  const options = props.options.includes(props.value) ? props.options : [...props.options, props.value]
+  const known = props.options.includes(props.value)
   return (
-    <select
-      aria-label={props.label}
-      className={props.unavailable ? 'kt-unavailable' : undefined}
-      value={props.value}
-      disabled={props.disabled}
-      onChange={(e) => props.onChange(e.target.value)}
-    >
-      {options.map((option) => (
-        <option key={option} value={option}>{option}</option>
-      ))}
-    </select>
+    <span className="kt-target-wrap">
+      {!known && (
+        <span className="kt-unavailable kt-target-missing" title="该模型未接入（设置 → Models 挂载后出现）">
+          （未挂载）{props.value}
+        </span>
+      )}
+      <select
+        aria-label={props.label}
+        className={props.unavailable ? 'kt-unavailable' : undefined}
+        value={known ? props.value : ''}
+        disabled={props.disabled}
+        onChange={(e) => props.onChange(e.target.value)}
+      >
+        {!known && <option value="" disabled>— 选择已挂载模型 —</option>}
+        {props.options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </span>
   )
 }
 
@@ -161,7 +170,13 @@ export function SettingsCard(props: SettingsCardProps) {
   const activeId = config.activePreset
   const active = activeId !== null ? config.presets[activeId] ?? null : null
   const catalog = snapshot.catalog ?? []
-  const modelOptions = catalog.flatMap((group) => group.models.map((model) => `${group.provider}/${model}`))
+  // 下拉只列可用模型（用户裁定 2026-08-21）：availability 明确 false（未挂载/目录未列出）即剔除；
+  // availability 为 null（无连接通道）时不设灰态，全目录入选项。
+  const modelOptions = catalog.flatMap((group) =>
+    group.models
+      .filter((model) => snapshot.availability === null || snapshot.availability[`${group.provider}/${model}`] !== false)
+      .map((model) => `${group.provider}/${model}`),
+  )
   // 目标灰态：读快照 availability（数据源 = connection.api.llm.models，
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
