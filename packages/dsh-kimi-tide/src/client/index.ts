@@ -23,9 +23,11 @@ const LOCALE_NS = 'settings.kimi-tide'
 
 export function apply(ctx: Context): void {
   // Wire the bridge so TideDock can call remote commands without receiving ctx as a prop.
+  // rc.8 commands/execute 契约 = (agent, line, images)——images 必填，缺第三参会
+  // 直接 reject（"expected 3 business argument(s)... got 2"，2026-08-21 实机定位）。
   tideDockBridge.execute = (sessionId, line) =>
-    (ctx as unknown as { remote: { commands: { execute: (sid: string, l: string) => Promise<unknown> } } })
-      .remote.commands.execute(sessionId, line)
+    (ctx as unknown as { remote: { commands: { execute: (sid: string, l: string, images?: never[]) => Promise<unknown> } } })
+      .remote.commands.execute(sessionId, line, [])
 
   // Settings-card nav label (spec §3.1): locale-bound `t('nav')` like the
   // official Models section, falling back to the hardcoded copy when the
