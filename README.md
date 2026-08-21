@@ -245,6 +245,10 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 
 ---
 
+<p align="center">
+  <a href="https://github.com/oil-oil/beautify-github-readme"><img src="docs/assets/readme/made-with-beautify.svg" width="300" alt="README made with beautify-github-readme"></a>
+</p>
+
 ## 许可证与合规提示
 
 - **kimi-tide 本体**：[MIT](LICENSE)（Copyright 2026 kimi-tide contributors）
@@ -500,6 +504,10 @@ A: Retired. Rule-driven routing replaces six-dimension scoring: a preset (defaul
 A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月汐); hosts without a settings service fall back to the sidecar file; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` (`.pre-v3` backup), and on 0.5.0 upgrade configs auto-migrate into the v4 preset/rule shape (`.pre-v4` backup).
 
 ---
+
+<p align="center">
+  <a href="https://github.com/oil-oil/beautify-github-readme"><img src="docs/assets/readme/made-with-beautify.svg" width="300" alt="README made with beautify-github-readme"></a>
+</p>
 
 ## License & Compliance
 
