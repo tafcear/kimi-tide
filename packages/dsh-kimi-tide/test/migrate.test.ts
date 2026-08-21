@@ -107,6 +107,18 @@ describe('migrateV3', () => {
     expect(v4.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' })
     expect(v4.presets.saving.default.model).toBe('deepseek-v4-flash')  // 另一预设不动
   })
+  it('Ruling 11：capability + deepseek 默认（遗留便宜默认，本机实况）→ 不覆盖，保留内置 k3 打底', () => {
+    const v4 = migrateV3({ version: 3, mode: 'capability', default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(v4.activePreset).toBe('capability')
+    expect(v4.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(v4.presets.saving.default.model).toBe('deepseek-v4-flash')
+  })
+  it('Ruling 11：cost + deepseek 非内置默认 → saving 仍无条件覆盖（省钱映射语义不变）', () => {
+    const v4 = migrateV3({ version: 3, mode: 'cost', default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } })
+    expect(v4.activePreset).toBe('saving')
+    expect(v4.presets.saving.default).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    expect(v4.presets.capability.default.model).toBe('k3')
+  })
   it('scores/candidates/classify/预算参数一律不迁移', () => {
     const v4 = migrateV3({ version: 3, mode: 'cost', default: { provider: 'a', model: 'b' }, scores: { 'a/b': { code: 5 } }, premiumBudget: 0.9 })
     expect(v4).not.toHaveProperty('scores')

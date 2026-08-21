@@ -81,7 +81,11 @@ export function coerceRouterConfig(raw: unknown, warn: (m: string) => void): Rou
   return migrateV1(raw, warn)
 }
 
-/** v3 → v4 语义映射（spec §6.1）：mode→预设选择；default 与内置不同则写入该预设；
+/** v3 → v4 语义映射（spec §6.1 + Ruling 11）：mode→预设选择；default 的覆盖规则——
+ *  cost→saving 无条件覆盖（v3.default 的「便宜默认」语义与省钱打底天然对应）；
+ *  capability 只覆盖当 v3.default 为 kimi 模型（provider===KIMI_PROVIDER，用户刻意把
+ *  默认设成贵模型=能力偏好信号），deepseek 默认=遗留便宜默认 → 保留内置 k3 打底
+ *  （2026-08-21 实机缺陷：本机 v3.default=deepseek-v4-flash 曾把能力打底覆盖成 flash）；
  *  scores/candidates/classify/预算参数一律不迁移。v4 直通幂等。 */
 export function migrateV3(raw: unknown): RouterConfigV4 {
   const r = (raw ?? {}) as Record<string, unknown>
@@ -93,7 +97,9 @@ export function migrateV3(raw: unknown): RouterConfigV4 {
     const d = target(r.default)
     if (d !== null) {
       const builtin = v4.presets[presetId]
-      if (d.provider !== builtin.default.provider || d.model !== builtin.default.model) {
+      const isPremiumDefault = d.provider === KIMI_PROVIDER
+      const shouldCopy = presetId === 'saving' || isPremiumDefault
+      if (shouldCopy && (d.provider !== builtin.default.provider || d.model !== builtin.default.model)) {
         v4.presets[presetId] = { ...builtin, default: d }
       }
     }
