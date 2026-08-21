@@ -62,7 +62,8 @@ export function TideDock(props: TideDockProps) {
     try {
       const result = await tideDockBridge.execute(props.sessionId, line) as
         | { ok?: boolean; message?: string; error?: unknown }
-        | undefined      if (result !== undefined && 'ok' in result && result.ok === false) {
+        | undefined
+      if (result !== undefined && 'ok' in result && result.ok === false) {
         // rc.8 命令 RPC 失败形态：error/result 字段可读时展示原文，否则提示通道。
         const detail = (result as { error?: { message?: string } }).error?.message
           ?? (result as { message?: string }).message
