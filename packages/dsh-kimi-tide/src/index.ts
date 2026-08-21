@@ -135,10 +135,16 @@ async function enumerateCandidates(
     }
     for (const model of models) {
       let modalities: string[] = ['text']
+      let reasoningEfforts: string[] | undefined
       try {
         const resolved = await llm.resolveModelInfo(provider.id, model.id)
         if (Array.isArray(resolved.inputModalities) && resolved.inputModalities.length > 0) {
           modalities = [...resolved.inputModalities]
+        }
+        // 推理等级能力（2026-08-21：路由目标若支持会话级 effort 则保留，
+        // router.applyTo 据此做支持判定与钳制；无 reasoning 的模型不带此字段）。
+        if (Array.isArray(resolved.reasoning?.efforts) && resolved.reasoning.efforts.length > 0) {
+          reasoningEfforts = resolved.reasoning.efforts.map((e) => e.id)
         }
       } catch (error) {
         // Conservative degradation, not a drop: an unresolvable model stays
@@ -152,6 +158,7 @@ async function enumerateCandidates(
         model: model.id,
         modalities,
         available: true,
+        ...(reasoningEfforts === undefined ? {} : { reasoningEfforts }),
       })
       seen.add(configKey({ provider: provider.id, model: model.id }))
     }

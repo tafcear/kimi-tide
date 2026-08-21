@@ -1,7 +1,7 @@
 // test/router.test.ts（骨架；消息夹具同 T2）
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG_V4, type CandidateMeta } from '../src/config.js'
-import { KimiRouter } from '../src/router.js'
+import { KimiRouter, reasoningEffortFor } from '../src/router.js'
 
 const log = { info: () => {} }
 const METAS: CandidateMeta[] = [
@@ -94,5 +94,49 @@ describe('图像护栏（v4 词汇）', () => {
     expect(r.guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, false)).toBeNull()
     const textOnly = METAS.map((m) => ({ ...m, modalities: ['text'] }))
     expect(new KimiRouter(cfg('saving'), textOnly, log).guardImage({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, true)).toBeNull()
+  })
+})
+
+describe('推理等级映射（2026-08-25）', () => {
+  const K3 = { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true, reasoningEfforts: ['low', 'high', 'max'] }
+  const HIGHSPEED = { provider: 'kimi-coding', model: 'kimi-for-coding-highspeed', modalities: ['text', 'image'], available: true, reasoningEfforts: ['minimal', 'low', 'medium', 'high'] }
+  const NON_REASONING = { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true, reasoningEfforts: ['off'] }
+  const UNKNOWN = { provider: 'kimi-coding', model: 'k3-256k', modalities: ['text', 'image'], available: true }
+
+  it('reasoningEffortFor：支持集包含继承等级 → 原样保留', () => {
+    expect(reasoningEffortFor([K3], K3, 'max')).toBe('max')
+    expect(reasoningEffortFor([K3], K3, 'low')).toBe('low')
+  })
+  it('reasoningEffortFor：继承等级越级 → 向下钳制到最高支持等级', () => {
+    expect(reasoningEffortFor([HIGHSPEED], HIGHSPEED, 'max')).toBe('high')
+    expect(reasoningEffortFor([HIGHSPEED], HIGHSPEED, 'xhigh')).toBe('high')
+    expect(reasoningEffortFor([K3], K3, 'xhigh')).toBe('high')
+  })
+  it('reasoningEffortFor：目标能力未知 → 剥离', () => {
+    expect(reasoningEffortFor([UNKNOWN], UNKNOWN, 'max')).toBeUndefined()
+    expect(reasoningEffortFor([K3], UNKNOWN, 'max')).toBeUndefined()
+  })
+  it('reasoningEffortFor：目标仅支持 off（非推理模型）→ 剥离', () => {
+    expect(reasoningEffortFor([NON_REASONING], NON_REASONING, 'max')).toBeUndefined()
+  })
+  it('reasoningEffortFor：继承等级为 off → 剥离', () => {
+    expect(reasoningEffortFor([K3], K3, 'off')).toBeUndefined()
+    expect(reasoningEffortFor([K3], K3, undefined)).toBeUndefined()
+  })
+  it('applyTo：路由到 k3 保留 max；路由到 highspeed 钳制为 high', () => {
+    const r = new KimiRouter(cfg('capability'), [K3, HIGHSPEED, ...METAS], log)
+    const base = { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' }
+    const toK3 = r.applyTo(base, { kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, reason: 'x', via: 'default' })
+    expect(toK3).toEqual({ provider: 'kimi-coding', model: 'k3', reasoningEffort: 'max' })
+    const toFast = r.applyTo(base, { kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' }, reason: 'x', via: 'rule' })
+    expect(toFast).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding-highspeed', reasoningEffort: 'high' })
+  })
+  it('applyTo：keep/无决策 → 原样返回；目标能力未知 → 剥离 effort', () => {
+    const r = new KimiRouter(cfg('capability'), [UNKNOWN, ...METAS], log)
+    const base = { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' }
+    expect(r.applyTo(base, { kind: 'keep', reason: 'x' })).toBe(base)
+    expect(r.applyTo(base, undefined)).toBe(base)
+    expect(r.applyTo(base, { kind: 'route', target: { provider: 'kimi-coding', model: 'k3-256k' }, reason: 'x', via: 'default' }))
+      .toEqual({ provider: 'kimi-coding', model: 'k3-256k' })
   })
 })

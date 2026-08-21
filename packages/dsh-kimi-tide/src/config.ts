@@ -3,6 +3,12 @@ export interface RouteTarget { provider: string; model: string }
 export interface CandidateMeta extends RouteTarget {
   modalities: string[]
   available: boolean
+  /**
+   * 目标模型支持的推理等级（llm.resolveModelInfo → reasoning.efforts 的 id
+   * 列表，如 ['low','high','max']）。undefined = 能力未知（候选枚举未完成或
+   * 适配器未暴露）——路由时不携带会话级 reasoningEffort，维持 0.5.x 行为。
+   */
+  reasoningEfforts?: string[]
 }
 /** 0.4.x：插件固定的 Kimi provider 路由（pi-ai catalog 原生名）。 */
 export const KIMI_PROVIDER = 'kimi-coding'

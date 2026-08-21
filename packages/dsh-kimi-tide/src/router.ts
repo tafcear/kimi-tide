@@ -10,7 +10,7 @@
  *   agent/request（携带该步的 callConfig）→ 消费槽位，返回替换路由
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { CandidateMeta, RouteTarget, RouterConfigV4 } from './config.js'
@@ -65,6 +65,38 @@ export function applyImageGuard(
 export function canClaimImageAdmission(config: RouterConfigV4, metas: readonly CandidateMeta[]): boolean {
   if (config.activePreset === null) return false
   return imageCapablePicks(metas).length > 0
+}
+
+/** 推理等级升级序（与 pi-ai THINKING_LEVELS 一致），供钳制降级使用。 */
+const REASONING_LEVELS: readonly string[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+
+/**
+ * 决定路由目标携带的推理等级（2026-08-25：会话级 effort 从主力模型继承，
+ * 不能原样透传——目标不支持时 dsh-llm-pi-ai 的 resolveReasoningLevel 会抛
+ * UNSUPPORTED_REASONING_EFFORT 使整轮失败）。
+ *
+ * 语义：能力已知且支持 → 原样保留；支持但等级更高 → 向下钳制到不高于继承
+ * 等级的最高支持等级；能力未知（枚举未完成/适配器未暴露）或目标仅支持 off
+ * → 剥离（维持 0.5.x 行为，交给目标自身的默认/自适应策略）。
+ *
+ * @returns 应写入 callConfig 的 effort；undefined = 剥离。
+ */
+export function reasoningEffortFor(
+  metas: readonly CandidateMeta[],
+  target: RouteTarget,
+  inherited: ReasoningEffortId | undefined,
+): ReasoningEffortId | undefined {
+  if (inherited === undefined) return undefined
+  const meta = metas.find((m) => m.provider === target.provider && m.model === target.model)
+  const supported = meta?.reasoningEfforts
+  if (supported === undefined || supported.length === 0) return undefined
+  if (supported.includes(inherited)) return inherited
+  const idx = REASONING_LEVELS.indexOf(inherited)
+  // 自继承等级向下钳制；'off' 不显式下发（对非推理模型等效，且语义一致）。
+  for (let i = idx; i > 0; i--) {
+    if (supported.includes(REASONING_LEVELS[i])) return REASONING_LEVELS[i] as ReasoningEffortId
+  }
+  return undefined
 }
 
 export interface RouterLog {
@@ -129,11 +161,25 @@ export class KimiRouter {
   /** agent/request 钩子：消费决策，返回替换后的 callConfig。 */
   applyTo(config: LlmCallConfig, decision: RouteDecision | undefined): LlmCallConfig {
     if (decision === undefined || decision.kind !== 'route') return config
-    const { reasoningEffort: _inherited, ...rest } = config
+    return this.replaceRoute(config, decision.target)
+  }
+
+  /**
+   * 把一轮请求替换到目标 provider/model，并把会话级推理等级映射到目标支持集
+   * （reasoningEffortFor：支持保留 / 越级钳制 / 未知剥离）。路由与图像护栏共用
+   * 这一条写路径，保证两条替换路径的 effort 语义一致。
+   */
+  replaceRoute(config: LlmCallConfig, target: RouteTarget): LlmCallConfig {
+    const { reasoningEffort: inherited, ...rest } = config
+    const effort = reasoningEffortFor(this.metas, target, inherited)
+    if (effort !== inherited) {
+      this.log.info(`kimi-router: reasoning effort ${inherited ?? '∅'} → ${effort ?? '∅'} on ${target.provider}/${target.model}`)
+    }
     return {
       ...rest,
-      provider: decision.target.provider,
-      model: decision.target.model,
+      ...(effort === undefined ? {} : { reasoningEffort: effort }),
+      provider: target.provider,
+      model: target.model,
     }
   }
 
@@ -186,8 +232,7 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       // from a route decision or from the session's base model selection.
       const guard = router.guardImage({ provider: replaced.provider, model: replaced.model }, slot.hasImage)
       if (guard !== null) {
-        const { reasoningEffort: _inherited, ...rest } = replaced
-        replaced = { ...rest, provider: guard.target.provider, model: guard.target.model }
+        replaced = router.replaceRoute(replaced, guard.target)
         ctx.logger?.info?.(`kimi-router: ${guard.reason} → ${replaced.provider}/${replaced.model}`)
         return replaced
       }
