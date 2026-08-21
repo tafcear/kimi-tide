@@ -8,9 +8,8 @@
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
-    <img src="https://img.shields.io/badge/Next%20Release-v0.5.0-orange" alt="next release">
-    <img src="https://img.shields.io/badge/Tests-203%2F203-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/Release-v0.5.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Tests-209%2F209-brightgreen" alt="tests">
   </p>
 </p>
 
@@ -18,7 +17,7 @@
 
 ## 现状快照（2026-08-21）
 
-> **📌 开发计划（重要）**：**v0.4.0 已发布（2026-08-20，tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0) 附 dsh-kimi-tide-0.4.0.tgz，[Actions 流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152)）**，内容 = 设置界面迁移（`bc31b69`）+ **「API key 直连」**——接入层切换为官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，自研 OAuth 接入层退役（约 740 行删除），provider 命名 `kimi-tide/*` → `kimi-coding/*` 自动迁移存量配置（实施 commit `ec7909e..123d4e7`；发布版 216/216 测试 + typecheck + build 绿）。设计稿：[`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)。
+> **📌 开发计划（重要）**：**v0.5.0 已发布（2026-08-21，tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0) 附 dsh-kimi-tide-0.5.0.tgz，[Actions 流水线 run 32442349528](https://github.com/tafcear/kimi-tide/actions/runs/32442349528)）**，内容 = **「规则驱动路由」**——命名预设（省钱/能力/可自建）+ 有序规则（带图/关键词组）+ 打底语义 + 不可用降级，一键全局切换；六维评分引擎整体退役（scores/classify/预算窗/评分滑杆全删），候选池改全量枚举，v1-v3 存量配置自动迁移留档 `.pre-v4`（[设计稿](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md)；发布版 209/209 测试 + typecheck + build 绿）。上一版 **v0.4.0**（2026-08-20，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)）= 设置界面迁移 + 「API key 直连」（pi-ai 原生 `kimi-coding` 路由 + Console API Key，OAuth 接入层退役，`kimi-tide/*`→`kimi-coding/*` 自动迁移，216/216 绿）。
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
@@ -27,7 +26,7 @@
 | 0.3.0 能力评分路由 | ✅ main 已实施 + 手工验收 7/7 | `86da918`（203/203 绿） |
 | 0.4.0 设置界面迁移 | ✅ main 已合并 | `bc31b69`；验收 ①-③ 通过 |
 | 0.4.x API key 直连 | ✅ 已发布 v0.4.0（2026-08-20） | tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，[流水线 run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
-| 0.5.0 规则驱动路由 | ✅ 已实施（分支 `feat/0.5.0-rule-driven-routing`，未发布） | 预设+规则引擎取代评分引擎，203/203 绿 + typecheck 0 + build 过 |
+| 0.5.0 规则驱动路由 | ✅ 已发布 v0.5.0（2026-08-21） | tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)，[流水线 run 32442349528](https://github.com/tafcear/kimi-tide/actions/runs/32442349528)；预设+规则引擎取代评分引擎，209/209 绿 + typecheck 0 + build 过 |
 
 ⚠️ **已知限制**：带图会话会锁存多模态模型；若 Kimi 侧额度/Key 失效，该会话无法切回文本模型（死锁，只能新开会话）。根解「图像转述模式」改设计中（子代理图片外包已裁撤：官方子代理仅文本），详见[已知限制](#已知限制)。
 
@@ -109,9 +108,9 @@ flowchart LR
 
 ---
 
-## 快速开始（v0.4.0 形态）
+## 快速开始（v0.5.0 形态）
 
-> 本分支已实施 API key 直连（v0.4.0 已发布，见「开发计划」）；旧 OAuth 方案已退役，历史存档见 [`docs/legacy-setup.md`](docs/legacy-setup.md)。
+> 本分支已实施规则驱动路由（v0.5.0 已发布，见「开发计划」）与 API key 直连（v0.4.0）；旧 OAuth 方案已退役，历史存档见 [`docs/legacy-setup.md`](docs/legacy-setup.md)。
 
 ### 1. 前置条件
 
@@ -246,7 +245,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 - **0.2.x（main 已落地，未发布）**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
 - **0.3.0（main 已实施，未发布）**：能力评分路由（11 任务 TDD，`86da918`），手工验收 7/7 ✅。
 - **0.4.0（已发布，2026-08-20）**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线 ✅（tag 触发全自动）；滑杆步进修 ✅（a45d722）。
-- **0.5.0（已实施，未发布）**：**规则驱动路由**——命名预设（省钱/能力/可自建）+ 有序规则（带图 / 关键词组）+ 打底语义 + 不可用降级，一键全局切换；能力评分引擎整体退役（scores/classify/预算窗/评分滑杆全删），候选池改全量枚举，v1-v3 存量配置自动迁移留档 `.pre-v4`（[设计稿](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md)，203/203 绿）。
+- **0.5.0（已发布，2026-08-21，tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)）**：**规则驱动路由**——命名预设（省钱/能力/可自建）+ 有序规则（带图 / 关键词组）+ 打底语义 + 不可用降级，一键全局切换；能力评分引擎整体退役（scores/classify/预算窗/评分滑杆全删），候选池改全量枚举，v1-v3 存量配置自动迁移留档 `.pre-v4`（[设计稿](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md)，发布版 209/209 绿 + typecheck 0 + build 过；实机验收含迁移缺陷修复）。
 - **规划中（rc.8 重议后）**：图像转述模式（改设计——复用宿主 Modality/准入机制，端点不支持时转述降级；前置 deepseek vision 端点实测）。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
 
 ---
@@ -278,7 +277,7 @@ A：退役了。规则驱动取代六维评分：预设（默认模型 + 有序�
 A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无设置服务的宿主回退 sidecar 文件；0.4.x 升级自动把 `kimi-tide/*` 改名为 `kimi-coding/*`（留档 `.pre-v3`），0.5.0 升级自动迁移为 v4 预设/规则形状（留档 `.pre-v4`）。
 
 **Q：为什么 Release 页只有 v0.1.3？**  
-A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布。v0.4.0（设置迁移 + API key 直连，`ec7909e..123d4e7` + 验收修复）已于 2026-08-20 发布（tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，216/216 + typecheck + build 绿）。
+A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布。v0.4.0（设置迁移 + API key 直连，`ec7909e..123d4e7` + 验收修复）已于 2026-08-20 发布（tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，216/216 + typecheck + build 绿）；v0.5.0（规则驱动路由，含实机验收修复）已于 2026-08-21 发布（tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)，209/209 绿）。
 
 </details>
 
@@ -292,9 +291,8 @@ A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布�
   <p align="center">
     <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
-    <img src="https://img.shields.io/badge/Release-v0.4.0-blue" alt="release">
-    <img src="https://img.shields.io/badge/Next%20Release-v0.5.0-orange" alt="next release">
-    <img src="https://img.shields.io/badge/Tests-203%2F203-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/Release-v0.5.0-blue" alt="release">
+    <img src="https://img.shields.io/badge/Tests-209%2F209-brightgreen" alt="tests">
   </p>
 </p>
 
@@ -302,7 +300,7 @@ A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布�
 
 ## Current Status (2026-08-21)
 
-> **📌 Development plan (important)**: **v0.4.0 is released (2026-08-20, tag `v0.4.0` — [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0) with dsh-kimi-tide-0.4.0.tgz, [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152))**, containing the settings migration (`bc31b69`) plus **"API-key direct connection"** — the access layer switches to the official pi-ai native `kimi-coding` route + a Console API key; the self-built OAuth access layer is retired (~740 lines deleted); provider naming migrates `kimi-tide/*` → `kimi-coding/*` automatically (implementation `ec7909e..123d4e7`; release version: 216/216 tests + typecheck + build green). Design spec: [`docs/superpowers/specs/2026-08-20-api-key-direct-design.md`](docs/superpowers/specs/2026-08-20-api-key-direct-design.md).
+> **📌 Development plan (important)**: **v0.5.0 is released (2026-08-21, tag `v0.5.0` — [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0) with dsh-kimi-tide-0.5.0.tgz, [Actions run 32442349528](https://github.com/tafcear/kimi-tide/actions/runs/32442349528))**, containing **"rule-driven routing"** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md); release version: 209/209 tests + typecheck + build green). The previous **v0.4.0** (2026-08-20, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)) = settings migration + "API-key direct connection" (pi-ai native `kimi-coding` route + Console API key, OAuth access layer retired, `kimi-tide/*`→`kimi-coding/*` auto-migration, 216/216 green).
 
 | Line | Status | Evidence |
 |---|---|---|
@@ -311,7 +309,7 @@ A：v0.1.3 发布于路由器接线之前；0.2.x/0.3.0 随 v0.4.0 一并发布�
 | 0.3.0 capability-scored routing | ✅ Implemented on main + manual acceptance 7/7 | `86da918` (203/203 green) |
 | 0.4.0 settings migration | ✅ Merged on main | `bc31b69`; acceptance ①-③ passed |
 | 0.4.x API-key direct | ✅ Released v0.4.0 (2026-08-20) | tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0), [Actions run 32357299152](https://github.com/tafcear/kimi-tide/actions/runs/32357299152) |
-| 0.5.0 rule-driven routing | ✅ Implemented (branch `feat/0.5.0-rule-driven-routing`, unreleased) | preset+rule engine replaces the scoring engine; 203/203 green + typecheck 0 + build ok |
+| 0.5.0 rule-driven routing | ✅ Released v0.5.0 (2026-08-21) | tag `v0.5.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0), [Actions run 32442349528](https://github.com/tafcear/kimi-tide/actions/runs/32442349528); preset+rule engine replaces the scoring engine; 209/209 green + typecheck 0 + build ok |
 
 ⚠️ **Known limitation**: image-bearing sessions latch onto the multimodal model; if the Kimi quota/key fails, that session cannot fall back to a text model (deadlock — start a new session). The root fix (image transcription mode, redesigned for rc.8) is planned; subagent image outsourcing was dropped (official subagents are text-only). See [Known Limitations](#known-limitations).
 
@@ -393,9 +391,9 @@ flowchart LR
 
 ---
 
-## Quick Start (v0.4.0 form)
+## Quick Start (v0.5.0 form)
 
-> This branch implements API-key direct (released as v0.4.0 — see the development plan); the old OAuth form is retired, archived in [`docs/legacy-setup.md`](docs/legacy-setup.md).
+> This branch implements rule-driven routing (released as v0.5.0 — see the development plan) and API-key direct (v0.4.0); the old OAuth form is retired, archived in [`docs/legacy-setup.md`](docs/legacy-setup.md).
 
 ### 1. Prerequisites
 
@@ -530,7 +528,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.2.x (landed on main, unreleased)**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
 - **0.3.0 (implemented on main, unreleased)**: capability-scored routing (11 TDD tasks, `86da918`), manual acceptance 7/7 ✅.
 - **0.4.0 (released, 2026-08-20)**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline ✅ (fully automatic on tag); slider step fix ✅ (a45d722).
-- **0.5.0 (implemented, unreleased)**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md), 203/203 green).
+- **0.5.0 (released, 2026-08-21, tag `v0.5.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0))**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md); release version: 209/209 green + typecheck 0 + build ok; live acceptance included a migration-defect fix).
 - **Planned (after the rc.8 re-review)**: image transcription mode (redesign — reuse the host modality/admission machinery, with transcription fallback until the DeepSeek vision endpoint is proven). ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
@@ -562,6 +560,6 @@ A: Retired. Rule-driven routing replaces six-dimension scoring: a preset (defaul
 A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月汐); hosts without a settings service fall back to the sidecar file; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` (`.pre-v3` backup), and on 0.5.0 upgrade configs auto-migrate into the v4 preset/rule shape (`.pre-v4` backup).
 
 **Q: Why does the Release page only have v0.1.3?**  
-A: v0.1.3 shipped before the router wiring; 0.2.x/0.3.0 shipped together with v0.4.0. v0.4.0 (settings migration + API-key direct, `ec7909e..123d4e7` + acceptance fixes) was released on 2026-08-20 (tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0); 216/216 + typecheck + build green).
+A: v0.1.3 shipped before the router wiring; 0.2.x/0.3.0 shipped together with v0.4.0. v0.4.0 (settings migration + API-key direct, `ec7909e..123d4e7` + acceptance fixes) was released on 2026-08-20 (tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0); 216/216 + typecheck + build green); v0.5.0 (rule-driven routing, incl. live-acceptance fixes) was released on 2026-08-21 (tag `v0.5.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0); 209/209 green).
 
 </details>

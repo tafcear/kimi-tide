@@ -8,8 +8,7 @@ DeepSeek Harness 的**规则驱动模型路由插件**（0.5.0）：命名预设
 （设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层
 （约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、观测**。
 
-> **当前状态（2026-08-21）**：0.5.0「规则驱动路由」已实施（分支
-> `feat/0.5.0-rule-driven-routing`，未发布）——能力评分引擎（scores/classify/预算窗）
+> **当前状态（2026-08-21）**：0.5.0「规则驱动路由」**已发布**（tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)）——能力评分引擎（scores/classify/预算窗）
 > 整体退役，预设+规则承接；v1-v3 存量配置自动迁移留档 `.pre-v4`。路由架构详见
 > [docs/router.md](docs/router.md)，带图会话限制见文末「已知限制」节。
 
