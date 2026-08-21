@@ -33,7 +33,7 @@ try {
   const value = Config(section)
   console.log('schema OK, providers:', Object.keys(value.providers).join(', '))
   for (const [name, p] of Object.entries(value.providers)) {
-    console.log(`  ${name}: apiKeyEnv=${p.apiKeyEnv ?? '(none)'} api=${p.api ?? '(catalog)'} baseURL=${p.baseURL ?? '(catalog)'}`)
+    console.log(`  ${name}: apiKeyEnv=${p.apiKeyEnv ? '(set)' : '(none)'} api=${p.api ?? '(catalog)'} baseURL=${p.baseURL ?? '(catalog)'}`)
   }
 } catch (e) {
   console.log('schema FAILED:', e.message)
