@@ -23,11 +23,19 @@ const LOCALE_NS = 'settings.kimi-tide'
 
 export function apply(ctx: Context): void {
   // Wire the bridge so TideDock can call remote commands without receiving ctx as a prop.
-  // rc.8 commands/execute 契约 = (agent, line, images)——images 必填，缺第三参会
-  // 直接 reject（"expected 3 business argument(s)... got 2"，2026-08-21 实机定位）。
+  // The commands/execute contract differs by host version:
+  //   - rc.8 (web): (agent, line, images) — images is a required business arg;
+  //     a 2-arg call rejects with "expected 3 business argument(s)... got 2".
+  //   - desktop 4.0.1+ (dsh-api-gateway): (agent, line) plus an OPTIONAL trailing
+  //     caller AbortSignal — a third positional [] is parsed as the signal and
+  //     every call fails with "Failed to convert value to 'AbortSignal'"
+  //     (2026-08-21 live diagnosis: all panel commands dead on desktop).
+  // Try the 2-arg form first; fall back to the rc.8 3-arg form only when the
+  // gateway reports the 3-business-argument arity error.
+  const commands = (ctx as unknown as { remote: { commands: { execute: (sid: string, l: string, images?: never[]) => Promise<unknown> } } }).remote.commands
   tideDockBridge.execute = (sessionId, line) =>
-    (ctx as unknown as { remote: { commands: { execute: (sid: string, l: string, images?: never[]) => Promise<unknown> } } })
-      .remote.commands.execute(sessionId, line, [])
+    commands.execute(sessionId, line).catch((cause: unknown) =>
+      /expected 3 business argument/.test(String(cause)) ? commands.execute(sessionId, line, []) : Promise.reject(cause))
 
   // Settings-card nav label (spec §3.1): locale-bound `t('nav')` like the
   // official Models section, falling back to the hardcoded copy when the
