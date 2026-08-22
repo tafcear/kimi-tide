@@ -469,6 +469,16 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
   }
 
   return ctx.effect(() => {
+    // 2026-08-23 回归修复：全部监听器 {prepend:true}——宿主 rc.2
+    // dsh-host-apiproxy 在 agent 创建时安装 installModelSelection（agent
+    // 作用域 agent/request 覆盖监听器，selectionFor→installModelSelection，
+    // lib/index.js:1692-1715）。cordis waterfall 结果 = 最外层监听器返回值；
+    // 本插件配置变更重挂载（applyConfig → mountRouter → 注销+重注册）会把
+    // 监听器 push 到链尾（内层），路由返回值被外层覆盖丢弃（实机：
+    // 面板决策=vision-exp 而 assistant/message.source 恒 session 模型）。
+    // prepend 保证无论重挂载多少次，kimi-tide 恒为最外层，路由返回值生效；
+    // 宿主 selection.current 回退链读取会话 request/header，会跟随路由结果
+    // 自愈（下一轮 selection 即上一轮路由目标）。
     const disposePre = ctx.on('agent/pre-step', async (payload, next) => {
       const result = await next()
       // Decide once per turn, on its FIRST model step. Verified contract
@@ -587,7 +597,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       slots.set(agent, { decision, hasImage })
       onDecision?.(agent, decision, flowId === undefined ? undefined : { flowId })
       return result
-    })
+    }, { prepend: true })
     const disposeRequest = ctx.on('agent/request', async (payload, next) => {
       const resolved = await next()
       const slot = slots.get(payload.agent)
@@ -612,7 +622,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${label})`)
       }
       return replaced
-    })
+    }, { prepend: true })
     // llm/stream 智能投影拦截器（S4c，spike 实证生产范式）：仅当 metas 查得目标
     // 存在且 modalities 不含 image（text-only 目标）时介入，视觉目标与目录读不
     // 到的目标直放。cordis waterfall 的 next() 固定回放原始载荷（cordis
@@ -629,7 +639,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const opts2 = { ...options, messages: rewritten.out }
       inFlight.add(opts2)
       return ctx.llm.stream(opts2)
-    })
+    }, { prepend: true })
     // Host prompt pre-check deferral (see canClaimImageAdmission): the host
     // rejects image prompts whose current model selection is text-only
     // BEFORE the loop runs; claim the image here so the guard gets its turn.
@@ -639,7 +649,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       if (!canClaimImageAdmission(router.config, router.metas)) return undefined
       ctx.logger?.info?.('kimi-router: claimed image admission (premium multimodal)')
       return true
-    })
+    }, { prepend: true })
     return () => {
       disposePre()
       disposeRequest()

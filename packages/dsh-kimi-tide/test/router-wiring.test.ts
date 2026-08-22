@@ -92,27 +92,43 @@ interface Listener {
 
 type StreamListener = (options: unknown, next: () => AsyncIterable<unknown>) => AsyncIterable<unknown>
 
+interface HookRecord<T> {
+  callback: T
+}
+
 function makeCtx() {
-  const listeners = new Map<string, Listener[]>()
-  const streamListeners: StreamListener[] = []
+  const listeners = new Map<string, Array<HookRecord<Listener>>>()
+  const streamListeners: Array<HookRecord<StreamListener>> = []
   const logs: string[] = []
   /** llm/stream 瀑布终点（伪适配器）收到的 options，按到达序记录。 */
   const adapterCalls: unknown[] = []
   const ctx = {
     logger: { info: (message: string) => logs.push(message) },
     effect: (execute: () => unknown) => {
-      execute()
-      return () => {}
+      // 真实效应语义：回调返回的 cleanup 由 effect 返回的注销器执行——
+      // 生产 installRouter 的注销链（disposePre/Request/Stream/Admission）
+      // 依赖此语义，重挂载回归测试需要真实注销。
+      const cleanup = execute()
+      return typeof cleanup === 'function' ? cleanup : () => {}
     },
-    on: (name: string, listener: Listener | StreamListener) => {
+    on: (name: string, listener: Listener | StreamListener, options?: { prepend?: boolean }) => {
+      const prepend = options?.prepend ?? false
       if (name === 'llm/stream') {
-        streamListeners.push(listener as StreamListener)
-        return () => {}
+        const record: HookRecord<StreamListener> = { callback: listener as StreamListener }
+        prepend ? streamListeners.unshift(record) : streamListeners.push(record)
+        return () => {
+          const i = streamListeners.indexOf(record)
+          if (i >= 0) streamListeners.splice(i, 1)
+        }
       }
       const arr = listeners.get(name) ?? []
-      arr.push(listener as Listener)
       listeners.set(name, arr)
-      return () => {}
+      const record: HookRecord<Listener> = { callback: listener as Listener }
+      prepend ? arr.unshift(record) : arr.push(record)
+      return () => {
+        const i = arr.indexOf(record)
+        if (i >= 0) arr.splice(i, 1)
+      }
     },
     llm: {
       /**
@@ -124,25 +140,31 @@ function makeCtx() {
         const walk = (i: number): AsyncIterable<unknown> =>
           i >= streamListeners.length
             ? (adapterCalls.push(options), fakeAdapterStream())
-            : streamListeners[i](options, () => walk(i + 1))
+            : streamListeners[i].callback(options, () => walk(i + 1))
         return walk(0)
       },
     },
   }
   const dispatch = {
+    /**
+     * cordis waterfall 语义（EventsService.waterfall，lib/index.js:317-325）：
+     * 监听器按注册序外层优先执行；next() 回放原始载荷调用下一层；
+     * 瀑布结果 = 最外层监听器的返回值。支持 prepend（unshift）与真实注销
+     * ——2026-08-23 回归：宿主 rc.2 installModelSelection 在 agent 创建时
+     * 注册 agent/request 覆盖监听器；kimi-tide 配置变更重挂载会把自身监听器
+     * push 到链尾（内层），路由返回值被外层覆盖丢弃——prepend 恒外层修复。
+     */
     async preStep(payload: object): Promise<unknown> {
-      let result: unknown = { kind: 'enter' }
-      for (const listener of listeners.get('agent/pre-step') ?? []) {
-        result = await listener(payload, () => Promise.resolve(result))
-      }
-      return result
+      const cbs = [...(listeners.get('agent/pre-step') ?? [])].map((r) => r.callback)
+      const inner = () => Promise.resolve({ kind: 'enter' })
+      const next = () => (cbs.shift() ?? inner)(payload, next)
+      return next()
     },
     async request(payload: object, base: object): Promise<unknown> {
-      let result: unknown = base
-      for (const listener of listeners.get('agent/request') ?? []) {
-        result = await listener(payload, () => Promise.resolve(result))
-      }
-      return result
+      const cbs = [...(listeners.get('agent/request') ?? [])].map((r) => r.callback)
+      const inner = () => Promise.resolve(base)
+      const next = () => (cbs.shift() ?? inner)(payload, next)
+      return next()
     },
     /**
      * Host prompt pre-check deferral: mirrors cordis `serial` bail semantics
@@ -150,8 +172,8 @@ function makeCtx() {
      * (non-null/false/undefined) wins; no listener → undefined (reject).
      */
     async admission(payload: object): Promise<unknown> {
-      for (const listener of listeners.get('agent/image-admission') ?? []) {
-        const result = await listener(payload, () => Promise.resolve(undefined))
+      for (const record of listeners.get('agent/image-admission') ?? []) {
+        const result = await record.callback(payload, () => Promise.resolve(undefined))
         if (result !== null && result !== false && result !== undefined) return result
       }
       return undefined
@@ -282,6 +304,60 @@ describe('installRouter step contract (regression: step===0 gate idled the route
     const second = await dispatch.request({ agent, turn: 1, step: 2, signal: signal() }, baseConfig)
 
     expect(second).toEqual(baseConfig)
+  })
+})
+
+describe('installRouter vs 宿主模型选择覆盖（rc.2 installModelSelection 回归，2026-08-23）', () => {
+  // 实机回归（0.6.0 验收 turn 10 实锤）：rc.2 dsh-host-apiproxy 在 agent
+  // 创建时安装 installModelSelection——agent/request 监听器把 provider/model
+  // 覆盖回会话选定模型（selectionFor→installModelSelection，
+  // dsh-host-apiproxy/lib/index.js:1692-1715，selection.current 回退链 =
+  // picked → 会话 request/header → 默认）。cordis waterfall 结果 = 最外层
+  // 监听器返回值；kimi-tide 每次配置变更重挂载（applyConfig → mountRouter
+  // → 注销+重注册）把自身监听器 push 到链尾（内层），路由返回值被外层覆盖
+  // 丢弃——面板决策正确但实际请求恒为会话模型（assistant/message.source
+  // 实锤 deepseek-v4-pro）。修复：全部监听器 {prepend:true} 恒外层。
+  it('配置重挂载后路由决策仍覆盖宿主 model-selection 监听器（prepend 恒外层）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const router = new KimiRouter(CONFIG(), METAS, { info: () => {} })
+    const disposeFirst = installRouter(ctx as never, router, makeDeps().deps)
+
+    // 模拟宿主 apiproxy：agent 创建（晚于插件启动）时注册 model-selection
+    // 覆盖监听器——把 resolved 覆盖回会话选定模型（生产=请求头回退链）。
+    const hostDispose = ctx.on('agent/request', async (payload, next) => {
+      const resolved = await next()
+      return { ...(resolved as object), provider: 'session-selected', model: 'session-model' }
+    })
+
+    // 模拟设置卡片保存：applyConfig → mountRouter 注销并重挂路由器
+    // （生产每次配置变更发生一次；重挂后监听器 push 到链尾）。
+    disposeFirst()
+    installRouter(ctx as never, router, makeDeps().deps)
+
+    await dispatch.preStep({ agent, messages: [textMessage('@kimi 请审查这段代码')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+
+    // 无 prepend 时：链序 [host, kimi-tide]，host 外层胜出 → config =
+    // session-selected（RED，复现生产回归）。prepend 后：链序
+    // [kimi-tide, host]，kimi-tide 外层胜出 → 路由决策生效。
+    expect(config).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+    hostDispose()
+  })
+
+  it('源码钉桩：installRouter 四个监听器注册均携带 prepend:true', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const src = await readFile(new URL('../src/router.ts', import.meta.url), 'utf8')
+    const installBody = src.slice(src.indexOf('export function installRouter'))
+    const markers = ['agent/pre-step', 'agent/request', 'llm/stream', 'agent/image-admission']
+    const positions = markers.map((name) => installBody.indexOf(`ctx.on('${name}'`))
+    expect(positions.every((p) => p !== -1)).toBe(true)
+    for (let i = 0; i < positions.length; i++) {
+      const from = positions[i]
+      const to = i + 1 < positions.length ? positions[i + 1] : installBody.length
+      // 每段（该 ctx.on 到下一 ctx.on）内含其回调的 {prepend:true} 尾参——
+      // 防止未来重构静默丢失 prepend。
+      expect(installBody.slice(from, to)).toContain('prepend: true')
+    }
   })
 })
 
