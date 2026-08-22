@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, type RouterConfigV3 } from '../src/config.js'
-import { coerceRouterConfig, coerceRouterConfigV4, hasKimiTideResidue, migrateV1, migrateV2, migrateV3 } from '../src/migrate.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV3 } from '../src/config.js'
+import { coerceRouterConfig, coerceRouterConfigV4, coerceRouterConfigV5, hasKimiTideResidue, hasKimiTideResidueV5, migrateV1, migrateV2, migrateV3, migrateV4 } from '../src/migrate.js'
 
 const V1 = {
   mode: 'cost',
@@ -138,5 +138,66 @@ describe('migrateV3', () => {
     expect(hasKimiTideResidue(DEFAULT_CONFIG_V4())).toBe(false)
     const dirty = DEFAULT_CONFIG_V4(); dirty.presets.saving.name = 'kimi-tide 遗留'
     expect(hasKimiTideResidue(dirty)).toBe(true)
+  })
+})
+
+describe('migrateV4（v4→v5 行为保持）', () => {
+  it('v4 输入（自定义预设/规则/关键词组）：version=5、presets/keywordGroups 逐字相等、flows=两预置、不注入 imageFallback', () => {
+    const v4 = DEFAULT_CONFIG_V4()
+    v4.activePreset = 'saving'
+    v4.presets.custom = {
+      name: '自定义',
+      default: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      rules: [
+        { id: 'r1', when: { kind: 'keywords', group: 'g1' }, target: { provider: 'kimi-coding', model: 'k3' } },
+        { id: 'r2', when: { kind: 'image' }, target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+      ],
+    }
+    v4.keywordGroups.g1 = ['评审', 'review']
+    const v5 = migrateV4(v4)
+    expect(v5.version).toBe(5)
+    expect(v5.activePreset).toBe('saving')
+    expect(v5.presets).toEqual(v4.presets)
+    expect(v5.keywordGroups).toEqual(v4.keywordGroups)
+    expect(v5.flows).toEqual(DEFAULT_FLOWS())
+    expect(Object.keys(v5.flows).sort()).toEqual(['review', 'transcribe'])
+    for (const p of Object.values(v5.presets)) {
+      expect(p).not.toHaveProperty('imageFallback')
+      expect(p).not.toHaveProperty('imageFallbackFlow')
+    }
+  })
+  it('v5 直通幂等（同引用）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    expect(migrateV4(c)).toBe(c)
+    expect(coerceRouterConfigV5(c, () => {})).toBe(c)
+  })
+  it('v3 链路端到端出 v5（语义映射 → 行为保持展开）', () => {
+    const v5 = migrateV4({ version: 3, mode: 'capability', default: { provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' } })
+    expect(v5.version).toBe(5)
+    expect(v5.activePreset).toBe('capability')
+    expect(v5.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' })
+    expect(v5.flows).toEqual(DEFAULT_FLOWS())
+    expect(v5.presets.saving.default.model).toBe('deepseek-v4-flash')
+  })
+  it('v1 链路端到端出 v5（kimi-tide 改名全程贯通、无残留）', () => {
+    const v5 = coerceRouterConfigV5(V1, () => {})
+    expect(v5.version).toBe(5)
+    expect(v5.activePreset).toBe('saving')                       // V1.mode='cost' → saving
+    expect(v5.presets.saving.default).toEqual(V1.primary)
+    expect(JSON.stringify(v5).includes('kimi-tide')).toBe(false)
+  })
+  it('coerceRouterConfigV5：v2 链（kimi-tide 改名 → 语义映射 → v5 展开）', () => {
+    const v5 = coerceRouterConfigV5(V2, () => {})
+    expect(v5.version).toBe(5)
+    expect(v5.activePreset).toBe('capability')
+    expect(v5.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(v5.flows).toEqual(DEFAULT_FLOWS())
+  })
+  it('hasKimiTideResidueV5：version!==5 → true；v5 无残留 → false；v5 含 kimi-tide 串 → true', () => {
+    expect(hasKimiTideResidueV5({ version: 4 })).toBe(true)
+    expect(hasKimiTideResidueV5(DEFAULT_CONFIG_V4())).toBe(true)
+    expect(hasKimiTideResidueV5(DEFAULT_CONFIG_V5())).toBe(false)
+    const dirty = DEFAULT_CONFIG_V5(); dirty.presets.saving.name = 'kimi-tide 遗留'
+    expect(hasKimiTideResidueV5(dirty)).toBe(true)
   })
 })

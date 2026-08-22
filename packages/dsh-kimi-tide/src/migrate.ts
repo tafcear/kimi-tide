@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, KIMI_PROVIDER, type RouterConfigV3, type RouterConfigV4, type RouteTarget } from './config.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_FLOWS, KIMI_PROVIDER, type RouterConfigV3, type RouterConfigV4, type RouterConfigV5, type RouteTarget } from './config.js'
 
 function target(v: unknown): RouteTarget | null {
   const r = (v ?? {}) as Record<string, unknown>
@@ -118,5 +118,36 @@ export function coerceRouterConfigV4(raw: unknown, warn: (m: string) => void): R
 export function hasKimiTideResidue(config: unknown): boolean {
   const v = (config as { version?: unknown } | null)?.version
   if (v !== 4) return true
+  return JSON.stringify(config).includes('kimi-tide')
+}
+
+/** v4 → v5 行为保持迁移（0.6.0 协作编排）：presets/keywordGroups/activePreset 原样展开，
+ *  flows=DEFAULT_FLOWS()——预置流注册但不绑定（无任何规则引用 flows 键）；
+ *  不注入 imageFallback/imageFallbackFlow（字段缺省 = 维持 0.5.x 行为）。
+ *  v5 直通幂等（原引用返回）；其余版本先经 coerceRouterConfigV4 链收敛到 v4。 */
+export function migrateV4(raw: unknown): RouterConfigV5 {
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 5) return raw as RouterConfigV5
+  const v4 = coerceRouterConfigV4(raw, () => {})
+  return {
+    version: 5,
+    activePreset: v4.activePreset,
+    presets: v4.presets,
+    flows: DEFAULT_FLOWS(),
+    keywordGroups: v4.keywordGroups,
+  }
+}
+
+/** 版本分派到 v5：5 直通；其余走 v1/v2/v3→v4 链后 migrateV4。 */
+export function coerceRouterConfigV5(raw: unknown, warn: (m: string) => void): RouterConfigV5 {
+  const v = (raw as { version?: unknown } | null)?.version
+  if (v === 5) return raw as RouterConfigV5
+  return migrateV4(coerceRouterConfigV4(raw, warn))
+}
+
+/** 命名空间用户层残留检测（v5 版）：version≠5 或序列化含 'kimi-tide'。 */
+export function hasKimiTideResidueV5(config: unknown): boolean {
+  const v = (config as { version?: unknown } | null)?.version
+  if (v !== 5) return true
   return JSON.stringify(config).includes('kimi-tide')
 }
