@@ -1,6 +1,6 @@
 // test/card-store.test.ts
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV5 } from '../src/config.js'
 import { createCardStore, type SettingsScopeLike } from '../src/client/card-store.js'
 import { validateRouterConfig } from '../src/settings-schema.js'
 
@@ -17,7 +17,7 @@ const makeScope = (initial: unknown): SettingsScopeLike & { writes: Array<[strin
     set: async (f, v) => {
       writes.push([f, v])
       const candidate = { ...(value as object), [f]: v }
-      if (validateRouterConfig(candidate as RouterConfigV4) !== undefined) return  // 宿主：校验拒绝，不落值
+      if (validateRouterConfig(candidate as RouterConfigV5) !== undefined) return  // 宿主：校验拒绝，不落值
       value = candidate
       for (const l of listeners) l()
     },
@@ -63,7 +63,8 @@ describe('card-store v4', () => {
   it('校验拒绝（宿主 validate-on-write 静默 recover）→ error 通道', async () => {
     // Fails if: saveTop scope 路径不再在 load 后对比「意图值 vs 实际值」——
     // 宿主拒写（不落值、不抛错）时错误无声消失。
-    const scope = makeScope(DEFAULT_CONFIG_V4())
+    // Task 5：validate 语义校验仅对 v5 生效（v4 及以下直通），夹具抬为 v5。
+    const scope = makeScope(DEFAULT_CONFIG_V5())
     const store = createCardStore(scope, null)
     await store.saveActivePreset('nonexistent')  // activePreset 不在 presets → 宿主拒写
     expect(store.getSnapshot().error).toContain('写入被拒绝')

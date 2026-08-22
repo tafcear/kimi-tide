@@ -30,7 +30,7 @@ import {
   type RouteDecision,
   type RouterLog,
 } from './router.js'
-import { configKey, DEFAULT_CONFIG_V4, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV4 } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV4, type RouterConfigV5 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
@@ -535,7 +535,10 @@ export function apply(ctx: Context, config: Config = {}) {
         base: settingsBase,
         // dsh-settings' validate throws to refuse a write; T1's returns a message.
         validate: (value: RouterConfigV4) => {
-          const message = validateRouterConfig(value)
+          // Task 5 类型桥接（Ruling 3 模式）：validateRouterConfig 入参已抬为
+          // RouterConfigV5（legacy version ≤4 直通语义保留，本命名空间的 v4 存量
+          // 在 Task 12 v5 迁移接线前不做语义校验）——此处仅类型过渡，无行为变化。
+          const message = validateRouterConfig(value as unknown as RouterConfigV5)
           if (message !== undefined) throw new Error(message)
         },
       }) as unknown as SettingsScope<RouterConfigV4>
