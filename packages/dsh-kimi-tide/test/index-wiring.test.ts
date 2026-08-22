@@ -6,10 +6,14 @@ import { Context } from '@deepseek-ai/cordis'
 import SettingsProvider, { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import YAML from 'yaml'
 import { apply, defaultPatchFile } from '../src/index.js'
-import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
 
 function v4cfg(activePreset: string | null): RouterConfigV4 {
   return { ...DEFAULT_CONFIG_V4(), activePreset }
+}
+
+function v5cfg(activePreset: string | null): RouterConfigV5 {
+  return { ...DEFAULT_CONFIG_V5(), activePreset }
 }
 
 describe('defaultPatchFile', () => {
@@ -39,9 +43,11 @@ describe('defaultPatchFile', () => {
  */
 const NS = settingsNamespace('kimi-tide-router')
 
-function memorySettingsClass(seed: Record<string, unknown> = {}) {
+function memorySettingsClass(seed: Record<string, unknown> = {}, documentPath?: string) {
   return class MemorySettings extends SettingsProvider {
     readonly writable = true
+    // 实机 documentPath（settings.yaml 路径）的内存替身：驱动迁移留档（.pre-v5）落盘断言。
+    readonly documentPath = documentPath
     doc: Record<string, unknown> = structuredClone(seed)
     protected async load(): Promise<Record<string, unknown>> { return structuredClone(this.doc) }
     protected async persist(ns: string, section: Record<string, unknown>): Promise<void> {
@@ -53,9 +59,9 @@ function memorySettingsClass(seed: Record<string, unknown> = {}) {
 interface MemoryProvider extends SettingsProvider { doc: Record<string, unknown> }
 
 /** Boot a real settings provider with an optional pre-existing user document. */
-async function bootSettings(seed: Record<string, unknown> = {}): Promise<MemoryProvider> {
+async function bootSettings(seed: Record<string, unknown> = {}, documentPath?: string): Promise<MemoryProvider> {
   const root = new Context()
-  await root.plugin(memorySettingsClass(seed) as never)
+  await root.plugin(memorySettingsClass(seed, documentPath) as never)
   return (root as unknown as { settings: MemoryProvider }).settings
 }
 
@@ -85,12 +91,20 @@ function makeCtx(agents: FakeAgent[], settings?: SettingsProvider) {
       ],
       listModels: async (provider: string) => {
         listModelsCalls.push(provider)
-        return provider === 'kimi-coding' ? [{ id: 'kimi-for-coding' }] : [{ id: 'deepseek-v4-flash' }]
+        // 目录含 rc.2 的 vision-exp（0.6.0 预置转述流的默认视觉模型）。
+        return provider === 'kimi-coding'
+          ? [{ id: 'kimi-for-coding' }]
+          : [{ id: 'deepseek-v4-flash' }, { id: 'deepseek-v4-flash-vision-exp' }]
       },
       resolveModelInfo: async (provider: string, model: string) => ({
         provider, id: model, name: model,
-        inputModalities: provider === 'kimi-coding' ? ['text', 'image'] : ['text'],
+        inputModalities: provider === 'kimi-coding' || model === 'deepseek-v4-flash-vision-exp' ? ['text', 'image'] : ['text'],
       }),
+      // 生产 VisionCaller 缝（createStreamVisionCaller）的内存替身：text-delta + finish。
+      stream: async function* () {
+        yield { type: 'text-delta', index: 0, text: '转述文字' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
     },
     commands: { register: (def: never) => { commandDef = def as never; return () => {} } },
     sessionProjections: { register: () => () => {} },
@@ -155,7 +169,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(descriptor).toBeDefined()
     expect(getCommand()!.name).toBe('kimi-tide')
     expect(lastSnapshot(agent).configSource).toBe('settings')
-    expect((descriptor!.value as RouterConfigV4).version).toBe(4)
+    expect((descriptor!.value as RouterConfigV5).version).toBe(5)
   })
 
   /**
@@ -177,9 +191,9 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     await getCommand()!.handler({ rawInput: 'preset capability' })
     await tick()
 
-    const stored = settings.doc[NS] as RouterConfigV4
+    const stored = settings.doc[NS] as RouterConfigV5
     expect(stored.activePreset).toBe('capability')
-    expect(stored.version).toBe(4)
+    expect(stored.version).toBe(5)
     expect(Object.keys(stored.presets).length).toBeGreaterThan(0)
     expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
@@ -324,7 +338,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(lastSnapshot(agent).configSource).toBe('sidecar')
   })
 
-  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v4，文档 .pre-v4 快照）', async () => {
+  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v5，0.6.0 链）', async () => {
     // 预置一个「用户编辑过」的 v2 命名空间节（0.3.0 面板写出来的形状）
     const seed = {
       [NS]: {
@@ -343,24 +357,89 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV4
-    expect(resolved.version).toBe(4)
+    const resolved = settings.get(NS) as RouterConfigV5
+    expect(resolved.version).toBe(5)
     expect(resolved.activePreset).toBe('capability')
     expect(resolved.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    // 预置流注册但不绑定：既有规则目标逐字保持（无 flow 引用，全是模型目标）
+    expect(resolved.flows.transcribe?.type).toBe('transcribe')
+    expect(resolved.flows.review?.type).toBe('review')
+    for (const rule of resolved.presets.capability.rules) expect(rule.target).toHaveProperty('provider')
     // sidecar 不存在 → 无导入行为
     expect(existsSync(sidecarFile)).toBe(false)
   })
 
-  it('干净的 v4 用户层不触发迁移（无替换写、无 .pre-v4 快照）', async () => {
+  it('无显式 version 的用户层不触发迁移（随 v5 base 解析，无替换写、无留档）', async () => {
     const settings = await bootSettings({ [NS]: { activePreset: 'saving' } })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx } = makeCtx([agent], settings)
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
-    const resolved = settings.get(NS) as RouterConfigV4
-    expect(resolved.version).toBe(4)
+    const resolved = settings.get(NS) as RouterConfigV5
+    expect(resolved.version).toBe(5)
     expect(resolved.activePreset).toBe('saving')
     // 无残留 → 不调 replace → 无写入发生：doc 仍等于预置 seed
     expect(settings.doc[NS]).toEqual({ activePreset: 'saving' })
+  })
+
+  it('v4 存量命名空间启动迁移到 v5：行为逐字保持 + 预置流注册不绑定 + .pre-v5 留档', async () => {
+    const legacy = v4cfg('saving')
+    const docFile = join(dir, 'settings.yaml')
+    writeFileSync(docFile, '# 用户设置文档替身（内存 provider 的 documentPath）\n', 'utf8')
+    const settings = await bootSettings({ [NS]: legacy }, docFile)
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent], settings)
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await tick()
+
+    const resolved = settings.get(NS) as RouterConfigV5
+    expect(resolved.version).toBe(5)
+    expect(resolved.activePreset).toBe('saving')
+    // 行为保持：presets/keywordGroups 逐字保留（不自动改挂流、不注入 imageFallback）
+    expect(resolved.presets).toEqual(legacy.presets)
+    expect(resolved.keywordGroups).toEqual(legacy.keywordGroups)
+    // 预置流注册但不绑定
+    expect(resolved.flows.transcribe?.visionModel.model).toBe('deepseek-v4-flash-vision-exp')
+    expect(resolved.presets.saving.rules[0].target).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    // 持久化替换 + 文档留档 .pre-v5
+    expect((settings.doc[NS] as RouterConfigV5).version).toBe(5)
+    expect(existsSync(docFile + '.pre-v5')).toBe(true)
+  })
+
+  it('v5 流接线：eager 转述成功 → 面板推送 imageContext 三态计数与 lastFlowEvent', async () => {
+    // saving 预设的带图规则改挂预置 transcribe 流（用户经设置页操作后的形态）
+    const v5 = v5cfg('saving')
+    v5.presets.saving.rules[0] = { id: 'image-transcribe', when: { kind: 'image' }, target: { flow: 'transcribe' } }
+    const settings = await bootSettings({ [NS]: v5 })
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent], settings)
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await tick()
+    // 无图会话不写 imageContext 字段（三零计数 ≠ 缺席）
+    expect(lastSnapshot(agent)).not.toHaveProperty('imageContext')
+    expect(lastSnapshot(agent)).not.toHaveProperty('lastFlowEvent')
+
+    // 候选枚举完成后路由器重挂（fake ctx 的 disposer 是空操作，旧监听器仍在
+    // map 里）——取末位 = 持全量目录（含 vision-exp）的现行路由器。
+    const step = listeners.get('agent/pre-step')?.at(-1)
+    expect(step).toBeDefined()
+    await (step as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      {
+        agent,
+        messages: [{ role: 'user', content: [{ type: 'image', attachment: { attachmentId: 'att-1' } }] } as never],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+
+    const snapshot = lastSnapshot(agent)
+    // eager 转述成功：图标 transcribed，终决策落预设默认文本模型
+    expect(snapshot.imageContext).toEqual({ native: 0, transcribed: 1, blind: 0 })
+    expect(snapshot.lastFlowEvent).toContain('flow:transcribe')
+    expect(snapshot.lastFlowEvent).toContain('deepseek-official/deepseek-v4-flash')
   })
 })

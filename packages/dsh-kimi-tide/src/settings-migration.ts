@@ -1,11 +1,12 @@
 // src/settings-migration.ts
 import { existsSync, renameSync } from 'node:fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-settings'
-import type { RouterConfigV4 } from './config.js'
+import type { RouterConfigV4, RouterConfigV5 } from './config.js'
+import { coerceRouterConfigV5 } from './migrate.js'
 import { mergeResolved } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 
-export interface MigrationScope { get(): RouterConfigV4; replace(section: object): Promise<void> }
+export interface MigrationScope { get(): RouterConfigV4 | RouterConfigV5; replace(section: object): Promise<void> }
 export type MigrationOutcome = 'imported' | 'skipped-clean' | 'skipped-dirty' | 'no-sidecar'
 
 export interface MigrationDeps {
@@ -27,7 +28,9 @@ export async function migrateSidecarIntoScope(d: MigrationDeps): Promise<Migrati
     d.onError('dsh-kimi-tide: 设置命名空间已有用户编辑，跳过 sidecar 迁移（保留 sidecar 未改名）；如需导入请先 /kimi-tide import-config')
     return 'skipped-dirty'
   }
-  await d.scope.replace(loaded.config as unknown as object)
+  // 0.6.0：命名空间是 v5 存储——sidecar（v4 链路终态）导入即收敛 v5
+  // （行为保持：presets/keywordGroups 逐字保留，预置流注册但不绑定）。
+  await d.scope.replace(coerceRouterConfigV5(loaded.config, d.onError) as unknown as object)
   try { renameSync(d.sidecarFile, d.sidecarFile + '.legacy-imported') } catch (e) { d.onError(`dsh-kimi-tide: sidecar 留档失败（${(e as Error).message}）；配置已导入设置命名空间，旧 sidecar 文件请手动删除`) }
   return 'imported'
 }

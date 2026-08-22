@@ -5,7 +5,7 @@
  *
  * Subcommands (0.5.0, v4):
  *   /kimi-tide preset <id|off>       (off → activePreset=null；id 须存在于 presets)
- *   /kimi-tide show                  (print current preset / default / rule count)
+ *   /kimi-tide show                  (print current preset / default / rule count；0.6.0 v5 补 flows 注册表段 + 每预设 imageFallback 行)
  *   /kimi-tide set activePreset <id|off>  (SETTABLE_KEYS 唯一键)
  *   /kimi-tide export-config         (print the sidecar YAML text)
  *   /kimi-tide import-config <path|inline YAML>  (load a file OR inline YAML text)
@@ -13,19 +13,23 @@
  *
  * import-config 双形态（沿用 0.4.x 裁定）：参数是已存在文件路径 → 整表替换；
  * 参数是可解析的内联 YAML 文本 → 合并补丁语义（深度合并进当前配置，仅覆盖
- * 文本中出现的字段，其余保持不动）。其余 → 报错。
+ * 文本中出现的字段，其余保持不动）。其余 → 报错。0.6.0（v5）：文件导入支持
+ * v5 形状（flows/imageFallback）；写命名空间一律收敛 v5（沿用 parseImportedFile
+ * 「导入即迁移」惯例）；sidecar 兜底存储仅支持 v4，v5 文件导入明确拒绝而非静默
+ * 损毁；内联合并保持当前版本（v4→4，v5→5）。
  *
- * Persistence contract: every mutating subcommand writes RouterConfigV4
+ * Persistence contract: every mutating subcommand writes RouterConfigAny
  * through the settings namespace (KimiTideCommandDeps.settings) when one is
  * wired — never the v1 patch file; when settings is absent the sidecar
- * (RouterSidecarStore) remains the fallback store.
+ * (RouterSidecarStore, v4-only) remains the fallback store.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
-import type { RouterConfigV4 } from './config.js'
-import { coerceRouterConfigV4 } from './migrate.js'
+import type { RouterConfigV4, RouterConfigV5 } from './config.js'
+import { coerceRouterConfigV4, coerceRouterConfigV5 } from './migrate.js'
+import type { RouterConfigAny } from './router.js'
 import type { RouterSidecarStore } from './sidecar.js'
 import type { UsageMonitor } from './usage.js'
 
@@ -41,7 +45,7 @@ export type KimiTideCommand =
 
 /** Settings namespace port: primary read/write channel for the router config. */
 export interface SettingsNamespacePort {
-  get(): RouterConfigV4
+  get(): RouterConfigAny
   update(patch: object): Promise<void>
   replace(section: object): Promise<void>
 }
@@ -52,9 +56,9 @@ export interface KimiTideCommandDeps {
   /** Primary settings namespace; absent/null → fall back to sidecar read/write. */
   settings?: SettingsNamespacePort | null
   monitor: UsageMonitor
-  current: () => RouterConfigV4
+  current: () => RouterConfigAny
   /** Called after a successful save: rebuild the router + push projection. */
-  onSaved: (config: RouterConfigV4) => void
+  onSaved: (config: RouterConfigAny) => void
 }
 
 /** Keys settable via `/kimi-tide set` — paths into RouterConfigV4. */
@@ -102,7 +106,7 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
 
 const HELP_TEXT = [
   '/kimi-tide preset <id|off> — switch active preset (off = 路由关闭)',
-  '/kimi-tide show — print the current preset / default / rule count',
+  '/kimi-tide show — print the current preset / default / rule count（v5 另输出 flows 注册表与每预设 imageFallback）',
   '/kimi-tide set activePreset <id|off> — update the active preset',
   '/kimi-tide export-config — print the sidecar YAML',
   '/kimi-tide import-config <path|inline YAML> — load a YAML file OR inline YAML text (panel save channel)',
@@ -128,9 +132,17 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       const c = deps.current()
       if (c.activePreset === null) return 'kimi-tide: 路由关闭（/kimi-tide preset <id> 启用）'
       const p = c.presets[c.activePreset]
-      return p === undefined
-        ? `kimi-tide: activePreset '${c.activePreset}' 缺失（配置异常）`
-        : `kimi-tide: 预设「${p.name}」· 默认 ${p.default.provider}/${p.default.model} · 规则 ${p.rules.length} 条 · 关键词组 ${Object.keys(c.keywordGroups).length} 个`
+      if (p === undefined) return `kimi-tide: activePreset '${c.activePreset}' 缺失（配置异常）`
+      const lines = [
+        `kimi-tide: 预设「${p.name}」· 默认 ${p.default.provider}/${p.default.model} · 规则 ${p.rules.length} 条 · 关键词组 ${Object.keys(c.keywordGroups).length} 个`,
+      ]
+      // 0.6.0（v5）：flows 注册表段（id/类型/关键参数）——v4 存量无注册表，不输出该段。
+      if (c.version === 5) {
+        lines.push(`flows: ${formatFlows(c.flows)}`)
+      }
+      // 每预设 imageFallback 行：缺省 = latch（维持 0.5.x 行为）；transcribe-lazy 级联显示目标流。
+      lines.push(`imageFallback: ${formatImageFallbacks(c)}`)
+      return lines.join('\n')
     }
     case 'set': {
       const raw = typeof cmd.value === 'string' ? cmd.value : ''
@@ -158,16 +170,24 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
     }
     case 'import-config': {
       const inline = isInlineYamlText(cmd.path)
-      let next: RouterConfigV4
+      let next: RouterConfigAny
       try {
         if (deps.settings != null) {
-          next = inline ? mergeInlineText(cmd.path, deps.current()) : parseImportedFile(cmd.path)
+          // 命名空间是 v5 存储：文件导入沿用「导入即迁移」惯例收敛 v5；
+          // 内联合并保留当前版本（mergeInlineText 内保证）。
+          next = inline ? mergeInlineText(cmd.path, deps.current()) : coerceRouterConfigV5(parseImportedFile(cmd.path), () => {})
           await deps.settings.replace(next as unknown as object)
         } else if (inline) {
           next = mergeInlineText(cmd.path, deps.current())
-          deps.sidecar.save(next)
+          deps.sidecar.save(next as RouterConfigV4)
         } else {
-          next = deps.sidecar.importFile(cmd.path)
+          next = parseImportedFile(cmd.path)
+          // sidecar 兜底存储仅支持 v4：v5 配置（flows/imageFallback）导入即损毁
+          // （load 走 v4 迁移链丢字段）——明确拒绝，不静默写盘。
+          if (next.version === 5) {
+            throw new Error('v5 配置（flows/imageFallback）需要带设置服务的宿主（设置命名空间）；sidecar 兜底存储仅支持 v4')
+          }
+          deps.sidecar.save(next)
         }
       } catch (error) {
         return `kimi-tide: import failed — ${(error as Error).message}`
@@ -178,7 +198,30 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
   }
 }
 
-async function persist(config: RouterConfigV4, deps: KimiTideCommandDeps, what: string): Promise<string> {
+/** v5 flows 注册表段：每流 `id(类型 → 关键参数)`。 */
+function formatFlows(flows: RouterConfigV5['flows']): string {
+  const entries = Object.entries(flows).map(([id, flow]) =>
+    flow.type === 'transcribe'
+      ? `${id}(转述 → ${flow.visionModel.provider}/${flow.visionModel.model}, 失败 ${flow.failurePolicy})`
+      : `${id}(评审 → ${flow.reviewer.provider}/${flow.reviewer.model}, ${flow.trigger}, ${flow.rounds} 轮${flow.autoRevise ? ', 自动修订' : ''})`,
+  )
+  return entries.length === 0 ? '无' : entries.join(' · ')
+}
+
+/** 每预设 imageFallback 行：`id=姿态`（缺省 latch；transcribe-lazy 级联目标流）。 */
+function formatImageFallbacks(c: RouterConfigAny): string {
+  return Object.entries(c.presets).map(([id, preset]) => {
+    const mode = preset.imageFallback
+    const label = mode === undefined
+      ? 'latch'
+      : mode === 'transcribe-lazy'
+        ? `transcribe-lazy→${preset.imageFallbackFlow ?? 'transcribe'}`
+        : mode
+    return `${id}=${label}`
+  }).join(' · ')
+}
+
+async function persist(config: RouterConfigAny, deps: KimiTideCommandDeps, what: string): Promise<string> {
   if (deps.settings != null) {
     try { await deps.settings.update(config as unknown as object) } catch (error) {
       return `kimi-tide: save failed — ${(error as Error).message}`
@@ -186,8 +229,8 @@ async function persist(config: RouterConfigV4, deps: KimiTideCommandDeps, what: 
     deps.onSaved(config)
     return `kimi-tide: saved (${what}); effective now, persists across restarts`
   }
-  // 兜底：无 settings 服务时维持旧 sidecar 写入
-  try { deps.sidecar.save(config) } catch (error) { return `kimi-tide: save failed — ${(error as Error).message}` }
+  // 兜底：无 settings 服务时维持旧 sidecar 写入（sidecar 链路恒为 v4 形状）
+  try { deps.sidecar.save(config as RouterConfigV4) } catch (error) { return `kimi-tide: save failed — ${(error as Error).message}` }
   deps.onSaved(config)
   return `kimi-tide: saved (${what}); effective now, persists across restarts（sidecar 兜底模式）`
 }
@@ -225,25 +268,40 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 /**
  * 内联 YAML 合并补丁（面板保存通道）：把解析后的部分配置深度合并进
  * 当前配置并返回合并结果（不落盘——由调用处统一 replace/save）。
+ * version 保持当前配置的版本（v4→4，v5→5；0.6.0：v5 内联补丁不再被压回 4）。
  */
-function mergeInlineText(text: string, current: RouterConfigV4): RouterConfigV4 {
+function mergeInlineText(text: string, current: RouterConfigAny): RouterConfigAny {
   const patch = YAML.parse(text) as unknown
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
     throw new Error('inline YAML must be a mapping (object)')
   }
-  const merged = deepMerge(structuredClone(current), patch) as RouterConfigV4
-  merged.version = 4
+  const merged = deepMerge(structuredClone(current), patch) as RouterConfigAny
+  ;(merged as { version: number }).version = current.version
   return merged
 }
 
 /**
- * 读取并校验一个 config YAML 文件（不落盘），供 settings 命名空间路径的
- * import-config 文件形态使用——镜像 RouterSidecarStore.validate 的 v4/v3/v2
- * 结构检查，与 sidecar.importFile 保持相同解析语义但不写入 sidecar。
+ * 读取并校验一个 config YAML 文件（不落盘），供设置命名空间与 sidecar 两条
+ * import-config 文件形态路径使用——镜像 RouterSidecarStore.validate 的
+ * v5/v4/v3/v2 结构检查。v4/v5 直通；v2/v3 经 coerceRouterConfigV4 统一迁移
+ * （v5 收敛由调用方按目标存储决定：命名空间 coerceRouterConfigV5，sidecar 拒 v5）。
  */
-function parseImportedFile(path: string): RouterConfigV4 {
+function parseImportedFile(path: string): RouterConfigAny {
   const raw = YAML.parse(readFileSync(path, 'utf8')) as unknown
   const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 5) {
+    const presets = r.presets
+    if (typeof presets !== 'object' || presets === null || Array.isArray(presets)) {
+      throw new Error('config v5 结构不合格：presets 缺失或非对象')
+    }
+    if (r.activePreset !== null && typeof r.activePreset !== 'string') {
+      throw new Error('config v5 结构不合格：activePreset 非 string|null')
+    }
+    if (typeof r.flows !== 'object' || r.flows === null || Array.isArray(r.flows)) {
+      throw new Error('config v5 结构不合格：flows 缺失或非对象')
+    }
+    return raw as RouterConfigV5
+  }
   if (r.version === 4) {
     const presets = r.presets
     if (typeof presets !== 'object' || presets === null || Array.isArray(presets)) {

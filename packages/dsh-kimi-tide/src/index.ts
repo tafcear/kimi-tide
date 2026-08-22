@@ -3,9 +3,10 @@
  *
  * Kimi Code (Moonshot) subscription as a native DeepSeek Harness LLM
  * provider, plus the 月汐 dock panel: official quota display, the 0.4.x
- * kimi 二态接入指示, and the 0.5.0 rule-driven router (preset/rule/keyword-
+ * kimi 二态接入指示, and the rule-driven router (preset/rule/keyword-
  * group → RouteDecision with via) with provider-agnostic candidate
- * enumeration and sidecar/settings persistence.
+ * enumeration and sidecar/settings persistence. 0.6.0 协作编排：设置命名
+ * 空间升 v5（flows 注册表 + imageFallback），规则目标可引用协作流。
  */
 import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
@@ -22,7 +23,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
-import { coerceRouterConfigV4, hasKimiTideResidue } from './migrate.js'
+import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
@@ -30,11 +31,12 @@ import {
   installRouter,
   KimiRouter,
   type RouteDecision,
+  type RouterConfigAny,
   type RouterLog,
 } from './router.js'
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
-import { configKey, DEFAULT_CONFIG_V4, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV4, type RouterConfigV5 } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
@@ -45,7 +47,7 @@ export const name = 'dsh-kimi-tide'
 
 export const inject = ['llm', 'timer', 'commands', 'sessionProjections']
 
-/** User-settings namespace owning RouterConfigV4 (dsh-settings). */
+/** User-settings namespace owning RouterConfigV5 (dsh-settings). */
 export const SETTINGS_NAMESPACE = 'kimi-tide-router'
 
 export interface Config {
@@ -56,7 +58,8 @@ export interface Config {
   /**
    * Router config composition seed. The entry still speaks the legacy v1
    * vocabulary (mode/primary/premium) — it is migrated through the
-   * coerceRouterConfigV4 chain into the v4 preset/rule shape.
+   * coerceRouterConfigV5 chain into the v5 preset/rule/flows shape
+   * (namespace base layer; the sidecar fallback chain stays v4).
    */
   router?: RouterConfig
   /** Patch file holding the legacy static router seed (default $DSH_HOME/profiles/web/cordis.patch.yml). */
@@ -98,7 +101,7 @@ interface LlmCatalog {
 }
 
 /** 所有预设 default + 所有规则 target 的并集（去重，preset 序内 default→rules 序）。 */
-function configuredTargets(config: RouterConfigV4): RouteTarget[] {
+function configuredTargets(config: RouterConfigAny): RouteTarget[] {
   const out: RouteTarget[] = []
   const seen = new Set<string>()
   for (const preset of Object.values(config.presets)) {
@@ -124,7 +127,7 @@ function configuredTargets(config: RouterConfigV4): RouteTarget[] {
  */
 async function enumerateCandidates(
   llm: LlmCatalog,
-  config: RouterConfigV4,
+  config: RouterConfigAny,
   onError: (message: string) => void,
 ): Promise<CandidateMeta[]> {
   const out: CandidateMeta[] = []
@@ -207,7 +210,7 @@ function sameJson(a: unknown, b: unknown): boolean {
 }
 
 /** Pool used before the first enumeration settles (router mounts immediately). */
-function fallbackCandidateMetas(config: RouterConfigV4): CandidateMeta[] {
+function fallbackCandidateMetas(config: RouterConfigAny): CandidateMeta[] {
   return configuredTargets(config).map((target) => ({
     ...target,
     modalities: ['text'],
@@ -347,30 +350,30 @@ export function apply(ctx: Context, config: Config = {}) {
     onError: warn,
   })
   const loaded = sidecar.load()
-  let routerConfigV4: RouterConfigV4 = loaded.config ?? DEFAULT_CONFIG_V4()
+  // sidecar 链路终态恒为 v4（sidecar 是 v4-only 存储，行为逐字节保持）；
+  // 命名空间链路（attach 时 applyConfig 喂入）恒为 v5。内存形态 = RouterConfigAny。
+  let routerConfig: RouterConfigAny = loaded.config ?? DEFAULT_CONFIG_V4()
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
-  // The settings namespace's `base` layer must be v4-shaped: the composition
-  // entry (and the legacy patch block) speak v1 (mode/primary/premium), and v1
-  // keys mean nothing to routerConfigSchema — layering them raw would resolve
-  // to the schema's DEFAULT targets and silently drop a composed route.
-  // coerceRouterConfigV4 is the version-dispatching v1/v2/v3→v4 bridge the
-  // sidecar fallback chain uses; a NULL seed resolves to DEFAULT_CONFIG_V4()
-  // so the namespace base aligns with mergeResolved's clean predicate and the
-  // routerConfigV4 fallback above.
-  const settingsBase: Partial<RouterConfigV4> =
+  // The settings namespace's `base` layer must be v5-shaped (0.6.0)：composition
+  // entry（与 legacy patch 静态块）说 v1 词汇（mode/primary/premium），v1 键对
+  // routerConfigSchema 无意义——裸层叠会解析成 schema 的 DEFAULT 目标，静默丢路由。
+  // coerceRouterConfigV5 是版本分派的 v1/v2/v3/v4→v5 桥（预置流注册但不绑定）；
+  // NULL 种子解析为 DEFAULT_CONFIG_V5()，使命名空间 base 与 mergeResolved 的
+  // clean 谓词及上面的 routerConfig 兜底对齐。
+  const settingsBase: RouterConfigV5 =
     seedRaw === null || seedRaw === undefined
-      ? DEFAULT_CONFIG_V4()
-      : coerceRouterConfigV4(seedRaw, warn)
+      ? DEFAULT_CONFIG_V5()
+      : coerceRouterConfigV5(seedRaw, warn)
 
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
-  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfigV4)
+  let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfig)
   let enumerationSeq = 0
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
-    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfigV4, warn)
+    void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfig, warn)
       .then((metas) => {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
@@ -392,8 +395,8 @@ export function apply(ctx: Context, config: Config = {}) {
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
-    if (routerConfigV4.activePreset !== null) {
-      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV4, candidateMetas, log), {
+    if (routerConfig.activePreset !== null) {
+      disposeRouter = installRouter(ctx, new KimiRouter(routerConfig, candidateMetas, log), {
         images: imageStates,
         transcriber,
         resolveImages: extractResolvedImages,
@@ -405,10 +408,18 @@ export function apply(ctx: Context, config: Config = {}) {
   // Decision observability (spec §2.7): only non-default route decisions
   // surface a summary; anything else (off / keep / default miss) clears the
   // summary so a stale decision never leaks into later snapshots.
-  // 0.6.0：extra.flowId 标记本轮执行过的协作流（流事件上投影属 Task 10）。
+  // 0.6.0：extra.flowId 标记本轮执行过的协作流——供给投影 v6 的
+  // lastFlowEvent（≤120 截断，沿用 decision 摘要惯例）。
   let latestDecision: DecisionSummary | null = null
-  const onDecision = (_agent: Agent, decision: RouteDecision, _extra?: { flowId?: string }) => {
+  let latestFlowEvent: string | null = null
+  const onDecision = (_agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => {
     latestDecision = buildDecisionSummary(decision)
+    if (extra?.flowId !== undefined) {
+      const target = decision.kind === 'route'
+        ? `${decision.target.provider}/${decision.target.model}`
+        : decision.kind === 'flow' ? `flow:${decision.flowId}` : 'keep'
+      latestFlowEvent = `flow:${extra.flowId} 执行 → ${target}`.slice(0, 120)
+    }
     pushPanelToAllSessions()
   }
 
@@ -434,14 +445,15 @@ export function apply(ctx: Context, config: Config = {}) {
    * config must not re-mount the router or re-enumerate candidates. A source
    * flip alone (sidecar → settings at attach) still re-pushes the panel.
    */
-  const applyConfig = (next: RouterConfigV4) => {
+  const applyConfig = (next: RouterConfigAny) => {
     const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
-    const changed = !sameJson(routerConfigV4, next)
+    const changed = !sameJson(routerConfig, next)
     if (!changed && configSource === source) return
-    routerConfigV4 = next
+    routerConfig = next
     configSource = source
     if (changed) {
       latestDecision = null
+      latestFlowEvent = null
       mountRouter()
       refreshCandidates()
     }
@@ -451,7 +463,7 @@ export function apply(ctx: Context, config: Config = {}) {
   registerKimiTideCommands(ctx, {
     sidecar,
     monitor,
-    current: () => routerConfigV4,
+    current: () => routerConfig,
     // A getter, not a snapshot: the settings service attaches asynchronously
     // (ctx.inject) and can detach, so the command layer must read the CURRENT
     // port — a value captured here would pin `null` and degrade every save to
@@ -467,12 +479,12 @@ export function apply(ctx: Context, config: Config = {}) {
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
   const panelSnapshot = (): KimiTidePanelProjection => {
-    const preset = routerConfigV4.activePreset === null ? undefined : routerConfigV4.presets[routerConfigV4.activePreset]
+    const preset = routerConfig.activePreset === null ? undefined : routerConfig.presets[routerConfig.activePreset]
     return {
       quota: monitor.snapshot().quota,
       kimi: kimiStatus,
       router: {
-        activePreset: routerConfigV4.activePreset,
+        activePreset: routerConfig.activePreset,
         presetName: preset?.name ?? null,
         defaultTarget: preset?.default ?? null,
         ruleCount: preset?.rules.length ?? 0,
@@ -489,7 +501,14 @@ export function apply(ctx: Context, config: Config = {}) {
   }
   const pushPanel = (agent: Agent) => {
     try {
-      agent.session.append(KIMI_TIDE_PANEL_EVENT, panelSnapshot())
+      const snapshot = panelSnapshot()
+      // 投影 v6（0.6.0）：imageContext 是按 agent 的按图三态计数——无图会话
+      // 不写该字段（缺席 ≠ 三零计数）；lastFlowEvent 为进程级最近流事件
+      // （onDecision extra.flowId 供给），无则缺席。沿 pushPanelToAllSessions 惯例。
+      const counts = imageStates.counts(agent)
+      if (counts.native + counts.transcribed + counts.blind > 0) snapshot.imageContext = counts
+      if (latestFlowEvent !== null) snapshot.lastFlowEvent = latestFlowEvent
+      agent.session.append(KIMI_TIDE_PANEL_EVENT, snapshot)
     } catch (error) {
       ctx.logger?.warn?.(`dsh-kimi-tide: panel push failed: ${(error as Error).message}`)
     }
@@ -552,19 +571,18 @@ export function apply(ctx: Context, config: Config = {}) {
   // panel roster exists, because attaching immediately applies the resolved
   // config and pushes a snapshot.
   ctx.inject(['settings'], (sctx) => {
-    let scope: SettingsScope<RouterConfigV4>
+    let scope: SettingsScope<RouterConfigV5>
     try {
       scope = sctx.settings.register(SETTINGS_NAMESPACE as never, routerConfigSchema as never, {
         base: settingsBase,
         // dsh-settings' validate throws to refuse a write; T1's returns a message.
-        validate: (value: RouterConfigV4) => {
-          // Task 5 类型桥接（Ruling 3 模式）：validateRouterConfig 入参已抬为
-          // RouterConfigV5（legacy version ≤4 直通语义保留，本命名空间的 v4 存量
-          // 在 Task 12 v5 迁移接线前不做语义校验）——此处仅类型过渡，无行为变化。
-          const message = validateRouterConfig(value as unknown as RouterConfigV5)
+        // 0.6.0（Task 12 接管 Task 5 类型桥接）：命名空间即 v5 存储，直接语义校验
+        // （validateRouterConfig 对 legacy version ≤4 直通——注册期存量不拒）。
+        validate: (value: RouterConfigV5) => {
+          const message = validateRouterConfig(value)
           if (message !== undefined) throw new Error(message)
         },
-      }) as unknown as SettingsScope<RouterConfigV4>
+      }) as unknown as SettingsScope<RouterConfigV5>
     } catch (error) {
       // A stored section that already fails schema/validate rejects the
       // registration itself. Degrade loudly to the sidecar instead of leaving
@@ -578,32 +596,32 @@ export function apply(ctx: Context, config: Config = {}) {
       replace: (section) => scope.replace(section),
     }
     settingsScope = port
-    // v4 一次性迁移（0.5.0，spec §6.1）。dsh-settings 的 replace 在 persist
+    // v5 一次性迁移（0.6.0 协作编排，spec §6）。dsh-settings 的 replace 在 persist
     // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
     // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前旧形。
     // 持久化替换在后台完成；提交后 watch 会以相同值再触发 applyConfig，
     // applyConfig 按值幂等（sameJson）不会重复挂载。整段迁移包在 try/catch
     // 里：迁移失败只降级（保留旧形状），绝不把异常抛回 inject 回调使命名空间
     // 半接（无 watch、无 sidecar 导入）。
-    let baseline: RouterConfigV4
+    let baseline: RouterConfigV5
     try {
       const current = scope.get()
-      const migrated = hasKimiTideResidue(current) ? coerceRouterConfigV4(current, warn) : current
+      const migrated = hasKimiTideResidueV5(current) ? coerceRouterConfigV5(current, warn) : current
       if (migrated !== current) {
         const docPath = (sctx.settings as { documentPath?: string }).documentPath
         if (typeof docPath === 'string' && docPath.length > 0) {
-          try { copyFileSync(docPath, docPath + '.pre-v4') } catch (error) {
-            warn(`dsh-kimi-tide: 设置文档 .pre-v4 快照失败（${(error as Error).message}）`)
+          try { copyFileSync(docPath, docPath + '.pre-v5') } catch (error) {
+            warn(`dsh-kimi-tide: 设置文档 .pre-v5 快照失败（${(error as Error).message}）`)
           }
         }
         void scope.replace(migrated as unknown as object)
-          .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v4（预设+规则）'))
+          .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v5（协作流注册表挂载，行为保持）'))
           .catch((error: unknown) =>
-            warn(`dsh-kimi-tide: 命名空间 v4 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
+            warn(`dsh-kimi-tide: 命名空间 v5 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
       }
       baseline = migrated
     } catch (error) {
-      warn(`dsh-kimi-tide: 命名空间 v4 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
+      warn(`dsh-kimi-tide: 命名空间 v5 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
       baseline = scope.get()
     }
     applyConfig(baseline)

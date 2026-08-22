@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import YAML from 'yaml'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps, type SettingsNamespacePort } from '../src/commands.js'
-import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
+import type { RouterConfigAny } from '../src/router.js'
 import { RouterSidecarStore } from '../src/sidecar.js'
 import type { UsageMonitor } from '../src/usage.js'
 
@@ -15,9 +16,13 @@ function v4cfg(activePreset: string | null): RouterConfigV4 {
   return { ...DEFAULT_CONFIG_V4(), activePreset }
 }
 
+function v5cfg(activePreset: string | null): RouterConfigV5 {
+  return { ...DEFAULT_CONFIG_V5(), activePreset }
+}
+
 function makeDeps(
-  config: RouterConfigV4 = v4cfg(null),
-  onSaved?: (c: RouterConfigV4) => void,
+  config: RouterConfigAny = v4cfg(null),
+  onSaved?: (c: RouterConfigAny) => void,
   opts: { file?: string; settings?: SettingsNamespacePort | null } = {},
 ): KimiTideCommandDeps {
   let current = config
@@ -28,7 +33,7 @@ function makeDeps(
     settings: opts.settings ?? null,
     monitor: { refresh: vi.fn(async () => {}) } as unknown as UsageMonitor,
     current: () => current,
-    onSaved: (next: RouterConfigV4) => {
+    onSaved: (next: RouterConfigAny) => {
       onSaved?.(next)
       current = next
     },
@@ -115,6 +120,32 @@ describe('applyKimiTideCommand', () => {
     expect(out).toContain('2')
   })
 
+  it('/kimi-tide show（v5）→ 补 flows 注册表段与每预设 imageFallback 行（0.6.0）', async () => {
+    const deps = makeDeps(v5cfg('saving'))
+    const out = await applyKimiTideCommand(parseKimiTideCommand('show'), deps)
+    expect(out).toContain('省钱')
+    // flows 注册表段：id + 类型 + 关键参数（预置流注册但不绑定）
+    expect(out).toContain('flows:')
+    expect(out).toContain('transcribe')
+    expect(out).toContain('deepseek-v4-flash-vision-exp')
+    expect(out).toContain('latch-image')
+    expect(out).toContain('review')
+    // 每预设 imageFallback 行（缺省 = latch，维持 0.5.x 行为）
+    expect(out).toContain('imageFallback:')
+    expect(out).toContain('saving=latch')
+    expect(out).toContain('capability=latch')
+  })
+
+  it('/kimi-tide show（v5）→ transcribe-lazy 级联显示目标流（缺省解析预置 transcribe）', async () => {
+    const cfg = v5cfg('saving')
+    cfg.presets.saving.imageFallback = 'transcribe-lazy'
+    cfg.presets.capability.imageFallback = 'blind'
+    const deps = makeDeps(cfg)
+    const out = await applyKimiTideCommand(parseKimiTideCommand('show'), deps)
+    expect(out).toContain('saving=transcribe-lazy→transcribe')
+    expect(out).toContain('capability=blind')
+  })
+
   it('/kimi-tide mode … 子命令已退役 → error 提示 preset', async () => {
     const deps = makeDeps(v4cfg(null))
     expect(await applyKimiTideCommand(parseKimiTideCommand('mode cost'), deps)).toContain('preset')
@@ -190,6 +221,48 @@ describe('applyKimiTideCommand', () => {
     expect(deps.current().version).toBe(4)
   })
 
+  it('import-config: v5 当前配置的内联合并保持 version 5（0.6.0）', async () => {
+    const saved: RouterConfigAny[] = []
+    const deps = makeDeps(v5cfg(null), (c) => saved.push(c), {
+      settings: { get: () => v5cfg(null), update: async () => {}, replace: async () => {} },
+    })
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: 'activePreset: saving' }, deps)
+    expect(reply).toMatch(/import/i)
+    expect(saved[0].version).toBe(5)
+    expect(saved[0].activePreset).toBe('saving')
+    expect((saved[0] as RouterConfigV5).flows.transcribe).toBeDefined()
+  })
+
+  it('import-config: v5 文件导入命名空间（flows/imageFallback 字段存活）', async () => {
+    const replaces: object[] = []
+    const deps = makeDeps(v5cfg(null), undefined, {
+      settings: { get: () => v5cfg(null), update: async () => {}, replace: async (s) => { replaces.push(s) } },
+    })
+    const incoming = v5cfg('capability')
+    incoming.presets.capability.imageFallback = 'transcribe-lazy'
+    const src = join(dir, 'import-v5-ns.yml')
+    writeFileSync(src, YAML.stringify(incoming), 'utf8')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
+    expect(out).toMatch(/import/i)
+    expect(replaces).toHaveLength(1)
+    const written = replaces[0] as RouterConfigV5
+    expect(written.version).toBe(5)
+    expect(written.activePreset).toBe('capability')
+    expect(written.flows.transcribe.visionModel.model).toBe('deepseek-v4-flash-vision-exp')
+    expect(written.presets.capability.imageFallback).toBe('transcribe-lazy')
+  })
+
+  it('import-config: v5 文件导入 sidecar 兜底宿主 → 明确拒绝（v4-only 存储不静默损毁）', async () => {
+    const saved: RouterConfigAny[] = []
+    const deps = makeDeps(v4cfg(null), (c) => saved.push(c))
+    const src = join(dir, 'import-v5-sidecar.yml')
+    writeFileSync(src, YAML.stringify(v5cfg('capability')), 'utf8')
+    const reply = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
+    expect(reply).toMatch(/import failed|失败/)
+    expect(reply).toContain('v5')
+    expect(saved).toHaveLength(0)
+  })
+
   it('refresh: triggers monitor.refresh and replies', async () => {
     const deps = makeDeps(v4cfg(null))
     const reply = await applyKimiTideCommand({ kind: 'refresh' }, deps)
@@ -248,7 +321,13 @@ describe('applyKimiTideCommand with settings namespace', () => {
     const src = join(dir, 'import-src-ns.yml')
     writeFileSync(src, YAML.stringify(incoming), 'utf8')
     const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
-    expect(replaces).toEqual([incoming])
+    // 0.6.0：写入命名空间一律收敛为 v5（presets/activePreset 逐字保持，预置流注册不绑定）
+    expect(replaces).toHaveLength(1)
+    const written = replaces[0] as RouterConfigV5
+    expect(written.version).toBe(5)
+    expect(written.activePreset).toBe('capability')
+    expect(written.presets).toEqual(incoming.presets)
+    expect(written.flows.transcribe).toBeDefined()
     expect(out).toMatch(/import/i)
   })
 

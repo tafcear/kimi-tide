@@ -216,12 +216,14 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 | 0.3.0 能力评分路由 | ✅ 已随 v0.4.0 发布 | `86da918`（203/203 绿） |
 | 0.4.0 设置界面迁移 + API key 直连 | ✅ 已发布（2026-08-20） | tag `v0.4.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0)，216/216 绿 |
 | 0.5.0 规则驱动路由 | ✅ 已发布（2026-08-21） | tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)，209/209 绿 |
+| 0.6.0 协作编排 | 🚧 已实施（2026-08-22，未发布） | 分支 `feat/collaboration-flows`，330/330 绿 + typecheck 0 + build 过 |
 
 - **0.1.x**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
 - **0.2.x**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
 - **0.3.0**：能力评分路由（11 任务 TDD，`86da918`），手工验收 7/7 ✅。
 - **0.4.0**：设置界面迁移（`bc31b69`）+ **API key 直连**（pi-ai 原生 `kimi-coding` 路由，自研 OAuth 接入层退役，provider 改名自动迁移，[设计稿](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)）；配套 GitHub Actions Release 流水线 ✅（tag 触发全自动）；滑杆步进修 ✅（a45d722）。
 - **0.5.0**：**规则驱动路由**——命名预设（省钱/能力/可自建）+ 有序规则（带图 / 关键词组）+ 打底语义 + 不可用降级，一键全局切换；能力评分引擎整体退役（scores/classify/预算窗/评分滑杆全删），候选池改全量枚举，v1-v3 存量配置自动迁移留档 `.pre-v4`（[设计稿](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md)，发布版 209/209 绿 + typecheck 0 + build 过；实机验收含迁移缺陷修复）。
+- **0.6.0**：**协作编排**——规则目标泛化为「模型 | 协作流」，预置图像转述流（vision-exp，eager/lazy）与评审流（P2 触发）注册但不绑定；按图三态状态表退役布尔锁存；预设级 `imageFallback` 三态（锁存/盲答/懒转述）；面板 v6 图像上下文行 + 流事件；v4 存量配置自动迁移留档 `.pre-v5`（[设计稿](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md)，330/330 绿 + typecheck 0 + build 过）。
 - **规划中（rc.8 重议后）**：图像转述模式（改设计——复用宿主 Modality/准入机制，端点不支持时转述降级；前置 deepseek vision 端点实测）。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
 
 ---
@@ -476,12 +478,14 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 | 0.3.0 capability-scored routing | ✅ Shipped with v0.4.0 | `86da918` (203/203 green) |
 | 0.4.0 settings migration + API-key direct | ✅ Released (2026-08-20) | tag `v0.4.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.4.0), 216/216 green |
 | 0.5.0 rule-driven routing | ✅ Released (2026-08-21) | tag `v0.5.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0), 209/209 green |
+| 0.6.0 collaboration flows | 🚧 Implemented (2026-08-22, unreleased) | branch `feat/collaboration-flows`, 330/330 green + typecheck 0 + build ok |
 
 - **0.1.x**: native DSH Kimi provider, v0.1.3 (credential gating + OAuth hardening).
 - **0.2.x**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
 - **0.3.0**: capability-scored routing (11 TDD tasks, `86da918`), manual acceptance 7/7 ✅.
 - **0.4.0**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline ✅ (fully automatic on tag); slider step fix ✅ (a45d722).
 - **0.5.0**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md); release version: 209/209 green + typecheck 0 + build ok; live acceptance included a migration-defect fix).
+- **0.6.0**: **collaboration flows** — rule targets generalize to "model | collaboration flow"; the built-in image-transcribe flow (vision-exp, eager/lazy) and review flow (P2 trigger) ship registered but unbound; the per-image three-state table retires the boolean latch; per-preset `imageFallback` (latch/blind/transcribe-lazy); panel v6 gains the image-context line + flow events; v4 stored configs auto-migrate with a `.pre-v5` backup ([design spec](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md); 330/330 green + typecheck 0 + build ok).
 - **Planned (after the rc.8 re-review)**: image transcription mode (redesign — reuse the host modality/admission machinery, with transcription fallback until the DeepSeek vision endpoint is proven). ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---

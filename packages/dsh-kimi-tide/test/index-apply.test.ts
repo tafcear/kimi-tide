@@ -235,6 +235,63 @@ describe('apply() kimi 二态 change-gate（0.4.x 终审跟进：二态变化才
   })
 })
 
+describe('apply() 面板 v6 推送接线（0.6.0：imageContext 三态计数）', () => {
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-v6-'))
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  const CAPABILITY: Parameters<typeof apply>[1] = {
+    router: {
+      mode: 'capability',
+      primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+    },
+  }
+
+  function lastSnapshot(agent: FakeAgent): Record<string, unknown> {
+    return agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+  }
+
+  it('无图会话不写 imageContext 字段（三零计数 ≠ 缺席）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx } = makeCtx([agent])
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(lastSnapshot(agent)).not.toHaveProperty('imageContext')
+  })
+
+  it('带图会话推送按图三态计数（图像规则命中 → native=1）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    // pre-step 的 payload.agent 与面板 roster 是同一 Agent 实例（状态表按 agent 隔离）
+    const step = listeners.get('agent/pre-step')?.[0]
+    expect(step).toBeDefined()
+    await (step as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      {
+        agent,
+        messages: [{ role: 'user', content: [{ type: 'image', attachment: { attachmentId: 'att-1' } }] } as never],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+
+    const snapshot = lastSnapshot(agent)
+    expect(snapshot.imageContext).toEqual({ native: 1, transcribed: 0, blind: 0 })
+  })
+})
+
 describe('defaultSidecarFile', () => {
   const original = process.env.DSH_HOME
   afterEach(() => {
