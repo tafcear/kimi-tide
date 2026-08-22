@@ -1,16 +1,18 @@
 # dsh-kimi-tide（月汐）
 
-DeepSeek Harness 的**规则驱动模型路由插件**（0.5.0）：命名预设（省钱/能力/可自建）
-+ 有序规则（带图 / 关键词组），按任务在 Kimi（`kimi-coding`）与 DeepSeek 之间自动
-选路，未命中走预设默认模型（打底），带图像护栏、官方配额显示与决策可观测。
+DeepSeek Harness 的**预设 + 规则 + 协作流模型路由插件**（0.6.0）：命名预设（省钱/能力/可自建）
++ 有序规则（带图 / 关键词组 / **协作流引用**），按任务在 Kimi（`kimi-coding`）与 DeepSeek 之间自动
+选路，未命中走预设默认模型（打底），带图像护栏、图像转述流、官方配额显示与决策可观测。
 
 0.4.x 起插件**零接入层代码**——Kimi 模型经官方 pi-ai 原生 `kimi-coding` 路由
 （设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层
-（约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、观测**。
+（约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、协作编排、观测**。
 
-> **当前状态（2026-08-21）**：0.5.0「规则驱动路由」**已发布**（tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)）——能力评分引擎（scores/classify/预算窗）
-> 整体退役，预设+规则承接；v1-v3 存量配置自动迁移留档 `.pre-v4`。路由架构详见
-> [docs/router.md](docs/router.md)，带图会话限制见文末「已知限制」节。
+> **当前状态（2026-08-23）**：0.6.0「协作编排」**已发布**（tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)）——规则目标泛化为
+> 「模型 | 协作流」，预置图像转述流（vision-exp，eager/lazy）与评审流（P2 触发）注册但不绑定；
+> 按图三态（native/transcribed/blind）退役布尔锁存；预设级 `imageFallback` 三态（锁存/盲答/懒转述）；
+> `llm/stream` 智能投影（已转述图块 → 转述文字）；实机验收 10 项全过（含 T4 门）。路由架构详见
+> [docs/router.md](docs/router.md)，带图行为见文末「带图行为与已知限制」节。
 
 ## 模型（经 kimi-coding 路由）
 
@@ -25,14 +27,14 @@ DeepSeek Harness 的**规则驱动模型路由插件**（0.5.0）：命名预设
 
 ## 前置条件
 
-- Node.js ≥ 22、DSH `@deepseek-ai/dsh@0.1.0-rc.7` 及以上（设置卡片依赖 rc.7 的 `dsh-settings`）
+- Node.js ≥ 22、DSH `@deepseek-ai/dsh@0.1.1-rc.2` 及以上（0.6.0 起 peer 依赖；设置卡片依赖 `dsh-settings`）
 - 一把 **Kimi Code Console API Key**（Kimi 控制台获取）
 
 ## 安装
 
 ```bash
 npm install && npm run build && npm pack
-dsh plugin --profile web add ./dsh-kimi-tide-0.5.0.tgz
+dsh plugin --profile web add ./dsh-kimi-tide-0.6.0.tgz
 ```
 
 然后到 DSH「设置 → Models」添加 provider **`kimi-coding`**，`apiKeyEnv` 填
@@ -51,8 +53,10 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 > 0.4.0 起路由配置持久化在官方设置面板「设置 → 月汐」（DSH 设置命名空间
 > `kimi-tide-router`，base/user 分层 + revision 冲突检测）；`router` 静态块仅为
 > 部署基座（base 层），用户编辑落 user 层。无 settings 服务时（rc.6）回退 sidecar
-> 文件。**0.5.0 起配置形状为 v4**（`activePreset` / `presets`（默认模型 + 有序规则）
-> / `keywordGroups`）；v1-v3 存量配置经迁移链自动桥接并留档 `.pre-v4`。
+> 文件。**0.6.0 起配置形状为 v5**（`activePreset` / `presets`（默认模型 + 有序规则 +
+> `imageFallback` 三态）/ `keywordGroups` / `flows`（协作流注册表））；v1-v4 存量配置经
+> 迁移链自动桥接并留档 `.pre-v4` / `.pre-v5`（行为保持：预置流注册但不绑定，缺省维持
+> 0.5.x 锁存语义）。
 
 ## 使用合规提示
 
@@ -74,22 +78,23 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 - **刷新配额**：主行只读侧保留「🔄 刷新配额」按钮（`/kimi-tide refresh`，不写配置）。
 - **推理状态**：推理输出已由 DSH 原生渲染（reasoning-delta），面板仅提示「已启用」。
 
-面板命令族（也可在输入框直接敲，0.5.0 起为 v4 键表）：
+面板命令族（也可在输入框直接敲，0.6.0 起为 v5 键表）：
 - `/kimi-tide preset <id|off>`（全局切换激活预设）
-- `/kimi-tide show`（当前预设 / 默认模型 / 规则数 / 关键词组数）
+- `/kimi-tide show`（当前预设 / 默认模型 / 规则数 / 关键词组数 / flows 注册表 / 每预设 imageFallback）
 - `/kimi-tide set activePreset <id|off>`（`set` 键白名单仅此一键）
 - `/kimi-tide export-config`（打印 resolved 配置 YAML）/ `/kimi-tide import-config <path|内联 YAML>`（文件整表替换，或多行内联 YAML 合并补丁）
 - `/kimi-tide refresh`（立即刷新配额）
 
 规则驱动路由架构详见 [docs/router.md](docs/router.md)。
 
-## 已知限制（带图会话）
+## 带图行为与已知限制
 
 | 项 | 说明 |
 |----|------|
-| **带图会话锁存** | 图片一旦进入会话历史，文本-only 模型无法承接该会话（适配器序列化全量历史拒绝图片块）→ 路由器把会话锁存到多模态模型（`hasImageOverride` 强制按带图处理：带图规则必命中 + 护栏兜底） |
-| **⚠️ 死锁场景** | 锁存后若多模态模型额度/Key 失效（AUTH 报错），会话无法切文本模型继续（`model-unavailable`：历史含图片）——存量会话只能新开会话 |
-| **根解（规划中）** | 图片不进主会话历史：图像转述模式（模型级 pre-step 转述，rc.8 改设计中）——同时解决成本与死锁；子代理图片外包已裁撤（官方子代理仅文本） |
+| **按图三态**（0.6.0 起替代会话锁存） | 每张图按 `native`（视觉模型原生处理）/ `transcribed`（已转述为文字）/ `blind`（当无图）三态跟踪；文本-only 目标面对 native 历史图时按预设 `imageFallback` 处置：`latch` 改道锁存目标 / `blind` 占位盲答 / `transcribe-lazy` 先补转述再放行 |
+| **图像转述流** | 省钱姿态的根解：`image` 规则改挂 `flow:transcribe` → vision-exp 读图转文字（eager，缓存+30s 超时+失败不重打）→ 文本模型凭转述文字接力作答（T4 门已实测通过）；`failurePolicy=latch-image` 转述失败回退原生视觉 |
+| **⚠️ 死锁场景（0.5.x 遗留，0.6.0 已解）** | 0.5.x 布尔锁存下多模态模型额度/Key 失效后会话无法切文本模型——0.6.0 起按图三态 + 转述流提供盲答/转述两条出路（存量含图会话仍只能新开会话） |
+| **面板图像上下文行** | 投影 v6 已推送 `imageContext` 计数 + `lastFlowEvent`（宿主侧）；**客户端渲染降级 0.6.x 跟进**（dock 暂不显示该行，以决策 chip + 会话日志为准） |
 
 ## 许可
 

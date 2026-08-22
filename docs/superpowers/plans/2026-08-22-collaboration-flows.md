@@ -1,5 +1,7 @@
 # 0.6.0 协作编排（Collaboration Flows）实施计划
 
+> **状态（2026-08-23 更新）**：✅ **已实施并发布**——SDD 10 任务 TDD 全部完成（Task 8/9/10/12 见协作日志），ff 合并 main `1e1d299..24d8505`，发布版 337/337 绿 + typecheck 0 + build 过；实机验收 10 项全过（含 T4 门），验收修复 `e2d3c68`（rc.2 宿主 model-selection 覆盖路由 → 四监听器 prepend 恒外层）；tag `v0.6.0` → [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)（2026-08-23）。面板图像上下文行客户端渲染降级 0.6.x 跟进。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans。Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 落地 spec《2026-08-22-collaboration-flows-design.md》P0+P1：规则目标泛化为「模型|协作流」，交付 transcribe 流（直调 eager/lazy）、按图三态退役布尔锁存、设置页流配置、面板图像上下文行，版本 0.6.0。

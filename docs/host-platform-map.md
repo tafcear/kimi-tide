@@ -70,6 +70,8 @@
 | ~~「带图轮走 k3、后续文本轮回 deepseek」物理不可行~~ | **前提已于 rc.2 失效**——运行时对 text-only 路由预投影占位符，适配器不再收到 image block（dsh-llm/pi-ai README 互证）；deepseek 适配器 `assertTextOnly` 仍在（dsh-llm-deepseek/lib/index.js:46-47、51、136）但仅作兜底安全网。**锁存暂留（本次升级为行为保持），退役列入后续迭代** | dsh-llm/lib/index.js:685（`projectImagesForTextModel`） |
 | image-admission 时序 | 探针系**本地补丁（官方从无）**，rc.2 已重移植；时序语义不变：在消息入 agent 循环**之前**，按当前选中模型判定；路由器必须先 bail 再改道 | dsh-host-apiproxy/lib/index.js:2755-2759（上游拒绝）、L2765（补丁后探针） |
 | per-agent 锁存（imageSeen WeakMap）合理性 | 正确性优先的唯一可行解：图片一旦入历史，该会话任何文本轮都不能回 text-only 模型（历史回放必炸）；与官方 pi-ai README 的同一判断互证（over-claim 模态 → 消息 durable 后不可回收） | dsh-llm-pi-ai/README.md:199（Known Limitations） |
+| ~~插件改 `agent/request` 返回即可路由~~ | **rc.2 失效**：宿主 `installModelSelection`（agent 创建时注册的 agent/request 覆盖监听器）把 provider/model 覆盖回会话选定模型；插件监听器须 `{prepend:true}` 恒为瀑布最外层，否则路由返回值被外层覆盖丢弃（0.6.0 验收实锤，详见 §4.7） | dsh-host-apiproxy/lib/index.js:1692-1715、cordis lib/index.js:317-325 |
+| 动态插件注册带函数字段的工具 | ToolDefinition 的函数字段泄漏进 tools 数组 → `request/header` 会话事件带非 JSON 数据 → 整轮失败「carries non-JSON-serializable data」（诊断优先 console.log，勿用工具探针） | dsh-session types/index.js:492 |
 
 ---
 
@@ -188,6 +190,14 @@
 
 - **桌面线 gateway 契约分叉**：`commands/execute` 在 rc.8/rc.2 web = 3 业务参 `(agent, line, images)`；desktop 4.0.1+ = 2 业务参 + 可选尾置 caller AbortSignal（`descriptor.cancellation`，dsh-api-gateway/lib/client.js:214-241——多出的第三参会按 signal 解析，`AbortSignal.any` 抛 "Failed to convert value to 'AbortSignal'"）。web 端 2 参调用的 arity 报错原文为 `expected 3 business argument(s) plus an optional AbortSignal, got 2`。kimi-tide 客户端已改 2 参优先 + 该报错正则回退 3 参（commit 5066aed），两端兼容且无需版本嗅探。
 - **YAML null config 坑**：patch 层 `config:` 下全注释 → 合成 `config: null` → 加载器入口读属性即抛、整棵插件树启动崩溃。host apply 已加 `config ?? {}` 归一（commit d7a2306），shipped `cordis.patch.yml` 亦改为显式 `config: {}` 双保险。
+
+### 4.7 rc.2 会话级模型选择机制（installModelSelection）——插件路由必须 prepend 恒外层（2026-08-23 验收实锤）
+
+- **机制**（rc.2 新增，0.5.0 升级验收「⑤回归」漏项的根因）：`dsh-host-apiproxy` 在**每个 agent 创建时**（setup 回调，lib/index.js:1712 `selectionFor` → `installModelSelection`）于 agent 作用域注册 `agent/request` 监听器，把 provider/model **覆盖**为会话选定模型。`selection.current` 回退链（lib/index.js:1692-1715）：GUI 显式选择（`picked`）→ 会话最新 `request/header` 日志 → 默认。`selection.assembled` 在 `system-prompt/assemble` 时快照，请求时按快照覆盖。
+- **与插件路由的冲突**：cordis waterfall 结果 = **最外层监听器的返回值**（EventsService.waterfall，cordis lib/index.js:317-325）。kimi-tide 的 `agent/request` 监听器在**每次配置变更重挂载**（applyConfig → mountRouter → 注销+重注册）时被 push 到共享钩子链尾（内层）→ 宿主覆盖监听器（注册一次、位置靠前=外层）胜出 → 面板决策正确但实际请求恒 session 模型（0.6.0 验收 turn 10 实锤：决策 vision-exp / `assistant/message.source` 恒 deepseek-v4-pro）。
+- **修复范式**（kimi-tide `e2d3c68`）：插件对 `agent/pre-step`、`agent/request`、`llm/stream`、`agent/image-admission` 四类监听器一律 `ctx.on(name, handler, {prepend: true})`——重挂载任意次数恒为链首（外层），路由返回值必生效；宿主 selection 回退链读会话 request/header，会跟随路由结果自愈（下一轮 selection 即上一轮路由目标）。
+- **诊断方法学备查**：面板决策帧只是**决策证据**；路由类问题必须以**实际请求证据**为准（`assistant/message.source`、`request/header` 会话事件）。注意 request/header 仅在头变化时追加（headerEquals 去重），同模型连续轮不会出现新事件。
+- **关联坑**：动态插件注册带运行时函数字段（ToolDefinition.render/execute 泄漏进 tools 数组）的工具会令 `request/header` 事件带非 JSON 数据 → 会话整轮失败 `session event "request/header" carries non-JSON-serializable data`（dsh-session types/index.js:492）——诊断业务问题优先 console.log，勿用工具注册探针。
 
 ---
 

@@ -1,11 +1,13 @@
-# kimi-tide 路由（规则驱动，0.5.0）
+# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0）
 
-本文以 `src/` 现行实现为准，描述 0.5.0 起的**规则驱动路由**架构：预设（Preset）
-= 默认模型 + 有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到
-预设默认模型（打底语义）。0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
+本文以 `src/` 现行实现为准：0.5.0 起**规则驱动路由**架构（预设 = 默认模型 +
+有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到预设
+默认模型打底）；**0.6.0 起规则目标泛化为「模型 | 协作流」**（配置升 v5，见文末
+「0.6.0 协作编排扩展」节）。0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
 selectCandidate，配 lambda/routeThreshold/预算窗口）已整体退役；v1/v2/v3 存量
 配置经迁移链自动桥接到 v4（见下文「迁移链」）。设计定稿见
-`docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md`。
+`docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md` 与
+`docs/superpowers/specs/2026-08-22-collaboration-flows-design.md`。
 
 ## 总览
 
@@ -154,13 +156,13 @@ interface CandidateMeta extends RouteTarget {
   多模态可用候选才认领图像。
 - **applyTo**：剥 `reasoningEffort`、替换 provider/model——语义不变。
 
-## 带图会话锁存
+## 带图会话锁存（0.5.0；**0.6.0 起由按图三态 + imageFallback 替代**，本节为历史语义）
 
 **为何锁存**：`agent/pre-step` 的 payload 只含本轮 claimed 消息；文本-only
 适配器（deepseek）序列化**全量**历史时对任一 image 块抛 `UNSUPPORTED_CONTENT`
 → 图片一旦进入历史，后续文本轮选文本-only 候选必崩。
 
-**机制**：`installRouter` 持 per-agent `imageSeen` WeakMap——任一 pre-step 含图
+**0.5.0 机制**：`installRouter` 持 per-agent `imageSeen` WeakMap——任一 pre-step 含图
 即永久锁存；锁存值作为 `decide` 第三参 `hasImageOverride` 强制 `hasImage = true`
 → 带图规则（如内置 saving 预设的 `image-k3`）必然命中，且 request 钩子
 `applyImageGuard` 兜底改道。子代理（独立上下文）不受锁存影响。
@@ -168,7 +170,11 @@ interface CandidateMeta extends RouteTarget {
 **⚠️ 已知限制（2026-08-19 实测）**：锁存后会话锁死多模态模型；该模型额度/Key
 失效（AUTH 报错）时会话无法切文本模型（`model-unavailable`：历史含图片）
 → **死锁**，存量会话无法救回（历史图片不可逆）。锁存判定不可作为终态方案。
-根解（规划中）= 图片不进主会话历史的「图像转述模式」。
+
+**0.6.0 退役**：布尔锁存 `imageSeen` 退役，由按 agent 的**按图三态状态表**
+（`src/image-state.ts`：`native` / `transcribed` / `blind`）+ 预设级
+`imageFallback`（`latch` 改道 / `blind` 放行 / `transcribe-lazy` 先补转述）接管——
+根解（图片不进主历史的图像转述流）已落地，见「0.6.0 协作编排扩展」节。
 
 ## 迁移链（v1 → v3 → v4）
 
@@ -292,3 +298,78 @@ interface CandidateMeta extends RouteTarget {
 设置卡片切「关闭」或 `/kimi-tide preset off`：`decide` 立即返回 keep，
 `installRouter` 不再挂载（`activePreset === null` 时宿主侧不注册
 pre-step/request/admission 监听），行为回到原生直通。
+
+## 0.6.0 协作编排扩展（v5，2026-08-23 发布）
+
+### 配置 v5（`src/config.ts`）
+
+```ts
+export type RuleTarget = RouteTarget | { flow: string }        // 规则目标泛化
+export type ImageFallback = 'latch' | 'blind' | 'transcribe-lazy'
+export interface TranscribeFlow { type: 'transcribe'; visionModel: RouteTarget; failurePolicy: 'latch-image' | 'blind'; prompt?: string }
+export interface ReviewFlow { type: 'review'; reviewer: RouteTarget; trigger: 'manual' | 'keywords'; rounds: number; autoRevise: boolean; keywordGroup?: string }
+export interface CollaborationFlow = TranscribeFlow | ReviewFlow
+export interface RouterConfigV5 {
+  version: 5
+  activePreset: string | null
+  presets: Record<string, RouterPreset & { imageFallback?: ImageFallback; imageFallbackFlow?: string }>
+  keywordGroups: Record<string, string[]>
+  flows: Record<string, CollaborationFlow>   // 预置 transcribe/review，注册但不绑定
+}
+```
+
+- **行为保持**：v4 → v5 迁移（`migrateV4`）只挂 `flows = DEFAULT_FLOWS()`，不注入
+  `imageFallback`（缺省 = latch = 0.5.0 锁存语义），无任何规则引用 flows 键——
+  存量配置迁移前后路由行为逐字节一致，设置文档留档 `.pre-v5`。
+- **流决策降级**：规则目标为 `{flow}` 时，flow 存在 + transcribe 型 +
+  visionModel 在候选池可用，任一不满足按规则降级语义跳过该规则。
+
+### 按图三态状态表（`src/image-state.ts`）
+
+- per-agent `Map<attachmentId, { state: 'native'|'transcribed'|'blind', latchTarget? }>`；
+  `latchTarget` = 该图 native 化时的有效视觉目标（护栏调整后的结果）。
+- `hasImage` 语义 = 本轮含「未转述」图（attachmentId 不在转述缓存）——替代布尔锁存；
+  带图轮之后的关键词命中轮走关键词规则，不再被 image 规则 hijack（0.5.0 锁存副作用不复活）。
+
+### transcribe 流（`src/transcribe.ts` + `router.ts` 编排执行层）
+
+- **eager**（规则目标 = 流）：pre-step 检出本轮未转述图 → `VisionCaller`
+  （ctx.llm.stream 直调 flow.visionModel，不传 reasoningEffort）一次性转述 →
+  成功标 `transcribed`（LRU 缓存 64，命中不重打）→ 以 `hasImage=false` 重跑
+  decide → 文本默认模型作答。
+- **lazy**（`imageFallback: transcribe-lazy`）：带图轮原生视觉作答不动；后续
+  文本轮面对 native 历史图时先补转述再放行文本目标（一次转述费买「不盲的切回」）。
+- **失败策略**：`failurePolicy: latch-image` → 败图保持 native、本轮落 visionModel
+  原生作答；`blind` → 败图标 blind 继续。失败入失败集同图不重打；转述调用带
+  有界信号（turn 中止 ⊕ 30s 超时，I-2）。
+- **智能投影**（`llm/stream` 拦截器，S4c 缝）：text-only 目标请求中命中转述缓存的
+  图块被替换为转述文字；无缓存图块保留（rc.2 原生占位投影兜底）；tool-result 嵌套
+  图块递归同款处理；WeakSet 重入守卫 + 短路自派恰好一次。
+
+### imageFallback 三态（`resolveImageFallback`）
+
+终决策为 route + 目标 text-only + 历史存在 native 图时介入：
+
+| 姿态 | 行为 |
+|------|------|
+| `latch`（缺省） | 改道到最近 native 图的 `latchTarget`（决策原因「带图锁存改道」） |
+| `blind` | 放行文本目标，rc.2 原生占位投影（用户显式选择便宜+盲） |
+| `transcribe-lazy` | 先按 `imageFallbackFlow ?? 'transcribe'` 补转述再放行；失败按流 failurePolicy |
+
+### 监听器 prepend 恒外层（rc.2 宿主契约，`e2d3c68`）
+
+rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——agent 作用域
+`agent/request` 覆盖监听器把 provider/model 覆盖回会话选定模型；cordis waterfall
+结果 = 最外层监听器返回值，而 kimi-tide 配置变更重挂载会把监听器 push 到链尾（内层）
+→ 路由被覆盖（实机：面板决策正确、实际请求恒 session 模型）。修复：
+`installRouter` 四监听器（pre-step/request/stream/admission）一律
+`ctx.on(name, handler, { prepend: true })`——重挂载任意次数恒为链首（外层）。
+详见 host-platform-map §4.7。
+
+### 命令面 v5 与投影 v6
+
+- `show` 补 flows 注册表段（id/类型/关键参数）与每预设 `imageFallback` 行；
+  `import-config` 文件 v5 直通（命名空间收敛 v5；sidecar 拒 v5 防静默损毁）。
+- 投影 stateVersion 6：`imageContext: { native, transcribed, blind }`（无图会话
+  缺席 ≠ 三零计数）+ `lastFlowEvent`（流执行摘要，≤120 截断）——**数据已推送；
+  客户端 dock 渲染行降级 0.6.x 跟进**。
