@@ -9,7 +9,7 @@
       "url": "https://github.com/tafcear/kimi-tide",
       "revision": "df35e1909a32f1a0eb895abdeade6fda8665a412"
     },
-    "viewBox": [1360, 740],
+    "viewBox": [1360, 734],
     "views": [
       { "id": "main-request", "label": "主请求路径", "focus": ["user", "events", "router", "registry", "piai", "kimiapi"], "note": "一条消息从进入宿主到命中模型的完整链路：事件缝 → 路由器决策 → 官方接入层。" },
       { "id": "flow-branch", "label": "协作流分支", "focus": ["router", "flows", "visionexp", "piai", "dsapi"], "note": "规则目标指向转述流时：vision-exp 读图转文字，文本模型凭转述接力（0.6.0）。" },
@@ -47,8 +47,8 @@
     { "id": "card-to-router", "from": "card", "to": "router", "label": "配置读写 · 命名空间 v5", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[850, 240], [570, 240]] }
   ],
   "cards": [
-    { "dot": "cyan", "title": "官方承接（不重复造轮）", "items": ["接入层 = pi-ai 原生 kimi-coding 路由（API key 直连）", "凭据 = apiKeyEnv 引用按请求解析，密钥不落插件配置", "模型目录 / 模型选择器 / 设置页全部走官方生态"] },
-    { "dot": "violet", "title": "kimi-tide 独占价值", "items": ["规则驱动路由：显式 @ → 规则链首命中 → 预设打底", "按图三态（native/transcribed/blind）退役布尔锁存", "决策可观测：dock chip + 会话投影 v6 留痕"] },
-    { "dot": "emerald", "title": "0.6.0 协作编排", "items": ["transcribe 流：vision-exp 读图，eager/lazy · LRU 缓存 · 30s 超时 · 失败不重打", "imageFallback 三态：latch / blind / transcribe-lazy", "llm/stream 智能投影 + review 流注册未绑定（P2 触发）"] }
+    { "dot": "cyan", "title": "官方承接（不重复造轮）", "items": ["接入层 = pi-ai 原生 kimi-coding 路由（API key 直连）", "凭据 = apiKeyEnv 引用按请求解析，密钥不落插件配置"] },
+    { "dot": "violet", "title": "kimi-tide 独占价值", "items": ["规则驱动路由：显式 @ → 规则链首命中 → 预设打底", "按图三态 + 图像护栏，决策可观测（dock chip + 投影 v6）"] },
+    { "dot": "emerald", "title": "0.6.0 协作编排", "items": ["transcribe 流：vision-exp 读图，eager/lazy · LRU · 30s · 失败不重打", "imageFallback 三态 + llm/stream 智能投影"] }
   ]
 }

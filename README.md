@@ -5,7 +5,7 @@
   <img src="docs/assets/readme/hero.svg" width="100%" alt="kimi-tide 月汐 — DSH 模型路由插件：每步自动选模型，每个决策看得见">
 </p>
 
-DSH 里一个会话从头到尾只用一个模型：**DeepSeek V4** 便宜、快，但**看不懂图片**；**Kimi K3** 多模态、1M 超长上下文、编码强，但**有额度与成本**。写代码到一半想贴张截图，得手动切模型；切完又忘了切回来，额度哗哗流走。**月汐就是这笔账的自动交警**：你只管干活，它按任务类型、预算和模型长板，在每个步骤自动选路——选谁、为什么选，全都摆在面板上。
+DSH 里一个会话从头到尾只用一个模型：**DeepSeek V4** 主力文本模型便宜、快，但**看不懂图片**；**Kimi K3** 多模态、1M 超长上下文、编码强，但**有额度与成本**。写代码到一半想贴张截图，得手动切模型；切完又忘了切回来，额度哗哗流走。**月汐就是这笔账的自动交警**：你只管干活，它按任务类型、预算和模型长板，在每个步骤自动选路——选谁、为什么选，全都摆在面板上。
 
 ---
 
@@ -41,7 +41,7 @@ flowchart LR
 
 - 🚦 **预设路由**：内置「省钱」「能力」两种预设，也可自建命名预设，设置卡片一键全局切换；按**每个步骤**决策，不是一会话绑定到死。
 - 🎯 **规则引擎**（0.5.0）：规则 = `带图` / 命名关键词组（内置「代码」「闲聊」两组，词表可改、可自建）；首条命中生效，未命中走预设打底，不可用目标自动降级跳过。
-- 🌊 **协作编排**（0.6.0）：规则目标可指向**协作流**——预置图像转述流（vision-exp 读图转文字，eager/lazy 双时态，缓存+超时+失败不重打）与评审流（P2 触发）；预设级带图兜底三态（锁存/盲答/懒转述）；`llm/stream` 智能投影让文本模型凭转述文字接力看图。
+- 🌊 **协作编排**（0.6.0）：规则目标可指向**协作流**——预置图像转述流（vision-exp 读图转文字，eager/lazy 双时态，缓存+超时+失败不重打）与评审流（预置注册，P2 命令式触发）；预设级带图兜底三态（锁存/盲答/懒转述）；`llm/stream` 智能投影让文本模型凭转述文字接力看图。
 - 🖼️ **图像护栏**：带图消息自动改道多模态模型；按图三态状态表（native/transcribed/blind）防止历史含图后文本模型崩溃（`UNSUPPORTED_CONTENT`）。
 - 👁️ **决策可观测**：dock 面板实时显示「这步选了谁、为什么」，会话日志留痕可复查——不黑箱。
 - ⚙️ **官方设置卡片**：路由配置就在 DSH「设置 → 月汐」里编辑，原生分层持久化，重启保持。
@@ -58,7 +58,7 @@ flowchart LR
 ### 1. 前置条件
 
 - Node.js ≥ 22
-- DSH `@deepseek-ai/dsh@0.1.1-rc.2` 及以上（0.6.0 起 peer 依赖；设置卡片依赖 `dsh-settings`）
+- DSH `@deepseek-ai/dsh@0.1.1-rc.2` 及以上（0.6.0 起 dsh-* 组件 peer 依赖锁定 `^0.1.1-rc.2`；设置卡片依赖 `dsh-settings`）
 - 一把 **Kimi Code Console API Key**（Kimi 控制台获取）
 
 ### 2. 配置 Kimi 路由（官方 Models 页）
@@ -178,7 +178,7 @@ timeline
 | `flows` | 预置 transcribe/review | 协作流注册表（规则目标可引用）；预置流注册但不绑定 |
 | `keywordGroups` | 内置 `code` / `chitchat` | 命名关键词组词表（用户可增删改） |
 
-> **持久化**：设置命名空间（base 层 = 部署基座 / user 层 = 用户编辑，revision 冲突检测）→ 无设置服务的宿主回退 sidecar 文件 → 旧 sidecar 迁移后留档 `.legacy-imported`；0.4.x 升级时 `kimi-tide/*` 命名自动迁移为 `kimi-coding/*` 并留档 `.pre-v3`；**0.5.0 升级时 v1-v3 评分配置自动迁移为预设/规则（v4）并留档 `.pre-v4`**（scores/预算参数不迁移）；**0.6.0 升级时 v4 存量自动迁移为 v5（flows 注册表 + imageFallback）并留档 `.pre-v5`**。
+> **持久化**：设置命名空间（base 层 = 部署基座 / user 层 = 用户编辑，revision 冲突检测）→ 无设置服务的宿主回退 sidecar 文件 → 旧 sidecar 迁移后留档 `.legacy-imported`；0.4.x 时代升级的用户走 `kimi-tide/*` → `kimi-coding/*` 改名 + `.pre-v3` 留档（历史路径，0.5.0 起并入 `.pre-v4`）；**0.5.0 升级时 v1-v3 评分配置自动迁移为预设/规则（v4）并留档 `.pre-v4`**（scores/预算参数不迁移）；**0.6.0 升级时 v4 存量自动迁移为 v5（flows 注册表 + imageFallback）并留档 `.pre-v5`**。
 
 ### 插件级配置（`cordis.patch.yml`，0.4.x 起大幅精简）
 
@@ -261,7 +261,7 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 
 ## 贡献者
 
-- 感谢 [@dracpet](https://github.com/dracpet) 的实机诊断与社区贡献：[PR #1](https://github.com/tafcear/kimi-tide/pull/1)（OAuth 过期刷新）、[PR #2](https://github.com/tafcear/kimi-tide/pull/2)（`commands/execute` 跨宿主契约容错）、[PR #3](https://github.com/tafcear/kimi-tide/pull/3)（YAML null 配置归一化）与 [Issue #4](https://github.com/tafcear/kimi-tide/issues/4)（rc.2 投影 wire 契约诊断）——你的反馈直接加固了 0.6.0 的发布质量。
+- 感谢 [@dracpet](https://github.com/dracpet) 的实机诊断与社区贡献：[PR #1](https://github.com/tafcear/kimi-tide/pull/1)（OAuth 过期刷新）、[PR #2](https://github.com/tafcear/kimi-tide/pull/2)（`commands/execute` 跨宿主契约容错）、[PR #3](https://github.com/tafcear/kimi-tide/pull/3)（YAML null 配置归一化）与 [Issue #4](https://github.com/tafcear/kimi-tide/issues/4)（rc.2 投影 wire 契约诊断）——你的反馈直接加固了 0.5.x–0.6.0 的发布质量。
 - 也欢迎任何形式的贡献：报告问题、提交修复，或来 [Discussions](https://github.com/tafcear/kimi-tide/discussions) 聊聊使用体验。
 
 ---
@@ -286,7 +286,7 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
   <img src="docs/assets/readme/hero-en.svg" width="100%" alt="kimi-tide — a model router plugin for DeepSeek Harness: picks the right model for every step, and shows you exactly why">
 </p>
 
-In DSH, a session sticks to one model from start to finish. But in reality: **DeepSeek V4** is cheap and fast, but **cannot see images**; **Kimi K3** is multimodal with a 1M context window and strong coding, but it **costs quota and money**. Mid-task you want to paste a screenshot — switch models by hand; then you forget to switch back and quota burns away. **kimi-tide is the automatic traffic controller for that trade-off**: you just do the work; it picks the route per step based on task type, budget, and each model's strengths — and shows you who it picked and why, right on the panel.
+In DSH, a session sticks to one model from start to finish. But in reality: **DeepSeek V4**'s text models are cheap and fast, but **cannot see images**; **Kimi K3** is multimodal with a 1M context window and strong coding, but it **costs quota and money**. Mid-task you want to paste a screenshot — switch models by hand; then you forget to switch back and quota burns away. **kimi-tide is the automatic traffic controller for that trade-off**: you just do the work; it picks the route per step based on task type, budget, and each model's strengths — and shows you who it picked and why, right on the panel.
 
 ---
 
@@ -322,7 +322,7 @@ flowchart LR
 
 - 🚦 **Preset-based routing**: built-in "saving" and "capability" presets, plus your own named presets, switched globally from the settings card; decisions are made **per step**, not per session.
 - 🎯 **Rule-driven routing** (0.5.0): a rule is *image-bearing* or a *named keyword group* (built-in "code" and "chitchat", custom groups allowed); first hit in list order wins; a miss routes to the preset default (baseline), and unavailable rule targets are skipped automatically.
-- 🌊 **Collaboration flows** (0.6.0): rule targets may point at a **collaboration flow** — the built-in image-transcribe flow (vision-exp reads images into text, eager/lazy timing, cache + timeout + no-retry-on-failure) and a review flow (P2 trigger); per-preset image fallback (latch/blind/transcribe-lazy); `llm/stream` smart projection lets text models pick up image context from the transcription.
+- 🌊 **Collaboration flows** (0.6.0): rule targets may point at a **collaboration flow** — the built-in image-transcribe flow (vision-exp reads images into text, eager/lazy timing, cache + timeout + no-retry-on-failure) and a review flow (registered, P2 command trigger); per-preset image fallback (latch/blind/transcribe-lazy); `llm/stream` smart projection lets text models pick up image context from the transcription.
 - 🖼️ **Image guard**: image-bearing steps reroute to multimodal candidates automatically; the per-image three-state table (native/transcribed/blind) prevents text-model crashes (`UNSUPPORTED_CONTENT`) once images enter history.
 - 👁️ **Observable decisions**: the dock panel shows "who was picked and why" for every step, with session-log traceability — no black box.
 - ⚙️ **Official settings card**: router config lives in DSH "Settings → 月汐", natively persisted with layered overrides and restart-safe storage.
@@ -339,7 +339,7 @@ flowchart LR
 ### 1. Prerequisites
 
 - Node.js ≥ 22
-- DSH `@deepseek-ai/dsh@0.1.1-rc.2` or newer (peer dependency since 0.6.0; the settings card needs `dsh-settings`)
+- DSH `@deepseek-ai/dsh@0.1.1-rc.2` or newer (since 0.6.0 the dsh-* component peer deps pin `^0.1.1-rc.2`; the settings card needs `dsh-settings`)
 - A **Kimi Code Console API key** (from the Kimi console)
 
 ### 2. Configure the Kimi route (official Models page)
@@ -459,7 +459,7 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 | `flows` | built-in transcribe/review | collaboration-flow registry (referenced by rule targets); built-ins ship registered but unbound |
 | `keywordGroups` | built-in `code` / `chitchat` | named keyword-group word lists (user-editable) |
 
-> **Persistence**: settings namespace (base layer = deployment seed / user layer = edits, revision conflict detection) → sidecar fallback on hosts without a settings service → the old sidecar is archived as `.legacy-imported`; on 0.4.x upgrade, `kimi-tide/*` names auto-migrate to `kimi-coding/*` with a `.pre-v3` backup; **on 0.5.0 upgrade, v1-v3 scoring configs auto-migrate into the v4 preset/rule shape with a `.pre-v4` backup** (scores/budget knobs are not migrated); **on 0.6.0 upgrade, v4 configs auto-migrate to v5 (flows registry + imageFallback) with a `.pre-v5` backup**.
+> **Persistence**: settings namespace (base layer = deployment seed / user layer = edits, revision conflict detection) → sidecar fallback on hosts without a settings service → the old sidecar is archived as `.legacy-imported`; users who upgraded at 0.4.x got the `kimi-tide/*` → `kimi-coding/*` rename with a `.pre-v3` backup (historical path — from 0.5.0 it folds into `.pre-v4`); **on 0.5.0 upgrade, v1-v3 scoring configs auto-migrate into the v4 preset/rule shape with a `.pre-v4` backup** (scores/budget knobs are not migrated); **on 0.6.0 upgrade, v4 configs auto-migrate to v5 (flows registry + imageFallback) with a `.pre-v5` backup**.
 
 ### Plugin-level (`cordis.patch.yml`, greatly slimmed since 0.4.x)
 
@@ -517,7 +517,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.4.0**: settings migration (`bc31b69`) plus **API-key direct connection** (pi-ai native `kimi-coding` route, self-built OAuth access retired, provider-rename auto-migration — [design spec](docs/superpowers/specs/2026-08-20-api-key-direct-design.md)); GitHub Actions release pipeline ✅ (fully automatic on tag); slider step fix ✅ (a45d722).
 - **0.5.0**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md); release version: 209/209 green + typecheck 0 + build ok; live acceptance included a migration-defect fix).
 - **0.6.0**: **collaboration flows** — rule targets generalize to "model | collaboration flow"; the built-in image-transcribe flow (vision-exp, eager/lazy) and review flow (P2 trigger) ship registered but unbound; the per-image three-state table retires the boolean latch; per-preset `imageFallback` (latch/blind/transcribe-lazy); `llm/stream` smart projection (transcribed blocks → transcription text); panel v6 gains the image-context line + flow events; v4 stored configs auto-migrate with a `.pre-v5` backup ([design spec](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md); release version: 337/337 green + typecheck 0 + build ok; 10-item live acceptance all passed incl. the T4 gate; fixed the rc.2 host model-selection override during acceptance — `e2d3c68`).
-- **Planned**: review-flow command trigger (P2, `/kimi-tide review`), subagent transcription (P3, S2 contract GO); the 0.6.x pool — panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and 15 more items. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
+- **Planned**: review-flow command trigger (P2, `/kimi-tide review`), subagent transcription (P3, S2 contract GO); the 0.6.x pool — panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and 14 more items. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
 
@@ -542,7 +542,7 @@ A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月
 
 ## Contributors
 
-- Thanks to [@dracpet](https://github.com/dracpet) for live-verified diagnosis and community contributions: [PR #1](https://github.com/tafcear/kimi-tide/pull/1) (OAuth expiry refresh), [PR #2](https://github.com/tafcear/kimi-tide/pull/2) (`commands/execute` across host contract versions), [PR #3](https://github.com/tafcear/kimi-tide/pull/3) (YAML-null config normalization), and [Issue #4](https://github.com/tafcear/kimi-tide/issues/4) (rc.2 projection wire-contract diagnosis) — your feedback hardened the 0.6.0 release.
+- Thanks to [@dracpet](https://github.com/dracpet) for live-verified diagnosis and community contributions: [PR #1](https://github.com/tafcear/kimi-tide/pull/1) (OAuth expiry refresh), [PR #2](https://github.com/tafcear/kimi-tide/pull/2) (`commands/execute` across host contract versions), [PR #3](https://github.com/tafcear/kimi-tide/pull/3) (YAML-null config normalization), and [Issue #4](https://github.com/tafcear/kimi-tide/issues/4) (rc.2 projection wire-contract diagnosis) — your feedback hardened the 0.5.x–0.6.0 releases.
 - Contributions of any form are welcome: report issues, send fixes, or share how you use it in [Discussions](https://github.com/tafcear/kimi-tide/discussions).
 
 ---

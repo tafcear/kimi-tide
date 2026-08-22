@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "ok": false,
+  "ok": true,
   "command": "visual-check",
-  "status": "fail",
+  "status": "pass",
   "visualReview": "pending",
   "artifact": {
     "path": "E:\\BaiduSyncdisk\\Data\\vibe-coding\\kimi-tide\\kimi-tide\\docs\\assets\\readme\\kimi-tide-architecture.html",
-    "sha256": "f8542e066d35e562a45b47f0670434595669741e48aa3617946b128f1bd1e57d",
-    "bytes": 645899
+    "sha256": "4b4048a3effb83fc2cd8715a32caf2be42a13829d565b723eb7440ba4c09e3e5",
+    "bytes": 645627
   },
   "state": {
     "detail": "read",
@@ -18,7 +18,7 @@
     "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
   },
   "containment": {
-    "status": "fail",
+    "status": "pass",
     "viewports": [
       {
         "width": 1440,
@@ -27,10 +27,10 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "scrollWidth": 1440,
-        "scrollHeight": 948,
+        "scrollHeight": 900,
         "overflowX": false,
-        "overflowY": true,
-        "ok": false,
+        "overflowY": false,
+        "ok": true,
         "resolvedTheme": "light"
       },
       {
@@ -84,10 +84,10 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "scrollWidth": 1440,
-        "scrollHeight": 948,
+        "scrollHeight": 900,
         "overflowX": false,
-        "overflowY": true,
-        "ok": false,
+        "overflowY": false,
+        "ok": true,
         "resolvedTheme": "light",
         "file": "kimi-tide-architecture.visual-check.1440x900.light.png"
       },
@@ -98,10 +98,10 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "scrollWidth": 1440,
-        "scrollHeight": 958,
+        "scrollHeight": 900,
         "overflowX": false,
-        "overflowY": true,
-        "ok": false,
+        "overflowY": false,
+        "ok": true,
         "resolvedTheme": "dark",
         "file": "kimi-tide-architecture.visual-check.1440x900.dark.png"
       },
