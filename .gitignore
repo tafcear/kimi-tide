@@ -30,3 +30,6 @@ Desktop.ini
 
 # git worktrees
 .worktrees/
+
+# SDD 工作区
+.superpowers/
