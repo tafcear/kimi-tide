@@ -427,9 +427,9 @@ export function apply(ctx: Context, config: Config = {}) {
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
-  // v4 config shape and write the settings namespace when one is attached,
-  // else the sidecar — never the v1 patch file (the sidecar outranks it on
-  // load anyway).
+  // RouterConfigAny (v4/v5 双形) config shape and write the settings namespace
+  // when one is attached, else the sidecar — never the v1 patch file (the
+  // sidecar outranks it on load anyway).
 
   /** Owner scope of the settings namespace; null until attached (or after detach). */
   let settingsScope: SettingsNamespacePort | null = null

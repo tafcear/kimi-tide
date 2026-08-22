@@ -214,6 +214,8 @@ interface DepsFixture {
     transcriber: Transcriber
     resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
     onDecision?: (agent: unknown, decision: RouteDecision, extra?: { flowId?: string }) => void
+    /** I-2：转述调用有界超时（测试传小值）；缺省走生产默认 30s。 */
+    transcribeTimeoutMs?: number
   }
   images: ImageStateStore
   transcriber: Transcriber
@@ -346,6 +348,29 @@ describe('installRouter session image latch (regression: text turn after an imag
     const config = await dispatch.request({ agent: other, turn: 1, step: 1, signal: signal() }, baseConfig)
     expect(config).toEqual(SAVING_DEFAULT) // 打底路由到预设默认（≠ baseConfig，判别力）
   })
+
+  // I-1 钉桩（spec §5.1 新语义）：0.5.0 布尔锁存使「带图轮之后的文本轮」
+  // hasImage 恒真 → 图像规则永远首中（hijack 规则链）。0.6.0 hasImage=本轮
+  // 未转述图：文本轮图像规则不中，code 关键词规则（目标 kimi-for-coding，
+  // 多模态）可中——锁存/latch fallback 只防崩防盲，不劫持规则链。
+  // 0.5.0 锁存副作用不复活，spec §6 措辞已收窄。
+  it('带图轮之后的关键词命中轮走关键词规则（code-kfc → kimi-for-coding），不回 k3', async () => {
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }), makeDeps().deps)
+
+    // Turn 1 带图：image-k3 规则命中 → k3（登记 native，latchTarget=k3）
+    await dispatch.preStep({ agent, messages: [imageMessage('看图说话')], turn: 1, step: 1, signal: signal() })
+    const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    expect(first).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+
+    // Turn 2 纯文本含 code 关键词：0.5.0 锁存语义下 hasImage 恒真、image-k3
+    // 首中落 k3；新语义下图像规则不中，code-kfc 命中落 kimi-for-coding
+    // （多模态目标，不崩不盲，无需 latch fallback 改道）。
+    await dispatch.preStep({ agent, messages: [textMessage('帮我看看这段 code 的实现')], turn: 2, step: 1, signal: signal() })
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+    expect(second).toMatchObject({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    expect(second).not.toMatchObject({ model: 'k3' })
+  })
 })
 
 describe('installRouter image admission probe (host prompt pre-check deferral)', () => {
@@ -434,6 +459,36 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
 
     expect(cfg).toEqual(SAVING_DEFAULT)
     expect(fx.images.get(agent as never, 'att-1')?.state).toBe('blind')
+  })
+})
+
+describe('installRouter 转述中止/超时（I-2：视觉端黑洞不得挂死整轮）', () => {
+  it('caller 挂起 + 有界超时 → text() 返回 null → failurePolicy latch-image 落 visionModel', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const seenSignals: Array<AbortSignal | undefined> = []
+    // caller 黑洞：永不 resolve，仅在收到中止信号时 reject（模拟视觉端挂死）。
+    // 无信号送达时立即 reject，避免 RED 阶段挂起等待测试超时。
+    const fx = makeDeps(async (_target, _prompt, _images, signal) => {
+      seenSignals.push(signal)
+      if (signal === undefined) throw new Error('no signal delivered')
+      return await new Promise<string>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('transcribe aborted (timeout)')), { once: true })
+      })
+    })
+    fx.deps.transcribeTimeoutMs = 20 // 测试可控的小超时（生产默认 30s）
+    installRouter(ctx as never, new KimiRouter(FLOW_CONFIG(), FLOW_METAS, { info: () => {} }), fx.deps)
+
+    await dispatch.preStep({ agent, messages: [imageMessage('看这个报错截图')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+
+    // 有界信号真实送达 caller 且已中止（pre-step 未挂死，本断言先于路由断言失败即 RED）
+    expect(seenSignals).toHaveLength(1)
+    expect(seenSignals[0]).toBeInstanceOf(AbortSignal)
+    expect(seenSignals[0]!.aborted).toBe(true)
+    // 中止/超时视同转述失败：失败集 + failurePolicy latch-image 既有分支
+    expect(config).toMatchObject(VISION_EXP)
+    expect(fx.images.get(agent as never, 'att-1')?.state).toBe('native')
+    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
   })
 })
 
@@ -651,6 +706,14 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
     ])
     const caller = createStreamVisionCaller(ctx as never)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).rejects.toThrow('boom')
+  })
+
+  it('signal 透传进 ctx.llm.stream options（I-2：pre-step 中止/有界超时的链路终点）', async () => {
+    const { ctx, calls } = fakeLlm([{ type: 'finish', reason: { kind: 'stop' } }])
+    const caller = createStreamVisionCaller(ctx as never)
+    const controller = new AbortController()
+    await caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }], controller.signal)
+    expect((calls[0] as Record<string, unknown>).signal).toBe(controller.signal)
   })
 
   it('多图一次性送达（同一 user 消息多图块）', async () => {

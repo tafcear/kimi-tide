@@ -1,5 +1,5 @@
 /**
- * kimi-tide: automatic model router — 月汐规则驱动路由的决策核心（0.5.0）。
+ * kimi-tide: automatic model router — 月汐规则驱动路由的决策核心（0.6.0）。
  *
  * 决策语义（spec §5.1）：显式 @指令（最高优先级）→ 预设规则链（列表顺序，
  * 首条目标可用者生效；目标不可用跳过该规则降级）→ 未命中路由到预设默认
@@ -63,7 +63,8 @@ export type RouteDecision =
 /**
  * 路由器配置的过渡形（Task 8）：v4 存量与 v5 协作编排配置皆可挂载。
  * v4 无 flows 注册表——flow 规则目标按「flow 不存在」跳过，与 0.5.x 行为
- * 逐字节一致；settings/index 面的全量 V5 迁移属后续任务。
+ * 逐字节一致；settings/index 面的全量 V5 迁移已交付（0.6.0，spec §6：
+ * 命名空间 v5 存储 + 一次性迁移 + sidecar 写回留档）。
  */
 export type RouterConfigAny = RouterConfigV4 | RouterConfigV5
 
@@ -285,12 +286,31 @@ export class KimiRouter {
  * - `transcriber`：转述器（peek 命中成功缓存；text 失败返回 null 且不重打）。
  * - `resolveImages`：从本轮消息提取图块持久引用（生产实现 = extractResolvedImages）。
  * - `onDecision`：决策观测回调；extra.flowId 标记本轮执行过的协作流。
+ * - `transcribeTimeoutMs`（I-2，可选）：单次转述调用的有界超时，缺省 30s；
+ *   与 pre-step payload.signal 组合成中止信号传入 VisionCaller，视觉端黑洞
+ *   不再挂死整轮。测试注入小值。
  */
 export interface RouterOrchestrationDeps {
   images: ImageStateStore
   transcriber: Transcriber
   resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
   onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => void
+  transcribeTimeoutMs?: number
+}
+
+/** 转述调用默认有界超时（I-2）。 */
+const DEFAULT_TRANSCRIBE_TIMEOUT_MS = 30_000
+
+/**
+ * pre-step 转述调用的有界信号（I-2）：turn 级 payload.signal 与超时信号组合，
+ * 任一触发即中止 VisionCaller。AbortSignal.timeout/any 为 Node 20+ API；
+ * 缺席的宿主环境退化为可达的子集（宁缺超时，不缺 turn 中止）。
+ */
+function boundedSignal(base: AbortSignal | undefined, timeoutMs: number): AbortSignal | undefined {
+  const timeout = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined
+  if (base === undefined) return timeout
+  if (timeout === undefined) return base
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([base, timeout]) : base
 }
 
 /**
@@ -320,9 +340,11 @@ export function extractResolvedImages(messages: readonly UserMessage[]): Resolve
  * 完成）；text-delta 手工累计成转述文字；finish reason.kind 为 error/aborted
  * 时抛错（Transcriber 记入失败集，同图不重打）。usage  chunk 随流穿过不累计
  * （S5 账单复核另案）。Ruling 2：不携带 reasoningEffort（adapter 默认）。
+ * I-2：调用方 signal 透传进 GenerateOptions——pre-step 中止/有界超时由此
+ * 到达视觉端，abort 的流以 finish aborted（或 reject）收尾，视同转述失败。
  */
 export function createStreamVisionCaller(ctx: Context): VisionCaller {
-  return async (target, prompt, images) => {
+  return async (target, prompt, images, signal) => {
     const content = [
       { type: 'text', text: prompt },
       ...images.map((img) => ({ type: 'image', attachment: img.ref })),
@@ -331,6 +353,7 @@ export function createStreamVisionCaller(ctx: Context): VisionCaller {
       provider: target.provider,
       model: target.model,
       messages: [{ role: 'user', content }] as unknown as Message[],
+      ...(signal === undefined ? {} : { signal }),
     }
     let text = ''
     for await (const chunk of ctx.llm.stream(options)) {
@@ -431,7 +454,7 @@ function effectiveVisionTarget(router: KimiRouter, decision: RouteDecision): Rou
  * 另注册 llm/stream 智能投影拦截器（S4c）。@returns disposer。
  */
 export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrchestrationDeps): () => void {
-  const { images, transcriber, resolveImages, onDecision } = deps
+  const { images, transcriber, resolveImages, onDecision, transcribeTimeoutMs } = deps
   const slots = new WeakMap<Agent, { decision: RouteDecision; hasImage: boolean }>()
   // attachmentId → ResolvedImage：跨轮回取 lazy 转述所需的持久引用。图不可变、
   // attachmentId 全局唯一，进程内一致；插件重挂载前进入会话的历史图无 ref 可
@@ -457,6 +480,8 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // model never switches mid-loop.
       if (payload.step !== 1) return result
       const agent = payload.agent
+      // I-2：转述调用的有界信号 = turn 级中止 ⊕ 超时（默认 30s，deps 可注入小值）
+      const transcribeSignal = boundedSignal(payload.signal, transcribeTimeoutMs ?? DEFAULT_TRANSCRIBE_TIMEOUT_MS)
       // 1. 本轮图块提取
       const batch = resolveImages(payload.messages)
       // 2. 新图登记状态表（native；latchTarget 待决策后按有效视觉候选补记）
@@ -481,7 +506,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         const flow = decision.flow
         const failed: ResolvedImage[] = []
         for (const img of untranscribed) {
-          const text = await transcriber.text(flow, img)
+          const text = await transcriber.text(flow, img, transcribeSignal)
           if (text === null) failed.push(img)
           else images.mark(agent, img.attachmentId, 'transcribed')
           ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
@@ -535,7 +560,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
             const failed: string[] = []
             for (const [id] of native) {
               const img = imageRefs.get(id)
-              const text = img === undefined ? null : await transcriber.text(flow, img)
+              const text = img === undefined ? null : await transcriber.text(flow, img, transcribeSignal)
               if (text === null) failed.push(id)
               else images.mark(agent, id, 'transcribed')
               ctx.logger?.info?.(`kimi-router: flow:${flowId} lazy 转述 attachmentId=${id} ${text === null ? '失败' : '成功'}`)

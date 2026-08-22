@@ -9,11 +9,16 @@ import type { RouteTarget, TranscribeFlow } from './config.js'
  */
 export interface ResolvedImage { attachmentId: string; ref: unknown }
 
-/** 视觉调用缝：把若干图块按 prompt 送 target 模型，返回转述文字。 */
+/**
+ * 视觉调用缝：把若干图块按 prompt 送 target 模型，返回转述文字。
+ * `signal`（I-2）：调用方的中止/有界超时信号，实现方须透传到底层流调用；
+ * 中止 reject 与 throw 同语义——记入失败集，同图不重打。
+ */
 export type VisionCaller = (
   target: RouteTarget,
   prompt: string,
   images: readonly ResolvedImage[],
+  signal?: AbortSignal,
 ) => Promise<string>
 
 /**
@@ -36,6 +41,7 @@ const DEFAULT_CACHE_CAP = 64
  * 转述器。
  * - 成功结果按 attachmentId 缓存（LRU，超 cap 逐出最旧；命中刷新热度）；
  * - 失败记入失败集：同图不再重打（caller 抛错只发生一次），text 返回 null；
+ *   中止/超时 reject 与 throw 同语义，同样入失败集（I-2）；
  * - peek 仅命中成功缓存，不触发调用、不刷新热度。
  */
 export class Transcriber {
@@ -57,8 +63,8 @@ export class Transcriber {
     return this.cache.get(attachmentId)
   }
 
-  /** 转述一张图；失败或已标记失败返回 null。 */
-  async text(flow: TranscribeFlow, image: ResolvedImage): Promise<string | null> {
+  /** 转述一张图；失败、已标记失败或调用中止（signal reject）返回 null。 */
+  async text(flow: TranscribeFlow, image: ResolvedImage, signal?: AbortSignal): Promise<string | null> {
     const id = image.attachmentId
     if (this.failed.has(id)) return null
     const hit = this.cache.get(id)
@@ -70,7 +76,7 @@ export class Transcriber {
     }
     const prompt = flow.prompt ?? DEFAULT_TRANSCRIBE_PROMPT
     try {
-      const out = await this.caller(flow.visionModel, prompt, [image])
+      const out = await this.caller(flow.visionModel, prompt, [image], signal)
       this.remember(id, out)
       return out
     } catch (err) {

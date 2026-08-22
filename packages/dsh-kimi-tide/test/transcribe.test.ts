@@ -69,6 +69,24 @@ describe('Transcriber 失败不重打', () => {
   })
 })
 
+describe('Transcriber 中止信号透传（I-2）', () => {
+  it('text() 把调用方中止信号原样透传给 caller（中止/超时视同失败由既有 catch + 失败集覆盖）', async () => {
+    const caller = vi.fn<VisionCaller>().mockResolvedValue('x')
+    const t = new Transcriber({ caller })
+    const controller = new AbortController()
+    await t.text(flow(), img('a1'), controller.signal)
+    expect(caller.mock.calls[0][3]).toBe(controller.signal)
+  })
+
+  it('caller 因中止 reject → 返回 null 且记入失败集（与 throw 同语义，同图不重打）', async () => {
+    const caller = vi.fn<VisionCaller>().mockRejectedValue(new Error('transcribe aborted (timeout)'))
+    const t = new Transcriber({ caller })
+    expect(await t.text(flow(), img('a1'), new AbortController().signal)).toBeNull()
+    expect(await t.text(flow(), img('a1'))).toBeNull()
+    expect(caller).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('Transcriber 提示词', () => {
   it('flow.prompt 覆盖默认提示词', async () => {
     const caller = vi.fn<VisionCaller>().mockResolvedValue('x')

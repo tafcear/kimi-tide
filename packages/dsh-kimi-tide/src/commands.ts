@@ -3,7 +3,7 @@
  * the dock panel (browser calls ctx.remote.commands.execute(sessionId,
  * '/kimi-tide …'); the harness routes it to this registration).
  *
- * Subcommands (0.5.0, v4):
+ * Subcommands (0.6.0, v4/v5 双形配置):
  *   /kimi-tide preset <id|off>       (off → activePreset=null；id 须存在于 presets)
  *   /kimi-tide show                  (print current preset / default / rule count；0.6.0 v5 补 flows 注册表段 + 每预设 imageFallback 行)
  *   /kimi-tide set activePreset <id|off>  (SETTABLE_KEYS 唯一键)
@@ -61,7 +61,7 @@ export interface KimiTideCommandDeps {
   onSaved: (config: RouterConfigAny) => void
 }
 
-/** Keys settable via `/kimi-tide set` — paths into RouterConfigV4. */
+/** Keys settable via `/kimi-tide set` — paths into RouterConfigAny（v4/v5 共有的顶层键）。 */
 const SETTABLE_KEYS: Record<string, 'string'> = {
   activePreset: 'string',
 }
