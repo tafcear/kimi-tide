@@ -146,16 +146,21 @@ timeline
 
 ---
 
-## 可用模型（经 kimi-coding 路由）
+## 可用模型
 
-| 模型 ID | 说明 | 上下文 |
-|---|---|---|
-| `k3` | Kimi K3 旗舰（多模态，1M 长窗） | 1M |
-| `k3-256k` | Kimi K3 256K 版（多模态） | 256K |
-| `kimi-for-coding` | Kimi K2.7 Code（多模态） | 256K |
-| `kimi-for-coding-highspeed` | K2.7 Code 高速版（多模态） | 256K |
+> 候选池自 0.5.0 起**全量枚举**宿主目录中所有 provider 的模型（无白名单），不限于下表；未接入的模型面板标灰、不参与路由。下表只列内置预设与预置流直接引用的模型。
 
-> 模态：4 模型在 pi-ai 目录均声明 `input:["text","image"]`；DeepSeek 侧（`deepseek-v4-flash` / `deepseek-v4-pro`）为文本-only、1M 窗（pi-ai 目录实读）——多模态正是路由器要补偿的核心缺口。
+| 来源 | 模型 ID | 模态 | 上下文 | 角色 |
+|---|---|---|---|---|
+| `kimi-coding` | `k3` | 多模态 | 1M | 能力预设打底 / 带图规则目标 |
+| `kimi-coding` | `k3-256k` | 多模态 | 256K | 候选 |
+| `kimi-coding` | `kimi-for-coding` | 多模态 | 256K | 代码规则目标 |
+| `kimi-coding` | `kimi-for-coding-highspeed` | 多模态 | 256K | 候选 |
+| `deepseek-official` | `deepseek-v4-flash` | 文本-only | 1M | 省钱预设打底 / 闲聊规则目标 |
+| `deepseek-official` | `deepseek-v4-pro` | 文本-only | 1M | 候选 |
+| `deepseek-official` | `deepseek-v4-flash-vision-exp` | 多模态 | 1M | 预置转述流 vision 目标（0.6.0） |
+
+> 模态与上下文窗均实读自 pi-ai / dsh-llm-deepseek 模型目录（`inputModalities` + `contextWindow`）——多模态正是路由器要补偿的核心缺口。
 
 ---
 
@@ -422,16 +427,21 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 
 ---
 
-## Available Models (via the kimi-coding route)
+## Available Models
 
-| Model ID | Description | Context |
-|---|---|---|
-| `k3` | Kimi K3 flagship (multimodal, 1M window) | 1M |
-| `k3-256k` | Kimi K3 256K (multimodal) | 256K |
-| `kimi-for-coding` | Kimi K2.7 Code (multimodal) | 256K |
-| `kimi-for-coding-highspeed` | K2.7 Code high-speed (multimodal) | 256K |
+> Since 0.5.0 the candidate pool **enumerates every provider** in the host catalog (no whitelist) — not just the table below; unavailable models render greyed out and never route. The table lists only the models directly referenced by the built-in presets and flows.
 
-> Modalities: all 4 models declare `input: ["text", "image"]` in the pi-ai catalog; the DeepSeek side (`deepseek-v4-flash` / `deepseek-v4-pro`) is text-only with a 1M window (catalog verified) — multimodality is the router's core gap to compensate.
+| Source | Model ID | Modality | Context | Role |
+|---|---|---|---|---|
+| `kimi-coding` | `k3` | multimodal | 1M | capability default / image rule target |
+| `kimi-coding` | `k3-256k` | multimodal | 256K | candidate |
+| `kimi-coding` | `kimi-for-coding` | multimodal | 256K | code rule target |
+| `kimi-coding` | `kimi-for-coding-highspeed` | multimodal | 256K | candidate |
+| `deepseek-official` | `deepseek-v4-flash` | text-only | 1M | saving default / chitchat rule target |
+| `deepseek-official` | `deepseek-v4-pro` | text-only | 1M | candidate |
+| `deepseek-official` | `deepseek-v4-flash-vision-exp` | multimodal | 1M | built-in transcribe flow vision target (0.6.0) |
+
+> Modalities and context windows are read from the pi-ai / dsh-llm-deepseek model catalogs (`inputModalities` + `contextWindow`) — multimodality is the router's core gap to compensate.
 
 ---
 
