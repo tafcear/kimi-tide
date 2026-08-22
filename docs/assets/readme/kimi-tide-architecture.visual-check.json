@@ -6,8 +6,8 @@
   "visualReview": "pending",
   "artifact": {
     "path": "E:\\BaiduSyncdisk\\Data\\vibe-coding\\kimi-tide\\kimi-tide\\docs\\assets\\readme\\kimi-tide-architecture.html",
-    "sha256": "769b288d1f39401553884873d6310752f2aafb7451f31f2b8357f709bb9eda2a",
-    "bytes": 641833
+    "sha256": "f8542e066d35e562a45b47f0670434595669741e48aa3617946b128f1bd1e57d",
+    "bytes": 645899
   },
   "state": {
     "detail": "read",
@@ -27,7 +27,7 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "scrollWidth": 1440,
-        "scrollHeight": 957,
+        "scrollHeight": 948,
         "overflowX": false,
         "overflowY": true,
         "ok": false,
@@ -84,7 +84,7 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "scrollWidth": 1440,
-        "scrollHeight": 957,
+        "scrollHeight": 948,
         "overflowX": false,
         "overflowY": true,
         "ok": false,
@@ -98,7 +98,7 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "scrollWidth": 1440,
-        "scrollHeight": 965,
+        "scrollHeight": 958,
         "overflowX": false,
         "overflowY": true,
         "ok": false,
