@@ -6,14 +6,34 @@
  * + 新增规则）+ 预设操作（新建/复制/删除）+ 关键词组管理（组词表 textarea，
  * 逗号/换行分隔，新建/删除组）。
  *
- * 所有写操作都经 card-store v4 方法整段写（saveActivePreset / savePreset /
- * createPreset / deletePreset / saveKeywordGroups）路由到 scope.set 或
- * connection.api.settings.mutate，不经过 dock 的 import-config 通道。
+ * 0.6.0 协作流配置（spec §7，仅 v5 配置渲染；v4 逐字节保持）：
+ * 规则目标下拉增「协作流」分组（仅 transcribe 流可作规则目标——P1 边界）+
+ * 每预设 imageFallback 三态（锁存/盲答/懒转述，带后果提示；懒转述流选择器
+ * 仅 transcribe-lazy 态可编）+「协作流」手风琴区（预置流可改不可删，自建流
+ * 可删——删前 store 守卫检查规则/imageFallbackFlow 引用，有引用拒删并上浮
+ * error 通道）。
+ *
+ * 所有写操作都经 card-store 方法整段写（saveActivePreset / savePreset /
+ * createPreset / deletePreset / saveKeywordGroups / saveFlows / deleteFlow）
+ * 路由到 scope.set 或 connection.api.settings.mutate，不经过 dock 的
+ * import-config 通道；宿主 validate-on-write 拒绝一律上浮 error 通道，不静默。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { configKey, type RouteTarget, type RouterRule, type RuleCondition } from '../config.js'
+import {
+  configKey,
+  DEFAULT_FLOWS,
+  isFlowTarget,
+  type CollaborationFlow,
+  type ImageFallback,
+  type ReviewFlow,
+  type RouteTarget,
+  type RouterRule,
+  type RuleCondition,
+  type RuleTarget,
+  type TranscribeFlow,
+} from '../config.js'
 
 export interface SettingsCardProps {
   scope: SettingsScopeLike | null
@@ -60,6 +80,21 @@ const parseTarget = (value: string): RouteTarget => {
     : { provider: value.slice(0, slash), model: value.slice(slash + 1) }
 }
 
+/** 规则目标下拉的取值编码：模型目标用 'provider/model'，协作流引用用 'flow:<id>'。 */
+const FLOW_PREFIX = 'flow:'
+const flowValue = (id: string): string => `${FLOW_PREFIX}${id}`
+const ruleTargetValue = (target: RuleTarget): string =>
+  isFlowTarget(target) ? flowValue(target.flow) : configKey(target)
+const parseRuleTarget = (value: string): RuleTarget =>
+  value.startsWith(FLOW_PREFIX) ? { flow: value.slice(FLOW_PREFIX.length) } : parseTarget(value)
+
+/** imageFallback 三态的一句话后果提示（spec §7）。 */
+const FALLBACK_HINTS: Record<ImageFallback, string> = {
+  latch: '带图后锁定视觉模型，后续文本轮继续走视觉（0.5.x 语义）',
+  blind: '文本轮当无图处理——看不到历史图，可能盲答',
+  'transcribe-lazy': '文本轮先把历史图转写为文字再作答（多一次视觉调用）',
+}
+
 /** 规则 id 生成：rule-<n> 递增避让（预设内唯一即可，React key 用）。 */
 const newRuleId = (rules: RouterRule[]): string => {
   const ids = new Set(rules.map((rule) => rule.id))
@@ -79,20 +114,25 @@ const omitKey = (obj: Record<string, string[]>, key: string): Record<string, str
 }
 
 /** 目标下拉：只列可用（已挂载）模型；当前值未挂载时不作为 option 兜底，改灰字提示
- *  （用户裁定 2026-08-21：未接入的模型不应出现在下拉选择里）。 */
+ *  （用户裁定 2026-08-21：未接入的模型不应出现在下拉选择里）。
+ *  flowOptions（0.6.0）：规则目标下拉追加「协作流」optgroup（调用方只传
+ *  transcribe 流——P1 边界）；不传/空数组 = 无分组（v4 与默认模型下拉行为保持）。 */
 function TargetSelect(props: {
   label: string
   value: string
   options: string[]
+  flowOptions?: Array<{ id: string; label: string }>
   unavailable: boolean
   disabled: boolean
   onChange: (value: string) => void
 }) {
+  const flowOptions = props.flowOptions ?? []
   const known = props.options.includes(props.value)
+    || flowOptions.some((flow) => flowValue(flow.id) === props.value)
   return (
     <span className="kt-target-wrap">
       {!known && (
-        <span className="kt-unavailable kt-target-missing" title="该模型未接入（设置 → Models 挂载后出现）">
+        <span className="kt-unavailable kt-target-missing" title="该目标未接入（模型：设置 → Models 挂载后出现；流：flows 注册表缺失）">
           （未挂载）{props.value}
         </span>
       )}
@@ -103,10 +143,17 @@ function TargetSelect(props: {
         disabled={props.disabled}
         onChange={(e) => props.onChange(e.target.value)}
       >
-        {!known && <option value="" disabled>— 选择已挂载模型 —</option>}
+        {!known && <option value="" disabled>— 选择目标 —</option>}
         {props.options.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}
+        {flowOptions.length > 0 && (
+          <optgroup label="协作流">
+            {flowOptions.map((flow) => (
+              <option key={flow.id} value={flowValue(flow.id)}>{flow.label}</option>
+            ))}
+          </optgroup>
+        )}
       </select>
     </span>
   )
@@ -132,6 +179,139 @@ function KeywordGroupRow(props: {
         onBlur={() => props.onSave(parseWords(draft))}
       />
       <button type="button" disabled={!props.writable} onClick={props.onDelete}>删除组</button>
+    </div>
+  )
+}
+
+/**
+ * 协作流行（0.6.0 spec §7）：类型徽标 + 流 id + 参数控件（改即整段写 flows）。
+ * transcribe：视觉模型 + failurePolicy；review：评审模型 + trigger（keywords 时
+ * 补关键词组选择）+ rounds（1..3 夹取，validate 界内）+ autoRevise。
+ * 预置流（DEFAULT_FLOWS 键）可改不可删；自建流可删，被引用时禁用删除按钮
+ * （store.deleteFlow 的引用守卫是写路径兜底）。无 useState——hooks 置顶纪律
+ * 下本组件保持零 hook（参数变更直接落盘，与规则行同款）。
+ */
+function FlowRow(props: {
+  id: string
+  flow: CollaborationFlow
+  /** 预置流：可改不可删（防规则悬空）。 */
+  preset: boolean
+  /** 仍被规则 target / imageFallbackFlow 引用：禁用删除按钮。 */
+  referenced: boolean
+  writable: boolean
+  modelOptions: string[]
+  availability: Record<string, boolean> | null
+  groupNames: string[]
+  onSave: (flow: CollaborationFlow) => void
+  onDelete: () => void
+}) {
+  const { flow } = props
+  return (
+    <div className="kt-flow-row">
+      <span className="kt-flow-badge">{flow.type === 'transcribe' ? '转述' : '评审'}</span>
+      <span className="kt-field-label">{props.id}</span>
+      {flow.type === 'transcribe' ? (
+        <>
+          <TargetSelect
+            label={`${props.id} 视觉模型`}
+            value={configKey(flow.visionModel)}
+            options={props.modelOptions}
+            unavailable={props.availability?.[configKey(flow.visionModel)] === false}
+            disabled={!props.writable}
+            onChange={(value) => props.onSave({ ...flow, visionModel: parseTarget(value) })}
+          />
+          <select
+            aria-label={`${props.id} 失败策略`}
+            value={flow.failurePolicy}
+            disabled={!props.writable}
+            onChange={(e) => props.onSave({ ...flow, failurePolicy: e.target.value as TranscribeFlow['failurePolicy'] })}
+          >
+            <option value="latch-image">失败锁存</option>
+            <option value="blind">失败盲答</option>
+          </select>
+        </>
+      ) : (
+        <>
+          <TargetSelect
+            label={`${props.id} 评审模型`}
+            value={configKey(flow.reviewer)}
+            options={props.modelOptions}
+            unavailable={props.availability?.[configKey(flow.reviewer)] === false}
+            disabled={!props.writable}
+            onChange={(value) => props.onSave({ ...flow, reviewer: parseTarget(value) })}
+          />
+          <select
+            aria-label={`${props.id} 触发方式`}
+            value={flow.trigger}
+            disabled={!props.writable}
+            onChange={(e) => {
+              const trigger = e.target.value as ReviewFlow['trigger']
+              const next: ReviewFlow = { ...flow, trigger }
+              // validate-on-write 纪律：trigger=keywords 必须有存在的 keywordGroup——
+              // 切换时自动带上首个可用组，避免写出过不了 validate 的中间态。
+              if (trigger === 'keywords' && (next.keywordGroup === undefined || !props.groupNames.includes(next.keywordGroup))) {
+                next.keywordGroup = props.groupNames[0]
+              }
+              props.onSave(next)
+            }}
+          >
+            <option value="manual">手动</option>
+            <option value="keywords" disabled={props.groupNames.length === 0}>关键词组</option>
+          </select>
+          {flow.trigger === 'keywords' && (
+            <select
+              aria-label={`${props.id} 触发关键词组`}
+              value={flow.keywordGroup ?? ''}
+              disabled={!props.writable}
+              onChange={(e) => props.onSave({ ...flow, keywordGroup: e.target.value })}
+            >
+              {flow.keywordGroup !== undefined && !props.groupNames.includes(flow.keywordGroup) && (
+                <option value={flow.keywordGroup} disabled>{flow.keywordGroup}（缺失）</option>
+              )}
+              {props.groupNames.map((group) => (
+                <option key={group} value={group}>{group}</option>
+              ))}
+            </select>
+          )}
+          <input
+            aria-label={`${props.id} 评审轮次`}
+            type="number"
+            min={1}
+            max={3}
+            step={1}
+            value={flow.rounds}
+            disabled={!props.writable}
+            onChange={(e) => {
+              const rounds = Math.round(Number(e.target.value))
+              // validate 界内才写（rounds 须为 1..3 整数），界外输入直接忽略。
+              if (Number.isInteger(rounds) && rounds >= 1 && rounds <= 3) {
+                props.onSave({ ...flow, rounds })
+              }
+            }}
+          />
+          <label className="kt-row">
+            <input
+              aria-label={`${props.id} 自动修订`}
+              type="checkbox"
+              checked={flow.autoRevise}
+              disabled={!props.writable}
+              onChange={(e) => props.onSave({ ...flow, autoRevise: e.target.checked })}
+            />
+            自动修订
+          </label>
+        </>
+      )}
+      {!props.preset && (
+        <button
+          type="button"
+          aria-label={`删除流 ${props.id}`}
+          disabled={!props.writable || props.referenced}
+          title={props.referenced ? '仍被规则或 imageFallbackFlow 引用，请先清除引用' : undefined}
+          onClick={props.onDelete}
+        >
+          删除
+        </button>
+      )}
     </div>
   )
 }
@@ -182,6 +362,22 @@ export function SettingsCard(props: SettingsCardProps) {
   const availability = snapshot.availability
   const groupNames = Object.keys(config.keywordGroups)
 
+  /* ---- 0.6.0 协作流（v5 门控；v4 配置下本节全部为空/不渲染，行为保持）---- */
+  const isV5 = config.version === 5
+  const flows = isV5 ? config.flows : {}
+  const flowEntries = Object.entries(flows)
+  // P1 边界：仅 transcribe 流可作规则目标（review 流出现在注册表区但不进分组）。
+  const transcribeFlowOptions = flowEntries
+    .filter(([, flow]) => flow.type === 'transcribe')
+    .map(([id]) => ({ id, label: `${id}（转述）` }))
+  /** 流引用检查（UI 层禁用删除；store.deleteFlow 守卫是写路径兜底）。 */
+  const flowReferenced = (flowId: string): boolean =>
+    Object.values(config.presets).some((preset) =>
+      preset.rules.some((rule) => isFlowTarget(rule.target) && rule.target.flow === flowId)
+      || preset.imageFallbackFlow === flowId
+      // 缺省级联：transcribe-lazy 未显式指定流时隐式引用预置 transcribe。
+      || (preset.imageFallback === 'transcribe-lazy' && preset.imageFallbackFlow === undefined && flowId === 'transcribe'))
+
   // 规则编辑：全部组装 next 后经 store 整段写。
   const updateRules = (presetId: string, rules: RouterRule[]): void => {
     const preset = config.presets[presetId]
@@ -218,6 +414,16 @@ export function SettingsCard(props: SettingsCardProps) {
   const saveDefault = (value: string): void => {
     if (activeId === null || active === null) return
     void store.savePreset(activeId, { ...active, default: parseTarget(value) })
+  }
+
+  const saveImageFallback = (value: ImageFallback): void => {
+    if (activeId === null || active === null) return
+    void store.savePreset(activeId, { ...active, imageFallback: value })
+  }
+
+  const saveImageFallbackFlow = (flowId: string): void => {
+    if (activeId === null || active === null) return
+    void store.savePreset(activeId, { ...active, imageFallbackFlow: flowId })
   }
 
   const createPreset = (): void => {
@@ -296,7 +502,7 @@ export function SettingsCard(props: SettingsCardProps) {
           <div className="kt-rules">
             <span className="kt-h">规则（有序，首条命中生效）</span>
             {active.rules.map((rule, index) => {
-              const targetKey = configKey(rule.target)
+              const targetKey = ruleTargetValue(rule.target)
               const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
               return (
                 <div key={rule.id} className="kt-rule-row">
@@ -318,9 +524,10 @@ export function SettingsCard(props: SettingsCardProps) {
                     label="目标"
                     value={targetKey}
                     options={modelOptions}
+                    flowOptions={transcribeFlowOptions}
                     unavailable={availability?.[targetKey] === false}
                     disabled={!writable}
-                    onChange={(value) => editActiveRule(index, { target: parseTarget(value) })}
+                    onChange={(value) => editActiveRule(index, { target: parseRuleTarget(value) })}
                   />
                   <button
                     type="button"
@@ -351,6 +558,47 @@ export function SettingsCard(props: SettingsCardProps) {
             })}
             <button type="button" disabled={!writable} onClick={addRule}>新增规则</button>
           </div>
+
+          {/* 带图兜底三态（0.6.0，仅 v5）：锁存/盲答/懒转述 + 一句话后果提示；
+              懒转述流选择器仅 transcribe-lazy 态渲染（缺省指向预置 transcribe）。 */}
+          {isV5 && (
+            <div className="kt-fallback">
+              <label className="kt-row">
+                <span className="kt-field-label">带图兜底</span>
+                <select
+                  aria-label="带图兜底"
+                  value={active.imageFallback ?? 'latch'}
+                  disabled={!writable}
+                  onChange={(e) => saveImageFallback(e.target.value as ImageFallback)}
+                >
+                  <option value="latch">锁存</option>
+                  <option value="blind">盲答</option>
+                  <option value="transcribe-lazy">懒转述</option>
+                </select>
+              </label>
+              <span className="kt-hint">{FALLBACK_HINTS[active.imageFallback ?? 'latch']}</span>
+              {(active.imageFallback ?? 'latch') === 'transcribe-lazy' && (
+                <label className="kt-row">
+                  <span className="kt-field-label">懒转述流</span>
+                  <select
+                    aria-label="懒转述流"
+                    value={active.imageFallbackFlow ?? 'transcribe'}
+                    disabled={!writable}
+                    onChange={(e) => saveImageFallbackFlow(e.target.value)}
+                  >
+                    {transcribeFlowOptions.map((flow) => (
+                      <option key={flow.id} value={flow.id}>{flow.id}</option>
+                    ))}
+                    {!transcribeFlowOptions.some((flow) => flow.id === (active.imageFallbackFlow ?? 'transcribe')) && (
+                      <option value={active.imageFallbackFlow ?? 'transcribe'} disabled>
+                        {active.imageFallbackFlow ?? 'transcribe'}（缺失）
+                      </option>
+                    )}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -403,6 +651,29 @@ export function SettingsCard(props: SettingsCardProps) {
           </button>
         </div>
       </details>
+
+      {/* 协作流注册表（0.6.0 spec §7，仅 v5）：预置流可改不可删；自建流可删
+          （被引用时禁用删除，store.deleteFlow 守卫兜底并上浮 error）。 */}
+      {isV5 && (
+        <details className="kt-flows">
+          <summary>协作流</summary>
+          {flowEntries.map(([flowId, flow]) => (
+            <FlowRow
+              key={flowId}
+              id={flowId}
+              flow={flow}
+              preset={Object.hasOwn(DEFAULT_FLOWS(), flowId)}
+              referenced={flowReferenced(flowId)}
+              writable={writable}
+              modelOptions={modelOptions}
+              availability={availability}
+              groupNames={groupNames}
+              onSave={(next) => void store.saveFlows({ ...flows, [flowId]: next })}
+              onDelete={() => void store.deleteFlow(flowId)}
+            />
+          ))}
+        </details>
+      )}
     </div>
   )
 }

@@ -1,5 +1,7 @@
 /**
- * SettingsCard — 设置页「月汐」卡片：0.5.0 预设管理器（Task 8，RouterConfigV4）。
+ * SettingsCard — 设置页「月汐」卡片：0.5.0 预设管理器（Task 8，RouterConfigV4）
+ * + 0.6.0 协作流配置（Task 11，RouterConfigV5：规则 target「协作流」分组 /
+ * 流注册表手风琴 / imageFallback 三态 / 删流引用守卫与写失败上浮）。
  *
  * 沿用 panel-v3 的 render-to-string 习惯（无 @testing-library/jsdom）：渲染
  * 断言走 renderToString + toContain，storeFactory 缝注入预制快照（renderToString
@@ -14,15 +16,18 @@ import { createCardStore } from '../src/client/card-store.js'
 import type { CardSnapshot, CardStore, ConnectionLike, SettingsScopeLike } from '../src/client/card-store.js'
 import { presetSlug, SettingsCard } from '../src/client/SettingsCard.js'
 import { apply } from '../src/client/index.js'
-import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
 
 /** brief 夹具：v4 配置工厂（activePreset 注入到内置默认配置）。 */
 const v4cfg = (active: string | null): RouterConfigV4 => ({ ...DEFAULT_CONFIG_V4(), activePreset: active })
 
-/** 宿主模型全量目录夹具（下拉数据源；k3/kimi-for-coding/flash 均在目录内）。 */
+/** Task 11 夹具：v5 配置工厂（含预置 transcribe/review 流注册表）。 */
+const v5cfg = (active: string | null): RouterConfigV5 => ({ ...DEFAULT_CONFIG_V5(), activePreset: active })
+
+/** 宿主模型全量目录夹具（下拉数据源；k3/kimi-for-coding/flash/vision-exp 均在目录内）。 */
 const CATALOG = [
   { provider: 'kimi-coding', models: ['k3', 'kimi-for-coding'] },
-  { provider: 'deepseek-official', models: ['deepseek-v4-flash'] },
+  { provider: 'deepseek-official', models: ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'] },
 ]
 
 /** 预制快照的 CardStore 夹具（方法全空操作；渲染断言只读 getSnapshot）。 */
@@ -35,13 +40,15 @@ function makeStore(snapshot: CardSnapshot): CardStore {
     createPreset: async () => {},
     deletePreset: async () => {},
     saveKeywordGroups: async () => {},
+    saveFlows: async () => {},
+    deleteFlow: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
     subscribe: () => () => {},
   }
 }
 
-const baseSnapshot = (config: RouterConfigV4, overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
+const baseSnapshot = (config: RouterConfigV4 | RouterConfigV5, overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
   status: 'ready',
   config,
   base: null,
@@ -54,10 +61,10 @@ const baseSnapshot = (config: RouterConfigV4, overrides: Partial<CardSnapshot> =
 })
 
 /** brief 夹具：storeWith(config) → storeFactory（ready + 全量目录 + 无灰态）。 */
-const storeWith = (config: RouterConfigV4) => () => makeStore(baseSnapshot(config))
+const storeWith = (config: RouterConfigV4 | RouterConfigV5) => () => makeStore(baseSnapshot(config))
 
 /** brief 夹具：storeWithAvailability(config, availability) → storeFactory（带灰态映射）。 */
-const storeWithAvailability = (config: RouterConfigV4, availability: Record<string, boolean>) => () =>
+const storeWithAvailability = (config: RouterConfigV4 | RouterConfigV5, availability: Record<string, boolean>) => () =>
   makeStore(baseSnapshot(config, { availability }))
 
 /** 一个 settingsScope.bind(...) 返回的 scope 结构面 mock（store 写路径用例用）。 */
@@ -84,6 +91,34 @@ function makeScope(snapshotOverrides: Record<string, unknown> = {}) {
       snapshot = { ...snapshot, ...next }
     },
   }
+}
+
+/**
+ * Task 11 夹具：会真正落写的 scope mock（set/unset 把字段写进快照 value）。
+ * saveTop 的 scope 路径带「意图 vs 实际」对比（validate 静默拒绝检测），
+ * 断言成功路径时必须用本会落写的夹具；断言拒绝上浮时才用不落写的 makeScope。
+ */
+function makeApplyingScope(initial: RouterConfigV5) {
+  let value: unknown = initial
+  const scope: SettingsScopeLike = {
+    getSnapshot: () => ({
+      status: 'ready' as const,
+      value,
+      base: undefined as unknown,
+      user: undefined as unknown,
+      writable: true,
+    }),
+    subscribe: () => () => {},
+    set: vi.fn(async (field: string, v: unknown) => {
+      value = { ...(value as Record<string, unknown>), [field]: v }
+    }),
+    unset: vi.fn(async (field: string) => {
+      const next = { ...(value as Record<string, unknown>) }
+      delete next[field]
+      value = next
+    }),
+  }
+  return { scope, set: scope.set, unset: scope.unset, getValue: () => value as RouterConfigV5 }
 }
 
 /** 一个 connection 服务结构面 mock（api.settings.describe/mutate + 可选 api.llm.models）。 */
@@ -170,6 +205,84 @@ describe('SettingsCard 预设管理器（render，brief Task 8 Step 1）', () =>
   })
 })
 
+describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
+  it('规则 target 选择器出现「协作流」分组（仅 transcribe 流；review 不入组——P1 边界）', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
+    // Fails if: 规则目标下拉缺「协作流」optgroup、缺 transcribe 流选项，或 review 流
+    // 混入规则目标分组（spec §7 P1 边界：仅 transcribe 可作规则目标）。
+    expect(html).toContain('<optgroup label="协作流"')
+    expect(html).toContain('value="flow:transcribe"')
+    expect(html).not.toContain('value="flow:review"')
+  })
+  it('v4 配置不出现「协作流」分组 / 流注册表区 / 带图兜底行（迁移前行为保持）', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    // Fails if: v4 配置（无 flows 注册表）渲染出协作流相关 UI——v5 功能区必须按
+    // config.version 门控，v4 渲染逐字节保持。
+    expect(html).not.toContain('<optgroup label="协作流"')
+    expect(html).not.toContain('kt-flows')
+    expect(html).not.toContain('带图兜底')
+  })
+  it('「协作流」手风琴区渲染预置流（类型徽标 + 参数可编控件）', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
+    // Fails if: 协作流手风琴区缺失、预置 transcribe/review 流未列出、或参数控件
+    // （视觉模型/失败策略/评审模型/触发方式/评审轮次）任一消失。
+    expect(html).toContain('kt-flows')
+    expect(html).toContain('转述')
+    expect(html).toContain('评审')
+    expect(html).toContain('aria-label="transcribe 视觉模型"')
+    expect(html).toContain('aria-label="transcribe 失败策略"')
+    expect(html).toContain('aria-label="review 评审模型"')
+    expect(html).toContain('aria-label="review 触发方式"')
+    expect(html).toContain('aria-label="review 评审轮次"')
+  })
+  it('预置流可改不可删；自建流出现删除按钮', () => {
+    const custom = v5cfg('saving')
+    custom.flows = {
+      ...custom.flows,
+      my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' },
+    }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(custom) }))
+    // Fails if: 自建流缺删除按钮，或预置流（transcribe/review）出现删除按钮
+    // （spec §7：预置流可改不可删，防规则悬空）。
+    expect(html).toContain('aria-label="删除流 my"')
+    expect(html).not.toContain('aria-label="删除流 transcribe"')
+    expect(html).not.toContain('aria-label="删除流 review"')
+  })
+  it('被规则引用的自建流删除按钮禁用（UI 层防悬空，store 守卫兜底）', () => {
+    const custom = v5cfg('saving')
+    custom.presets.saving = {
+      ...custom.presets.saving,
+      rules: [...custom.presets.saving.rules, { id: 'r-my', when: { kind: 'image' }, target: { flow: 'my' } }],
+    }
+    custom.flows = {
+      ...custom.flows,
+      my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' },
+    }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(custom) }))
+    // Fails if: 被规则引用的流删除按钮仍可点击（UI 不提示悬空风险）。
+    expect(html).toMatch(/aria-label="删除流 my"[^>]*disabled|disabled[^>]*aria-label="删除流 my"/)
+  })
+  it('imageFallback 三态选择（锁存/盲答/懒转述）+ 一句话后果提示', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
+    // Fails if: 带图兜底三态选择器或当前态后果提示缺失（缺省 = latch = 0.5.x 语义）。
+    expect(html).toContain('aria-label="带图兜底"')
+    expect(html).toContain('>锁存<')
+    expect(html).toContain('>盲答<')
+    expect(html).toContain('>懒转述<')
+    expect(html).toContain('带图后锁定视觉模型')
+  })
+  it('imageFallback=transcribe-lazy 时懒转述流选择器可编（默认预置 transcribe）；其余两态不渲染', () => {
+    const lazy = v5cfg('saving')
+    lazy.presets.saving = { ...lazy.presets.saving, imageFallback: 'transcribe-lazy' }
+    const htmlLazy = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(lazy) }))
+    // Fails if: lazy 态缺懒转述流选择器，或可选流里缺预置 transcribe。
+    expect(htmlLazy).toContain('aria-label="懒转述流"')
+    const latch = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
+    // Fails if: 非 lazy 态仍渲染懒转述流选择器（brief：仅当选 transcribe-lazy 时可编）。
+    expect(latch).not.toContain('aria-label="懒转述流"')
+  })
+})
+
 describe('presetSlug（brief Task 8 Step 3 规则）', () => {
   it('小写 + 非 [a-z0-9 一-鿿] 折叠为 -', () => {
     // Fails if: slug 化不再小写/折叠非法字符/保留中文。
@@ -232,6 +345,100 @@ describe('createCardStore write paths（v4 配置夹具）', () => {
 
     // Fails if: a rejected write does not surface an error on the snapshot.
     expect(store.getSnapshot().error).toContain('read-only')
+  })
+})
+
+describe('createCardStore 协作流写路径（v5，Task 11 Step 1）', () => {
+  it('saveFlows 整段写 flows 字段（scope 通道），成功后 error 为空', async () => {
+    const { scope, set } = makeApplyingScope(DEFAULT_CONFIG_V5())
+    const store = createCardStore(scope, null)
+    const flows = { ...DEFAULT_FLOWS(), transcribe: { ...DEFAULT_FLOWS().transcribe, failurePolicy: 'blind' as const } }
+
+    await store.saveFlows(flows)
+
+    // Fails if: saveFlows 不经 scope.set 整段写 flows，或写后 error 通道被污染。
+    expect(set).toHaveBeenCalledWith('flows', flows)
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('deleteFlow 拒删预置流（防规则悬空），不写盘且 error 上浮', async () => {
+    const { scope, set } = makeApplyingScope(DEFAULT_CONFIG_V5())
+    const store = createCardStore(scope, null)
+
+    await store.deleteFlow('transcribe')
+
+    // Fails if: 预置流被删除，或拒绝原因不上浮 error 通道。
+    expect(store.getSnapshot().error).toContain('预置')
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('deleteFlow 拒删被规则引用的自建流（validate-on-write：删流前必须先清规则引用）', async () => {
+    const cfg = DEFAULT_CONFIG_V5()
+    cfg.presets.saving = {
+      ...cfg.presets.saving,
+      rules: [...cfg.presets.saving.rules, { id: 'r-my', when: { kind: 'image' }, target: { flow: 'my' } }],
+    }
+    cfg.flows = { ...cfg.flows, my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' } }
+    const { scope, set } = makeApplyingScope(cfg)
+    const store = createCardStore(scope, null)
+
+    await store.deleteFlow('my')
+
+    // Fails if: 被规则引用的流被删除（产生不过 validate 的中间态），或拒绝不上浮 error。
+    expect(store.getSnapshot().error).toContain('引用')
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('deleteFlow 拒删被 imageFallbackFlow 引用的自建流', async () => {
+    const cfg = DEFAULT_CONFIG_V5()
+    cfg.presets.saving = { ...cfg.presets.saving, imageFallback: 'transcribe-lazy', imageFallbackFlow: 'my' }
+    cfg.flows = { ...cfg.flows, my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' } }
+    const { scope, set } = makeApplyingScope(cfg)
+    const store = createCardStore(scope, null)
+
+    await store.deleteFlow('my')
+
+    // Fails if: 被 imageFallbackFlow 级联引用的流被删除，或拒绝不上浮 error。
+    expect(store.getSnapshot().error).toContain('引用')
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('deleteFlow 删除无引用自建流 → 整段写 flows（减去该流）', async () => {
+    const cfg = DEFAULT_CONFIG_V5()
+    cfg.flows = { ...cfg.flows, my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' } }
+    const { scope, set, getValue } = makeApplyingScope(cfg)
+    const store = createCardStore(scope, null)
+
+    await store.deleteFlow('my')
+
+    // Fails if: 无引用自建流删除未落盘，或误上浮 error。
+    expect(store.getSnapshot().error).toBeNull()
+    expect(set).toHaveBeenCalledWith('flows', expect.not.objectContaining({ my: expect.anything() }))
+    expect(getValue().flows.my).toBeUndefined()
+  })
+
+  it('saveFlows 写入被宿主 validate 静默拒绝 → error 上浮（不静默 recover，2026-08-21 避坑）', async () => {
+    // makeScope 的 set 不落快照 = 模拟宿主 validate-on-write 拒绝（set 不抛、落值被拒）。
+    const { scope, set } = makeScope({ value: DEFAULT_CONFIG_V5() })
+    const store = createCardStore(scope, null)
+
+    await store.saveFlows({})
+
+    // Fails if: 写入被拒后 error 通道仍为空（静默 recover 回归）。
+    expect(set).toHaveBeenCalledWith('flows', {})
+    expect(store.getSnapshot().error).toContain('写入被拒绝')
+  })
+
+  it('saveFlows 经 connection mutate 被拒（result.ok:false）→ error 上浮', async () => {
+    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V5() }])
+    mutate.mockResolvedValueOnce({ result: { ok: false, error: { message: "validate: 规则 'r' 引用的协作流不存在" } } })
+    const store = createCardStore(null, connection)
+    await store.load()
+
+    await store.saveFlows({})
+
+    // Fails if: mutate 的 result.ok:false 被当作成功吞掉（I1 终审修复惯例回归）。
+    expect(store.getSnapshot().error).toContain('不存在')
   })
 })
 

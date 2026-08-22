@@ -13,12 +13,12 @@
  * react-dom/client + jsdom 做真实挂载→发布→重渲染。每个用例注释标注
  * 「会使其失败的生产改动」。
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import type { CardSnapshot, CardStore } from '../src/client/card-store.js'
-import { DEFAULT_CONFIG_V4 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5 } from '../src/config.js'
 
 declare global {
   // React 18 act 环境开关（react-dom/client 在非测试构建下需要）。
@@ -27,7 +27,7 @@ declare global {
 }
 
 /** 可手动推进快照的 store：首帧 loading（config=null），publish 后 ready。 */
-function makeDeferredStore() {
+function makeDeferredStore(overrides: Partial<CardStore> = {}) {
   let snapshot: CardSnapshot = {
     status: 'loading',
     config: null,
@@ -47,12 +47,15 @@ function makeDeferredStore() {
     createPreset: async () => {},
     deletePreset: async () => {},
     saveKeywordGroups: async () => {},
+    saveFlows: async () => {},
+    deleteFlow: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    ...overrides,
   }
   const publish = (next: CardSnapshot): void => {
     snapshot = next
@@ -72,6 +75,26 @@ const readySnapshot = (): CardSnapshot => ({
   catalog: null,
   availability: null,
 })
+
+/** Task 11 夹具：v5 就绪快照（含预置流注册表），激活省钱预设。 */
+const readyV5Snapshot = (overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
+  status: 'ready',
+  config: { ...DEFAULT_CONFIG_V5(), activePreset: 'saving' },
+  base: null,
+  user: null,
+  writable: true,
+  error: null,
+  catalog: null,
+  availability: null,
+  ...overrides,
+})
+
+/** React 受控 select 的变更触发：原生 setter 绕过 value tracker 后派发 change。 */
+function fireSelectChange(select: HTMLSelectElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
+  setter?.call(select, value)
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
 
 describe('SettingsCard DOM lifecycle', () => {
   let container: HTMLDivElement
@@ -146,5 +169,110 @@ describe('SettingsCard DOM lifecycle', () => {
     expect(container.textContent).toContain('新增规则')
     // Fails if: availability 灰态不再到达规则目标（kt-unavailable 类出现在 DOM 上）。
     expect(container.querySelector('.kt-unavailable')).not.toBeNull()
+  })
+})
+
+describe('SettingsCard 协作流（v5）DOM lifecycle + 交互落盘（Task 11 Step 1）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  it('survives loading → ready with v5 config（协作流区 + 带图兜底行渲染，hooks 置顶）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    expect(container.textContent).toContain('路由设置不可用')
+
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+
+    // Fails if: v5 新增 UI（协作流手风琴/带图兜底行）的 hook 落在 config===null 提前
+    // 返回之后——loading→ready 重渲染 hook 数变化，React 卸载整卡（2026-08-20 事故同型）。
+    expect(container.textContent).toContain('协作流')
+    expect(container.textContent).toContain('带图兜底')
+  })
+
+  it('imageFallback 三态选择落盘：改选盲答 → savePreset 收到 imageFallback', async () => {
+    const savePreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ savePreset })
+    await mount(store)
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="带图兜底"]')
+    expect(select).not.toBeNull()
+    await act(async () => {
+      fireSelectChange(select!, 'blind')
+    })
+
+    // Fails if: 带图兜底改选不经 savePreset 落盘，或落盘值偏离所选三态。
+    expect(savePreset).toHaveBeenCalledWith('saving', expect.objectContaining({ imageFallback: 'blind' }))
+  })
+
+  it('规则目标改选协作流 → savePreset 收到 { flow } 引用目标', async () => {
+    const savePreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ savePreset })
+    await mount(store)
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+
+    const select = container.querySelectorAll<HTMLSelectElement>('select[aria-label="目标"]')[0]
+    expect(select).toBeDefined()
+    await act(async () => {
+      fireSelectChange(select, 'flow:transcribe')
+    })
+
+    // Fails if: 规则目标的协作流选项不落盘为 { flow: '<id>' } 引用（而被 parseTarget
+    // 误拆成 provider/model）。
+    expect(savePreset).toHaveBeenCalledWith('saving', expect.objectContaining({
+      rules: expect.arrayContaining([expect.objectContaining({ target: { flow: 'transcribe' } })]),
+    }))
+  })
+
+  it('自建流删除按钮路由到 store.deleteFlow；预置流无删除按钮', async () => {
+    const deleteFlow = vi.fn(async () => {})
+    const config = { ...DEFAULT_CONFIG_V5(), activePreset: 'saving' }
+    config.flows = {
+      ...config.flows,
+      my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' },
+    }
+    const { store, publish } = makeDeferredStore({ deleteFlow })
+    await mount(store)
+    await act(async () => {
+      publish(readyV5Snapshot({ config }))
+    })
+
+    const button = container.querySelector<HTMLButtonElement>('button[aria-label="删除流 my"]')
+    // Fails if: 自建流缺删除按钮，或预置流渲染出删除按钮。
+    expect(button).not.toBeNull()
+    expect(container.querySelector('button[aria-label="删除流 transcribe"]')).toBeNull()
+    await act(async () => {
+      button!.click()
+    })
+
+    // Fails if: 删除按钮不路由到 store.deleteFlow（引用守卫在 store 内）。
+    expect(deleteFlow).toHaveBeenCalledWith('my')
   })
 })

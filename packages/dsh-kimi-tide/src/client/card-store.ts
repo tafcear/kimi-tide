@@ -10,19 +10,31 @@
  * 类型定义在本文件，SettingsCard.tsx 从这里 import（而非本文件反向 import
  * 组件），避免类型环。
  */
-import { configKey, type RouterConfigV4, type RouterPreset } from '../config.js'
+import {
+  configKey,
+  DEFAULT_FLOWS,
+  isFlowTarget,
+  type CollaborationFlow,
+  type RouteTarget,
+  type RouterConfigV4,
+  type RouterConfigV5,
+  type RouterPreset,
+} from '../config.js'
 
 export const CARD_NAMESPACE = 'kimi-tide-router'
+
+/** 卡片消费的配置过渡形（Task 11）：v4 存量与 v5 协作编排配置皆可渲染。 */
+export type CardConfig = RouterConfigV4 | RouterConfigV5
 
 /** 卡片渲染用的单一快照：resolved 值 + base/user 分层（继承/覆盖显示）+ 错误态。 */
 export interface CardSnapshot {
   status: 'loading' | 'ready' | 'unavailable'
   /** 解析后的生效配置（schema 默认 → base → user 三层合并）。 */
-  config: RouterConfigV4 | null
+  config: CardConfig | null
   /** 组合 base 层（patch/entry 种子）；字段在此出现 = 继承自部署基座。 */
-  base: RouterConfigV4 | null
+  base: CardConfig | null
   /** 原始 user 层；字段在此出现 = 用户覆盖。 */
-  user: RouterConfigV4 | null
+  user: CardConfig | null
   writable: boolean
   /** 最近一次写失败的信息；成功读入/写回后清空。 */
   error: string | null
@@ -114,14 +126,22 @@ export interface CardStore {
   deletePreset(id: string): Promise<void>
   /** 整段覆盖关键词组表。 */
   saveKeywordGroups(groups: Record<string, string[]>): Promise<void>
+  /** 整段覆盖协作流注册表（v5；流参数编辑走此通道）。 */
+  saveFlows(flows: Record<string, CollaborationFlow>): Promise<void>
+  /**
+   * 删除自建协作流（v5）。守卫（validate-on-write 纪律：删流前必须先清引用）：
+   * 预置流（DEFAULT_FLOWS 键）不可删；仍被规则 target 或 imageFallbackFlow 引用
+   * 的流拒删——两种拒绝都上浮 error 通道且不写盘。
+   */
+  deleteFlow(id: string): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
   getSnapshot(): CardSnapshot
   subscribe(listener: () => void): () => void
 }
 
-const asConfig = (value: unknown): RouterConfigV4 | null =>
-  typeof value === 'object' && value !== null ? (value as RouterConfigV4) : null
+const asConfig = (value: unknown): CardConfig | null =>
+  typeof value === 'object' && value !== null ? (value as CardConfig) : null
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
@@ -171,11 +191,12 @@ export function createCardStore(
 
   /**
    * 候选灰态取数：拉宿主模型目录（llm.models）→ catalog 全量入快照（下拉
-   * 数据源）；availability 目标集 = 所有预设 default + 规则 target 去重，
-   * 命中目录即可用（无 allowedProviders 白名单过滤）。失败/无通道 →
-   * catalog/availability 均 null（无灰态），不占用 error 通道。
+   * 数据源）；availability 目标集 = 所有预设 default + 规则模型 target（flow
+   * 引用跳过）+ v5 流的 visionModel/reviewer 去重，命中目录即可用（无
+   * allowedProviders 白名单过滤）。失败/无通道 → catalog/availability 均
+   * null（无灰态），不占用 error 通道。
    */
-  const loadAvailability = async (config: RouterConfigV4 | null): Promise<void> => {
+  const loadAvailability = async (config: CardConfig | null): Promise<void> => {
     const llm = connection?.api.llm
     if (config === null || llm === undefined) {
       if (snapshot.availability !== null || snapshot.catalog !== null) {
@@ -197,15 +218,25 @@ export function createCardStore(
       for (const group of catalog) {
         for (const model of group.models) served.add(`${group.provider}/${model}`)
       }
+      const targets: RouteTarget[] = []
+      for (const preset of Object.values(config.presets)) {
+        targets.push(preset.default)
+        for (const rule of preset.rules) {
+          if (!isFlowTarget(rule.target)) targets.push(rule.target)
+        }
+      }
+      if (config.version === 5) {
+        for (const flow of Object.values(config.flows)) {
+          targets.push(flow.type === 'transcribe' ? flow.visionModel : flow.reviewer)
+        }
+      }
       const availability: Record<string, boolean> = {}
       const seen = new Set<string>()
-      for (const preset of Object.values(config.presets)) {
-        for (const target of [preset.default, ...preset.rules.map((rule) => rule.target)]) {
-          const key = configKey(target)
-          if (seen.has(key)) continue
-          seen.add(key)
-          availability[key] = served.has(key)
-        }
+      for (const target of targets) {
+        const key = configKey(target)
+        if (seen.has(key)) continue
+        seen.add(key)
+        availability[key] = served.has(key)
       }
       publish({ ...snapshot, catalog, availability })
     } catch {
@@ -324,6 +355,50 @@ export function createCardStore(
     await saveTop('keywordGroups', groups)
   }
 
+  const saveFlows = async (flows: Record<string, CollaborationFlow>): Promise<void> => {
+    await saveTop('flows', flows)
+  }
+
+  /**
+   * 删流守卫（2026-08-21 避坑：宿主 validate-on-write，每条写后中间态必须
+   * 合法——被引用的流删掉会产生「规则/兜底指向不存在流」的非法中间态）。
+   * 预置流恒不可删（防规则悬空）；引用检查覆盖规则 target 与
+   * imageFallbackFlow 显式引用。拒绝一律走 error 通道，不写盘。
+   */
+  const deleteFlow = async (id: string): Promise<void> => {
+    const config = snapshot.config
+    if (config === null || config.version !== 5) {
+      fail(new Error('协作流注册表不可用（配置尚未迁移到 v5）'))
+      return
+    }
+    if (Object.hasOwn(DEFAULT_FLOWS(), id)) {
+      fail(new Error(`协作流 '${id}' 是预置流，不可删除（防规则悬空）`))
+      return
+    }
+    if (!Object.hasOwn(config.flows, id)) {
+      fail(new Error(`协作流 '${id}' 不存在`))
+      return
+    }
+    const refs: string[] = []
+    for (const [presetId, preset] of Object.entries(config.presets)) {
+      for (const rule of preset.rules) {
+        if (isFlowTarget(rule.target) && rule.target.flow === id) {
+          refs.push(`预设 '${presetId}' 规则 '${rule.id}'`)
+        }
+      }
+      if (preset.imageFallbackFlow === id) {
+        refs.push(`预设 '${presetId}' 的 imageFallbackFlow`)
+      }
+    }
+    if (refs.length > 0) {
+      fail(new Error(`协作流 '${id}' 仍被引用（${refs.join('、')}），请先清除引用`))
+      return
+    }
+    const flows = { ...config.flows }
+    delete flows[id]
+    await saveTop('flows', flows)
+  }
+
   const resetField = async (field: string): Promise<void> => {
     try {
       if (scope !== null) await scope.unset(field)
@@ -348,6 +423,8 @@ export function createCardStore(
     createPreset,
     deletePreset,
     saveKeywordGroups,
+    saveFlows,
+    deleteFlow,
     resetField,
     getSnapshot: () => snapshot,
     subscribe: (listener: () => void) => {
