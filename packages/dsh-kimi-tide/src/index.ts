@@ -30,7 +30,7 @@ import {
   type RouteDecision,
   type RouterLog,
 } from './router.js'
-import { configKey, DEFAULT_CONFIG_V4, type CandidateMeta, type RouteTarget, type RouterConfigV4 } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV4 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
@@ -94,6 +94,7 @@ function configuredTargets(config: RouterConfigV4): RouteTarget[] {
   const seen = new Set<string>()
   for (const preset of Object.values(config.presets)) {
     for (const t of [preset.default, ...preset.rules.map((r) => r.target)]) {
+      if (isFlowTarget(t)) continue   // 协作流引用不参与候选枚举（Task 8 决策扩展）
       const key = configKey(t)
       if (seen.has(key)) continue
       seen.add(key)

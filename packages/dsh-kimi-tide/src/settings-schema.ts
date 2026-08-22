@@ -1,9 +1,21 @@
 // src/settings-schema.ts
 import Schema from 'schemastery'
-import { DEFAULT_CONFIG_V4, type RouterConfigV4 } from './config.js'
+import { DEFAULT_CONFIG_V4, type RouteTarget, type RouterConfigV4, type RuleCondition } from './config.js'
 
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V4 派生，不另抄一份（防漂移）。
 const D4 = DEFAULT_CONFIG_V4()
+
+/**
+ * @legacy v4 schema 输出形（rule target 恒为纯模型）：DEFAULT_CONFIG_V4 的运行时
+ * 值满足此形，但 RouterRule.target 已泛化为 RuleTarget（0.6.0 协作流引用），与 v4
+ * schema 输出形存在类型差——此别名仅作 .default() 的类型桥接，Task 5
+ * ruleSchema.target 改 union 后随之对齐移除。
+ */
+type SchemaPresetV4 = {
+  name: string
+  default: RouteTarget
+  rules: Array<{ id: string; when: RuleCondition; target: RouteTarget }>
+}
 
 const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
 const ruleSchema = Schema.object({
@@ -38,7 +50,7 @@ export const routerConfigSchema = Schema.object({
   // 命名空间注册）；迁移后整段 replace 覆盖为纯 v4。
   version: Schema.union([Schema.const(2), Schema.const(3), Schema.const(4)]).default(4),
   activePreset: Schema.union([Schema.string(), Schema.const(null)]).default(D4.activePreset),
-  presets: Schema.dict(presetSchema).default(D4.presets),
+  presets: Schema.dict(presetSchema).default(D4.presets as Record<string, SchemaPresetV4>),
   keywordGroups: Schema.dict(Schema.array(Schema.string())).default(D4.keywordGroups),
   // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),

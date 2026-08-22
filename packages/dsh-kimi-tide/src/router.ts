@@ -14,6 +14,7 @@ import type { LlmCallConfig, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { CandidateMeta, RouteTarget, RouterConfigV4 } from './config.js'
+import { isFlowTarget } from './config.js'
 import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
@@ -164,9 +165,12 @@ export class KimiRouter {
       return { kind: 'keep', reason: 'active preset not found' }
     }
     for (const rule of matchingRules(this.config, text, hasImage)) {
-      const meta = this.metas.find((m) => m.provider === rule.target.provider && m.model === rule.target.model && m.available)
+      // 协作流引用不是模型候选：legacy 决策链显式跳过（Task 8 决策扩展接管 flow 目标）。
+      const target = rule.target
+      if (isFlowTarget(target)) continue
+      const meta = this.metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
       if (meta === undefined) continue
-      return { kind: 'route', target: { ...rule.target }, reason: `规则「${ruleLabel(rule)}」命中`, via: 'rule' }
+      return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中`, via: 'rule' }
     }
     // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
     return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
@@ -200,7 +204,7 @@ export class KimiRouter {
   /** Image guard bound to this router's candidates (see applyImageGuard). */
   guardImage(target: RouteTarget, hasImage: boolean): { target: RouteTarget; reason: string } | null {
     const preset = this.config.activePreset === null ? undefined : this.config.presets[this.config.activePreset]
-    const intent = preset === undefined ? undefined : [preset.default, ...preset.rules.map((r) => r.target)]
+    const intent = preset === undefined ? undefined : [preset.default, ...preset.rules.map((r) => r.target).filter((t): t is RouteTarget => !isFlowTarget(t))]
     return applyImageGuard(target, hasImage, this.metas, intent)
   }
 }

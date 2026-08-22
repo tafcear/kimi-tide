@@ -38,6 +38,15 @@ describe('KimiRouter v4 decide', () => {
     const d = r.decide([imageMsg()], 1)
     expect(d).toMatchObject({ kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule' })
   })
+  it('flow 目标规则被显式跳过（legacy 决策链不消费协作流引用，Task 8 接管）', () => {
+    const c = cfg('saving')
+    c.presets.saving.rules.unshift({ id: 'flow-first', when: { kind: 'image' }, target: { flow: 'transcribe' } })
+    const r = new KimiRouter(c, METAS, log)
+    // 首条 image 规则指向协作流 → 跳过，落到下一条 image-k3 规则（0.5.x 行为不变）
+    expect(r.decide([imageMsg()], 1)).toMatchObject({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
+    })
+  })
   it('带图锁存：hasImageOverride=true 时纯文本轮也按带图处理', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
     const d = r.decide([textMsg('继续')], 2, true)
