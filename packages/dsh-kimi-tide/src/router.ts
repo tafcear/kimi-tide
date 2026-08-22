@@ -3,7 +3,9 @@
  *
  * 决策语义（spec §5.1）：显式 @指令（最高优先级）→ 预设规则链（列表顺序，
  * 首条目标可用者生效；目标不可用跳过该规则降级）→ 未命中路由到预设默认
- * 模型（打底，非 keep）。
+ * 模型（打底，非 keep）。规则目标是模型或协作流引用（0.6.0）：流目标须
+ * flow 存在 + transcribe 型 + visionModel 可用，任一不满足按同样的降级
+ * 语义跳过。
  *
  * 事件流（DSH 官方机制，与 0.4.x 相同）：
  *   agent/pre-step（携带本步消息）→ decide() 计算决策存入 per-agent 槽位
@@ -13,8 +15,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import type { CandidateMeta, RouteTarget, RouterConfigV4 } from './config.js'
+import type {
+  CandidateMeta, CollaborationFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
+} from './config.js'
 import { isFlowTarget } from './config.js'
+import type { ImageStateEntry } from './image-state.js'
 import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
@@ -39,7 +44,46 @@ declare module '@deepseek-ai/cordis' {
 
 export type RouteDecision =
   | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default' }
+  | { kind: 'flow'; flowId: string; flow: TranscribeFlow; reason: string; via: 'rule' }
   | { kind: 'keep'; reason: string }
+
+/**
+ * 路由器配置的过渡形（Task 8）：v4 存量与 v5 协作编排配置皆可挂载。
+ * v4 无 flows 注册表——flow 规则目标按「flow 不存在」跳过，与 0.5.x 行为
+ * 逐字节一致；settings/index 面的全量 V5 迁移属后续任务。
+ */
+export type RouterConfigAny = RouterConfigV4 | RouterConfigV5
+
+/** v5 配置取 flows 注册表；v4 无注册表 → 空表（flow 目标恒按「不存在」降级，行为保持）。 */
+function flowsOf(config: RouterConfigAny): Record<string, CollaborationFlow> {
+  return config.version === 5 ? config.flows : {}
+}
+
+/**
+ * 预设级带图兜底判定（0.6.0，纯函数）：native 列表为空 → null（无图可处理，
+ * 各策略一致短路）；imageFallback 缺席 → 按 latch（维持 0.5.x 锁存行为）；
+ * latch → 取 native 列表末位（最近）的 latchTarget，缺席则 null；blind →
+ * 当无图；transcribe-lazy → 懒转写，flowId = imageFallbackFlow ?? 'transcribe'，
+ * flow 须存在且为 transcribe 型，否则 null。
+ */
+export function resolveImageFallback(
+  preset: RouterPreset,
+  flows: Record<string, CollaborationFlow>,
+  native: ReadonlyArray<readonly [string, ImageStateEntry]>,
+): { kind: 'latch'; target: RouteTarget } | { kind: 'blind' } | { kind: 'lazy'; flowId: string; flow: TranscribeFlow } | null {
+  if (native.length === 0) return null
+  const mode = preset.imageFallback ?? 'latch'
+  if (mode === 'blind') return { kind: 'blind' }
+  if (mode === 'transcribe-lazy') {
+    const flowId = preset.imageFallbackFlow ?? 'transcribe'
+    const flow = flows[flowId]
+    if (flow === undefined || flow.type !== 'transcribe') return null
+    return { kind: 'lazy', flowId, flow }
+  }
+  const last = native[native.length - 1][1]
+  const target = last.latchTarget
+  return target === undefined ? null : { kind: 'latch', target }
+}
 
 /** Providers that cannot accept image input, derived from candidate modalities. */
 export function textOnlyProviders(metas: readonly CandidateMeta[]): Set<string> {
@@ -77,7 +121,7 @@ export function applyImageGuard(
   return { target: { provider: chosen.provider, model: chosen.model }, reason: 'image input: rerouted to multimodal candidate' }
 }
 
-export function canClaimImageAdmission(config: RouterConfigV4, metas: readonly CandidateMeta[]): boolean {
+export function canClaimImageAdmission(config: RouterConfigAny, metas: readonly CandidateMeta[]): boolean {
   if (config.activePreset === null) return false
   return imageCapablePicks(metas).length > 0
 }
@@ -125,10 +169,10 @@ export interface RouterLog {
  * default (miss ≠ keep).
  */
 export class KimiRouter {
-  readonly config: RouterConfigV4
+  readonly config: RouterConfigAny
   readonly metas: CandidateMeta[]
   private readonly log: RouterLog
-  constructor(config: RouterConfigV4, metas: CandidateMeta[], log: RouterLog) {
+  constructor(config: RouterConfigAny, metas: CandidateMeta[], log: RouterLog) {
     this.config = config; this.metas = metas; this.log = log
   }
 
@@ -164,10 +208,22 @@ export class KimiRouter {
       this.log.info(`kimi-router: active preset '${this.config.activePreset}' not found, keeping current route`)
       return { kind: 'keep', reason: 'active preset not found' }
     }
+    const flows = flowsOf(this.config)
     for (const rule of matchingRules(this.config, text, hasImage)) {
-      // 协作流引用不是模型候选：legacy 决策链显式跳过（Task 8 决策扩展接管 flow 目标）。
       const target = rule.target
-      if (isFlowTarget(target)) continue
+      // 协作流目标（0.6.0，spec §5.1）：flow 存在 + transcribe 型 + visionModel
+      // 在候选目录中可用 → flow 决策；任一不满足 → 跳过该规则（与模型目标不可
+      // 用的降级语义一致）。v4 存量 flows 为空表，flow 目标恒按「不存在」降级。
+      if (isFlowTarget(target)) {
+        const flowId = target.flow
+        const flow = flows[flowId]
+        if (flow === undefined || flow.type !== 'transcribe') continue
+        const vision = this.metas.find(
+          (m) => m.provider === flow.visionModel.provider && m.model === flow.visionModel.model && m.available,
+        )
+        if (vision === undefined) continue
+        return { kind: 'flow', flowId, flow, reason: `规则「${ruleLabel(rule)}」命中（协作流 ${flowId}）`, via: 'rule' }
+      }
       const meta = this.metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
       if (meta === undefined) continue
       return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中`, via: 'rule' }
@@ -204,7 +260,7 @@ export class KimiRouter {
   /** Image guard bound to this router's candidates (see applyImageGuard). */
   guardImage(target: RouteTarget, hasImage: boolean): { target: RouteTarget; reason: string } | null {
     const preset = this.config.activePreset === null ? undefined : this.config.presets[this.config.activePreset]
-    // intent 只收模型目标：flow 引用非图像护栏意图（Task 8 决策扩展接管 flow 目标）。
+    // intent 只收模型目标：flow 引用非图像护栏意图（0.6.0 既定语义，护栏不改道进流）。
     const intent = preset === undefined ? undefined : [preset.default, ...preset.rules.map((r) => r.target).filter((t): t is RouteTarget => !isFlowTarget(t))]
     return applyImageGuard(target, hasImage, this.metas, intent)
   }

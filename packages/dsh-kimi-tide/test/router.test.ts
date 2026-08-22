@@ -1,7 +1,11 @@
 // test/router.test.ts（骨架；消息夹具同 T2）
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V4, type CandidateMeta } from '../src/config.js'
-import { KimiRouter, reasoningEffortFor } from '../src/router.js'
+import {
+  DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS,
+  type CandidateMeta, type CollaborationFlow, type RouterConfigV5, type RouterPreset,
+} from '../src/config.js'
+import type { ImageStateEntry } from '../src/image-state.js'
+import { KimiRouter, reasoningEffortFor, resolveImageFallback } from '../src/router.js'
 
 const log = { info: () => {} }
 const METAS: CandidateMeta[] = [
@@ -38,11 +42,11 @@ describe('KimiRouter v4 decide', () => {
     const d = r.decide([imageMsg()], 1)
     expect(d).toMatchObject({ kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule' })
   })
-  it('flow 目标规则被显式跳过（legacy 决策链不消费协作流引用，Task 8 接管）', () => {
+  it('v4 存量（无 flows 注册表）：flow 目标按「不存在」跳过，降级到后续模型规则（行为保持）', () => {
     const c = cfg('saving')
     c.presets.saving.rules.unshift({ id: 'flow-first', when: { kind: 'image' }, target: { flow: 'transcribe' } })
     const r = new KimiRouter(c, METAS, log)
-    // 首条 image 规则指向协作流 → 跳过，落到下一条 image-k3 规则（0.5.x 行为不变）
+    // v4 配置没有 flows 注册表 → flow 查找落空 → 跳过，落到下一条 image-k3 规则（0.5.x 行为不变）
     expect(r.decide([imageMsg()], 1)).toMatchObject({
       kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
     })
@@ -176,5 +180,121 @@ describe('推理等级映射（2026-08-25）', () => {
     expect(r.applyTo(base, undefined)).toBe(base)
     expect(r.applyTo(base, { kind: 'route', target: { provider: 'kimi-coding', model: 'k3-256k' }, reason: 'x', via: 'default' }))
       .toEqual({ provider: 'kimi-coding', model: 'k3-256k' })
+  })
+})
+
+/* ---- Task 8：flow 规则目标决策 + resolveImageFallback 四态 ---- */
+
+const VISION_METAS: CandidateMeta[] = [
+  ...METAS,
+  { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', modalities: ['text', 'image'], available: true },
+]
+const cfg5 = (active: string | null): RouterConfigV5 => { const c = DEFAULT_CONFIG_V5(); c.activePreset = active; return c }
+/** saving 预设队首插入 image → {flow} 规则的 v5 配置。 */
+const cfg5WithFlowRule = (flowId: string): RouterConfigV5 => {
+  const c = cfg5('saving')
+  c.presets.saving.rules.unshift({ id: 'flow-first', when: { kind: 'image' }, target: { flow: flowId } })
+  return c
+}
+
+describe('flow 规则目标决策（Task 8）', () => {
+  it('flow 存在 + transcribe 型 + visionModel 可用 → flow 决策（via:rule）', () => {
+    const c = cfg5WithFlowRule('transcribe')
+    const r = new KimiRouter(c, VISION_METAS, log)
+    expect(r.decide([imageMsg()], 1)).toEqual({
+      kind: 'flow', flowId: 'transcribe', flow: c.flows.transcribe,
+      reason: '规则「带图」命中（协作流 transcribe）', via: 'rule',
+    })
+  })
+  it('flow 不存在 → 跳过该规则，降级到后续模型规则', () => {
+    const r = new KimiRouter(cfg5WithFlowRule('ghost'), VISION_METAS, log)
+    expect(r.decide([imageMsg()], 1)).toMatchObject({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
+    })
+  })
+  it('flow 类型为 review → 跳过该规则降级（P1 仅 transcribe 可作规则目标）', () => {
+    const r = new KimiRouter(cfg5WithFlowRule('review'), VISION_METAS, log)
+    expect(r.decide([imageMsg()], 1)).toMatchObject({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
+    })
+  })
+  it('visionModel 不可用 → 跳过该规则降级（与模型目标不可用的降级语义一致）', () => {
+    const metas = VISION_METAS.map((m) =>
+      m.model === 'deepseek-v4-flash-vision-exp' ? { ...m, available: false } : m)
+    const r = new KimiRouter(cfg5WithFlowRule('transcribe'), metas, log)
+    expect(r.decide([imageMsg()], 1)).toMatchObject({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
+    })
+  })
+  it('visionModel 不在候选目录 → 跳过该规则降级（不宽容劫持，目录须读得到且可用）', () => {
+    const r = new KimiRouter(cfg5WithFlowRule('transcribe'), METAS, log)
+    expect(r.decide([imageMsg()], 1)).toMatchObject({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
+    })
+  })
+  it('v5 存量行为保持：flows 预置未绑定时 decide 与 v4 逐字节一致', () => {
+    const r = new KimiRouter(cfg5('saving'), METAS, log)
+    expect(r.decide([textMsg('帮我重构这个函数')], 1)).toEqual({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      reason: '规则「code」命中', via: 'rule',
+    })
+    expect(r.decide([imageMsg()], 1)).toEqual({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'k3' },
+      reason: '规则「带图」命中', via: 'rule',
+    })
+    expect(r.decide([textMsg('今天天气不错')], 1)).toEqual({
+      kind: 'route', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      reason: '预设「省钱」默认', via: 'default',
+    })
+  })
+})
+
+describe('resolveImageFallback 四态（Task 8）', () => {
+  const T1 = { provider: 'kimi-coding', model: 'k3' }
+  const T2 = { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' }
+  const FLOWS = DEFAULT_FLOWS()
+  const preset = (over: Partial<RouterPreset>): RouterPreset => ({
+    name: '测试', default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, rules: [], ...over,
+  })
+  const nativeOf = (...entries: ImageStateEntry[]): Array<readonly [string, ImageStateEntry]> =>
+    entries.map((e, i) => [`att-${i}`, e] as const)
+
+  it('native 为空 → null（latch/blind/transcribe-lazy 一致短路）', () => {
+    expect(resolveImageFallback(preset({}), FLOWS, [])).toBeNull()
+    expect(resolveImageFallback(preset({ imageFallback: 'latch' }), FLOWS, [])).toBeNull()
+    expect(resolveImageFallback(preset({ imageFallback: 'blind' }), FLOWS, [])).toBeNull()
+    expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy' }), FLOWS, [])).toBeNull()
+  })
+  it('imageFallback 缺席 → 按 latch：取 native 列表末位（最近）的 latchTarget', () => {
+    const native = nativeOf({ state: 'native', latchTarget: T1 }, { state: 'native', latchTarget: T2 })
+    expect(resolveImageFallback(preset({}), FLOWS, native)).toEqual({ kind: 'latch', target: T2 })
+    expect(resolveImageFallback(preset({ imageFallback: 'latch' }), FLOWS, native)).toEqual({ kind: 'latch', target: T2 })
+  })
+  it('latch：末位条目 latchTarget 缺席 → null（不回溯更早条目）', () => {
+    const native = nativeOf({ state: 'native', latchTarget: T1 }, { state: 'native' })
+    expect(resolveImageFallback(preset({ imageFallback: 'latch' }), FLOWS, native)).toBeNull()
+  })
+  it('blind → { kind: blind }（不消费 latchTarget）', () => {
+    const native = nativeOf({ state: 'native', latchTarget: T1 })
+    expect(resolveImageFallback(preset({ imageFallback: 'blind' }), FLOWS, native)).toEqual({ kind: 'blind' })
+  })
+  it('transcribe-lazy：imageFallbackFlow 缺席 → 解析预置 transcribe 流', () => {
+    const native = nativeOf({ state: 'native', latchTarget: T1 })
+    expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy' }), FLOWS, native))
+      .toEqual({ kind: 'lazy', flowId: 'transcribe', flow: FLOWS.transcribe })
+  })
+  it('transcribe-lazy：显式 imageFallbackFlow 解析指定流', () => {
+    const flows: Record<string, CollaborationFlow> = {
+      ...FLOWS,
+      tc2: { type: 'transcribe', visionModel: T2, failurePolicy: 'blind' },
+    }
+    const native = nativeOf({ state: 'native', latchTarget: T1 })
+    expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy', imageFallbackFlow: 'tc2' }), flows, native))
+      .toEqual({ kind: 'lazy', flowId: 'tc2', flow: flows.tc2 })
+  })
+  it('transcribe-lazy：flow 不存在或类型非 transcribe → null', () => {
+    const native = nativeOf({ state: 'native', latchTarget: T1 })
+    expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy', imageFallbackFlow: 'ghost' }), FLOWS, native)).toBeNull()
+    expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy', imageFallbackFlow: 'review' }), FLOWS, native)).toBeNull()
   })
 })

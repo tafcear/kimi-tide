@@ -6,7 +6,7 @@
  * 命中，由路由层取第一个目标可用者）；关键词为大小写不敏感子串匹配。
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { KIMI_PROVIDER, type RouterConfigV4, type RouterRule } from './config.js'
+import { KIMI_PROVIDER, type RouterPreset, type RouterRule } from './config.js'
 
 export function explicitProvider(text: string): string | null {
   const m = /@([\w-]{2,20})\b/.exec(text)
@@ -37,8 +37,19 @@ export function messagesContainImage(messages: readonly UserMessage[]): boolean 
   )
 }
 
+/**
+ * matchingRules 消费的配置面（v4/v5 共有：activePreset/presets/keywordGroups）。
+ * 结构化子集而非具体版本类型——规则匹配不读 version/flows，v4 存量与 v5 协作
+ * 编排配置皆可传入（Task 8 路由器配置过渡形的接缝）。
+ */
+export interface RuleMatchConfig {
+  activePreset: string | null
+  presets: Record<string, RouterPreset>
+  keywordGroups: Record<string, string[]>
+}
+
 /** 按预设规则顺序返回全部命中规则（含目标不可用者；可用性过滤在路由层）。 */
-export function matchingRules(config: RouterConfigV4, text: string, hasImage: boolean): RouterRule[] {
+export function matchingRules(config: RuleMatchConfig, text: string, hasImage: boolean): RouterRule[] {
   if (config.activePreset === null) return []
   const preset = config.presets[config.activePreset]
   if (preset === undefined) return []
