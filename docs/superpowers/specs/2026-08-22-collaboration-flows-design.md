@@ -143,14 +143,15 @@ v4 决策序不变：显式@ → 规则链首命中 → 预设默认。扩展点
 - **防环路**：`rounds` 上限（默认 1）；评审消息自身永不触发 review；`autoRevise: false` 时流程止于意见呈现。
 - **降级**：S3 缝若 spike 不通过，MVP 退化为命令派发子代理评审（报告回主会话）——机制现成但可观测形态不同，spec 内注明。
 
-### 5.4 智能投影缝（S4，两种候选实现）
+### 5.4 智能投影缝（S4；S1/S4 源码取证已落锤 2026-08-22）
 
 目标语义：text-only 目标的请求中，已转述图块 → 转述文字；未转述图块 → rc.2 原生占位（行为不变）。
 
-- **S4a（首选）**：request waterfall 改写——插件在 `agent/request` 钩子把请求消息内图块替换为转述文本块（浅拷贝，不动持久历史）。待核实：waterfall payload 的消息可变性。
-- **S4b（兜底）**：持久追加——经 session 服务把转述作为新的「上下文注记」消息 append 进历史（原图仍在；文本轮经 rc.2 原生占位 + 注记文字）。代价：转述成为持久历史（进导出/压缩），且需 session append 契约。
+- **S4a（原首选，已证伪）**：`agent/request` waterfall 载荷仅 `{ turn, step, signal }`，链终值为 `{provider, model, reasoningEffort?, maxTokens?}` 配置对象（dsh-agent-loop lib/index.js:708-714，返回配置直接进 `llm.prepareCall`）——**消息不经过该瀑布，不可改写**。
+- **S4c（新首选）**：`llm/stream` 瀑布拦截——`LlmRuntime.streamWithRegistration` 以 `ctx.waterfall(this, "llm/stream", options, () => this.adapterStream(options, prepared))` 包裹**完整请求（含 messages）**（dsh-llm lib/index.js:1636-1641），且原生 text-only 投影在瀑布之后的 `adapterStream` 内执行（:1585-1591）→ 拦截器把已转述图块替换为文本块后放行，原生投影对剩余 native 图照旧兜底。待 spike 验证：cordis waterfall 的 `next(修改后载荷)` 语义；不支持则带重入守卫自调 `ctx.llm.stream`。
+- **S4b（兜底）**：持久追加——经 session 服务把转述作为「上下文注记」消息 append 进历史（原图仍在）。代价：转述成为持久历史（进导出/压缩）。
 
-S4 spike 裁决：S4a 可行则用 S4a；否则 S4b；两者皆不可行则 transcribe 流整体降级为「命令式手动转述」（用户触发，结果作为普通消息发出）。
+缝裁决：S4c spike 通过则用 S4c；否则 S4b；皆不可行则 transcribe 流降级为「命令式手动转述」。
 
 ### 5.5 转述提示词策略（内建默认，flows.transcribe 可覆盖）
 
@@ -236,8 +237,8 @@ T2 实证基线：「逐字保留图中全部文字 + 结构关系 + 关键视�
 
 | # | 契约 | 验证方法 |
 |---|---|---|
-| S1 | 插件经 ctx.llm / 适配器缝发起一次性带图调用 | Inspect Service.listService→llm 契约 + spike 插件直调；锚点候选 dsh-llm lib 服务注册处 |
+| S1 | 插件经 ctx.llm 发起一次性带图调用 | **源码已证实**：`LlmRuntime.stream(options)` 公共方法（dsh-llm lib/index.js:1636，options=完整请求含 messages/provider/model；chunk 流返回，BlockAssembler 组装）；图块字节经 attachments 服务读取（b66ee0d 先例）。仅剩活体 spike 确认端到端 |
 | S2 | 插件代码编程式派发子代理并同步取结果 | dsh-subagents lib 实读 + spike（rc.8 调研仅证实 `registerProvider` 命名注册表，派发 API 未验） |
 | S3 | turn 结束事件 + 编程式追加可见消息 | Inspect Event.listEvents（turn/end、steering 类）+ dsh-session append API（KNOWN_SESSION_EVENT_TYPES 避坑条目的先例路径） |
-| S4 | request waterfall 消息可变性（S4a）/ session append（S4b） | dsh-agent-loop waterfall payload 实读 + spike 改写；兜底 dsh-session 服务契约 |
+| S4 | 智能投影缝 | **S4a 已证伪**（agent/request 瀑布无消息，dsh-agent-loop:708-714）；S4c=`llm/stream` 瀑布拦截（dsh-llm:1636-1641 + :1585-1591）待活体 spike：`next(改后载荷)` 或重入守卫自调；S4b 兜底 |
 | S5 | vision-exp 图像定价/token 计耗 | 用户 DeepSeek 官方控制台查 T1 调用账单（人工项） |
