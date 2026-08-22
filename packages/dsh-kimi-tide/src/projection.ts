@@ -3,7 +3,9 @@
  * The payload is process-global (quota/router are not per-session), so the
  * host appends the same snapshot to every live session's log; the framework
  * folds and pushes it. v3 payload: quota + router + kimi 二态接入指示 +
- * candidates + decision. Pure unit functions + the SessionProjectionMap merge
+ * candidates + decision. v6 (0.6.0 协作编排) adds optional imageContext
+ * （按图三态计数快照）+ lastFlowEvent（流执行摘要）——新字段可选，对存量
+ * 读取端向后兼容。Pure unit functions + the SessionProjectionMap merge
  * that types both ends (host register / client useProjection).
  */
 import { z } from 'zod'
@@ -57,6 +59,15 @@ const panelSchema = z.object({
     chosen: z.object({ provider: z.string(), model: z.string() }),
     reason: z.string().max(120),
   }).nullable(),
+  // projection v6 (0.6.0 协作编排)：图像上下文行 + 流执行事件。两者均可选——
+  // imageContext 缺席 = 无图会话（投影不写该字段）；lastFlowEvent 沿用
+  // decision 摘要的 ≤120 截断惯例（推送侧截断，schema 拒超长）。
+  imageContext: z.object({
+    native: z.number(),
+    transcribed: z.number(),
+    blind: z.number(),
+  }).optional(),
+  lastFlowEvent: z.string().max(120).optional(),
 }).nullable()
 
 /** This unit's definition shape (rc.2 contract) — shared by the bridges and the export annotation. */
@@ -78,7 +89,9 @@ export const kimiTideProjectionDefinition:
   Omit<PanelProjectionDefinition, 'wire'> & { wire: NonNullable<PanelProjectionDefinition['wire']> } = {
   key: KIMI_TIDE_PANEL_KEY,
   stateSchema: bridgedStateSchema,
-  stateVersion: 5,
+  // v5 → v6（0.6.0）：形状变更即弃旧缓存（rc.2 迁移惯例——stateVersion 递升
+  // 使持久化的 v5 行整体作废，无需逐字段迁移）。
+  stateVersion: 6,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;

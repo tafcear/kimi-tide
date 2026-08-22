@@ -58,6 +58,13 @@ export interface KimiAccessStatus {
   key: boolean
 }
 
+/** 0.6.0 面板 v6：按图三态计数（ImageStateStore.counts 的投影快照同形）。 */
+export interface ImageContextCounts {
+  native: number
+  transcribed: number
+  blind: number
+}
+
 export interface KimiTidePanelProjection {
   quota: QuotaSnapshot | null
   /** 0.4.x 二态接入指示（spec §3.5/验收 5）：路由已注册 + key 可解析。 */
@@ -73,6 +80,10 @@ export interface KimiTidePanelProjection {
   candidates: CandidateSummary[]
   /** Latest capability routing decision summary; null when off/keep or none yet. */
   decision: DecisionSummary | null
+  /** 0.6.0 面板 v6：当前会话按图三态计数；缺席 = 无图会话（投影不写该字段）。 */
+  imageContext?: ImageContextCounts
+  /** 0.6.0 面板 v6：最近一条流执行摘要（≤120 截断，沿用 decision 摘要惯例）。 */
+  lastFlowEvent?: string
 }
 
 function toNumber(value: unknown): number {

@@ -28,13 +28,41 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
   }
 }
 
-describe('panelSchema (projection v5)', () => {
+describe('panelSchema (projection v6)', () => {
   const parse = (kimiTideProjectionDefinition.stateSchema as { parse: (v: unknown) => unknown }).parse.bind(
     kimiTideProjectionDefinition.stateSchema as never,
   ) as (v: unknown) => KimiTidePanelProjection | null
 
-  it('pins stateVersion 5 (v5 投影)', () => {
-    expect(kimiTideProjectionDefinition.stateVersion).toBe(5)
+  it('pins stateVersion 6 (v6 投影)', () => {
+    expect(kimiTideProjectionDefinition.stateVersion).toBe(6)
+  })
+
+  it('v6：imageContext/lastFlowEvent 新字段 schema 往返保留', () => {
+    const p = panel(1)
+    p.imageContext = { native: 1, transcribed: 2, blind: 3 }
+    p.lastFlowEvent = 'transcribe ok sha256:ab12cd34 → vision-exp'
+    const out = parse(p)
+    expect(out!.imageContext).toEqual({ native: 1, transcribed: 2, blind: 3 })
+    expect(out!.lastFlowEvent).toBe('transcribe ok sha256:ab12cd34 → vision-exp')
+  })
+
+  it('v6：新字段缺席仍可解析（可选，对存量读取端向后兼容）', () => {
+    const out = parse(panel(1))
+    expect(out!.imageContext).toBeUndefined()
+    expect(out!.lastFlowEvent).toBeUndefined()
+  })
+
+  it('v6：imageContext 三态计数缺一不可（缺项拒绝）', () => {
+    const p = panel(1)
+    expect(() => parse({ ...p, imageContext: { native: 1, transcribed: 2 } })).toThrow()
+    expect(() => parse({ ...p, imageContext: { native: 1, transcribed: 2, blind: '3' } })).toThrow()
+  })
+
+  it('v6：lastFlowEvent 沿用 ≤120 截断惯例（120 过，121 拒）', () => {
+    const p = panel(1)
+    p.lastFlowEvent = 'x'.repeat(120)
+    expect(parse(p)!.lastFlowEvent).toHaveLength(120)
+    expect(() => parse({ ...p, lastFlowEvent: 'x'.repeat(121) })).toThrow()
   })
 
   it("accepts configSource 'settings' and still rejects unknown sources", () => {
@@ -103,9 +131,26 @@ describe('kimiTideProjectionDefinition', () => {
     expect(kimiTideProjectionDefinition.wire!.view(null)).toBeNull()
   })
 
+  it('v6：wire.view 投影含图像上下文与流事件（透传同形）', () => {
+    const p = panel(3)
+    p.imageContext = { native: 2, transcribed: 0, blind: 1 }
+    p.lastFlowEvent = 'transcribe failed timeout → latch'
+    const v = kimiTideProjectionDefinition.wire!.view(p)
+    expect(v).toBe(p)
+    expect(v!.imageContext).toEqual({ native: 2, transcribed: 0, blind: 1 })
+    expect(v!.lastFlowEvent).toBe('transcribe failed timeout → latch')
+  })
+
   it('wire.viewSchema accepts valid payload and rejects invalid', () => {
     const p = panel(3)
     expect(kimiTideProjectionDefinition.wire!.viewSchema.parse(p)).toEqual(p)
     expect(() => kimiTideProjectionDefinition.wire!.viewSchema.parse({ nope: true })).toThrow()
+  })
+
+  it('v6：wire.viewSchema 往返保留新字段（stateSchema/wire 同形扩展）', () => {
+    const p = panel(3)
+    p.imageContext = { native: 1, transcribed: 1, blind: 0 }
+    p.lastFlowEvent = 'transcribe ok sha256:ab12cd34 → vision-exp'
+    expect(kimiTideProjectionDefinition.wire!.viewSchema.parse(p)).toEqual(p)
   })
 })
