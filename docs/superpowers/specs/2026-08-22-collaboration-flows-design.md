@@ -237,8 +237,8 @@ T2 实证基线：「逐字保留图中全部文字 + 结构关系 + 关键视�
 
 | # | 契约 | 验证方法 |
 |---|---|---|
-| S1 | 插件经 ctx.llm 发起一次性带图调用 | **源码已证实**：`LlmRuntime.stream(options)` 公共方法（dsh-llm lib/index.js:1636，options=完整请求含 messages/provider/model；chunk 流返回，BlockAssembler 组装）；图块字节经 attachments 服务读取（b66ee0d 先例）。仅剩活体 spike 确认端到端 |
+| S1 | 插件经 ctx.llm 发起一次性带图调用 | **✅ PASS（2026-08-22 活体 spike，`../spikes/2026-08-22-collab-flows-s1-s4c.md`）**：attachments.saveImage → ImageAttachmentRef → `ctx.llm.stream` 带图调 vision-exp 答「red」；text-delta 形态 `{index,text}`；vision-exp 默认开推理（生产调用需显式 reasoningEffort） |
 | S2 | 插件代码编程式派发子代理并同步取结果 | dsh-subagents lib 实读 + spike（rc.8 调研仅证实 `registerProvider` 命名注册表，派发 API 未验） |
 | S3 | turn 结束事件 + 编程式追加可见消息 | Inspect Event.listEvents（turn/end、steering 类）+ dsh-session append API（KNOWN_SESSION_EVENT_TYPES 避坑条目的先例路径） |
-| S4 | 智能投影缝 | **S4a 已证伪**（agent/request 瀑布无消息，dsh-agent-loop:708-714）；S4c=`llm/stream` 瀑布拦截（dsh-llm:1636-1641 + :1585-1591）待活体 spike：`next(改后载荷)` 或重入守卫自调；S4b 兜底 |
-| S5 | vision-exp 图像定价/token 计耗 | 用户 DeepSeek 官方控制台查 T1 调用账单（人工项） |
+| S4 | 智能投影缝 | **✅ PASS（S4c，同上报告）**：S4a 证伪（agent/request 瀑布无消息）；S4c=llm/stream 短路自派实证（标记改写到达适配器，重入守卫恰好一次）；约束=loop 请求深冻结只读 + cordis next() 回放原参（cordis lib:317-325） |
+| S5 | vision-exp 图像定价/token 计耗 | 用户 DeepSeek 官方控制台查 T1 调用账单（人工项）；spike 流含 `usage` chunk 可程序取数 |
