@@ -204,6 +204,7 @@ export class KimiRouter {
   /** Image guard bound to this router's candidates (see applyImageGuard). */
   guardImage(target: RouteTarget, hasImage: boolean): { target: RouteTarget; reason: string } | null {
     const preset = this.config.activePreset === null ? undefined : this.config.presets[this.config.activePreset]
+    // intent 只收模型目标：flow 引用非图像护栏意图（Task 8 决策扩展接管 flow 目标）。
     const intent = preset === undefined ? undefined : [preset.default, ...preset.rules.map((r) => r.target).filter((t): t is RouteTarget => !isFlowTarget(t))]
     return applyImageGuard(target, hasImage, this.metas, intent)
   }
