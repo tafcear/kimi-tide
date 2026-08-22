@@ -184,6 +184,11 @@
 - **修复**（main 直提）：护栏改**模型级**判定（目标模型自身 modalities 为准；目录读不到的目标保持宽容不改道）；改道目标按用户意图序（预设默认 → 规则目标序 → 目录序首个多模态可用候选），不主动改道到用户未声明的模型。测试 217→220。
 - **旁证**：`agent/image-admission` 探针重移植在 rc.2 工作正常——认领成功才会放行入会话，本次回归恰证明认领链完好。
 
+### 4.6 社区贡献并入（2026-08-22，PR #2/#3 @dracpet，来自 DSH Desktop 4.0.1 实机事故）
+
+- **桌面线 gateway 契约分叉**：`commands/execute` 在 rc.8/rc.2 web = 3 业务参 `(agent, line, images)`；desktop 4.0.1+ = 2 业务参 + 可选尾置 caller AbortSignal（`descriptor.cancellation`，dsh-api-gateway/lib/client.js:214-241——多出的第三参会按 signal 解析，`AbortSignal.any` 抛 "Failed to convert value to 'AbortSignal'"）。web 端 2 参调用的 arity 报错原文为 `expected 3 business argument(s) plus an optional AbortSignal, got 2`。kimi-tide 客户端已改 2 参优先 + 该报错正则回退 3 参（commit 5066aed），两端兼容且无需版本嗅探。
+- **YAML null config 坑**：patch 层 `config:` 下全注释 → 合成 `config: null` → 加载器入口读属性即抛、整棵插件树启动崩溃。host apply 已加 `config ?? {}` 归一（commit d7a2306），shipped `cordis.patch.yml` 亦改为显式 `config: {}` 双保险。
+
 ---
 
 ## 结尾：结论与对 kimi-tide 的启示

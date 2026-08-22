@@ -7,9 +7,13 @@
 - insert:
     - id: dsh-kimi-tide
       name: dsh-kimi-tide
-      config:
-        # usagePollMs: 60000      # quota poll period (月汐 dock)
-        # usagePollOnStart: true  # poll quota on startup
-        # router:                 # legacy static seed (v1 vocabulary, auto-migrated to the v4
-        #                         # preset/rule shape); the 月汐 settings card owns the live config
-        #                         # (or /kimi-tide preset <id|off>)
+      # Keep `config` an explicit empty map: a bare `config:` key whose children
+      # are all comments composes as YAML null, which crashes plugin loaders
+      # that read config properties (PR #3, live desktop incident 2026-08-21).
+      config: {}
+      # Optional knobs (nest under `config` to enable):
+      #   usagePollMs: 60000      # quota poll period (月汐 dock)
+      #   usagePollOnStart: true  # poll quota on startup
+      #   router:                 # legacy static seed (v1 vocabulary, auto-migrated to the v4
+      #                           # preset/rule shape); the 月汐 settings card owns the live config
+      #                           # (or /kimi-tide preset <id|off>)
