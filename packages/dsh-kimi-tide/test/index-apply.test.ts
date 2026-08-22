@@ -273,6 +273,24 @@ describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
     const summary = buildDecisionSummary({ ...route, reason: 'x'.repeat(200) })
     expect(summary?.reason).toBe('x'.repeat(120))
   })
+
+  it('summarizes a flow decision with flow:{flowId} semantics (Task 9 wiring)', () => {
+    const summary = buildDecisionSummary({
+      kind: 'flow',
+      flowId: 'transcribe',
+      flow: {
+        type: 'transcribe',
+        visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' },
+        failurePolicy: 'latch-image',
+      },
+      reason: '规则「带图」命中（协作流 transcribe）',
+      via: 'rule',
+    })
+    expect(summary).toEqual({
+      chosen: { provider: 'flow', model: 'transcribe' },
+      reason: '规则「带图」命中（协作流 transcribe）',
+    })
+  })
 })
 
 describe('apply() decision lifecycle (0.5.0 via semantics)', () => {

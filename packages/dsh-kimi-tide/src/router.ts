@@ -10,16 +10,29 @@
  * 事件流（DSH 官方机制，与 0.4.x 相同）：
  *   agent/pre-step（携带本步消息）→ decide() 计算决策存入 per-agent 槽位
  *   agent/request（携带该步的 callConfig）→ 消费槽位，返回替换路由
+ *
+ * 0.6.0（Task 9）编排执行层：pre-step 按 spec §5.1/5.2/5.6 执行序接线
+ * eager/lazy 转述（按图状态表替代布尔锁存）；llm/stream 智能投影拦截器
+ * 把 text-only 目标请求中已转述的图块替换为转述文字（S4c 缝，spike 实证）。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { LlmCallConfig, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  GenerateOptions,
+  ImageBlock,
+  LlmCallConfig,
+  Message,
+  ReasoningEffortId,
+  ToolResultBlock,
+} from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {
   CandidateMeta, CollaborationFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
 } from './config.js'
 import { isFlowTarget } from './config.js'
-import type { ImageStateEntry } from './image-state.js'
+import type { ImageStateEntry, ImageStateStore } from './image-state.js'
+import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
 import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
@@ -181,13 +194,13 @@ export class KimiRouter {
    * `step` 为契约占位：每轮只在首个模型步判定的语义由 installRouter
    * （payload.step === 1 门控）完成，decide 本身不使用该参数。
    *
-   * `hasImageOverride`（会话锁存）：agent/pre-step 的 payload.messages 只携带
-   * 本轮 claimed 消息（dsh-agent-loop preStep()：`messages: claimed`），而 deepseek
-   * 适配器序列化**全量会话**时对任一图片块抛 UNSUPPORTED_CONTENT
-   * （dsh-llm-deepseek serializeMessages → assertTextOnly）——一旦图片消息提交进
-   * 历史，后续纯文本轮也必须按 vision 步骤处理，否则会选中文本-only 候选导致
-   * 整轮失败（2026-08-19 实机回归：turn 3 带图走 k3 后，turn 4 纯文本轮在
-   * deepseek-v4-flash 上抛 UNSUPPORTED_CONTENT）。
+   * `hasImageOverride`（0.6.0：本轮未转述图语义）：agent/pre-step 的
+   * payload.messages 只携带本轮 claimed 消息（dsh-agent-loop preStep()：
+   * `messages: claimed`）。0.6.0 起 hasImage 由 installRouter 按「本轮图块中
+   * 无转述缓存者非空」计算传入；历史 native 图的跨轮锁存改由按图状态表 +
+   * imageFallback（resolveImageFallback）在 pre-step 内完成，decide 不再承担
+   * 布尔锁存。（历史锚点：2026-08-19 实机回归——deepseek 适配器序列化全量
+   * 会话时图块曾抛 UNSUPPORTED_CONTENT，rc.2 起改原生占位投影。）
    */
   decide(messages: readonly UserMessage[], step: number, hasImageOverride?: boolean): RouteDecision {
     if (this.config.activePreset === null) return { kind: 'keep', reason: 'router off' }
@@ -267,18 +280,171 @@ export class KimiRouter {
 }
 
 /**
- * 把路由器挂到 agent 生命周期：pre-step 分类入槽，request 消费出槽。
- * @returns disposer。
+ * installRouter 的协作编排依赖（0.6.0，Task 9）。
+ * - `images`：按 agent 隔离的按图状态表（替代布尔锁存）。
+ * - `transcriber`：转述器（peek 命中成功缓存；text 失败返回 null 且不重打）。
+ * - `resolveImages`：从本轮消息提取图块持久引用（生产实现 = extractResolvedImages）。
+ * - `onDecision`：决策观测回调；extra.flowId 标记本轮执行过的协作流。
  */
-export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (agent: Agent, decision: RouteDecision) => void): () => void {
+export interface RouterOrchestrationDeps {
+  images: ImageStateStore
+  transcriber: Transcriber
+  resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
+  onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => void
+}
+
+/**
+ * 从消息批次提取图块的持久引用（spike S1 实证线形：ImageBlock.attachment =
+ * ImageAttachmentRef，提取即得 ref，无需 readImage 读字节）。tool-result 嵌套
+ * 图块递归同款提取；无 attachmentId 的图块（非 rc.2 线形）忽略。
+ */
+export function extractResolvedImages(messages: readonly UserMessage[]): ResolvedImage[] {
+  const out: ResolvedImage[] = []
+  const walk = (blocks: readonly ContentBlock[]): void => {
+    for (const block of blocks) {
+      if (block.type === 'image') {
+        const ref = (block as ImageBlock).attachment
+        if (typeof ref?.attachmentId === 'string') out.push({ attachmentId: ref.attachmentId, ref })
+      } else if (block.type === 'tool-result') {
+        walk((block as ToolResultBlock).content)
+      }
+    }
+  }
+  for (const message of messages) walk(message.content)
+  return out
+}
+
+/**
+ * 生产 VisionCaller（Task 9 组装，S1 实证链路）：ctx.llm.stream 直调视觉模型，
+ * 图块按持久引用线形构造 `{ type:'image', attachment: ref }`（字节解析由适配器
+ * 完成）；text-delta 手工累计成转述文字；finish reason.kind 为 error/aborted
+ * 时抛错（Transcriber 记入失败集，同图不重打）。usage  chunk 随流穿过不累计
+ * （S5 账单复核另案）。Ruling 2：不携带 reasoningEffort（adapter 默认）。
+ */
+export function createStreamVisionCaller(ctx: Context): VisionCaller {
+  return async (target, prompt, images) => {
+    const content = [
+      { type: 'text', text: prompt },
+      ...images.map((img) => ({ type: 'image', attachment: img.ref })),
+    ] as unknown as ContentBlock[]
+    const options: GenerateOptions = {
+      provider: target.provider,
+      model: target.model,
+      messages: [{ role: 'user', content }] as unknown as Message[],
+    }
+    let text = ''
+    for await (const chunk of ctx.llm.stream(options)) {
+      if (chunk.type === 'text-delta') {
+        text += chunk.text
+      } else if (chunk.type === 'finish') {
+        const reason = chunk.reason
+        if (reason.kind === 'error' || reason.kind === 'aborted') {
+          throw new Error(`vision transcribe ${reason.kind}: ${reason.failure.message} (${reason.failure.code})`)
+        }
+      }
+    }
+    return text
+  }
+}
+
+/** 块级替换结果；changed=false 时 out 为原引用（零分配直放）。 */
+interface Rewrite<T> { out: T; changed: boolean }
+
+/**
+ * 把命中转述缓存的图块替换为 `{ type:'text', text: 转述文字 }`；无缓存图块保留
+ * （rc.2 原生占位投影兜底）；tool-result 嵌套图块递归同款处理。绝不原地
+ * mutation——loop 请求深冻结（dsh-llm deepFreeze），一律构造新块/新数组。
+ */
+function rewriteBlocksForText(
+  blocks: readonly ContentBlock[],
+  peek: (attachmentId: string) => string | undefined,
+): Rewrite<ContentBlock[]> {
+  let out: ContentBlock[] | null = null
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+    let next = block
+    if (block.type === 'image') {
+      const ref = (block as ImageBlock).attachment
+      const text = typeof ref?.attachmentId === 'string' ? peek(ref.attachmentId) : undefined
+      if (text !== undefined) next = { type: 'text', text }
+    } else if (block.type === 'tool-result') {
+      const inner = rewriteBlocksForText((block as ToolResultBlock).content, peek)
+      if (inner.changed) next = { ...block, content: inner.out } as ContentBlock
+    }
+    if (next !== block) {
+      if (out === null) out = blocks.slice(0, i) as ContentBlock[]
+      out.push(next)
+    } else if (out !== null) {
+      out.push(block)
+    }
+  }
+  return out === null ? { out: blocks as ContentBlock[], changed: false } : { out, changed: true }
+}
+
+/** 消息级同款替换（新消息数组 + 新消息对象；无命中时原引用返回）。 */
+function rewriteMessagesForText(
+  messages: readonly Message[],
+  peek: (attachmentId: string) => string | undefined,
+): Rewrite<Message[]> {
+  let out: Message[] | null = null
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]
+    const inner = rewriteBlocksForText(message.content, peek)
+    if (inner.changed) {
+      if (out === null) out = messages.slice(0, i)
+      out.push({ ...message, content: inner.out })
+    } else if (out !== null) {
+      out.push(message)
+    }
+  }
+  return out === null ? { out: messages as Message[], changed: false } : { out, changed: true }
+}
+
+/**
+ * latchTarget = 本轮决策的「有效视觉候选」（brief 三取值的统一实现）：
+ * flow 决策 → flow.visionModel；route 决策 → 以 hasImage=true 过一遍图像护栏
+ * 的改道结果（未改道即该目标本身——规则命中的多模态模型目标 / 预设默认即
+ * 多模态时均在此落地）；keep → undefined（无有效目标可记）。护栏调整使
+ * latchTarget 恒等于本轮原生作答的实际视觉目标，与 0.5.0 后续轮 guard 重选的
+ * 结果逐轮一致（目录读不到 modalities 的目标按 84773e2 宽容条款直取该目标）。
+ */
+function effectiveVisionTarget(router: KimiRouter, decision: RouteDecision): RouteTarget | undefined {
+  if (decision.kind === 'flow') return { ...decision.flow.visionModel }
+  if (decision.kind !== 'route') return undefined
+  const guard = router.guardImage(decision.target, true)
+  return guard === null ? { ...decision.target } : guard.target
+}
+
+/**
+ * 把路由器挂到 agent 生命周期：pre-step 分类入槽，request 消费出槽。
+ * 0.6.0（Task 9）pre-step 执行序（step===1，spec §5.1/5.2/5.6）：
+ *   1. resolveImages 提取本轮图块（持久引用，无需读字节）
+ *   2. 新图登记状态表 native（latchTarget 决策后补记——mark 整体替换条目）
+ *   3. 未转述图 = 本轮图块无转述缓存者；hasImage = 其非空（替代布尔锁存）
+ *   4. decide
+ *   5. flow 决策 → eager 转述：全成 → 标 transcribed + 以 hasImage=false 重跑
+ *      decide；有败 → latch-image 败图保持 native 且本轮落 flow.visionModel，
+ *      blind 则标 blind 继续
+ *   6. 非 flow 终决策 + text-only 目标 + native 历史 → resolveImageFallback：
+ *      latch 改道 / blind 不动 / lazy 先补转述再放行
+ *   7. 槽位 + onDecision（extra.flowId 标记本轮执行过的流）
+ * 另注册 llm/stream 智能投影拦截器（S4c）。@returns disposer。
+ */
+export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrchestrationDeps): () => void {
+  const { images, transcriber, resolveImages, onDecision } = deps
   const slots = new WeakMap<Agent, { decision: RouteDecision; hasImage: boolean }>()
-  // 会话图片锁存（2026-08-19 实机回归）：agent/pre-step 的 payload.messages 只含
-  // 本轮 claimed 消息，但图片消息一旦提交进会话历史，deepseek 适配器会在序列化
-  // 全量会话时抛 UNSUPPORTED_CONTENT（dsh-llm-deepseek serializeMessages →
-  // assertTextOnly）——因此任何一轮带图之后，本会话所有后续轮次都必须留在多模态
-  // 候选上（图片仍在上下文中，纯文本适配器物理上无法序列化它）。锁存按 agent
-  // 隔离：子代理拥有独立上下文，不继承父会话的图片历史，正常按文本路由。
-  const imageSeen = new WeakMap<Agent, boolean>()
+  // attachmentId → ResolvedImage：跨轮回取 lazy 转述所需的持久引用。图不可变、
+  // attachmentId 全局唯一，进程内一致；插件重挂载前进入会话的历史图无 ref 可
+  // 查，按转述失败同等处置（failurePolicy 兜底）。
+  const imageRefs = new Map<string, ResolvedImage>()
+  const peek = (attachmentId: string): string | undefined => transcriber.peek(attachmentId)
+
+  const activePreset = (): RouterPreset | undefined => {
+    const config = router.config
+    if (config.activePreset === null) return undefined
+    return config.presets[config.activePreset]
+  }
+
   return ctx.effect(() => {
     const disposePre = ctx.on('agent/pre-step', async (payload, next) => {
       const result = await next()
@@ -289,13 +455,112 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       // (the original === 0 gate never matched and idled the whole router).
       // Tool-loop steps (step > 1) keep the logged header config, so the
       // model never switches mid-loop.
-      if (payload.step === 1) {
-        const hasImage = messagesContainImage(payload.messages) || imageSeen.get(payload.agent) === true
-        if (hasImage) imageSeen.set(payload.agent, true)
-        const decision = router.decide(payload.messages, payload.step, hasImage)
-        slots.set(payload.agent, { decision, hasImage })
-        onDecision?.(payload.agent, decision)
+      if (payload.step !== 1) return result
+      const agent = payload.agent
+      // 1. 本轮图块提取
+      const batch = resolveImages(payload.messages)
+      // 2. 新图登记状态表（native；latchTarget 待决策后按有效视觉候选补记）
+      const fresh: ResolvedImage[] = []
+      for (const img of batch) {
+        imageRefs.set(img.attachmentId, img)
+        if (images.get(agent, img.attachmentId) === undefined) {
+          images.mark(agent, img.attachmentId, 'native')
+          fresh.push(img)
+        }
       }
+      // 3. 未转述图（本轮）→ hasImage
+      const untranscribed = batch.filter((img) => peek(img.attachmentId) === undefined)
+      let hasImage = untranscribed.length > 0
+      // 4. 决策
+      let decision = router.decide(payload.messages, payload.step, hasImage)
+      let flowId: string | undefined
+      const latchTarget = effectiveVisionTarget(router, decision)
+      // 5. eager 转述（规则目标 = transcribe 流）
+      if (decision.kind === 'flow') {
+        flowId = decision.flowId
+        const flow = decision.flow
+        const failed: ResolvedImage[] = []
+        for (const img of untranscribed) {
+          const text = await transcriber.text(flow, img)
+          if (text === null) failed.push(img)
+          else images.mark(agent, img.attachmentId, 'transcribed')
+          ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
+        }
+        if (failed.length === 0) {
+          hasImage = false
+          decision = router.decide(payload.messages, payload.step, false)
+        } else if (flow.failurePolicy === 'latch-image') {
+          decision = {
+            kind: 'route',
+            target: { ...flow.visionModel },
+            reason: `flow:${flowId} 转述失败（latch-image）→ 原生视觉作答`,
+            via: 'rule',
+          }
+          hasImage = true
+        } else {
+          for (const img of failed) images.mark(agent, img.attachmentId, 'blind')
+          hasImage = false
+          decision = router.decide(payload.messages, payload.step, false)
+        }
+      }
+      // 仍 native 的本轮新图补记 latchTarget（后续轮 latch 改道的目标）
+      if (latchTarget !== undefined) {
+        for (const img of fresh) {
+          if (images.get(agent, img.attachmentId)?.state === 'native') {
+            images.mark(agent, img.attachmentId, 'native', latchTarget)
+          }
+        }
+      }
+      // 6. imageFallback：终决策 route + text-only 目标 + native 历史
+      if (decision.kind === 'route') {
+        const routeTarget = decision.target
+        const targetMeta = router.metas.find(
+          (m) => m.provider === routeTarget.provider && m.model === routeTarget.model,
+        )
+        // 目录读不到的目标保持宽容（84773e2 既有条款），不套用 fallback。
+        if (targetMeta !== undefined && !targetMeta.modalities.includes('image')) {
+          const preset = activePreset()
+          const native = images.native(agent)
+          const fallback = preset === undefined ? null : resolveImageFallback(preset, flowsOf(router.config), native)
+          if (fallback?.kind === 'latch') {
+            decision = {
+              kind: 'route',
+              target: { ...fallback.target },
+              reason: `带图锁存改道（${decision.reason}）`,
+              via: 'rule',
+            }
+          } else if (fallback?.kind === 'lazy') {
+            flowId = fallback.flowId
+            const flow = fallback.flow
+            const failed: string[] = []
+            for (const [id] of native) {
+              const img = imageRefs.get(id)
+              const text = img === undefined ? null : await transcriber.text(flow, img)
+              if (text === null) failed.push(id)
+              else images.mark(agent, id, 'transcribed')
+              ctx.logger?.info?.(`kimi-router: flow:${flowId} lazy 转述 attachmentId=${id} ${text === null ? '失败' : '成功'}`)
+            }
+            if (failed.length > 0) {
+              if (flow.failurePolicy === 'latch-image') {
+                // 败图保持 native，本轮落 flow.visionModel 原生视觉作答
+                decision = {
+                  kind: 'route',
+                  target: { ...flow.visionModel },
+                  reason: `flow:${flowId} lazy 转述失败（latch-image）→ 原生视觉作答`,
+                  via: 'rule',
+                }
+              } else {
+                for (const id of failed) images.mark(agent, id, 'blind')
+              }
+            }
+            // 全成（或 blind 放行）：decision 不变——放行文本目标，投影缝供转述文字
+          }
+          // blind → 不动（rc.2 原生占位投影兜底）
+        }
+      }
+      // 7. 槽位 + 观测回调
+      slots.set(agent, { decision, hasImage })
+      onDecision?.(agent, decision, flowId === undefined ? undefined : { flowId })
       return result
     })
     const disposeRequest = ctx.on('agent/request', async (payload, next) => {
@@ -307,6 +572,8 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
       // Image guard runs AFTER routing: an image-bearing step must never hit
       // a text-only route (typically the deepseek primary), whether it came
       // from a route decision or from the session's base model selection.
+      // 0.6.0：护栏输入 = 槽位 hasImage（本轮未转述图语义）——flow 已消费的图
+      // 不触发（hasImage 已 false）；replaceRoute/effort 映射逻辑不动。
       const guard = router.guardImage({ provider: replaced.provider, model: replaced.model }, slot.hasImage)
       if (guard !== null) {
         replaced = router.replaceRoute(replaced, guard.target)
@@ -314,9 +581,29 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
         return replaced
       }
       if (replaced !== resolved) {
-        ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${slot.decision.kind === 'route' ? slot.decision.reason : 'kept'})`)
+        const label = slot.decision.kind === 'route'
+          ? slot.decision.reason
+          : slot.decision.kind === 'flow' ? `flow:${slot.decision.flowId}` : 'kept'
+        ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${label})`)
       }
       return replaced
+    })
+    // llm/stream 智能投影拦截器（S4c，spike 实证生产范式）：仅当 metas 查得目标
+    // 存在且 modalities 不含 image（text-only 目标）时介入，视觉目标与目录读不
+    // 到的目标直放。cordis waterfall 的 next() 固定回放原始载荷（cordis
+    // lib:317-325），不支持 next(改后载荷)——改写须经重入守卫 + 自调
+    // ctx.llm.stream(opts2) 短路。守卫同时保证转述自身的 VisionCaller 调用不递归
+    // （其目标为视觉模型且图块彼时无缓存，双重不命中）。
+    const inFlight = new WeakSet<object>()
+    const disposeStream = ctx.on('llm/stream', (options, next) => {
+      if (inFlight.has(options)) return next()
+      const meta = router.metas.find((m) => m.provider === options.provider && m.model === options.model)
+      if (meta === undefined || meta.modalities.includes('image')) return next()
+      const rewritten = rewriteMessagesForText(options.messages, peek)
+      if (!rewritten.changed) return next()
+      const opts2 = { ...options, messages: rewritten.out }
+      inFlight.add(opts2)
+      return ctx.llm.stream(opts2)
     })
     // Host prompt pre-check deferral (see canClaimImageAdmission): the host
     // rejects image prompts whose current model selection is text-only
@@ -331,6 +618,7 @@ export function installRouter(ctx: Context, router: KimiRouter, onDecision?: (ag
     return () => {
       disposePre()
       disposeRequest()
+      disposeStream()
       disposeAdmission()
     }
   })

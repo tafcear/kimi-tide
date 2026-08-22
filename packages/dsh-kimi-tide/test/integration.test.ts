@@ -274,6 +274,58 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     expect(snapshot.configSource).toBe('patch')
     expect(snapshot.router).toMatchObject({ activePreset: 'saving' })   // mode cost → saving
   })
+
+  it('apply() 端到端 0.6.0 接线：图轮落多模态 + 后续文本轮锁存留多模态（状态表 = 0.5.0 布尔锁存语义）', async () => {
+    writeFileSync(
+      patchFile,
+      '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-coding, model: kimi-for-coding }\n',
+      'utf8',
+    )
+    const agent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+    apply(ctx as never, {
+      patchFile,
+      sidecarFile,
+      usagePollOnStart: false,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const pre = listeners.get('agent/pre-step')?.at(-1) as
+      | ((p: unknown, next: () => Promise<unknown>) => Promise<unknown>)
+      | undefined
+    const req = listeners.get('agent/request')?.at(-1) as
+      | ((p: unknown, next: () => Promise<unknown>) => Promise<unknown>)
+      | undefined
+    expect(pre).toBeDefined()
+    expect(req).toBeDefined()
+    const loopAgent = {}
+    const sig = () => new AbortController().signal
+
+    // Turn 1 带图（rc.2 线形：ImageBlock.attachment 持久引用）：护栏改道
+    // 目录内首个多模态可用候选 kimi-for-coding（k3 未注册进目录，available:false）。
+    const imageMsg = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '看图' },
+        { type: 'image', attachment: { attachmentId: 'att-e2e', mediaType: 'image/png', bytes: 4, width: 1, height: 1 } },
+      ],
+    }
+    await pre!({ agent: loopAgent, messages: [imageMsg], turn: 1, step: 1, signal: sig() }, () => Promise.resolve({ kind: 'enter' }))
+    const c1 = await req!(
+      { agent: loopAgent, turn: 1, step: 1, signal: sig() },
+      () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
+    )
+    expect(c1).toMatchObject({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+
+    // Turn 2 纯文本：图仍在会话历史，锁存必须保持多模态（2026-08-19 回归语义，
+    // 0.6.0 由按图状态表 latchTarget 改道实现，逐字节同效）。
+    await pre!({ agent: loopAgent, messages: [text('继续')], turn: 2, step: 1, signal: sig() }, () => Promise.resolve({ kind: 'enter' }))
+    const c2 = await req!(
+      { agent: loopAgent, turn: 2, step: 1, signal: sig() },
+      () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
+    )
+    expect(c2).toMatchObject({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+  })
 })
 
 describe('integration: decide 级规则路由（via 语义）', () => {

@@ -25,11 +25,15 @@ import { registerKimiTideCommands, type SettingsNamespacePort } from './commands
 import { coerceRouterConfigV4, hasKimiTideResidue } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
+  createStreamVisionCaller,
+  extractResolvedImages,
   installRouter,
   KimiRouter,
   type RouteDecision,
   type RouterLog,
 } from './router.js'
+import { ImageStateStore } from './image-state.js'
+import { Transcriber } from './transcribe.js'
 import { configKey, DEFAULT_CONFIG_V4, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV4, type RouterConfigV5 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
@@ -74,9 +78,14 @@ export function defaultSidecarFile(): string {
  * Summarize one routing decision for the panel (spec §2.7). Returns null for
  * anything that must NOT surface: keep decisions, no-decision states, and
  * default-preset (miss → 打底) routes. Route decisions carry the reason
- * truncated to 120 characters. Pure — no agent/ctx access.
+ * truncated to 120 characters. Flow decisions (0.6.0, Task 9 接线) surface
+ * with `flow:{flowId}` semantics — chosen = { provider: 'flow', model: flowId }.
+ * Pure — no agent/ctx access.
  */
 export function buildDecisionSummary(decision: RouteDecision): DecisionSummary | null {
+  if (decision.kind === 'flow') {
+    return { chosen: { provider: 'flow', model: decision.flowId }, reason: decision.reason.slice(0, 120) }
+  }
   if (decision.kind !== 'route' || decision.via === 'default') return null
   return { chosen: { provider: decision.target.provider, model: decision.target.model }, reason: decision.reason.slice(0, 120) }
 }
@@ -372,19 +381,33 @@ export function apply(ctx: Context, config: Config = {}) {
   }
 
   let disposeRouter: (() => void) | null = null
+  // 0.6.0 协作编排（Task 9 最小接线）：按图状态表 + 转述器随 apply 生命周期
+  // 创建一次——配置变更/候选枚举重挂路由器时，转述缓存与图像状态不丢。生产
+  // VisionCaller = ctx.llm.stream 直调（Ruling 2：不传 reasoningEffort）。
+  const imageStates = new ImageStateStore()
+  const transcriber = new Transcriber({
+    caller: createStreamVisionCaller(ctx),
+    log: (message) => { ctx.logger.info(message) },
+  })
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
     if (routerConfigV4.activePreset !== null) {
-      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV4, candidateMetas, log), onDecision)
+      disposeRouter = installRouter(ctx, new KimiRouter(routerConfigV4, candidateMetas, log), {
+        images: imageStates,
+        transcriber,
+        resolveImages: extractResolvedImages,
+        onDecision,
+      })
     }
   }
 
   // Decision observability (spec §2.7): only non-default route decisions
   // surface a summary; anything else (off / keep / default miss) clears the
   // summary so a stale decision never leaks into later snapshots.
+  // 0.6.0：extra.flowId 标记本轮执行过的协作流（流事件上投影属 Task 10）。
   let latestDecision: DecisionSummary | null = null
-  const onDecision = (_agent: Agent, decision: RouteDecision) => {
+  const onDecision = (_agent: Agent, decision: RouteDecision, _extra?: { flowId?: string }) => {
     latestDecision = buildDecisionSummary(decision)
     pushPanelToAllSessions()
   }
