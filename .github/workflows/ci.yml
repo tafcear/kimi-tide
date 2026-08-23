@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# CodeQL actions/missing-workflow-permissions（告警 #3，2026-08-23）：
+# 显式最小权限——本工作流只 checkout + 构建测试，contents: read 足矣。
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
