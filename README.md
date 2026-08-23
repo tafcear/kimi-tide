@@ -2,10 +2,15 @@
 <summary><b>🇨🇳 中文</b></summary>
 
 <p align="center">
-  <img src="docs/assets/readme/hero.svg" width="100%" alt="kimi-tide 月汐 — DSH 模型路由插件：每步自动选模型，每个决策看得见">
+  <img src="docs/assets/readme/hero.svg" width="100%" alt="kimi-tide 月汐 — DSH 逐步模型路由器：任意已接入的模型，都按你的规则选路">
+</p>
+<p align="center">
+  <a href="https://github.com/tafcear/kimi-tide/releases"><img src="https://img.shields.io/github/v/release/tafcear/kimi-tide" alt="Release"></a>
+  <a href="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml"><img src="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/tafcear/kimi-tide/blob/main/LICENSE"><img src="https://img.shields.io/github/license/tafcear/kimi-tide" alt="License"></a>
 </p>
 
-DSH 里一个会话从头到尾只用一个模型：**DeepSeek V4** 主力文本模型便宜、快，但**看不懂图片**；**Kimi K3** 多模态、1M 超长上下文、编码强，但**有额度与成本**。写代码到一半想贴张截图，得手动切模型；切完又忘了切回来，额度哗哗流走。**月汐就是这笔账的自动交警**：你只管干活，它按任务类型、预算和模型长板，在每个步骤自动选路——选谁、为什么选，全都摆在面板上。
+DSH 里一个会话从头到尾只用一个模型。可你挂载的模型各有各的长板与价格：**多模态**的看得懂截图，**文本模型**便宜、快，**编码特化**的擅长改 bug——写代码到一半想贴张截图，得手动切模型；切完又忘了切回来。**月汐是 DSH 的逐步模型路由器**：候选池就是你宿主里已挂载的**全部**模型（全量枚举，无白名单），路由依据是你自己写的预设与规则——带图走多模态、代码走编码模型、闲聊走便宜模型，`@` 一下还能显式点将；选谁、为什么选，全都摆在面板上。Kimi 与 DeepSeek 只是开箱示例——**任何接入的模型，都能按你的想法来路由**。
 
 ---
 
@@ -39,14 +44,14 @@ flowchart LR
 
 ## 特性一览
 
+- 🧭 **全量候选池（provider-agnostic）**：宿主 Models 页挂载的所有 provider 的模型**全量实时枚举**（0.5.0 起无白名单）——预设默认、规则目标、`@指令` 都能指向其中任何一个；未挂载的目标自动降级跳过、面板标灰。
 - 🚦 **预设路由**：内置「省钱」「能力」两种预设，也可自建命名预设，设置卡片一键全局切换；按**每个步骤**决策，不是一会话绑定到死。
 - 🎯 **规则引擎**（0.5.0）：规则 = `带图` / 命名关键词组（内置「代码」「闲聊」两组，词表可改、可自建）；首条命中生效，未命中走预设打底，不可用目标自动降级跳过。
 - 🌊 **协作编排**（0.6.0）：规则目标可指向**协作流**——预置图像转述流（vision-exp 读图转文字，eager/lazy 双时态，缓存+超时+失败不重打）与评审流（预置注册，P2 命令式触发）；预设级带图兜底三态（锁存/盲答/懒转述）；`llm/stream` 智能投影让文本模型凭转述文字接力看图。
 - 🖼️ **图像护栏**：带图消息自动改道多模态模型；按图三态状态表（native/transcribed/blind）防止历史含图后文本模型崩溃（`UNSUPPORTED_CONTENT`）。
-- 👁️ **决策可观测**：dock 面板实时显示「这步选了谁、为什么」，会话日志留痕可复查——不黑箱。
+- 👁️ **决策可观测**：dock 面板实时显示「这步选了谁、为什么」，按会话隔离、会话日志留痕可复查——不黑箱。
 - ⚙️ **官方设置卡片**：路由配置就在 DSH「设置 → 月汐」里编辑，原生分层持久化，重启保持。
-- 🔌 **官方接入层**（0.4.x）：Kimi 模型经 pi-ai 原生 `kimi-coding` 路由接入，**一把 Console API Key 即可**，不再需要 Kimi CLI 登录与令牌刷新。
-- 📊 **官方配额显示**：dock 面板轮询 Kimi Code 用量接口，周配额 / 5h 窗口一目了然。
+- 🌙 **Kimi 专用增强**（0.4.x）：Kimi 模型经 pi-ai 原生 `kimi-coding` 路由接入，**一把 Console API Key 即可**；dock 面板轮询 Kimi Code 官方用量接口，周配额 / 5h 窗口一目了然。（路由本身不限 Kimi——这两项是 Kimi Code 订阅用户的加餐。）
 - ⌨️ **`/kimi-tide` 命令族**：`preset` / `show` / `set` / `export-config` / `import-config` / `refresh`，配置可导出备份、可导入恢复。
 
 ---
@@ -59,11 +64,11 @@ flowchart LR
 
 - Node.js ≥ 22
 - DSH `@deepseek-ai/dsh@0.1.1-rc.2` 及以上（0.6.0 起 dsh-* 组件 peer 依赖锁定 `^0.1.1-rc.2`；设置卡片依赖 `dsh-settings`）
-- 一把 **Kimi Code Console API Key**（Kimi 控制台获取）
+- 你要路由的模型已在 DSH 接入——**不限 provider**；想用 Kimi 就配一把 **Kimi Code Console API Key**（配额面板也走这把 key）
 
-### 2. 配置 Kimi 路由（官方 Models 页）
+### 2. 接入候选模型（官方 Models 页，示例 = Kimi）
 
-DSH「设置 → Models」添加 provider **`kimi-coding`**，`apiKeyEnv` 填 `KIMI_API_KEY`（或自建引用名），在凭据区粘贴你的 Key。模型目录（k3 / k3-256k / kimi-for-coding / kimi-for-coding-highspeed）自动就位——密钥由 DSH 托管凭据存储，**不落任何插件配置文件**。
+DSH「设置 → Models」添加 provider（示例：**`kimi-coding`**，`apiKeyEnv` 填 `KIMI_API_KEY`，在凭据区粘贴你的 Key；k3 / k3-256k / kimi-for-coding / kimi-for-coding-highspeed 目录自动就位）。**接几个 provider 都行**——月汐的候选池就是 Models 页的全量目录。密钥由 DSH 托管凭据存储，**不落任何插件配置文件**。
 
 ### 3. 安装插件
 
@@ -146,9 +151,9 @@ timeline
 
 ---
 
-## 可用模型
+## 候选池与示例模型
 
-> 候选池自 0.5.0 起**全量枚举**宿主目录中所有 provider 的模型（无白名单），不限于下表；未接入的模型面板标灰、不参与路由。下表只列内置预设与预置流直接引用的模型。
+> **候选池 = 宿主 Models 目录的全量枚举**（0.5.0 起无白名单）：你在 Models 页挂载什么，路由器就能选什么——任何 provider、任何模型都可作预设默认、规则目标或 `@指令` 对象；未接入的目标降级跳过、面板标灰。下表只列**内置预设与预置流直接引用的模型**（开箱示例），不是路由边界。
 
 | 来源 | 模型 ID | 模态 | 上下文 | 角色 |
 |---|---|---|---|---|
@@ -209,7 +214,7 @@ timeline
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（当前 337/337 通过，24 个测试文件）
+npm test            # vitest（当前 354/354 通过，24 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
@@ -285,10 +290,15 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 <summary><b>🇬🇧 English</b></summary>
 
 <p align="center">
-  <img src="docs/assets/readme/hero-en.svg" width="100%" alt="kimi-tide — a model router plugin for DeepSeek Harness: picks the right model for every step, and shows you exactly why">
+  <img src="docs/assets/readme/hero-en.svg" width="100%" alt="kimi-tide — per-step model router for DeepSeek Harness: any mounted model, routed by your rules">
+</p>
+<p align="center">
+  <a href="https://github.com/tafcear/kimi-tide/releases"><img src="https://img.shields.io/github/v/release/tafcear/kimi-tide" alt="Release"></a>
+  <a href="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml"><img src="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/tafcear/kimi-tide/blob/main/LICENSE"><img src="https://img.shields.io/github/license/tafcear/kimi-tide" alt="License"></a>
 </p>
 
-In DSH, a session sticks to one model from start to finish. But in reality: **DeepSeek V4**'s text models are cheap and fast, but **cannot see images**; **Kimi K3** is multimodal with a 1M context window and strong coding, but it **costs quota and money**. Mid-task you want to paste a screenshot — switch models by hand; then you forget to switch back and quota burns away. **kimi-tide is the automatic traffic controller for that trade-off**: you just do the work; it picks the route per step based on task type, budget, and each model's strengths — and shows you who it picked and why, right on the panel.
+In DSH, a session sticks to one model from start to finish. Yet the models you've mounted each have their own strengths and price tags: **multimodal** ones can read screenshots, **text models** are cheap and fast, **coding-tuned** ones fix bugs best. Mid-task you want to paste a screenshot — switch models by hand; then you forget to switch back. **kimi-tide is the per-step model router for DSH**: the candidate pool is **every model mounted in your host** (live enumeration, no whitelist), and the routing rules are presets and keyword groups you write yourself — images go to multimodal, code to the coding model, chitchat to the cheap one, and an `@mention` picks explicitly. Who was picked and why is always on the panel. Kimi and DeepSeek are just the ready-made examples — **any model you connect can be routed your way**.
 
 ---
 
@@ -322,14 +332,14 @@ flowchart LR
 
 ## Features
 
+- 🧭 **Full candidate pool (provider-agnostic)**: every model of every provider mounted on the host's Models page is **enumerated live** (no whitelist since 0.5.0) — preset defaults, rule targets, and `@directives` can all point at any of them; unmounted targets degrade gracefully and render greyed out.
 - 🚦 **Preset-based routing**: built-in "saving" and "capability" presets, plus your own named presets, switched globally from the settings card; decisions are made **per step**, not per session.
 - 🎯 **Rule-driven routing** (0.5.0): a rule is *image-bearing* or a *named keyword group* (built-in "code" and "chitchat", custom groups allowed); first hit in list order wins; a miss routes to the preset default (baseline), and unavailable rule targets are skipped automatically.
 - 🌊 **Collaboration flows** (0.6.0): rule targets may point at a **collaboration flow** — the built-in image-transcribe flow (vision-exp reads images into text, eager/lazy timing, cache + timeout + no-retry-on-failure) and a review flow (registered, P2 command trigger); per-preset image fallback (latch/blind/transcribe-lazy); `llm/stream` smart projection lets text models pick up image context from the transcription.
 - 🖼️ **Image guard**: image-bearing steps reroute to multimodal candidates automatically; the per-image three-state table (native/transcribed/blind) prevents text-model crashes (`UNSUPPORTED_CONTENT`) once images enter history.
-- 👁️ **Observable decisions**: the dock panel shows "who was picked and why" for every step, with session-log traceability — no black box.
+- 👁️ **Observable decisions**: the dock panel shows "who was picked and why" for every step, isolated per session, with session-log traceability — no black box.
 - ⚙️ **Official settings card**: router config lives in DSH "Settings → 月汐", natively persisted with layered overrides and restart-safe storage.
-- 🔌 **Official access layer** (0.4.x): Kimi models arrive via the pi-ai native `kimi-coding` route — **one Console API key is all you need**; no Kimi CLI login or token refresh anymore.
-- 📊 **Official quota display**: the dock polls the Kimi Code usage endpoint — weekly quota and 5h window at a glance.
+- 🌙 **Kimi-specific extras** (0.4.x): Kimi models arrive via the pi-ai native `kimi-coding` route — **one Console API key is all you need** — and the dock polls the official Kimi Code usage endpoint for weekly quota and 5h window at a glance. (Routing itself is not Kimi-bound; these two are extras for Kimi Code subscribers.)
 - ⌨️ **`/kimi-tide` command family**: `preset` / `show` / `set` / `export-config` / `import-config` / `refresh` — export, back up, and restore your config.
 
 ---
@@ -342,11 +352,11 @@ flowchart LR
 
 - Node.js ≥ 22
 - DSH `@deepseek-ai/dsh@0.1.1-rc.2` or newer (since 0.6.0 the dsh-* component peer deps pin `^0.1.1-rc.2`; the settings card needs `dsh-settings`)
-- A **Kimi Code Console API key** (from the Kimi console)
+- The models you want to route among are connected in DSH — **any provider works**; to use Kimi, add a **Kimi Code Console API key** (the quota panel rides the same key)
 
-### 2. Configure the Kimi route (official Models page)
+### 2. Connect candidate models (official Models page; example = Kimi)
 
-In DSH "Settings → Models", add provider **`kimi-coding`**, set `apiKeyEnv` to `KIMI_API_KEY` (or your own reference name), and paste your key into the credential area. The model catalog (k3 / k3-256k / kimi-for-coding / kimi-for-coding-highspeed) appears automatically — the secret lives in the DSH managed credential store, **never in any plugin config file**.
+In DSH "Settings → Models", add a provider (example: **`kimi-coding`** with `apiKeyEnv` set to `KIMI_API_KEY` and your key in the credential area; the k3 / k3-256k / kimi-for-coding / kimi-for-coding-highspeed catalog appears automatically). **Mount as many providers as you like** — kimi-tide's candidate pool is the full Models-page catalog. Secrets live in the DSH managed credential store, **never in any plugin config file**.
 
 ### 3. Install the plugin
 
@@ -429,9 +439,9 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 
 ---
 
-## Available Models
+## Candidate Pool & Example Models
 
-> Since 0.5.0 the candidate pool **enumerates every provider** in the host catalog (no whitelist) — not just the table below; unavailable models render greyed out and never route. The table lists only the models directly referenced by the built-in presets and flows.
+> **The candidate pool is the full enumeration of the host's Models catalog** (no whitelist since 0.5.0): whatever you mount on the Models page becomes routable — any provider, any model can be a preset default, a rule target, or the object of an `@directive`; unmounted targets are skipped and greyed out. The table lists only the models **directly referenced by the built-in presets and flows** (the out-of-box examples), not a routing boundary.
 
 | Source | Model ID | Modality | Context | Role |
 |---|---|---|---|---|
@@ -492,7 +502,7 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (currently 337/337 passing across 24 test files)
+npm test            # vitest (currently 354/354 passing across 24 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
@@ -521,7 +531,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.5.0**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md); release version: 209/209 green + typecheck 0 + build ok; live acceptance included a migration-defect fix).
 - **0.6.0**: **collaboration flows** — rule targets generalize to "model | collaboration flow"; the built-in image-transcribe flow (vision-exp, eager/lazy) and review flow (P2 trigger) ship registered but unbound; the per-image three-state table retires the boolean latch; per-preset `imageFallback` (latch/blind/transcribe-lazy); `llm/stream` smart projection (transcribed blocks → transcription text); panel v6 gains the image-context line + flow events; v4 stored configs auto-migrate with a `.pre-v5` backup ([design spec](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md); release version: 337/337 green + typecheck 0 + build ok; 10-item live acceptance all passed incl. the T4 gate; fixed the rc.2 host model-selection override during acceptance — `e2d3c68`).
 - **0.6.1**: **review fix wave** — eager/lazy transcription now runs via `Promise.all` (multi-image latency no longer stacks per image); quota-polling fetches are time-bounded with in-flight dedup (a hung endpoint no longer leaks sockets); panel pushes carry a semantic signature (session logs no longer grow every minute); evicted transcription-LRU entries are demoted back to native and re-transcribed; blank transcriptions count as failures (failure set, no empty-string projection); decision/flow observability is per-session (no more cross-session bleed); the `@directive` gains a predecessor anchor (emails no longer misfire); the settings v1 write surface is frozen; new CI on push/PR (Node 22/24 legs). 354/354 green + typecheck 0 + build ok.
-- **Planned**: review-flow command trigger (P2, `/kimi-tide review`), subagent transcription (P3, S2 contract GO); the 0.6.x pool — panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and 14 more items. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed). ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
+- **Planned**: review-flow command trigger (P2, `/kimi-tide review`), subagent transcription (P3, S2 contract GO); the 0.6.x pool — panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and 14 more items. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
 

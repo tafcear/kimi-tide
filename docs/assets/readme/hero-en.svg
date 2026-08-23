@@ -1,94 +1,88 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="1200" height="340" viewBox="0 0 1200 340"
      role="img" aria-labelledby="title desc">
-  <title id="title">kimi-tide — a model router plugin for DeepSeek Harness</title>
-  <desc id="desc">kimi-tide hero: project name and one-line value on the left; on the right a tide-split decision diagram routing each message to Kimi or DeepSeek, with a decision-trail chip.</desc>
+  <title id="title">kimi-tide — per-step model router for DSH: any mounted model, routed by your rules</title>
+  <desc id="desc">kimi-tide hero: the project name and one-line value on the left; on the right an open fan-out diagram — one message passes a decision point and routes to Kimi, DeepSeek, or any mounted provider/model, with rule chips and a decision-trail marker.</desc>
 
   <rect width="1200" height="340" rx="26" fill="#0B1B2B"/>
 
-  <!-- tide motif: two light waves -->
-  <path d="M 0 296 C 100 286, 200 306, 300 296 S 500 286, 600 296 S 800 306, 900 296 S 1100 286, 1200 296"
+  <!-- tide background: two light waves from the project-name motif -->
+  <path d="M 0 306 C 100 296, 200 316, 300 306 S 500 296, 600 306 S 800 316, 900 306 S 1100 296, 1200 306"
         fill="none" stroke="#1E5A8A" stroke-width="2" opacity="0.55"/>
-  <path d="M 0 314 C 100 304, 200 324, 300 314 S 500 304, 600 314 S 800 324, 900 314 S 1100 304, 1200 314"
+  <path d="M 0 324 C 100 314, 200 334, 300 324 S 500 314, 600 324 S 800 334, 900 324 S 1100 314, 1200 324"
         fill="none" stroke="#7DD3FC" stroke-width="1.5" opacity="0.28"/>
 
-  <!-- left: title block -->
-  <g id="title-block" transform="translate(56 62)">
+  <!-- left: title block (58%) -->
+  <g id="title-block" transform="translate(56 66)">
     <text x="0" y="0" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" letter-spacing="3" fill="#5B7A93">DSH MODEL ROUTER</text>
-    <text x="0" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="16" letter-spacing="3" fill="#5B7A93">DSH · PER-STEP MODEL ROUTER</text>
+    <text x="0" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
           font-size="72" font-weight="700" fill="#E6F3FF">kimi-tide</text>
-    <text x="368" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    <text x="348" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
           font-size="44" font-weight="600" fill="#7DD3FC">月汐</text>
-    <text x="0" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="30" fill="#E6F3FF">Picks the right model for every step —</text>
-    <text x="0" y="162" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="30" fill="#E6F3FF">and shows you exactly why</text>
-
-    <g id="badges" transform="translate(0 186)">
-      <rect x="0" y="0" width="139" height="28" rx="4" fill="#555555"/>
-      <path d="M 98 0 H 135 A 4 4 0 0 1 139 4 V 24 A 4 4 0 0 1 135 28 H 98 Z" fill="#3178C6"/>
-      <text x="49" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">TypeScript</text>
-      <text x="118" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">5.6</text>
-
-      <rect x="149" y="0" width="116" height="28" rx="4" fill="#555555"/>
-      <path d="M 223 0 H 261 A 4 4 0 0 1 265 4 V 24 A 4 4 0 0 1 261 28 H 223 Z" fill="#97CA00"/>
-      <text x="186" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">License</text>
-      <text x="244" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">MIT</text>
-
-      <rect x="275" y="0" width="141" height="28" rx="4" fill="#555555"/>
-      <path d="M 349 0 H 412 A 4 4 0 0 1 416 4 V 24 A 4 4 0 0 1 412 28 H 349 Z" fill="#007EC6"/>
-      <text x="312" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">Release</text>
-      <text x="382" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">v0.5.0</text>
-
-      <rect x="426" y="0" width="133" height="28" rx="4" fill="#555555"/>
-      <path d="M 484 0 H 555 A 4 4 0 0 1 559 4 V 24 A 4 4 0 0 1 555 28 H 484 Z" fill="#4CBB17"/>
-      <text x="455" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">Tests</text>
-      <text x="521" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">209/209</text>
+    <text x="0" y="138" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="30" fill="#E6F3FF">Every step routed, every decision explained</text>
+    <text x="0" y="184" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="22" fill="#9CC3E0">Any mounted model, routed by your rules</text>
+    <!-- principle microcopy -->
+    <g id="principles" transform="translate(0 214)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+       font-size="16" fill="#5B7A93">
+      <text x="0" y="0">presets + rules + @directives</text>
+      <text x="0" y="26">candidate pool = every mounted model · no whitelist</text>
     </g>
   </g>
 
-  <!-- right: tide-split decision diagram -->
-  <g id="project-proof" transform="translate(690 64)">
-    <rect x="0" y="24" width="120" height="56" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
-    <text x="60" y="59" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="20" fill="#E6F3FF">Message</text>
+  <!-- right: open fan-out (42%) — one message → decision point → N provider channels -->
+  <g id="project-proof" transform="translate(700 34)">
+    <!-- input: message -->
+    <rect x="0" y="86" width="118" height="56" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
+    <text x="59" y="121" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="20" fill="#E6F3FF">message</text>
 
-    <rect x="180" y="28" width="48" height="48" rx="6" fill="#211708" stroke="#F59E0B" stroke-width="1.5"
-          transform="rotate(45 204 52)"/>
-    <text x="204" y="57" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="14" fill="#F59E0B">route</text>
+    <!-- decision point (amber diamond) -->
+    <rect x="172" y="90" width="48" height="48" rx="6" fill="#211708" stroke="#F59E0B" stroke-width="1.5"
+          transform="rotate(45 196 114)"/>
+    <text x="196" y="119" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="17" fill="#F59E0B">route</text>
 
-    <path d="M 120 52 L 180 52" stroke="#5B7A93" stroke-width="1.5" fill="none"/>
-    <path d="M 228 52 C 280 52, 280 6, 320 6" stroke="#7DD3FC" stroke-width="1.5" fill="none"/>
-    <path d="M 228 52 C 280 52, 280 116, 320 116" stroke="#1E5A8A" stroke-width="2" fill="none"/>
+    <!-- fan-out lines: two solid (example providers) + one dashed (open pool) -->
+    <path d="M 118 114 L 172 114" stroke="#5B7A93" stroke-width="1.5" fill="none"/>
+    <path d="M 220 114 C 264 114, 262 28, 306 28" stroke="#7DD3FC" stroke-width="1.5" fill="none"/>
+    <path d="M 220 114 C 264 114, 262 100, 306 100" stroke="#1E5A8A" stroke-width="2" fill="none"/>
+    <path d="M 220 114 C 264 114, 262 172, 306 172" stroke="#9CC3E0" stroke-width="1.5" fill="none" stroke-dasharray="5 5"/>
 
-    <rect x="320" y="-24" width="150" height="60" rx="12" fill="#10233A" stroke="#7DD3FC" stroke-width="1.5"/>
-    <text x="395" y="2" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="20" fill="#E6F3FF">Kimi · k3</text>
-    <text x="395" y="24" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="14" fill="#7DD3FC">multimodal · 1M</text>
+    <!-- channel 1: Kimi (example, multimodal) -->
+    <rect x="306" y="-2" width="176" height="60" rx="12" fill="#10233A" stroke="#7DD3FC" stroke-width="1.5"/>
+    <text x="394" y="24" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="20" fill="#E6F3FF">kimi-coding · k3</text>
+    <text x="394" y="46" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="16" fill="#7DD3FC">multimodal · 1M</text>
 
-    <rect x="320" y="86" width="150" height="60" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
-    <text x="395" y="112" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="20" fill="#E6F3FF">DeepSeek · v4</text>
-    <text x="395" y="134" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="14" fill="#6B9AC0">cheap · 1M</text>
+    <!-- channel 2: DeepSeek (example, text-only) -->
+    <rect x="306" y="70" width="176" height="60" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
+    <text x="394" y="96" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="20" fill="#E6F3FF">deepseek · v4-flash</text>
+    <text x="394" y="118" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="16" fill="#6B9AC0">text · 1M · cheap</text>
 
-    <rect x="159" y="122" width="90" height="28" rx="14" fill="none" stroke="#F59E0B" stroke-width="1.5"/>
-    <text x="204" y="141" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="14" fill="#F59E0B">who + why</text>
+    <!-- channel 3: open candidate pool (dashed = any mounted model) -->
+    <rect x="306" y="142" width="176" height="60" rx="12" fill="#0B1B2B" stroke="#9CC3E0" stroke-width="1.5" stroke-dasharray="6 5"/>
+    <text x="394" y="168" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="20" fill="#9CC3E0">any provider</text>
+    <text x="394" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="16" fill="#5B7A93">any mounted model</text>
 
-    <g id="rule-badges" transform="translate(0 178)">
-      <rect x="0" y="0" width="204" height="28" rx="4" fill="#555555"/>
-      <path d="M 106 0 H 200 A 4 4 0 0 1 204 4 V 24 A 4 4 0 0 1 200 28 H 106 Z" fill="#155E75"/>
-      <text x="53" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">image / code</text>
-      <text x="155" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">→ Kimi · k3</text>
-
-      <rect x="214" y="0" width="212" height="28" rx="4" fill="#555555"/>
-      <path d="M 296 0 H 422 A 4 4 0 0 1 426 4 V 24 A 4 4 0 0 1 422 28 H 296 Z" fill="#1E5A8A"/>
-      <text x="255" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">fallback</text>
-      <text x="361" y="19" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" fill="#FFFFFF">→ DeepSeek · v4</text>
+    <!-- rule chips: the project's core content (presets + rules + @directives) -->
+    <g id="rule-chips" transform="translate(-8 224)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+       font-size="16" fill="#E6F3FF">
+      <rect x="0" y="0" width="86" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
+      <text x="43" y="20" text-anchor="middle">@explicit</text>
+      <rect x="96" y="0" width="162" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
+      <text x="177" y="20" text-anchor="middle">image → multimodal</text>
+      <rect x="268" y="0" width="142" height="30" rx="15" fill="#10233A" stroke="#1E5A8A" stroke-width="1.2"/>
+      <text x="339" y="20" text-anchor="middle">keyword → rule</text>
+      <rect x="420" y="0" width="74" height="30" rx="15" fill="none" stroke="#F59E0B" stroke-width="1.2"/>
+      <text x="457" y="20" text-anchor="middle" fill="#F59E0B">trail</text>
     </g>
   </g>
 </svg>
