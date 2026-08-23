@@ -116,6 +116,8 @@ timeline
 2. **规则透明**：路由依据是人能读懂的预设与关键词组，不经黑箱打分；每条规则都可改、可排序、可删除。
 3. **决策可观测**：每一次自动选路都有理由、有留痕、可复盘。
 
+> **方法层**：开发方式本身也是产品的一部分——「实施 → 独立审查 → 修复 → 复检验收」双模型协作闭环是月汐的核心方法论，独立研究报告见 [kimi-tide-research](https://github.com/tafcear/kimi-tide-research)。
+
 ---
 
 ## 路由器详解
@@ -204,6 +206,7 @@ timeline
 - [`docs/development-plan-router.md`](docs/development-plan-router.md)：路由器开发计划（M1-M7）。
 - [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md)：0.5.0 规则驱动路由架构（预设/规则/打底/降级/迁移链）。
 - [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)：双模型协作闭环方法论（本项目自己的开发方式）。
+- [tafcear/kimi-tide-research](https://github.com/tafcear/kimi-tide-research)：双模型协作研究报告（架构、损耗与可行性——tafcear × Kimi 人机协作研究；本项目方法层的外部学术对照）。
 - [`docs/legacy-setup.md`](docs/legacy-setup.md)：旧接入方案存档（0.4.x 起被官方路由取代）。
 
 ---
@@ -218,7 +221,7 @@ npm test            # vitest（当前 354/354 通过，24 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
-质量基线：全量测试绿 + typecheck 0 错误 + build 通过方可提交。本仓库实践「实施 → 独立审查（Kimi 真身）→ 修复 → 复检验收」双模型协作闭环（见 [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)）。
+质量基线：全量测试绿 + typecheck 0 错误 + build 通过方可提交。本仓库实践「实施 → 独立审查（Kimi 真身）→ 修复 → 复检验收」双模型协作闭环（见 [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)；该方法的独立研究见 [kimi-tide-research](https://github.com/tafcear/kimi-tide-research)）。
 
 ---
 
@@ -405,6 +408,8 @@ Three principles:
 2. **Transparent rules**: routing decisions come from presets and keyword groups a human can read — no black-box scoring; every rule is editable, reorderable, deletable.
 3. **Observable decisions**: every automatic routing choice has a reason, a trail, and a replay path.
 
+> **Methodology layer**: the way we build is part of the product — the "implement → independent review → fix → re-check" dual-model loop is kimi-tide's core methodology; the independent study lives at [kimi-tide-research](https://github.com/tafcear/kimi-tide-research).
+
 ---
 
 ## Router in Detail
@@ -493,6 +498,7 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 - [`docs/development-plan-router.md`](docs/development-plan-router.md): router development plan (M1-M7).
 - [`packages/dsh-kimi-tide/docs/router.md`](packages/dsh-kimi-tide/docs/router.md): 0.5.0 rule-driven routing architecture (presets / rules / baseline / degradation / migration chain).
 - [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md): the dual-model collaboration loop this project itself is built with.
+- [tafcear/kimi-tide-research](https://github.com/tafcear/kimi-tide-research): dual-model collaboration study (architecture, loss & feasibility — tafcear × Kimi human-AI research; the external academic frame for this project's methodology layer).
 - [`docs/legacy-setup.md`](docs/legacy-setup.md): legacy access paths archive (superseded by the official route in 0.4.x).
 
 ---
@@ -507,7 +513,7 @@ npm test            # vitest (currently 354/354 passing across 24 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
-Quality bar: full test suite green + zero typecheck errors + successful build before committing. This repository practices an "implement → independent review (real Kimi) → fix → re-check" dual-model loop (see [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)).
+Quality bar: full test suite green + zero typecheck errors + successful build before committing. This repository practices an "implement → independent review (real Kimi) → fix → re-check" dual-model loop (see [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md); the independent study of this method lives at [kimi-tide-research](https://github.com/tafcear/kimi-tide-research)).
 
 ---
 
