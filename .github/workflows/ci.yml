@@ -11,10 +11,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 20 = AbortSignal.any/timeout 可用性下限（boundedSignal 降级分支
-        # 的分界）；22 = release.yml 发版环境。双版本矩阵把运行时 API 时序
-        # 差异从「人肉撞」前移到 CI（2026-08-23 评审跟进）。
-        node-version: [20, 22]
+        # 版本窗证据（2026-08-23 CI 失败溯源 run 32626535333）：jsdom@30
+        # engines ^22.22.2 || ^24.15.0、undici@8.10 engines >=22.19.0——undici
+        # webidl/index.js:5 从 node:worker_threads 解构 markAsUncloneable，
+        # Node 20 无此 API（nodejs/node#55234），jsdom worker 启动即炸。
+        # 22 = release.yml 发版环境；24 = 本地开发版本 + GHA runner 默认
+        # （Node 20 已被 GHA 弃用）。插件运行时对旧 Node 的兼容由
+        # boundedSignal/usage 超时的降级分支承担，与本矩阵无涉。
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
