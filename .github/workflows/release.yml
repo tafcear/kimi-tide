@@ -49,8 +49,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/dsh-kimi-tide
         run: |
+          # --notes-from-tag：附注 tag 消息即 Release 更新说明（发版约定 =
+          # git tag -a，消息写更新要点）。2026-08-23 前为固定模板句——Release
+          # 页长期只有「构建/测试通过」一行的根因。
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
-            --notes "Automated release from tag $GITHUB_REF_NAME（构建/测试通过，附 npm pack tgz）" \
+            --notes-from-tag \
             dsh-kimi-tide-*.tgz
