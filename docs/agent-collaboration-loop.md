@@ -75,7 +75,7 @@ kimi-tide 项目的一轮完整闭环：
 ### 3.1 前提条件
 
 - DSH 已运行（web profile）
-- `dsh-kimi-bridge` 插件已安装且重启生效 → 工具面板出现 `call_kimi` / `kimi_status` / `kimi_abort` / `kimi_steer`
+- ~~`dsh-kimi-bridge` 插件已安装且重启生效 → 工具面板出现 `call_kimi` / `kimi_status` / `kimi_abort` / `kimi_steer`~~（**历史**：dsh-kimi-bridge 已于 2026-08-23 归档退役，其审查角色由 @kimi 子代理经 kimi-tide 路由承接）
 - kimi CLI 已登录（`kimi login`）
 - 可选：kimi-tide 的 provider 接入（让 DSH 对话本身也能跑在 Kimi 模型上）
 
@@ -152,7 +152,7 @@ prompt 要素（见 docs/templates/recheck-task.md 完整模板）：
 - [审查任务书模板](templates/review-task.md)
 - [复检任务书模板](templates/recheck-task.md)
 
-> 版本锁定说明：本示例中的命令绑定 DSH 0.1.0-rc.6 / dsh-kimi-bridge 0.1.1（kimi-tide 插件侧已在 DSH rc.7 实机验证）。
+> 版本锁定说明（历史）：本示例中的命令绑定 DSH 0.1.0-rc.6 / dsh-kimi-bridge 0.1.1（kimi-tide 插件侧已在 DSH rc.7 实机验证）；dsh-kimi-bridge 已于 2026-08-23 归档退役。
 > DSH 升级后请先验证插件兼容性（`dsh plugin` 的 peer 依赖检查），再更新本文档与
 > 模板中的版本号——文档过期本身就是复检的固定检查项（本项目的 R2-2/R2-3/R2-4
 > 就是这类问题）。

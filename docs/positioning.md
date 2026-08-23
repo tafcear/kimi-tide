@@ -12,7 +12,7 @@
 
 - Open Design 是**应用**（回答"怎么用 AI 做设计"），kimi-tide 是**基础设施**（回答"怎么在 DSH 里用 Kimi、怎么让两个模型分工"）
 - 两者不竞争，**可共存/互补**：Open Design 把 DSH 当运行后端，而 kimi-tide 让 DSH 里多一个 Kimi 模型可选（该推演基于公开架构，未实机验证；Open Design 未来也可能经官方 ACP 直接调用 Kimi，绕过模型接入层）
-- 与 `dsh-kimi-bridge` 的分工：bridge 把 Kimi CLI 当**外部进程**调（独立 agent 会话），kimi-tide 把 Kimi 作为**功能上在 DSH 模型选择器中可用的 provider**（与 DeepSeek 平级可切换；0.4.x 起经官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，非自研 token workaround）
+- 与 `dsh-kimi-bridge` 的分工（**历史——2026-08-23 归档退役**）：bridge 曾把 Kimi CLI 当**外部进程**调（独立 agent 会话），kimi-tide 把 Kimi 作为**功能上在 DSH 模型选择器中可用的 provider**（与 DeepSeek 平级可切换；0.4.x 起经官方 pi-ai 原生 `kimi-coding` 路由 + Console API Key，非自研 token workaround）。bridge 的「独立 Kimi 会话/审查」角色已由 @kimi 子代理经 kimi-tide 路由承接，vendored fork 已移出仓库（git 历史保留）
 
 ## 2. 与 Open Design 的区别（对照表）
 

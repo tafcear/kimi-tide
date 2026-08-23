@@ -269,6 +269,7 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 ## 贡献者
 
 - 感谢 [@dracpet](https://github.com/dracpet) 的实机诊断与社区贡献：[PR #1](https://github.com/tafcear/kimi-tide/pull/1)（OAuth 过期刷新）、[PR #2](https://github.com/tafcear/kimi-tide/pull/2)（`commands/execute` 跨宿主契约容错）、[PR #3](https://github.com/tafcear/kimi-tide/pull/3)（YAML null 配置归一化）与 [Issue #4](https://github.com/tafcear/kimi-tide/issues/4)（rc.2 投影 wire 契约诊断）——你的反馈直接加固了 0.5.x–0.6.0 的发布质量。
+- 感谢 [@pandashere](https://github.com/pandashere) 的 [dsh-kimi-bridge](https://github.com/pandashere/dsh-kimi-bridge)（MIT）：项目初期的 Kimi CLI 桥接由此起步，早期审查轮（`call_kimi`）与双面插件/投影机制为 kimi-tide 的面板链路提供了先行验证；该组件已随官方 pi-ai 接入与 @kimi 子代理路由的成熟而退役归档（git 历史保留），特此致谢。
 - 也欢迎任何形式的贡献：报告问题、提交修复，或来 [Discussions](https://github.com/tafcear/kimi-tide/discussions) 聊聊使用体验。
 
 ---
@@ -280,7 +281,7 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 ## 许可证与合规提示
 
 - **kimi-tide 本体**：[MIT](LICENSE)（Copyright 2026 kimi-tide contributors）
-- **第三方组件**：`@earendil-works/pi-ai`（MIT）、`@deepseek-ai/dsh-llm-pi-ai`（MIT, DeepSeek）、`schemastery`（MIT）、`yaml`（MIT）、`dsh-kimi-bridge`（MIT）
+- **第三方组件**：`@earendil-works/pi-ai`（MIT）、`@deepseek-ai/dsh-llm-pi-ai`（MIT, DeepSeek）、`schemastery`（MIT）、`yaml`（MIT）、`dsh-kimi-bridge`（MIT，历史致谢，已归档）
 - **合规**：0.4.x 起默认走 **Console API Key 官方路径**，个人使用安心；Kimi Code 订阅条款仍以官方表述为准，请勿高频批量调用或共享密钥。
 - 本仓库**不含任何凭据**；请勿将 `~/.dsh/.credentials.yaml`、环境变量中的密钥提交到仓库。
 
@@ -557,6 +558,7 @@ A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月
 ## Contributors
 
 - Thanks to [@dracpet](https://github.com/dracpet) for live-verified diagnosis and community contributions: [PR #1](https://github.com/tafcear/kimi-tide/pull/1) (OAuth expiry refresh), [PR #2](https://github.com/tafcear/kimi-tide/pull/2) (`commands/execute` across host contract versions), [PR #3](https://github.com/tafcear/kimi-tide/pull/3) (YAML-null config normalization), and [Issue #4](https://github.com/tafcear/kimi-tide/issues/4) (rc.2 projection wire-contract diagnosis) — your feedback hardened the 0.5.x–0.6.0 releases.
+- Thanks to [@pandashere](https://github.com/pandashere) for [dsh-kimi-bridge](https://github.com/pandashere/dsh-kimi-bridge) (MIT): it bootstrapped the early Kimi CLI bridging, and its review rounds (`call_kimi`) and dual-face plugin/projection mechanics validated the path kimi-tide's panel later took; the component has since been retired and archived (history preserved in git) as the official pi-ai integration and @kimi subagent routing matured — thank you.
 - Contributions of any form are welcome: report issues, send fixes, or share how you use it in [Discussions](https://github.com/tafcear/kimi-tide/discussions).
 
 ---
@@ -568,7 +570,7 @@ A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月
 ## License & Compliance
 
 - **kimi-tide itself**: [MIT](LICENSE) (Copyright 2026 kimi-tide contributors)
-- **Third-party components**: `@earendil-works/pi-ai` (MIT), `@deepseek-ai/dsh-llm-pi-ai` (MIT, DeepSeek), `schemastery` (MIT), `yaml` (MIT), `dsh-kimi-bridge` (MIT)
+- **Third-party components**: `@earendil-works/pi-ai` (MIT), `@deepseek-ai/dsh-llm-pi-ai` (MIT, DeepSeek), `schemastery` (MIT), `yaml` (MIT), `dsh-kimi-bridge` (MIT, historical credit — archived)
 - **Compliance**: since 0.4.x the default path is the **official Console API key**, which is safe for personal use; Kimi Code subscription terms still apply as officially stated — no high-frequency batch calls or key sharing.
 - This repository contains **no credentials**; never commit `~/.dsh/.credentials.yaml` or any key from your environment.
 

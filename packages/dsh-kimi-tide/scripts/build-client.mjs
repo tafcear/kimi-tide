@@ -1,6 +1,6 @@
 /**
  * Build the browser half (lib/client.js) with esbuild, replicating the
- * harness's client bundle protocol (same as vendor/dsh-kimi-bridge).
+ * harness's client bundle protocol (same as the archived vendor/dsh-kimi-bridge).
  */
 import { build } from 'esbuild'
 

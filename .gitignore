@@ -4,7 +4,6 @@ node_modules/
 packages/*/node_modules/
 vendor/*/node_modules/
 packages/*/lib/
-vendor/dsh-kimi-bridge/lib/
 
 # 日志与缓存
 *.log
