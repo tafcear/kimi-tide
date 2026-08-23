@@ -1,0 +1,24 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 5.6,
+  "colors": 192,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "reveals": [
+    {
+      "id": "flow-lines",
+      "axis": "x",
+      "start": 0.5,
+      "end": 1.4,
+      "exit": { "start": 4.7, "end": 5.4 }
+    }
+  ],
+  "layers": [
+    { "id": "ch-1", "enter": { "start": 0.9, "end": 1.7, "from": [28, 0] }, "exit": { "start": 4.7, "end": 5.4, "to": [0, 0] } },
+    { "id": "ch-2", "enter": { "start": 1.1, "end": 1.9, "from": [28, 0] }, "exit": { "start": 4.7, "end": 5.4, "to": [0, 0] } },
+    { "id": "ch-3", "enter": { "start": 1.3, "end": 2.1, "from": [28, 0] }, "exit": { "start": 4.7, "end": 5.4, "to": [0, 0] } },
+    { "id": "rule-chips", "enter": { "start": 2.3, "end": 3.0, "from": [0, 16] }, "exit": { "start": 4.8, "end": 5.5, "to": [0, 0] } }
+  ]
+}

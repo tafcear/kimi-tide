@@ -47,30 +47,38 @@
 
     <!-- fan-out lines: two solid (example providers) + one dashed (open pool) -->
     <path d="M 118 114 L 172 114" stroke="#5B7A93" stroke-width="1.5" fill="none"/>
-    <path d="M 220 114 C 264 114, 262 28, 306 28" stroke="#7DD3FC" stroke-width="1.5" fill="none"/>
-    <path d="M 220 114 C 264 114, 262 100, 306 100" stroke="#1E5A8A" stroke-width="2" fill="none"/>
-    <path d="M 220 114 C 264 114, 262 172, 306 172" stroke="#9CC3E0" stroke-width="1.5" fill="none" stroke-dasharray="5 5"/>
+    <g id="flow-lines">
+      <path d="M 220 114 C 264 114, 262 28, 306 28" stroke="#7DD3FC" stroke-width="1.5" fill="none"/>
+      <path d="M 220 114 C 264 114, 262 100, 306 100" stroke="#1E5A8A" stroke-width="2" fill="none"/>
+      <path d="M 220 114 C 264 114, 262 172, 306 172" stroke="#9CC3E0" stroke-width="1.5" fill="none" stroke-dasharray="5 5"/>
+    </g>
 
     <!-- channel 1: Kimi (example, multimodal) -->
-    <rect x="306" y="-2" width="176" height="60" rx="12" fill="#10233A" stroke="#7DD3FC" stroke-width="1.5"/>
-    <text x="394" y="24" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="20" fill="#E6F3FF">kimi-coding · k3</text>
-    <text x="394" y="46" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" fill="#7DD3FC">multimodal · 1M</text>
+    <g id="ch-1">
+      <rect x="306" y="-2" width="176" height="60" rx="12" fill="#10233A" stroke="#7DD3FC" stroke-width="1.5"/>
+      <text x="394" y="24" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+            font-size="20" fill="#E6F3FF">kimi-coding · k3</text>
+      <text x="394" y="46" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-size="16" fill="#7DD3FC">multimodal · 1M</text>
+    </g>
 
     <!-- channel 2: DeepSeek (example, text-only) -->
-    <rect x="306" y="70" width="176" height="60" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
-    <text x="394" y="96" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="20" fill="#E6F3FF">deepseek · v4-flash</text>
-    <text x="394" y="118" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" fill="#6B9AC0">text · 1M · cheap</text>
+    <g id="ch-2">
+      <rect x="306" y="70" width="176" height="60" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
+      <text x="394" y="96" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+            font-size="20" fill="#E6F3FF">deepseek · v4-flash</text>
+      <text x="394" y="118" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-size="16" fill="#6B9AC0">text · 1M · cheap</text>
+    </g>
 
     <!-- channel 3: open candidate pool (dashed = any mounted model) -->
-    <rect x="306" y="142" width="176" height="60" rx="12" fill="#0B1B2B" stroke="#9CC3E0" stroke-width="1.5" stroke-dasharray="6 5"/>
-    <text x="394" y="168" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="20" fill="#9CC3E0">any provider</text>
-    <text x="394" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" fill="#5B7A93">any mounted model</text>
+    <g id="ch-3">
+      <rect x="306" y="142" width="176" height="60" rx="12" fill="#0B1B2B" stroke="#9CC3E0" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <text x="394" y="168" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+            font-size="20" fill="#9CC3E0">any provider</text>
+      <text x="394" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-size="16" fill="#5B7A93">any mounted model</text>
+    </g>
 
     <!-- rule chips: the project's core content (presets + rules + @directives) -->
     <g id="rule-chips" transform="translate(-8 224)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"

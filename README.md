@@ -2,7 +2,7 @@
 <summary><b>🇨🇳 中文</b></summary>
 
 <p align="center">
-  <img src="docs/assets/readme/hero.svg" width="100%" alt="kimi-tide 月汐 — DSH 逐步模型路由器：任意已接入的模型，都按你的规则选路">
+  <img src="docs/assets/readme/hero.gif" width="100%" alt="kimi-tide 月汐 — DSH 逐步模型路由器：任意已接入的模型，都按你的规则选路">
 </p>
 <p align="center">
   <a href="https://github.com/tafcear/kimi-tide/releases"><img src="https://img.shields.io/github/v/release/tafcear/kimi-tide" alt="Release"></a>
@@ -290,7 +290,7 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 <summary><b>🇬🇧 English</b></summary>
 
 <p align="center">
-  <img src="docs/assets/readme/hero-en.svg" width="100%" alt="kimi-tide — per-step model router for DeepSeek Harness: any mounted model, routed by your rules">
+  <img src="docs/assets/readme/hero-en.gif" width="100%" alt="kimi-tide — per-step model router for DeepSeek Harness: any mounted model, routed by your rules">
 </p>
 <p align="center">
   <a href="https://github.com/tafcear/kimi-tide/releases"><img src="https://img.shields.io/github/v/release/tafcear/kimi-tide" alt="Release"></a>
