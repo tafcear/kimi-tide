@@ -83,4 +83,41 @@ describe('UsageMonitor quota polling (API key auth)', () => {
     await monitor.refresh()
     expect(onUpdate).toHaveBeenCalledTimes(2)
   })
+
+  it('passes an AbortSignal that aborts a hung request before the next poll tick', async () => {
+    // 挂起的端点：只在 signal abort 时收场（评审 P1：裸 fetch 挂起 = refresh 永不返回）
+    const fetchFn = vi.fn((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')))
+    }))
+    const monitor = new UsageMonitor({ pollMs: 50, onUpdate: () => {}, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch })
+    await monitor.refresh()   // 超时 = pollMs*0.8 = 40ms 后中止，refresh 正常失败收场
+    expect(monitor.snapshot().quota).toBeNull()
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('a hung request that outlives the timeout marks a prior snapshot stale', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(fetchResponse(200, USAGES_OK))
+      .mockImplementationOnce((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')))
+      }))
+    const monitor = new UsageMonitor({ pollMs: 50, onUpdate: () => {}, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch })
+    await monitor.refresh()
+    await monitor.refresh()
+    expect(monitor.snapshot().quota?.stale).toBe(true)
+  })
+
+  it('concurrent refresh folds into the in-flight fetch (no socket pile-up when the endpoint hangs)', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const fetchFn = vi.fn(async () => { await gate; return fetchResponse(200, USAGES_OK) })
+    const monitor = new UsageMonitor({ pollMs: 60000, onUpdate: () => {}, resolveKey: async () => 'sk-abc', fetchFn: fetchFn as unknown as typeof fetch })
+    const first = monitor.refresh()
+    const second = monitor.refresh()   // 模拟 setInterval 到点触发而上一轮仍挂起
+    release()
+    await Promise.all([first, second])
+    expect(fetchFn).toHaveBeenCalledOnce()
+    expect(monitor.snapshot().quota?.weekly.used).toBe(9)
+  })
 })

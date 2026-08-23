@@ -23,6 +23,7 @@ export class UsageMonitor {
   private quota: QuotaSnapshot | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private lastNotify = -Infinity
+  private inFlight: Promise<void> | null = null
   private readonly fetchFn: typeof fetch
   private readonly now: () => number
 
@@ -44,6 +45,20 @@ export class UsageMonitor {
 
   /** Fetch the usages endpoint once; a failed fetch marks any prior snapshot stale. */
   async refresh(): Promise<void> {
+    // In-flight 去重（评审修复 2026-08-23）：setInterval 到点即 void refresh()，
+    // 端点挂起时若无守卫，挂起请求会逐 tick 累积泄漏 socket。并发调用折进
+    // 在途那次——共享同一个完成语义。
+    if (this.inFlight !== null) return this.inFlight
+    const run = this.refreshOnce()
+    this.inFlight = run
+    try {
+      await run
+    } finally {
+      this.inFlight = null
+    }
+  }
+
+  private async refreshOnce(): Promise<void> {
     const snapshot = await this.fetchQuota()
     if (snapshot !== null) {
       this.quota = snapshot
@@ -62,8 +77,15 @@ export class UsageMonitor {
       // 每次轮询现取 key（dsh-credentials 契约：per-operation read）。
       const key = await this.options.resolveKey()
       if (key === null || key.length === 0) return null
+      // 有界超时（评审修复 2026-08-23）：裸 fetch 在端点挂起时永不 settle。
+      // 0.8 倍轮询周期——本次请求必须在下个 tick 前收场。AbortSignal.timeout
+      // 为 Node 17.3+ API；缺席的宿主退化为无超时（行为同修复前）。
+      const timeout = typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(Math.max(1, Math.floor(this.options.pollMs * 0.8)))
+        : undefined
       const response = await this.fetchFn(USAGES_URL, {
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+        ...(timeout === undefined ? {} : { signal: timeout }),
       })
       if (!response.ok) return null
       return parseQuotaSnapshot(await response.json(), this.now())

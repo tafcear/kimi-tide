@@ -14,6 +14,14 @@ describe('explicitProvider', () => {
     expect(explicitProvider('@deepseek-official 你好')).toBe('deepseek-official')
     expect(explicitProvider('没有指令')).toBeNull()
   })
+
+  it('@ 前紧邻词字符（邮箱等）不误判为指令（评审修复 2026-08-23）；空白/行首/中文前导仍是指令', () => {
+    expect(explicitProvider('联系 user@example.com 讨论方案')).toBeNull()
+    expect(explicitProvider('发邮件到 admin@kimi-coding.org')).toBeNull() // 域名面即使像 provider 也不算
+    expect(explicitProvider('请 @kimi 审查这段代码')).toBe('kimi-coding')
+    expect(explicitProvider('用@kimi-tide 看图')).toBe('kimi-coding') // 中文前导（非 \w）仍是指令
+    expect(explicitProvider('@kimi 行首')).toBe('kimi-coding')
+  })
 })
 
 describe('matchingRules', () => {

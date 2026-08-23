@@ -63,7 +63,7 @@ export class Transcriber {
     return this.cache.get(attachmentId)
   }
 
-  /** 转述一张图；失败、已标记失败或调用中止（signal reject）返回 null。 */
+  /** 转述一张图；失败、已标记失败、空白结果或调用中止（signal reject）返回 null。 */
   async text(flow: TranscribeFlow, image: ResolvedImage, signal?: AbortSignal): Promise<string | null> {
     const id = image.attachmentId
     if (this.failed.has(id)) return null
@@ -77,6 +77,14 @@ export class Transcriber {
     const prompt = flow.prompt ?? DEFAULT_TRANSCRIBE_PROMPT
     try {
       const out = await this.caller(flow.visionModel, prompt, [image], signal)
+      // 空白转述视同失败（评审修复 2026-08-23）：模型空响应若当成功缓存，
+      // llm/stream 投影会把图块替换成空字符串，文本模型上下文静默缺一块。
+      // 裁决放在本层（缓存所有者）——任何 VisionCaller 实现都受这条不变量保护。
+      if (out.trim().length === 0) {
+        this.failed.add(id)
+        this.log(`transcribe failed: attachmentId=${id} target=${flow.visionModel.provider}/${flow.visionModel.model} error=empty transcription`)
+        return null
+      }
       this.remember(id, out)
       return out
     } catch (err) {

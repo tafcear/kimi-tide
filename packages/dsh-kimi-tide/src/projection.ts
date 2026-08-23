@@ -1,12 +1,14 @@
 /**
  * kimi-tide: panel projection — key 'kimi-tide/panel', whole-value push.
- * The payload is process-global (quota/router are not per-session), so the
- * host appends the same snapshot to every live session's log; the framework
- * folds and pushes it. v3 payload: quota + router + kimi 二态接入指示 +
- * candidates + decision. v6 (0.6.0 协作编排) adds optional imageContext
- * （按图三态计数快照）+ lastFlowEvent（流执行摘要）——新字段可选，对存量
- * 读取端向后兼容。Pure unit functions + the SessionProjectionMap merge
- * that types both ends (host register / client useProjection).
+ * quota/router/models/configSource 是进程级字段；decision/imageContext/
+ * lastFlowEvent 是按 agent 字段（2026-08-23 评审修复：决策观测不再跨会话
+ * 串台）。宿主为每个存活会话组装并追加该会话自己的快照（语义签名去重，
+ * 配额轮询的空帧不再膨胀会话日志），框架 fold 后推送。v3 payload: quota
+ * + router + kimi 二态接入指示 + candidates + decision. v6 (0.6.0 协作编排)
+ * adds optional imageContext（按图三态计数快照）+ lastFlowEvent（流执行摘要）
+ * ——新字段可选，对存量读取端向后兼容。Pure unit functions + the
+ * SessionProjectionMap merge that types both ends (host register / client
+ * useProjection).
  */
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'

@@ -43,6 +43,25 @@ export class ImageStateStore {
     return out
   }
 
+  /**
+   * 把缓存背书落空（transcriber LRU 逐出）的 transcribed 条目降级回 native
+   * （评审修复 2026-08-23：进程级 LRU 与 per-agent 状态表容量脱节——逐出后
+   * llm/stream 投影 peek 落空，图块原样进 text-only 请求）。latchTarget 随
+   * 条目保留（latch 不回溯更早条目，条目必须自带 latchTarget 才可改道）。
+   * 返回被降级的 attachmentId（插入序），供调用方观测。
+   */
+  demoteUnbackedTranscribed(agent: Agent, backed: (attachmentId: string) => boolean): string[] {
+    const table = this.perAgent.get(agent)
+    if (!table) return []
+    const demoted: string[] = []
+    for (const [id, entry] of table) {
+      if (entry.state !== 'transcribed' || backed(id)) continue
+      table.set(id, { ...entry, state: 'native' })
+      demoted.push(id)
+    }
+    return demoted
+  }
+
   counts(agent: Agent): { native: number; transcribed: number; blind: number } {
     const table = this.perAgent.get(agent)
     const counts = { native: 0, transcribed: 0, blind: 0 }

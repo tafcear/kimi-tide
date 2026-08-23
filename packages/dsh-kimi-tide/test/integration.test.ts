@@ -236,10 +236,13 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     expect(snapshot.router).toMatchObject({ activePreset: 'capability' })
 
     // 端到端判别：显式 @kimi 指令在已挂载的 router 上路由到 kimi-coding。
+    // payload.agent = 面板 roster 的同一实例（生产契约：agentEvents 注入的
+    // 就是会话本体；2026-08-23 评审修复后决策观测按 agent 隔离，匿名 agent
+    // 的决策不再串进本会话快照）。
     const listener = listeners.get('agent/pre-step')?.at(-1)
     expect(listener).toBeDefined()
     const payload = {
-      agent: {},
+      agent,
       messages: [text('@kimi 帮我写代码')],
       turn: 1,
       step: 1,

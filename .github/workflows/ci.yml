@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Node 20 = AbortSignal.any/timeout 可用性下限（boundedSignal 降级分支
+        # 的分界）；22 = release.yml 发版环境。双版本矩阵把运行时 API 时序
+        # 差异从「人肉撞」前移到 CI（2026-08-23 评审跟进）。
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: packages/dsh-kimi-tide/package-lock.json
+      - run: npm ci
+        working-directory: packages/dsh-kimi-tide
+      - name: Typecheck
+        working-directory: packages/dsh-kimi-tide
+        run: npm run typecheck
+      - name: Build
+        working-directory: packages/dsh-kimi-tide
+        run: npm run build
+      - name: Test
+        working-directory: packages/dsh-kimi-tide
+        run: npm test

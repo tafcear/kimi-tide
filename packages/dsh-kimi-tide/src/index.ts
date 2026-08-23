@@ -100,6 +100,20 @@ interface LlmCatalog {
   resolveModelInfo: (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
 }
 
+/**
+ * 面板推送的语义签名（评审修复 2026-08-23）：剔除逐次必变的 quota.fetchedAt
+ * 后序列化。配额轮询每 60s 必产生新 fetchedAt——若按全量比对，每个存活会话
+ * 的持久化日志每分钟必追加一条 kimi-tide/panel 事件，而投影 fold 只取最新，
+ * 追加量与信息量完全不成比例。签名相同 = 无新信息 = 不追加。纯函数。
+ */
+export function panelSignature(snapshot: KimiTidePanelProjection): string {
+  const quota = snapshot.quota
+  const quotaValues = quota === null
+    ? null
+    : (() => { const { fetchedAt, ...values } = quota; return values })()
+  return JSON.stringify({ ...snapshot, quota: quotaValues })
+}
+
 /** 所有预设 default + 所有规则 target 的并集（去重，preset 序内 default→rules 序）。 */
 function configuredTargets(config: RouterConfigAny): RouteTarget[] {
   const out: RouteTarget[] = []
@@ -410,17 +424,19 @@ export function apply(ctx: Context, config: Config = {}) {
   // summary so a stale decision never leaks into later snapshots.
   // 0.6.0：extra.flowId 标记本轮执行过的协作流——供给投影 v6 的
   // lastFlowEvent（≤120 截断，沿用 decision 摘要惯例）。
-  let latestDecision: DecisionSummary | null = null
-  let latestFlowEvent: string | null = null
-  const onDecision = (_agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => {
-    latestDecision = buildDecisionSummary(decision)
+  // 评审修复 2026-08-23：决策与流事件按 agent 隔离存储——进程级单值会把
+  // A 会话的路由决策串进 B 会话面板；onDecision 只推决策所属会话。
+  const latestDecisions = new Map<Agent, DecisionSummary | null>()
+  const latestFlowEvents = new Map<Agent, string>()
+  const onDecision = (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => {
+    latestDecisions.set(agent, buildDecisionSummary(decision))
     if (extra?.flowId !== undefined) {
       const target = decision.kind === 'route'
         ? `${decision.target.provider}/${decision.target.model}`
         : decision.kind === 'flow' ? `flow:${decision.flowId}` : 'keep'
-      latestFlowEvent = `flow:${extra.flowId} 执行 → ${target}`.slice(0, 120)
+      latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}`.slice(0, 120))
     }
-    pushPanelToAllSessions()
+    pushPanel(agent)
   }
 
   mountRouter()
@@ -452,8 +468,8 @@ export function apply(ctx: Context, config: Config = {}) {
     routerConfig = next
     configSource = source
     if (changed) {
-      latestDecision = null
-      latestFlowEvent = null
+      latestDecisions.clear()
+      latestFlowEvents.clear()
       mountRouter()
       refreshCandidates()
     }
@@ -478,9 +494,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // Dropdown model catalogs: both enumerated async from the llm service
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
-  const panelSnapshot = (): KimiTidePanelProjection => {
+  const panelSnapshot = (agent: Agent): KimiTidePanelProjection => {
     const preset = routerConfig.activePreset === null ? undefined : routerConfig.presets[routerConfig.activePreset]
-    return {
+    const snapshot: KimiTidePanelProjection = {
       quota: monitor.snapshot().quota,
       kimi: kimiStatus,
       router: {
@@ -496,19 +512,30 @@ export function apply(ctx: Context, config: Config = {}) {
         const summary: CandidateSummary = { provider: m.provider, model: m.model, available: m.available }
         return summary
       }),
-      decision: latestDecision,
+      // 评审修复 2026-08-23：decision/lastFlowEvent/imageContext 均为按 agent 字段
+      decision: latestDecisions.get(agent) ?? null,
     }
+    // 投影 v6（0.6.0）：imageContext 是按 agent 的按图三态计数——无图会话
+    // 不写该字段（缺席 ≠ 三零计数）；lastFlowEvent 为该会话最近流事件
+    // （onDecision extra.flowId 供给），无则缺席。
+    const counts = imageStates.counts(agent)
+    if (counts.native + counts.transcribed + counts.blind > 0) snapshot.imageContext = counts
+    const flowEvent = latestFlowEvents.get(agent)
+    if (flowEvent !== undefined) snapshot.lastFlowEvent = flowEvent
+    return snapshot
   }
+  /** 各 agent 最近一次成功入日志的快照签名（语义去重，见 panelSignature）。 */
+  const lastPushedSignatures = new Map<Agent, string>()
   const pushPanel = (agent: Agent) => {
     try {
-      const snapshot = panelSnapshot()
-      // 投影 v6（0.6.0）：imageContext 是按 agent 的按图三态计数——无图会话
-      // 不写该字段（缺席 ≠ 三零计数）；lastFlowEvent 为进程级最近流事件
-      // （onDecision extra.flowId 供给），无则缺席。沿 pushPanelToAllSessions 惯例。
-      const counts = imageStates.counts(agent)
-      if (counts.native + counts.transcribed + counts.blind > 0) snapshot.imageContext = counts
-      if (latestFlowEvent !== null) snapshot.lastFlowEvent = latestFlowEvent
+      const snapshot = panelSnapshot(agent)
+      // 语义去重（评审修复 2026-08-23）：签名相同 = 无新信息 = 不追加会话日志。
+      // 60s 配额轮询的 fetchedAt 逐次必变，不去重的话每个存活会话的持久化日志
+      // 每分钟必追加一条 kimi-tide/panel 事件，而投影 fold 只取最新——纯膨胀。
+      const signature = panelSignature(snapshot)
+      if (lastPushedSignatures.get(agent) === signature) return
       agent.session.append(KIMI_TIDE_PANEL_EVENT, snapshot)
+      lastPushedSignatures.set(agent, signature)
     } catch (error) {
       ctx.logger?.warn?.(`dsh-kimi-tide: panel push failed: ${(error as Error).message}`)
     }
@@ -551,6 +578,9 @@ export function apply(ctx: Context, config: Config = {}) {
   })
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     liveAgents.delete(payload.agent)
+    latestDecisions.delete(payload.agent)
+    latestFlowEvents.delete(payload.agent)
+    lastPushedSignatures.delete(payload.agent)
   })
   // Seed the roster from the live agent registry: agent/created does NOT
   // re-fire for agents that already live, so a (re)applied instance must

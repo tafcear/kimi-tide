@@ -5,6 +5,17 @@
  * `- id: dsh-kimi-tide` row, then its `config:` block, then the `router:`
  * subtree, and splice only those lines. Writes are atomic (.tmp + rename)
  * with a .bak copy taken first.
+ *
+ * 【冻结声明 · 2026-08-23 评审裁定】本文件是 v1 legacy 路径的只读迁移器：
+ * 生产面只有 load() 可达（index.ts 读 v1 种子喂迁移链）；save() 生产零调用
+ * （命令层写 settings 命名空间或 sidecar，永不写 patch 文件——grep 可证），
+ * 仅为存量测试保留。写入面就此冻结，不再投入。两个已知标量陷阱按评审裁定
+ * 不修（v5 不住这条路径，触发即 schema 校验失败降级为 null，文件不会被
+ * 读路径破坏）：
+ *   1. parseSimpleYamlBlock 的 replace(/\s+#.*$/, '') 会把含 ' #' 的标量值
+ *      截断（引号不感知）；
+ *   2. renderEntry/flowMap 渲染字符串数组 [${arr.join(', ')}] 不加引号，
+ *      元素含逗号/特殊字符即往返破损。
  */
 import { copyFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import Schema from 'schemastery'

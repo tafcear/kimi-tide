@@ -78,7 +78,7 @@ export interface KimiTidePanelProjection {
   configSource: ConfigSource
   /** Enumerated candidate pool summary (provider-agnostic; whitelist-filtered). */
   candidates: CandidateSummary[]
-  /** Latest capability routing decision summary; null when off/keep or none yet. */
+  /** Latest routing decision summary FOR THIS SESSION; null when off/keep or none yet. */
   decision: DecisionSummary | null
   /** 0.6.0 面板 v6：当前会话按图三态计数；缺席 = 无图会话（投影不写该字段）。 */
   imageContext?: ImageContextCounts

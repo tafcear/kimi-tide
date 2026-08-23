@@ -83,4 +83,26 @@ describe('ImageStateStore', () => {
     s.mark(agentA, 'img-1', 'native')
     expect(s.get(agentA, 'img-1')).toEqual({ state: 'native' })
   })
+
+  it('demoteUnbackedTranscribed：缓存落空（LRU 逐出）的 transcribed 条目降级回 native 且保留 latchTarget', () => {
+    // 评审修复 2026-08-23：进程级转述 LRU 逐出后，状态表 transcribed 条目
+    // 的投影 peek 落空（图块原样进 text-only 请求）。降级回 native 让
+    // lazy/latch 回退路径重新接管；latchTarget 随之复活（latch 不回溯更早
+    // 条目，故条目必须自带 latchTarget 才可改道）。
+    const s = new ImageStateStore()
+    s.mark(agentA, 'img-1', 'native', k3)
+    s.mark(agentA, 'img-1', 'transcribed', k3) // 调用方保留 latchTarget 的形态
+    s.mark(agentA, 'img-2', 'transcribed')
+    s.mark(agentA, 'img-3', 'blind')
+    s.mark(agentA, 'img-4', 'native', k3)
+    // img-2 仍有缓存背书；img-1 落空
+    const demoted = s.demoteUnbackedTranscribed(agentA, (id) => id === 'img-2')
+    expect(demoted).toEqual(['img-1'])
+    expect(s.get(agentA, 'img-1')).toEqual({ state: 'native', latchTarget: k3 })
+    expect(s.get(agentA, 'img-2')?.state).toBe('transcribed')
+    expect(s.get(agentA, 'img-3')?.state).toBe('blind') // blind 不参与
+    expect(s.get(agentA, 'img-4')).toEqual({ state: 'native', latchTarget: k3 }) // 本就 native 不动
+    // 无记录 agent → 空
+    expect(s.demoteUnbackedTranscribed(agentB, () => false)).toEqual([])
+  })
 })

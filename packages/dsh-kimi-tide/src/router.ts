@@ -503,6 +503,12 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           fresh.push(img)
         }
       }
+      // 2.5 转述缓存逐出对账（评审修复 2026-08-23）：进程级 LRU 逐出后
+      // transcribed 条目的投影 peek 落空（图块会原样进 text-only 请求）。
+      // 降级回 native，由 lazy/latch 既有回退路径重新接管（重转述或改道）。
+      for (const id of images.demoteUnbackedTranscribed(agent, (entryId) => peek(entryId) !== undefined)) {
+        ctx.logger?.info?.(`kimi-router: 转述缓存已逐出 attachmentId=${id}，状态降级回 native（按 imageFallback 重处理）`)
+      }
       // 3. 未转述图（本轮）→ hasImage
       const untranscribed = batch.filter((img) => peek(img.attachmentId) === undefined)
       let hasImage = untranscribed.length > 0
@@ -514,11 +520,19 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       if (decision.kind === 'flow') {
         flowId = decision.flowId
         const flow = decision.flow
+        // 并发转述（评审修复 2026-08-23）：图间无依赖，串行 await 会把视觉调用
+        // 延迟按图数叠加在 pre-step 这个整轮阻塞点上。Transcriber 的失败集/LRU
+        // 均按 attachmentId 隔离，text() 内部不抛（null=失败），Promise.all
+        // 无拒绝短路风险；结果按提交序回收，标记/日志语义与串行一致。
+        const texts = await Promise.all(untranscribed.map((img) => transcriber.text(flow, img, transcribeSignal)))
         const failed: ResolvedImage[] = []
-        for (const img of untranscribed) {
-          const text = await transcriber.text(flow, img, transcribeSignal)
+        for (let i = 0; i < untranscribed.length; i++) {
+          const img = untranscribed[i]
+          const text = texts[i]
           if (text === null) failed.push(img)
-          else images.mark(agent, img.attachmentId, 'transcribed')
+          // latchTarget 随 transcribed 标记保留（评审修复）：缓存逐出降级回
+          // native 时条目自带改道目标（latch 不回溯更早条目）。
+          else images.mark(agent, img.attachmentId, 'transcribed', images.get(agent, img.attachmentId)?.latchTarget)
           ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
         }
         if (failed.length === 0) {
@@ -567,12 +581,19 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           } else if (fallback?.kind === 'lazy') {
             flowId = fallback.flowId
             const flow = fallback.flow
-            const failed: string[] = []
-            for (const [id] of native) {
+            // 并发补转述（评审修复 2026-08-23，同 eager 循环的并发依据）：
+            // imageRefs 查不到 ref 的图视同失败（插件重挂载前的历史图）。
+            const texts = await Promise.all(native.map(([id]) => {
               const img = imageRefs.get(id)
-              const text = img === undefined ? null : await transcriber.text(flow, img, transcribeSignal)
+              return img === undefined ? Promise.resolve(null) : transcriber.text(flow, img, transcribeSignal)
+            }))
+            const failed: string[] = []
+            for (let i = 0; i < native.length; i++) {
+              const id = native[i][0]
+              const text = texts[i]
               if (text === null) failed.push(id)
-              else images.mark(agent, id, 'transcribed')
+              // latchTarget 保留（同 eager 循环，评审修复）
+              else images.mark(agent, id, 'transcribed', native[i][1].latchTarget)
               ctx.logger?.info?.(`kimi-router: flow:${flowId} lazy 转述 attachmentId=${id} ${text === null ? '失败' : '成功'}`)
             }
             if (failed.length > 0) {

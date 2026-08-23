@@ -246,7 +246,7 @@ interface DepsFixture {
 }
 
 /** installRouter 0.6.0 deps 夹具：真实 ImageStateStore + 真实 Transcriber（caller 可注入）。 */
-function makeDeps(caller?: VisionCaller): DepsFixture {
+function makeDeps(caller?: VisionCaller, cacheCap?: number): DepsFixture {
   const images = new ImageStateStore()
   const callerCalls: DepsFixture['callerCalls'] = []
   const decisions: DepsFixture['decisions'] = []
@@ -255,6 +255,7 @@ function makeDeps(caller?: VisionCaller): DepsFixture {
       callerCalls.push({ target, prompt, images: imgs })
       return '转述文字'
     }),
+    ...(cacheCap === undefined ? {} : { cacheCap }),
   })
   return {
     images,
@@ -536,6 +537,39 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     expect(cfg).toEqual(SAVING_DEFAULT)
     expect(fx.images.get(agent as never, 'att-1')?.state).toBe('blind')
   })
+
+  it('④本轮多图并发转述（评审修复 2026-08-23）：图间无依赖，不应串行叠加视觉调用延迟', async () => {
+    const { ctx, dispatch } = makeCtx()
+    // 在途探针：串行实现下 maxInFlight 恒 1；并发实现下 3 张图同时在途。
+    let inFlight = 0
+    let maxInFlight = 0
+    const fx = makeDeps(async (_t, _p, images) => {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight--
+      return `转述:${images[0].attachmentId}`
+    })
+    installRouter(ctx as never, new KimiRouter(FLOW_CONFIG(), FLOW_METAS, { info: () => {} }), fx.deps)
+
+    const multi = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '三张截图一起看' },
+        { type: 'image', attachment: imageRef('att-1') },
+        { type: 'image', attachment: imageRef('att-2') },
+        { type: 'image', attachment: imageRef('att-3') },
+      ],
+    } as unknown as UserMessage
+    await dispatch.preStep({ agent, messages: [multi], turn: 1, step: 1, signal: signal() })
+
+    expect(maxInFlight).toBe(3)
+    for (const id of ['att-1', 'att-2', 'att-3']) {
+      expect(fx.images.get(agent as never, id)?.state).toBe('transcribed')
+    }
+    const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    expect(config).toEqual(SAVING_DEFAULT) // 全成 → hasImage=false 重跑 → 文本默认
+  })
 })
 
 describe('installRouter 转述中止/超时（I-2：视觉端黑洞不得挂死整轮）', () => {
@@ -598,6 +632,85 @@ describe('installRouter 协作编排：lazy 转述（imageFallback = transcribe-
     const third = await dispatch.request({ agent, turn: 3, step: 1, signal: signal() }, baseConfig)
     expect(third).toEqual(SAVING_DEFAULT)
     expect(fx.callerCalls).toHaveLength(1)
+  })
+
+  it('③b lazy 路径多图历史并发补转述（评审修复 2026-08-23）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    let inFlight = 0
+    let maxInFlight = 0
+    const fx = makeDeps(async (_t, _p, images) => {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight--
+      return `转述:${images[0].attachmentId}`
+    })
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'saving'
+    config.presets.saving.imageFallback = 'transcribe-lazy'
+    installRouter(ctx as never, new KimiRouter(config, FLOW_METAS, { info: () => {} }), fx.deps)
+
+    // Turn 1 三张图：image 规则 → k3 原生作答，不触发转述
+    const multi = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '看图' },
+        { type: 'image', attachment: imageRef('att-1') },
+        { type: 'image', attachment: imageRef('att-2') },
+        { type: 'image', attachment: imageRef('att-3') },
+      ],
+    } as unknown as UserMessage
+    await dispatch.preStep({ agent, messages: [multi], turn: 1, step: 1, signal: signal() })
+    const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    expect(first).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+    expect(maxInFlight).toBe(0)
+
+    // Turn 2 纯文本：三张历史 native 图并发补转述（串行 = 3 倍视觉延迟叠加）
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    expect(maxInFlight).toBe(3)
+    for (const id of ['att-1', 'att-2', 'att-3']) {
+      expect(fx.images.get(agent as never, id)?.state).toBe('transcribed')
+    }
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+    expect(second).toEqual(SAVING_DEFAULT)
+  })
+
+  it('③c 转述缓存 LRU 逐出 → 状态表降级回 native → 后续文本轮重转述（评审修复 2026-08-23）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const calls: string[] = []
+    const fx = makeDeps(async (_t, _p, images) => {
+      calls.push(images[0].attachmentId)
+      return `转述:${images[0].attachmentId}`
+    }, 1) // cacheCap=1：第二张图转述成功必逐出第一张
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'saving'
+    config.presets.saving.imageFallback = 'transcribe-lazy'
+    installRouter(ctx as never, new KimiRouter(config, FLOW_METAS, { info: () => {} }), fx.deps)
+    const k3Target = { provider: 'kimi-coding', model: 'k3' }
+
+    // Turn 1 带图 att-1：image 规则 → k3 原生（native + latchTarget=k3），不转述
+    await dispatch.preStep({ agent, messages: [imageMessage('看图', 'att-1')], turn: 1, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    // Turn 2 纯文本：lazy 转述 att-1 → transcribed（缓存 {att-1}）
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+    expect(fx.images.get(agent as never, 'att-1')?.state).toBe('transcribed')
+    // Turn 3 带图 att-2：k3 原生
+    await dispatch.preStep({ agent, messages: [imageMessage('再看', 'att-2')], turn: 3, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 3, step: 1, signal: signal() }, baseConfig)
+    // Turn 4 纯文本：lazy 转述 att-2 → cap 1 逐出 att-1（缓存 {att-2}）
+    await dispatch.preStep({ agent, messages: [textMessage('嗯')], turn: 4, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 4, step: 1, signal: signal() }, baseConfig)
+    expect(fx.transcriber.peek('att-1')).toBeUndefined() // 逐出实锤（修复前后均成立的前提断言）
+    expect(calls).toEqual(['att-1', 'att-2'])
+
+    // Turn 5 纯文本：att-1 标 transcribed 但缓存落空 → 降级回 native → lazy 重转述
+    await dispatch.preStep({ agent, messages: [textMessage('继续聊')], turn: 5, step: 1, signal: signal() })
+    expect(calls.filter((id) => id === 'att-1')).toHaveLength(2)
+    // 重转述成功：transcribed；latchTarget 全程保留（lazy 标记点与降级均不清除）
+    expect(fx.images.get(agent as never, 'att-1')).toEqual({ state: 'transcribed', latchTarget: k3Target })
+    const fifth = await dispatch.request({ agent, turn: 5, step: 1, signal: signal() }, baseConfig)
+    expect(fifth).toEqual(SAVING_DEFAULT)
   })
 })
 
@@ -801,5 +914,33 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
     ])
     const messages = (calls[0] as { messages: Array<{ content: unknown[] }> }).messages
     expect(messages[0].content).toHaveLength(3) // text + 2 image
+  })
+
+  it('abort 中途：流迭代中 reject（AbortError）→ caller 抛错传播（评审补合同：与 finish aborted 同语义）', async () => {
+    // 既有正确行为的合同钉桩：for-await 不吞不挂，流内异常原样传播给
+    // Transcriber 的 catch（记失败集，同图不重打）。
+    const ctx = {
+      llm: {
+        stream: (_options: unknown) => (async function* () {
+          yield { type: 'text-delta', index: 0, text: '半截' }
+          throw new DOMException('The operation was aborted', 'AbortError')
+        })(),
+      },
+    }
+    const caller = createStreamVisionCaller(ctx as never)
+    await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).rejects.toThrow(/aborted/i)
+  })
+
+  it('空文本合同：流正常结束但零 text-delta → 返回空串（成败裁决在 Transcriber 层：空白视同失败）', async () => {
+    // 评审补合同（2026-08-23）：caller 只忠实回报模型输出；「空串=失败、
+    // 进失败集」的裁决钉在 Transcriber.text（见 transcribe.test.ts），本层
+    // 不二次裁决——任何 VisionCaller 实现都受同一条不变量保护。
+    const { ctx } = fakeLlm([
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'usage', usage: { inputTokens: 5, outputTokens: 0 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+    const caller = createStreamVisionCaller(ctx as never)
+    await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).resolves.toBe('')
   })
 })

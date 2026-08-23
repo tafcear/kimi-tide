@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply, buildDecisionSummary, defaultSidecarFile, defaultPatchFile } from '../src/index.js'
+import { apply, buildDecisionSummary, defaultSidecarFile, defaultPatchFile, panelSignature } from '../src/index.js'
 
 /**
  * Regression: saving router settings rewrites the watched cordis.patch.yml,
@@ -197,20 +197,22 @@ describe('apply() kimi 二态 change-gate（0.4.x 终审跟进：二态变化才
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-  it('二态未变：refreshKimiStatus 不增推面板（credentials/reference-updated 节流窗口内隔离）', async () => {
+  it('二态未变：快照零变化 → 一次都不增推（2026-08-23 语义去重后，配额 refresh 的空推也被闸掉）', async () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners } = makeCtx([agent])
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 25))
     agent.session.append.mockClear()
 
+    // 无 key 的测试环境：refresh() 只把 quota 维持 null——快照与初始帧逐字段
+    // 相同，语义去重签名一致 → 不追加（修复前这里恒 append 一条纯膨胀事件）
     for (const listener of listeners.get('credentials/reference-updated') ?? []) listener()
     await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(agent.session.append).toHaveBeenCalledTimes(1)
+    expect(agent.session.append).not.toHaveBeenCalled()
 
     for (const listener of listeners.get('credentials/reference-updated') ?? []) listener()
     await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(agent.session.append).toHaveBeenCalledTimes(1)
+    expect(agent.session.append).not.toHaveBeenCalled()
   })
 
   it('二态翻转：恰好补推一次且快照 kimi.route=false', async () => {
@@ -373,12 +375,13 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
   /** Run the first registered agent/pre-step listener (installRouter's). */
   async function dispatchStep(
     listeners: Map<string, Array<(payload: unknown) => unknown>>,
+    agent: FakeAgent,
     text: string,
   ): Promise<boolean> {
     const listener = listeners.get('agent/pre-step')?.[0]
     if (listener === undefined) return false
     const payload = {
-      agent: {},
+      agent,
       messages: [{ role: 'user', content: [{ type: 'text', text }] } as never],
       turn: 1,
       step: 1,
@@ -401,7 +404,7 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
 
     apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(await dispatchStep(listeners, '请审查这段代码 review')).toBe(true)
+    expect(await dispatchStep(listeners, agent, '请审查这段代码 review')).toBe(true)
 
     const decision = lastSnapshot(agent).decision as { chosen: { provider: string; model: string }; reason: string } | null
     expect(decision).not.toBeNull()
@@ -415,10 +418,10 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
 
     apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 20))
-    await dispatchStep(listeners, '请审查这段代码 review')
+    await dispatchStep(listeners, agent, '请审查这段代码 review')
     expect(lastSnapshot(agent).decision).not.toBeNull()
 
-    await dispatchStep(listeners, '帮我写一首诗')
+    await dispatchStep(listeners, agent, '帮我写一首诗')
     expect(lastSnapshot(agent).decision).toBeNull()
   })
 
@@ -427,7 +430,7 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
     const { ctx, listeners } = makeCtx([agent])
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
-    expect(await dispatchStep(listeners, '请审查这段代码 review')).toBe(false) // no router mounted
+    expect(await dispatchStep(listeners, agent, '请审查这段代码 review')).toBe(false) // no router mounted
     expect(lastSnapshot(agent).decision).toBeNull()
     expect(lastSnapshot(agent).router).toMatchObject({ activePreset: null })
   })
@@ -438,12 +441,80 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
 
     apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 20))
-    await dispatchStep(listeners, '请审查这段代码 review')
+    await dispatchStep(listeners, agent, '请审查这段代码 review')
     expect(lastSnapshot(agent).decision).not.toBeNull()
 
     await getCommand()!.handler({ rawInput: 'preset off' })
     const after = lastSnapshot(agent)
     expect(after.decision).toBeNull()
     expect(after.router).toMatchObject({ activePreset: null })
+  })
+
+  it('决策观测按会话隔离（评审修复 2026-08-23）：A 会话的决策不串进 B 会话面板', async () => {
+    const agentA: FakeAgent = { session: { append: vi.fn() } }
+    const agentB: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agentA, agentB])
+
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    agentA.session.append.mockClear()
+    agentB.session.append.mockClear()
+
+    await dispatchStep(listeners, agentA, '请审查这段代码 review')
+
+    // A 看到自己的决策；B 既看不到 A 的决策，也不被这次决策推送打扰
+    expect(lastSnapshot(agentA).decision).not.toBeNull()
+    expect(agentB.session.append).not.toHaveBeenCalled()
+  })
+
+  it('语义去重（评审修复 2026-08-23）：快照无实质变化不追加会话日志（60s 配额轮询风暴防线）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners } = makeCtx([agent])
+
+    apply(ctx as never, { patchFile, sidecarFile, ...CAPABILITY, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await dispatchStep(listeners, agent, '请审查这段代码 review')
+    agent.session.append.mockClear()
+
+    // 同一输入再决策一轮：快照逐字段相同——fold 只取最新，重复 append 是纯膨胀
+    await dispatchStep(listeners, agent, '请审查这段代码 review')
+    expect(agent.session.append).not.toHaveBeenCalled()
+  })
+})
+
+describe('panelSignature（面板推送语义去重签名，评审修复 2026-08-23）', () => {
+  const base = {
+    quota: {
+      weekly: { used: 9, limit: 100, resetTime: 'w' },
+      fiveHour: { used: 10, limit: 100, resetTime: 'f' },
+      membershipLevel: 'LEVEL_INTERMEDIATE',
+      fetchedAt: 1000,
+      stale: false,
+    },
+    kimi: { route: true, key: true },
+    router: { activePreset: 'capability', presetName: '能力', defaultTarget: { provider: 'kimi-coding', model: 'k3' }, ruleCount: 2 },
+    reasoning: { enabled: true as const },
+    configSource: 'settings' as const,
+    candidates: [{ provider: 'kimi-coding', model: 'k3', available: true }],
+    decision: null,
+  }
+
+  it('仅 fetchedAt 不同的两帧签名相同（配额值未变 = 无新信息）', () => {
+    const later = { ...base, quota: { ...base.quota, fetchedAt: 61000 } }
+    expect(panelSignature(later)).toBe(panelSignature(base))
+  })
+
+  it('quota 值变化 / quota 置 null → 签名不同', () => {
+    const usedUp = { ...base, quota: { ...base.quota, weekly: { ...base.quota.weekly, used: 10 } } }
+    expect(panelSignature(usedUp)).not.toBe(panelSignature(base))
+    expect(panelSignature({ ...base, quota: null })).not.toBe(panelSignature(base))
+  })
+
+  it('stale 翻转 / decision 出现 / imageContext 变化 → 签名不同', () => {
+    expect(panelSignature({ ...base, quota: { ...base.quota, stale: true } })).not.toBe(panelSignature(base))
+    const withDecision = { ...base, decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' } }
+    expect(panelSignature(withDecision)).not.toBe(panelSignature(base))
+    const withImages = { ...base, imageContext: { native: 1, transcribed: 0, blind: 0 } }
+    expect(panelSignature(withImages)).not.toBe(panelSignature(base))
   })
 })

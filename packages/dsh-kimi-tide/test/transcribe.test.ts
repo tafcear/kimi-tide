@@ -67,6 +67,27 @@ describe('Transcriber 失败不重打', () => {
     expect(await t.text(flow(), img('good'))).toBe('好图转述')
     expect(caller).toHaveBeenCalledTimes(2)
   })
+
+  it('空转述视同失败（评审修复 2026-08-23）：返回 null、进失败集、不进成功缓存', async () => {
+    // 模型空响应（流正常结束但累计文本为空）若当成功缓存，投影会把图块
+    // 替换成空字符串——文本模型拿到的上下文静默缺一块。空白即失败。
+    const logs: string[] = []
+    const caller = vi.fn<VisionCaller>().mockResolvedValue('')
+    const t = new Transcriber({ caller, log: (m) => logs.push(m) })
+    const image = img('empty1')
+    expect(await t.text(flow(), image)).toBeNull()
+    expect(await t.text(flow(), image)).toBeNull() // 失败集：不重打
+    expect(caller).toHaveBeenCalledTimes(1)
+    expect(t.peek('empty1')).toBeUndefined()
+    expect(logs.length).toBeGreaterThan(0)
+  })
+
+  it('纯空白转述（仅空白字符）同样视同失败', async () => {
+    const caller = vi.fn<VisionCaller>().mockResolvedValue('  \n\t ')
+    const t = new Transcriber({ caller })
+    expect(await t.text(flow(), img('blank1'))).toBeNull()
+    expect(t.peek('blank1')).toBeUndefined()
+  })
 })
 
 describe('Transcriber 中止信号透传（I-2）', () => {

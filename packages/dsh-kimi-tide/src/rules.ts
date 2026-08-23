@@ -9,7 +9,11 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { KIMI_PROVIDER, type RouterPreset, type RouterRule } from './config.js'
 
 export function explicitProvider(text: string): string | null {
-  const m = /@([\w-]{2,20})\b/.exec(text)
+  // 前导锚定（评审修复 2026-08-23）：@ 前紧邻词字符（\w 或 @）则不是指令——
+  // 邮箱 user@example.com、句中引用等不误判。指令语义要求 @ 出现在行首或
+  // 空白/标点/中文之后。行首装饰器（@Component）与指令在词法上不可区分，
+  // 仍会命中 → 未知 provider 走 keep + 日志的既有宽容语义（decide 层钉桩）。
+  const m = /(?:^|[^\w@])@([\w-]{2,20})\b/.exec(text)
   if (m === null) return null
   if (m[1] === 'kimi' || m[1] === 'kimi-tide') return KIMI_PROVIDER
   return m[1]
