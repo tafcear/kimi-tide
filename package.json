@@ -3,10 +3,5 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "月汐 — Kimi Code (Moonshot) 接入 DeepSeek Harness (DSH) 的集成方案",
-  "dependencies": {
-    "@deepseek-ai/dsh-llm-pi-ai": "0.1.0-rc.6",
-    "@earendil-works/pi-ai": "0.82.1",
-    "js-yaml": "^4.1.0"
-  }
+  "description": "kimi-tide（月汐）— preset-and-rule model router for DeepSeek Harness：任意已挂载的模型，都按你的规则选路（含图像转述协作流）"
 }
