@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ⛔ **开工前置（用户指定，2026-08-25）：实施前必须经过评审**——本计划任何 Task 执行前必须先完成评审并获得通过；评审安排（评审人 / 轮次 / 口径）由用户裁定，默认按本项目惯例 = Kimi k3 独立评审 + 用户审定。评审未通过不得进入实施。
+
 **Goal:** 升级 kimi-tide 规则链的关键词匹配引擎——纯 ASCII 关键词词边界防误触、命中特异度选优、可选 `minHits` 阈值，并同步调整内置预设与用户实机配置的顺序/词表，消除「chitchat 首序劫持 / 子串误中 / 词表过薄」三类误路由。
 
 **Architecture:** 纯函数改造集中在 `src/rules.ts`（编译型关键词匹配器 + 命中计分排序）；`KimiRouter.decide` 的「按 matchingRules 返回序取首个目标可用者」循环不改——排序即选优；`minHits` 是 `RuleCondition` keywords 变体的可选字段（schema 标量无 default，缺省省略=1 语义），`validateRouterConfig` 校验整数界；设置卡片规则行加「最少命中词数」数字输入；内置预设数据（code 词表 / capability 规则序）与用户实机 saving 配置按同一原则调整。
