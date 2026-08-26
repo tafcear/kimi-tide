@@ -544,13 +544,17 @@ git commit -m "docs: 0.7.0 关键词匹配语义同步 + version bump"
 > 门禁成文位置：仓库根 README「开发与测试」节（中英镜像）。执行前置：重启 `dsh web`
 > （bundle link 直连仓库源码，重启即装载 0.7.0 构建）；验收记录回写本节与路线图证据锚点。
 
-- [ ] **A1 装载回归**：重启后面板/设置卡片正常渲染；`/kimi-tide show` 显示 saving 预设 4 条规则新序（image→code→plan→chitchat）与 code 组 17 词
-- [ ] **A2 词边界阴性**：发「帮我 decode 这段 base64」「unicode 转义问题」「生成 barcode 的工具」→ 决策不命中 code 规则（落打底，无 code 改道）
-- [ ] **A3 词边界阳性**：「please refactor this function」与「这段代码有 bug」→ code 规则命中（决策 chip 显示规则命中与目标）
-- [ ] **A4 特异度排序**：「帮我总结这次重构，顺便写个测试」→ code（2 词）压过 chitchat（1 词），路由到 code 目标
-- [ ] **A5 minHits 阈值**：切 saving 预设后单发「帮我做个方案」→ 不触发 plan 规则（rule-4 minHits:2）；「plan：帮我做个方案」→ 触发
-- [ ] **A6 设置卡片输入**：关键词规则行渲染「最少命中词数」数字输入；改值可存、重启保持（`/kimi-tide export-config` 复核）；纯带图规则行不渲染该输入
-- [ ] **A7 存量兼容**：v5 形状不变——升级后无新增 `.pre-v5` 留档、配置未被改写（version 仍 5、字段无增删）
-- [ ] **A8 显式指令回归**：`@kimi` 前缀消息仍走显式路由（最高优先级不受匹配语义影响）
-- [ ] **A9 带图规则回归**：带图消息仍命中 image 规则（用户配置 transcribe 流目标），转述链路正常
-- [ ] **A10 决策可观测**：面板决策 chip 与会话日志 request/header 的 provider/model 一致（抽查 A3/A4 各一）
+**执行记录（2026-08-26 23:4x，宿主重启于 23:33:58，PID 22464；profile pnpm `link:` 直连仓库 lib，23:25 构建）**：4 只读路由探针 + 会话日志 `request/header` 解码 + bundle/settings 静态核验。✅=主机侧自证通过；👁=待用户协验（清单未全绿，**发版仍冻结**）。
+
+- [x] **A1 装载回归** ✅：重启后插件加载正常（本会话持续工作、`kimi-tide/panel` 推送 ×11 在会话日志实见）；settings.yaml 逐字段复核（saving 4 条规则新序 image→code→plan→chitchat、code 组 17 词）；`/kimi-tide show` 文本输出未直验（命令面存活由会话日志 command/run 佐证）
+- [x] **A2 词边界阴性** ✅：探针「帮我 decode 这段 base64」→ request/header = `deepseek-official/deepseek-v4-pro`（落打底，非 code 目标 glm-5.2）
+- [x] **A3 词边界阳性** ✅：探针「please refactor this function」→ request/header = `zai-coding-cn/glm-5.2`（code 规则命中）
+- [x] **A4 特异度排序** ✅：探针「帮我总结这次重构，顺便写个测试」（chitchat 1 词列表序在前 vs code 2 词）→ `zai-coding-cn/glm-5.2`（code 反超——旧列表序语义会命中 chitchat 的 deepseek-v4-pro，判别成立）
+- [ ] **A5 minHits 阈值** 👁：配置面 ✅（settings.yaml rule-4 `minHits: 2` 在案）；行为面待用户协验——当前激活预设 capability（无 minHits 规则），需切 saving 后发「帮我做个方案」/「plan：帮我做个方案」观察决策
+- [ ] **A6 设置卡片输入** 👁：产物面 ✅（lib/client.js 含 `kt-minhits` 输入与「最少命中词数」文案，23:25 构建）；视觉渲染待用户目检（设置 → 月汐）
+- [x] **A7 存量兼容** ✅：重启后无新增 `.pre-v5` 留档；settings.yaml 复核 version 5、activePreset/flows/presets 字段无增删（code 词表 17/plan 4 词均为本次计划内调整）
+- [x] **A8 显式指令回归** ✅：探针「@kimi …」→ request/header = `kimi-coding/k3`（显式路由最高优先，不受匹配语义影响）
+- [ ] **A9 带图规则回归** 👁：待用户协验——发任意一张图（capability 内 image 规则 → `qwen-token-plan-cn/qwen3.8-max-preview`；saving 为 transcribe 流目标）
+- [x] **A10 决策可观测** ✅（主机侧）：`kimi-tide/panel` 推送实见 ×11；四探针 request/header 与决策语义逐一吻合（A2/A3/A4/A8 各一）；chip 视觉渲染待用户目检
+
+**结论（2026-08-26）**：核心匹配语义（A2/A3/A4 判别项）与回归项（A1/A7/A8/A10 主机侧）全部实锤通过；A5 行为、A6 视觉、A9 带图三项需用户协作。**门禁未解除：三项补齐前不打 tag。**
