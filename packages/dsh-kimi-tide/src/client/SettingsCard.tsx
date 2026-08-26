@@ -17,6 +17,8 @@
  * createPreset / deletePreset / saveKeywordGroups / saveFlows / deleteFlow）
  * 路由到 scope.set 或 connection.api.settings.mutate，不经过 dock 的
  * import-config 通道；宿主 validate-on-write 拒绝一律上浮 error 通道，不静默。
+ *
+ * 0.7.0 规则行关键词条件增「最少命中词数」输入（minHits，1..n 整数才写）。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
@@ -510,7 +512,15 @@ export function SettingsCard(props: SettingsCardProps) {
                     aria-label="条件"
                     value={conditionValue(rule)}
                     disabled={!writable}
-                    onChange={(e) => editActiveRule(index, { when: parseCondition(e.target.value) })}
+                    onChange={(e) => {
+                      const parsed = parseCondition(e.target.value)
+                      // 条件切换保留 minHits（0.7.0：parseCondition 不含该字段，
+                      // keywords→keywords 切组时组合补回）。
+                      const when = rule.when.kind === 'keywords' && parsed.kind === 'keywords'
+                        ? { ...parsed, minHits: rule.when.minHits }
+                        : parsed
+                      editActiveRule(index, { when })
+                    }}
                   >
                     <option value={IMAGE_VALUE}>带图</option>
                     {groupNames.map((group) => (
@@ -520,6 +530,23 @@ export function SettingsCard(props: SettingsCardProps) {
                       <option value={kwValue(rule.when.group)}>{rule.when.group}（缺失）</option>
                     )}
                   </select>
+                  {rule.when.kind === 'keywords' && (
+                    <input
+                      aria-label="最少命中词数"
+                      className="kt-minhits"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={rule.when.minHits ?? 1}
+                      disabled={!writable}
+                      onChange={(e) => {
+                        const n = Math.round(Number(e.target.value))
+                        if (Number.isInteger(n) && n >= 1) {
+                          editActiveRule(index, { when: { ...rule.when, minHits: n } })
+                        }
+                      }}
+                    />
+                  )}
                   <TargetSelect
                     label="目标"
                     value={targetKey}

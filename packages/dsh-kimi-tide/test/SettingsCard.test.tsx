@@ -281,6 +281,18 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
     // Fails if: 非 lazy 态仍渲染懒转述流选择器（brief：仅当选 transcribe-lazy 时可编）。
     expect(latch).not.toContain('aria-label="懒转述流"')
   })
+  it('0.7.0 minHits 输入：关键词条件行渲染、纯带图规则行不渲染', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    // Fails if: 关键词规则行的「最少命中词数」数字输入缺失（0.7.0 Task 5）。
+    expect(html).toContain('最少命中词数')
+    const imageOnly = v4cfg('saving')
+    imageOnly.presets.saving.rules = [
+      { id: 'image-k3', when: { kind: 'image' }, target: { provider: 'kimi-coding', model: 'k3' } },
+    ]
+    const html2 = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(imageOnly) }))
+    // Fails if: 纯带图规则行也渲染 minHits 输入（字段只在 keywords 条件下有意义）。
+    expect(html2).not.toContain('最少命中词数')
+  })
 })
 
 describe('presetSlug（brief Task 8 Step 3 规则）', () => {
