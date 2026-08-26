@@ -1,9 +1,11 @@
-# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0）
+# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0 → 匹配语义升级 0.7.0）
 
 本文以 `src/` 现行实现为准：0.5.0 起**规则驱动路由**架构（预设 = 默认模型 +
 有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到预设
 默认模型打底）；**0.6.0 起规则目标泛化为「模型 | 协作流」**（配置升 v5，见文末
-「0.6.0 协作编排扩展」节）。0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
+「0.6.0 协作编排扩展」节）；**0.7.0 起关键词匹配语义升级**（ASCII 词边界 +
+命中特异度排序 + 可选 minHits 阈值，见文末「0.7.0 匹配语义升级」节）。
+0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
 selectCandidate，配 lambda/routeThreshold/预算窗口）已整体退役；v1/v2/v3 存量
 配置经迁移链自动桥接到 v4（见下文「迁移链」）。设计定稿见
 `docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md` 与
@@ -36,7 +38,7 @@ agent/request ──► applyTo(callConfig) ──► guardImage（模态护栏�
 ```ts
 export type RuleCondition =
   | { kind: 'image' }                    // 带图（本轮或历史含图，锁存后恒真）
-  | { kind: 'keywords'; group: string }  // 命名关键词组命中（大小写不敏感子串）
+  | { kind: 'keywords'; group: string; minHits?: number }  // 命中关键词种数 ≥ minHits（缺省 1；0.7.0）
 
 export interface RouterRule {
   id: string                  // 稳定 id（排序/编辑/测试锚点）
@@ -72,14 +74,14 @@ presets:
     rules:
       - { id: image-k3,  when: { kind: image },                 target: { kimi-coding, k3 } }
       - { id: code-kfc,  when: { kind: keywords, group: code }, target: { kimi-coding, kimi-for-coding } }
-  capability:                 # 能力：默认 k3，闲聊关键词降级 flash，代码走 kimi-for-coding
+  capability:                 # 能力：默认 k3，代码走 kimi-for-coding，闲聊关键词降级 flash（0.7.0 code 首序）
     name: 能力
     default: { provider: kimi-coding, model: k3 }
     rules:
-      - { id: chitchat-flash, when: { kind: keywords, group: chitchat }, target: { deepseek-official, deepseek-v4-flash } }
       - { id: code-kfc,       when: { kind: keywords, group: code },     target: { kimi-coding, kimi-for-coding } }
+      - { id: chitchat-flash, when: { kind: keywords, group: chitchat }, target: { deepseek-official, deepseek-v4-flash } }
 keywordGroups:
-  code:     [代码, code, bug, 重构, refactor, 实现, 函数, 测试]
+  code:     [代码, code, bug, 重构, refactor, 实现, 函数, 测试, 接口, 联调, 部署, 性能, 报错, 日志, 编译, 命令, 脚本]
   chitchat: [你好, 谢谢, 怎么样, 随便, 聊聊, 翻译, 总结, 天气]
 ```
 
@@ -117,8 +119,12 @@ decide(messages, step, hasImageOverride?):
 ```
 
 - `RouteDecision`：`{ kind: 'route'; target; reason; via: 'explicit'|'rule'|'default' } | { kind: 'keep'; reason }`；0.3.x 的 `scoreDelta` 已退役。
-- 规则匹配（`src/rules.ts: matchingRules`）：规则列表顺序、首条命中生效；
-  关键词为大小写不敏感子串匹配；引用不存在的关键词组 → 不命中。
+- 规则匹配（`src/rules.ts: matchingRules`，0.7.0 语义）：命中规则按
+  （特异度 desc，列表序 asc）稳定排序返回，路由层取首条目标可用者——
+  特异度 = 命中关键词种数（image 规则 = ∞ 恒优先，平手按列表序）；
+  纯 ASCII 关键词带词边界邻接守卫（`decode`/`unicode`/`barcode` 不误中
+  `code`，CJK 邻接放行），中文/混合/短语关键词保持大小写不敏感子串匹配；
+  `minHits` 命中种数不足不触发（缺省 1）；引用不存在的关键词组 → 不命中。
 - **显式 @指令的模型选择**：`@provider` 只锁 provider 层，目标 = 该 provider
   枚举序首个可用候选（带图时限定多模态），不再按评分挑最优。
 
@@ -213,7 +219,8 @@ interface CandidateMeta extends RouteTarget {
 | `presets.<id>.default` | `{provider, model}` | — | 打底模型（未命中规则时的路由目标） |
 | `presets.<id>.rules` | `RouterRule[]` | — | 有序规则表；首条目标可用者生效 |
 | `rules[].id` | `string` | — | 稳定 id（排序/编辑/测试锚点） |
-| `rules[].when` | `{kind:'image'} \| {kind:'keywords', group}` | — | 规则条件：带图 / 命名关键词组 |
+| `rules[].when` | `{kind:'image'} \| {kind:'keywords', group, minHits?}` | — | 规则条件：带图 / 命名关键词组 |
+| `rules[].when.minHits` | `number \| undefined` | `undefined` | 命中关键词种数下限（≥1 整数；缺省 1；0.7.0） |
 | `rules[].target` | `{provider, model}` | — | 命中后的路由目标（provider/model 非空字符串） |
 | `keywordGroups` | `Record<string, string[]>` | 内置 code/chitchat | 组名 → 词表；全局共享，用户可增删改 |
 
@@ -373,3 +380,23 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
 - 投影 stateVersion 6：`imageContext: { native, transcribed, blind }`（无图会话
   缺席 ≠ 三零计数）+ `lastFlowEvent`（流执行摘要，≤120 截断）——**数据已推送；
   客户端 dock 渲染行降级 0.6.x 跟进**。
+
+## 0.7.0 匹配语义升级（2026-08-26）
+
+三类误路由的对症修复——chitchat 首序劫持 / 子串误中 / 词表过薄：
+
+1. **ASCII 词边界**：关键词为纯 ASCII 词（`^[a-z0-9_]+$`，大小写不敏感）时
+   匹配带邻接守卫正则 `(?<![a-z0-9_])词(?![a-z0-9_])`——`decode`/`unicode`/
+   `barcode` 不再误中 `code`；CJK 邻接放行（「3d」仍命中「3d打印」类词）。
+   中文/混合/多词短语关键词保持 0.5.x 子串语义，逐字节兼容。
+2. **命中特异度排序**：规则命中分 = 命中关键词**种数**（同一词多次出现计一次），
+   image 规则分 = `+∞` 恒优先；`matchingRules` 按（分 desc，列表序 asc）稳定
+   排序，路由层「首条目标可用者生效」循环不变。平手 = 列表序（保留规则顺序的
+   心智模型）。内置 capability 预设随之调序 code → chitchat（闲聊首序会劫持
+   「你好，帮我写个测试」类混合消息），内置 code 词表 8 → 17 词。
+3. **`minHits` 可选阈值**：`when.kind === 'keywords'` 增 `minHits?: number`
+   （≥1 整数，缺省 1）；命中种数不足不触发。设置卡片规则行关键词条件带
+   「最少命中词数」数字输入（1..n 整数才写）。
+
+**向后兼容**：v5 配置形状不变，新字段全部可选；存量配置导入不迁移、不写回，
+未声明 `minHits` 的行为与旧版一致（仅排序与词边界语义按 0.7.0 生效）。

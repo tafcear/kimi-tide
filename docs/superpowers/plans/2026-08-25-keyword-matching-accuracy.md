@@ -535,3 +535,22 @@ git commit -m "docs: 0.7.0 关键词匹配语义同步 + version bump"
 1. **Spec 覆盖**：设计决策 B1→Task 1、B2→Task 2、B3→Task 3、B4→Task 4+5（UI）；「不做」清单无对应任务（有意为之）。✅
 2. **占位符扫描**：无 TBD/TODO；所有代码块为实际可编译内容。✅
 3. **类型一致性**：`minHits?: number` 在 config/rules/schema/SettingsCard 四处口径一致；`compileKeyword`/`KeywordMatcher` 名称 Task 1 定义、Task 2/3 复用；`matchingRules` 签名全程不变。✅
+
+---
+
+## 0.7.0 实机验收清单（发布门禁，2026-08-26 用户裁定增设）
+
+> **门禁语义**：本清单全绿 + 用户裁定 tag，二者齐备方可发版（打 `v0.7.0` / 触发 Actions Release）。
+> 门禁成文位置：仓库根 README「开发与测试」节（中英镜像）。执行前置：重启 `dsh web`
+> （bundle link 直连仓库源码，重启即装载 0.7.0 构建）；验收记录回写本节与路线图证据锚点。
+
+- [ ] **A1 装载回归**：重启后面板/设置卡片正常渲染；`/kimi-tide show` 显示 saving 预设 4 条规则新序（image→code→plan→chitchat）与 code 组 17 词
+- [ ] **A2 词边界阴性**：发「帮我 decode 这段 base64」「unicode 转义问题」「生成 barcode 的工具」→ 决策不命中 code 规则（落打底，无 code 改道）
+- [ ] **A3 词边界阳性**：「please refactor this function」与「这段代码有 bug」→ code 规则命中（决策 chip 显示规则命中与目标）
+- [ ] **A4 特异度排序**：「帮我总结这次重构，顺便写个测试」→ code（2 词）压过 chitchat（1 词），路由到 code 目标
+- [ ] **A5 minHits 阈值**：切 saving 预设后单发「帮我做个方案」→ 不触发 plan 规则（rule-4 minHits:2）；「plan：帮我做个方案」→ 触发
+- [ ] **A6 设置卡片输入**：关键词规则行渲染「最少命中词数」数字输入；改值可存、重启保持（`/kimi-tide export-config` 复核）；纯带图规则行不渲染该输入
+- [ ] **A7 存量兼容**：v5 形状不变——升级后无新增 `.pre-v5` 留档、配置未被改写（version 仍 5、字段无增删）
+- [ ] **A8 显式指令回归**：`@kimi` 前缀消息仍走显式路由（最高优先级不受匹配语义影响）
+- [ ] **A9 带图规则回归**：带图消息仍命中 image 规则（用户配置 transcribe 流目标），转述链路正常
+- [ ] **A10 决策可观测**：面板决策 chip 与会话日志 request/header 的 provider/model 一致（抽查 A3/A4 各一）

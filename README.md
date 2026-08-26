@@ -128,14 +128,15 @@ timeline
 |---|---|---|---|
 | 关闭 | — | — | 想完全手动选模型的人 |
 | 省钱 | `deepseek-v4-flash` | 带图 → `k3`；代码关键词 → `kimi-for-coding` | 额度敏感、日常杂活多 |
-| 能力 | `k3` | 闲聊关键词 → `deepseek-v4-flash`；代码关键词 → `kimi-for-coding` | 追求最佳产出质量 |
+| 能力 | `k3` | 代码关键词 → `kimi-for-coding`；闲聊关键词 → `deepseek-v4-flash` | 追求最佳产出质量 |
 
 预设即数据：内置预设与自定义预设同构，可在设置卡片新建/复制/删除命名预设、编辑规则与关键词组；`activePreset` 一键全局切换。
 
-### 规则引擎（0.5.0）
+### 规则引擎（0.5.0；0.7.0 匹配语义升级）
 
-- **规则条件**：`带图` / 命名关键词组（内置「代码」「闲聊」两组，词表可改、可自建组）。
-- **决策流**：显式 `@provider`（最高优先）→ 预设规则链（列表顺序、首条目标可用者命中）→ 打底（预设默认模型）——未命中 ≠ 不动，而是路由到打底。
+- **规则条件**：`带图` / 命名关键词组（内置「代码」「闲聊」两组，词表可改、可自建组；关键词条件可加 `minHits` 最少命中词数）。
+- **匹配语义（0.7.0）**：纯英文关键词按**词边界**匹配（`decode`/`unicode`/`barcode` 不再误中 `code`），中文关键词保持子串；命中规则按**特异度**排序（命中词数多者优先，平手按规则列表序，带图轮恒优先），路由层取首条目标可用者。
+- **决策流**：显式 `@provider`（最高优先）→ 预设规则链 → 打底（预设默认模型）——未命中 ≠ 不动，而是路由到打底。
 - **降级**：规则目标未接入（不在全量枚举池）→ 自动跳过该规则，继续匹配/落打底；面板标灰提示。
 - **候选枚举**：从 `ctx.llm` 实时目录**全量**枚举所有 provider 的模型并解析模态（0.5.0 起无白名单）；配了但未接入的模型在面板标灰，不参与路由。
 
@@ -180,7 +181,8 @@ timeline
 | `activePreset` | `null` | 激活预设 id（`saving` / `capability` / 自定义）；`null` = 关闭 |
 | `presets` | 内置「省钱」「能力」 | 预设表：显示名 + 默认模型 + 有序规则表 |
 | `presets.<id>.default` | — | 打底模型（未命中规则时的路由目标） |
-| `presets.<id>.rules` | — | 规则表：条件（`带图` / 关键词组）+ 目标（模型｜协作流），首条命中生效 |
+| `presets.<id>.rules` | — | 规则表：条件（`带图` / 关键词组，关键词条件可带 `minHits`）+ 目标（模型｜协作流），特异度优先、平手按序 |
+| `presets.<id>.rules[].when.minHits` | 缺省 `1` | 命中关键词种数下限（≥1 整数；0.7.0）——「做个方案」不想触发就配 2 |
 | `presets.<id>.imageFallback` | 缺省 `latch` | 预设级带图兜底：latch 锁存 / blind 当无图 / transcribe-lazy 懒转述 |
 | `flows` | 预置 transcribe/review | 协作流注册表（规则目标可引用）；预置流注册但不绑定 |
 | `keywordGroups` | 内置 `code` / `chitchat` | 命名关键词组词表（用户可增删改） |
@@ -217,17 +219,19 @@ timeline
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（当前 354/354 通过，24 个测试文件）
+npm test            # vitest（当前 359/359 通过，24 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
 质量基线：全量测试绿 + typecheck 0 错误 + build 通过方可提交。本仓库实践「实施 → 独立审查（Kimi 真身）→ 修复 → 复检验收」双模型协作闭环（见 [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)；该方法的独立研究见 [kimi-tide-research](https://github.com/tafcear/kimi-tide-research)）。
 
+**发布门禁（2026-08-26 起，用户裁定）**：实机验收从项目惯例升级为硬门禁——**任何版本发版（打 tag / 触发 Actions Release）前，必须在真实宿主上跑通该版本的实机验收清单并全绿**；「清单全绿 + 用户裁定 tag」二者齐备方可发版。理由：单元测试绿 ≠ 宿主里能跑（0.1.x 插件冒烟全绿仍装不进宿主的教训，见协作闭环 §4-6；0.6.0 验收中也实锤过 rc.2 宿主覆盖路由的缺陷 `e2d3c68`）。各版本验收清单随实施计划落档 `docs/superpowers/plans/`，执行记录回写路线图证据锚点。
+
 ---
 
 ## 路线图
 
-> 当前版本：**v0.6.1（2026-08-23 发布）**——协作编排 + 评审修复波。[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
+> 当前版本：**v0.7.0（2026-08-26）**——关键词匹配准确性升级。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）· **发版门禁：实机验收清单全绿 + 用户裁定 tag（见「开发与测试」）**
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
@@ -238,6 +242,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 | 0.5.0 规则驱动路由 | ✅ 已发布（2026-08-21） | tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)，209/209 绿 |
 | 0.6.0 协作编排 | ✅ 已发布（2026-08-23） | tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)，337/337 绿 + typecheck 0 + build 过；实机验收 10 项全过（含 T4 门）；验收修复 `e2d3c68`（rc.2 宿主 model-selection 覆盖） |
 | 0.6.1 评审修复波 | ✅ 已发布（2026-08-23） | tag `v0.6.1`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1)，354/354 绿 + typecheck 0 + build 过；转述并发 / 轮询有界 / 面板去重 / LRU 对账 / 空转述裁决 / 决策按会话隔离（`13ede6e`）+ CI 版本窗修正（`f4fde04`） |
+| 0.7.0 关键词匹配准确性 | 🔶 已实施、**待实机验收门禁**（2026-08-26，分支 `feat/0.7.0-keyword-matching`；发版 = 验收清单全绿 + 用户裁定 tag） | 词边界 + 特异度排序 + minHits（`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`），359/359 绿 + typecheck 0 + build 过；验收清单见 [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md) 末节 |
 
 - **0.1.x**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
 - **0.2.x**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
@@ -246,6 +251,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 - **0.5.0**：**规则驱动路由**——命名预设（省钱/能力/可自建）+ 有序规则（带图 / 关键词组）+ 打底语义 + 不可用降级，一键全局切换；能力评分引擎整体退役（scores/classify/预算窗/评分滑杆全删），候选池改全量枚举，v1-v3 存量配置自动迁移留档 `.pre-v4`（[设计稿](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md)，发布版 209/209 绿 + typecheck 0 + build 过；实机验收含迁移缺陷修复）。
 - **0.6.0**：**协作编排**——规则目标泛化为「模型 | 协作流」，预置图像转述流（vision-exp，eager/lazy）与评审流（P2 触发）注册但不绑定；按图三态状态表退役布尔锁存；预设级 `imageFallback` 三态（锁存/盲答/懒转述）；`llm/stream` 智能投影（已转述图块 → 转述文字）；面板 v6 图像上下文行 + 流事件；v4 存量配置自动迁移留档 `.pre-v5`（[设计稿](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md)，发布版 337/337 绿 + typecheck 0 + build 过；实机验收 10 项全过含 T4 门，验收中修复 rc.2 宿主 model-selection 覆盖路由缺陷 `e2d3c68`）。
 - **0.6.1**：**评审修复波**——eager/lazy 转述 `Promise.all` 并发（多图延迟不再按图数叠加）；配额轮询 fetch 有界超时 + in-flight 去重（端点挂起不再泄漏 socket）；面板推送语义签名去重（会话日志不再按分钟膨胀）；转述 LRU 逐出对账降级回 native 重转述；空白转述视同失败进失败集；决策/流事件观测按会话隔离（不再串台）；`@指令` 前导锚定（邮箱不误判）；settings v1 写入面冻结；新增 CI（push/PR 触发，Node 22/24 双腿）。354/354 绿 + typecheck 0 + build 过。
+- **0.7.0**：**关键词匹配准确性升级**——三类误路由对症修复：①纯 ASCII 关键词词边界匹配（`decode`/`unicode`/`barcode` 不再误中 `code`，中文保持子串）；②命中特异度排序（命中词数多者优先、平手按列表序、带图恒优先），内置能力预设调序 code→chitchat、code 词表 8→17 词；③规则条件可选 `minHits` 最少命中词数（≥1 整数，缺省 1；设置卡片带输入）。v5 形状不变、新字段全可选，存量配置逐字节兼容。359/359 绿 + typecheck 0 + build 过。
 - **规划中**：review 流命令式触发（P2，`/kimi-tide review`）、子代理转述机制（P3，S2 契约 GO）；0.6.x 跟进池——面板图像上下文行客户端渲染、M-3 校验加固、lazy 失败直测、建流 UI 等 18 条。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
 
 ---
@@ -420,14 +426,15 @@ Three principles:
 |---|---|---|---|
 | Off | — | — | full manual control |
 | Saving (省钱) | `deepseek-v4-flash` | image → `k3`; code keywords → `kimi-for-coding` | quota-sensitive daily work |
-| Capability (能力) | `k3` | chitchat keywords → `deepseek-v4-flash`; code keywords → `kimi-for-coding` | best output quality |
+| Capability (能力) | `k3` | code keywords → `kimi-for-coding`; chitchat keywords → `deepseek-v4-flash` | best output quality |
 
 Presets are data: built-ins and custom presets share one shape — create/duplicate/delete named presets and edit rules and keyword groups in the settings card; `activePreset` switches globally in one click.
 
-### Rule Engine (0.5.0)
+### Rule Engine (0.5.0; 0.7.0 matching-semantics upgrade)
 
-- **Rule conditions**: `image` / a named keyword group (built-in "code" and "chitchat"; editable word lists, custom groups allowed).
-- **Decision flow**: explicit `@provider` (highest priority) → preset rule chain (list order, first hit with an available target wins) → baseline (preset default) — a miss is not "do nothing", it routes to the baseline.
+- **Rule conditions**: `image` / a named keyword group (built-in "code" and "chitchat"; editable word lists, custom groups allowed; keyword conditions accept an optional `minHits` — minimum distinct words hit).
+- **Matching semantics (0.7.0)**: pure-ASCII keywords match on **word boundaries** (`decode`/`unicode`/`barcode` no longer trip `code`), while Chinese keywords keep substring matching; matched rules are ranked by **specificity** (more distinct hits first, ties keep list order, image rules always first), and the router takes the first hit with an available target.
+- **Decision flow**: explicit `@provider` (highest priority) → preset rule chain → baseline (preset default) — a miss is not "do nothing", it routes to the baseline.
 - **Degradation**: a rule target absent from the full enumeration pool is skipped automatically (fall through to later rules / baseline) and greyed out in the panel.
 - **Candidate enumeration**: models are enumerated live from the `ctx.llm` catalog across **all** providers (no whitelist since 0.5.0), with modalities resolved; configured-but-unavailable models render greyed out and are skipped when routing.
 
@@ -472,7 +479,8 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 | `activePreset` | `null` | active preset id (`saving` / `capability` / custom); `null` = off |
 | `presets` | built-in saving/capability | preset table: display name + default model + ordered rules |
 | `presets.<id>.default` | — | baseline model (route target when no rule hits) |
-| `presets.<id>.rules` | — | rule table: condition (`image` / keyword group) + target (model | flow), first hit wins |
+| `presets.<id>.rules` | — | rule table: condition (`image` / keyword group, keyword conditions accept `minHits`) + target (model | flow); specificity first, ties by order |
+| `presets.<id>.rules[].when.minHits` | `1` | minimum distinct keyword hits (integer ≥1; 0.7.0) — set 2 so "make a plan" alone doesn't fire |
 | `presets.<id>.imageFallback` | `latch` by default | per-preset image fallback: latch / blind / transcribe-lazy |
 | `flows` | built-in transcribe/review | collaboration-flow registry (referenced by rule targets); built-ins ship registered but unbound |
 | `keywordGroups` | built-in `code` / `chitchat` | named keyword-group word lists (user-editable) |
@@ -509,17 +517,19 @@ Presets are data: built-ins and custom presets share one shape — create/duplic
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (currently 354/354 passing across 24 test files)
+npm test            # vitest (currently 359/359 passing across 24 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
 Quality bar: full test suite green + zero typecheck errors + successful build before committing. This repository practices an "implement → independent review (real Kimi) → fix → re-check" dual-model loop (see [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md); the independent study of this method lives at [kimi-tide-research](https://github.com/tafcear/kimi-tide-research)).
 
+**Release gate (since 2026-08-26, user ruling)**: live acceptance is upgraded from a convention to a hard gate — **before any release (tagging / triggering the Actions Release), that version's live-acceptance checklist must pass in full on the real host**; "checklist green + user-approved tag" together unlock the release. Rationale: green unit tests ≠ runs in the host (the 0.1.x plugin passed smoke tests yet failed to load into the host — see the collaboration loop §4-6; the 0.6.0 acceptance also caught the rc.2 host route-override defect `e2d3c68`). Per-version checklists are archived with their implementation plans under `docs/superpowers/plans/`, and execution results are written back into the roadmap evidence column.
+
 ---
 
 ## Roadmap
 
-> Current version: **v0.6.1 (released 2026-08-23)** — collaboration flows + review fix wave. [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1) · [Actions pipeline](https://github.com/tafcear/kimi-tide/actions) (tag-triggered, fully automated)
+> Current version: **v0.7.0 (2026-08-26)** — keyword-matching accuracy upgrade. [Releases](https://github.com/tafcear/kimi-tide/releases) · [Actions pipeline](https://github.com/tafcear/kimi-tide/actions) (tag-triggered, fully automated) · **Release gate: live-acceptance checklist green + user-approved tag (see "Development & Testing")**
 
 | Line | Status | Evidence |
 |---|---|---|
@@ -530,6 +540,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 | 0.5.0 rule-driven routing | ✅ Released (2026-08-21) | tag `v0.5.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0), 209/209 green |
 | 0.6.0 collaboration flows | ✅ Released (2026-08-23) | tag `v0.6.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0), 337/337 green + typecheck 0 + build ok; 10-item live acceptance all passed (incl. T4 gate); acceptance fix `e2d3c68` (rc.2 host model-selection override) |
 | 0.6.1 review fix wave | ✅ Released (2026-08-23) | tag `v0.6.1`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1), 354/354 green + typecheck 0 + build ok; parallel transcription / bounded quota polling / panel dedup / LRU reconciliation / empty-transcription adjudication / per-session decision observability (`13ede6e`) + CI window fix (`f4fde04`) |
+| 0.7.0 keyword-matching accuracy | 🔶 Implemented, **pending the live-acceptance gate** (2026-08-26, branch `feat/0.7.0-keyword-matching`; release = checklist green + user-approved tag) | word boundaries + specificity ranking + minHits (`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`), 359/359 green + typecheck 0 + build ok; checklist in the last section of [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md) |
 
 - **0.1.x**: native DSH Kimi provider, v0.1.3 (credential gating + OAuth hardening).
 - **0.2.x**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
@@ -538,6 +549,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.5.0**: **rule-driven routing** — named presets (saving/capability/custom) + ordered rules (image / keyword groups) + baseline semantics + unavailable-target degradation, one-click global switch; the capability scoring engine is fully retired (scores/classify/budget window/score sliders all removed), the candidate pool is now a full enumeration, and v1-v3 stored configs auto-migrate with a `.pre-v4` backup ([design spec](docs/superpowers/specs/2026-08-20-rule-driven-routing-design.md); release version: 209/209 green + typecheck 0 + build ok; live acceptance included a migration-defect fix).
 - **0.6.0**: **collaboration flows** — rule targets generalize to "model | collaboration flow"; the built-in image-transcribe flow (vision-exp, eager/lazy) and review flow (P2 trigger) ship registered but unbound; the per-image three-state table retires the boolean latch; per-preset `imageFallback` (latch/blind/transcribe-lazy); `llm/stream` smart projection (transcribed blocks → transcription text); panel v6 gains the image-context line + flow events; v4 stored configs auto-migrate with a `.pre-v5` backup ([design spec](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md); release version: 337/337 green + typecheck 0 + build ok; 10-item live acceptance all passed incl. the T4 gate; fixed the rc.2 host model-selection override during acceptance — `e2d3c68`).
 - **0.6.1**: **review fix wave** — eager/lazy transcription now runs via `Promise.all` (multi-image latency no longer stacks per image); quota-polling fetches are time-bounded with in-flight dedup (a hung endpoint no longer leaks sockets); panel pushes carry a semantic signature (session logs no longer grow every minute); evicted transcription-LRU entries are demoted back to native and re-transcribed; blank transcriptions count as failures (failure set, no empty-string projection); decision/flow observability is per-session (no more cross-session bleed); the `@directive` gains a predecessor anchor (emails no longer misfire); the settings v1 write surface is frozen; new CI on push/PR (Node 22/24 legs). 354/354 green + typecheck 0 + build ok.
+- **0.7.0**: **keyword-matching accuracy upgrade** — fixes three classes of misroutes: ① pure-ASCII keywords match on word boundaries (`decode`/`unicode`/`barcode` no longer trip `code`; Chinese keywords keep substring matching); ② matched rules rank by hit specificity (more distinct hits first, ties keep list order, image rules always first), with the built-in capability preset reordered code→chitchat and the code word list grown 8→17; ③ an optional `minHits` threshold on keyword conditions (integer ≥1, default 1; editable in the settings card). The v5 shape is unchanged and new fields are all optional — existing configs stay byte-compatible. 359/359 green + typecheck 0 + build ok.
 - **Planned**: review-flow command trigger (P2, `/kimi-tide review`), subagent transcription (P3, S2 contract GO); the 0.6.x pool — panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and 14 more items. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
