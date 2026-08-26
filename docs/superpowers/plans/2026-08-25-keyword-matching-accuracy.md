@@ -551,10 +551,10 @@ git commit -m "docs: 0.7.0 关键词匹配语义同步 + version bump"
 - [x] **A3 词边界阳性** ✅：探针「please refactor this function」→ request/header = `zai-coding-cn/glm-5.2`（code 规则命中）
 - [x] **A4 特异度排序** ✅：探针「帮我总结这次重构，顺便写个测试」（chitchat 1 词列表序在前 vs code 2 词）→ `zai-coding-cn/glm-5.2`（code 反超——旧列表序语义会命中 chitchat 的 deepseek-v4-pro，判别成立）
 - [x] **A5 minHits 阈值** ✅（2026-08-26 深夜补验，激活预设=saving）：探针「帮我做个方案」（方案 1 词 < minHits 2）→ request/header = `deepseek-official/deepseek-v4-pro`（落打底，plan 规则未触发）；探针「plan：帮我做个方案」（plan+方案 2 词 ≥ 2）→ `qwen-token-plan-cn/qwen3.8-max-preview`（plan 规则触发）；用户本人消息同文路由一致
-- [ ] **A6 设置卡片输入** 👁：产物面 ✅（lib/client.js 含 `kt-minhits` 输入与「最少命中词数」文案，23:25 构建）；视觉渲染待用户目检（设置 → 月汐）
+- [x] **A6 设置卡片输入** ✅（用户目检截图，2026-08-26 深夜）：关键词规则行均渲染「最少命中词数」数字输入（code=1 / plan=2 / chitchat=1，值与 settings.yaml 回环一致）；纯带图规则行不渲染该输入；规则序 UI 显示 image→code→plan→chitchat 新序；带图兜底「盲答」与配置一致
 - [x] **A7 存量兼容** ✅：重启后无新增 `.pre-v5` 留档；settings.yaml 复核 version 5、activePreset/flows/presets 字段无增删（code 词表 17/plan 4 词均为本次计划内调整）
 - [x] **A8 显式指令回归** ✅：探针「@kimi …」→ request/header = `kimi-coding/k3`（显式路由最高优先，不受匹配语义影响）
-- [ ] **A9 带图规则回归** 👁：待用户协验——发任意一张图（capability 内 image 规则 → `qwen-token-plan-cn/qwen3.8-max-preview`；saving 为 transcribe 流目标）
-- [x] **A10 决策可观测** ✅（主机侧）：`kimi-tide/panel` 推送实见 ×11；四探针 request/header 与决策语义逐一吻合（A2/A3/A4/A8 各一）；chip 视觉渲染待用户目检
+- [x] **A9 带图规则回归** ✅（用户实发截图，激活预设=saving）：带图消息命中 image-k3（目标 = transcribe 流）→ 转述链路实走（视觉模型转述文本注入上下文、本轮以文本模型正常推进，无 UNSUPPORTED_CONTENT）；UI 复核 image 行目标下拉显示「transcribe (转述)」；header 级解码补采随发版轮收口
+- [x] **A10 决策可观测** ✅（主机侧）：`kimi-tide/panel` 推送实见 ×11；六探针 request/header 与决策语义逐一吻合（A2/A3/A4/A5×2/A8）；chip 视觉渲染已随用户截图目检确认
 
-**结论（2026-08-26）**：核心匹配语义（A2/A3/A4 判别项）与回归项（A1/A7/A8/A10 主机侧）全部实锤通过；A5 行为、A6 视觉、A9 带图三项需用户协作。**门禁未解除：三项补齐前不打 tag。**
+**结论（2026-08-26 深夜更新）**：**A1–A10 全部通过——清单全绿，发布门禁技术面解除；发版（tag `v0.7.0` + 合并 main）待用户裁定。**（A9 的 header 级解码证据在发版轮一并补采归档。）
