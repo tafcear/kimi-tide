@@ -2,8 +2,9 @@
 /**
  * kimi-tide 0.5.0 规则引擎（纯函数，无 ctx/agent 依赖）：
  * 显式 @指令提取、消息工具、预设规则匹配。决策组装（可用性过滤/打底/护栏）
- * 在 router.ts。匹配语义：规则列表顺序、首条命中生效（本函数按序返回全部
- * 命中，由路由层取第一个目标可用者）；关键词为大小写不敏感子串匹配。
+ * 在 router.ts。匹配语义（0.7.0）：命中规则按（特异度 desc，列表序 asc）稳定
+ * 排序返回（由路由层取第一个目标可用者）；纯 ASCII 关键词带词边界邻接守卫，
+ * 中文/混合/短语关键词为大小写不敏感子串匹配。
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { KIMI_PROVIDER, type RouterPreset, type RouterRule } from './config.js'
@@ -77,26 +78,35 @@ function compileKeyword(keyword: string): KeywordMatcher {
   return { matches: (text) => text.includes(lowered) }
 }
 
-/** 按预设规则顺序返回全部命中规则（含目标不可用者；可用性过滤在路由层）。 */
+/**
+ * 返回全部命中规则，按（命中特异度 desc，列表序 asc）稳定排序（0.7.0 设计
+ * 决策 B2；含目标不可用者，可用性过滤在路由层——路由层现有「首条目标可用者
+ * 生效」循环不变，排序即选优）。
+ */
 export function matchingRules(config: RuleMatchConfig, text: string, hasImage: boolean): RouterRule[] {
   if (config.activePreset === null) return []
   const preset = config.presets[config.activePreset]
   if (preset === undefined) return []
   const lower = text.toLowerCase()
-  const hits: RouterRule[] = []
+  const hits: Array<{ rule: RouterRule; score: number }> = []
   for (const rule of preset.rules) {
     if (rule.when.kind === 'image') {
-      if (hasImage) hits.push(rule)
+      // 带图轮 image 规则恒优先（设计决策 B2）
+      if (hasImage) hits.push({ rule, score: Number.POSITIVE_INFINITY })
       continue
     }
     const words = config.keywordGroups[rule.when.group]
     if (words === undefined) continue
-    // 每组词每轮编译一次（组词量级几十、每轮 decide 仅一次——开销可忽略，
-    // 免缓存复杂度的理由与既有 0.5.x 简单路径一致）。
-    const matchers: KeywordMatcher[] = words.map((k) => compileKeyword(k))
-    if (matchers.some((m, i) => words[i].length > 0 && m.matches(lower))) hits.push(rule)
+    let matched = 0
+    for (const k of words) {
+      if (k.length > 0 && compileKeyword(k).matches(lower)) matched += 1
+    }
+    // score = 命中关键词种数（同一词多次出现只计一次）
+    if (matched > 0) hits.push({ rule, score: matched })
   }
-  return hits
+  // ES2019+ 稳定排序：平手（含双 image 规则 ∞−∞=NaN 视同 0）保持列表序。
+  hits.sort((a, b) => b.score - a.score)
+  return hits.map((h) => h.rule)
 }
 
 /** 决策摘要/UI 用的条件名：image→带图；keywords→组名。 */
