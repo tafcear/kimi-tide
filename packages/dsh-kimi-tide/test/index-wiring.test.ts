@@ -110,9 +110,9 @@ function makeCtx(agents: FakeAgent[], settings?: SettingsProvider) {
     sessionProjections: { register: () => () => {} },
     setInterval: () => () => {},
     effect,
-    on: (name: string, listener: (payload: unknown) => unknown) => {
+    on: (name: string, listener: (payload: unknown) => unknown, options?: { prepend?: boolean }) => {
       const arr = listeners.get(name) ?? []
-      arr.push(listener)
+      options?.prepend ? arr.unshift(listener) : arr.push(listener)
       listeners.set(name, arr)
       return () => {}
     },
@@ -185,7 +185,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
-    expect(listeners.get('agent/pre-step') ?? []).toHaveLength(0) // activePreset null: no router mounted
+    expect(listeners.get('agent/pre-step') ?? []).toHaveLength(1) // activePreset null: 仅连续失败守卫，无路由器
     const enumerationsBeforeSave = listModelsCalls.length
 
     await getCommand()!.handler({ rawInput: 'preset capability' })
@@ -422,8 +422,8 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(lastSnapshot(agent)).not.toHaveProperty('lastFlowEvent')
 
     // 候选枚举完成后路由器重挂（fake ctx 的 disposer 是空操作，旧监听器仍在
-    // map 里）——取末位 = 持全量目录（含 vision-exp）的现行路由器。
-    const step = listeners.get('agent/pre-step')?.at(-1)
+    // map 里）。prepend 恒外层：取首位 = 现行路由器（持全量目录，含 vision-exp）。
+    const step = listeners.get('agent/pre-step')?.[0]
     expect(step).toBeDefined()
     await (step as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
       {
