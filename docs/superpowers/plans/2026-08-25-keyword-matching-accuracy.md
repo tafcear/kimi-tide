@@ -3,6 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > ⛔ **开工前置（用户指定，2026-08-25）：实施前必须经过评审**——本计划任何 Task 执行前必须先完成评审并获得通过；评审安排（评审人 / 轮次 / 口径）由用户裁定，默认按本项目惯例 = Kimi k3 独立评审 + 用户审定。评审未通过不得进入实施。
+> ✅ **门已解除（用户直接指令，2026-08-26）：「开工，放弃守卫」**——用户裁定放弃独立评审环节，计划直接进入实施；同批裁定守卫（2fc2a9b B 方案兜底，实机验证=结构性死代码）整体放弃（revert `5744144`）。实施记录见当日协作日志。
 
 **Goal:** 升级 kimi-tide 规则链的关键词匹配引擎——纯 ASCII 关键词词边界防误触、命中特异度选优、可选 `minHits` 阈值，并同步调整内置预设与用户实机配置的顺序/词表，消除「chitchat 首序劫持 / 子串误中 / 词表过薄」三类误路由。
 
