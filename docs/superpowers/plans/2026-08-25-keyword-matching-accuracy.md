@@ -550,7 +550,7 @@ git commit -m "docs: 0.7.0 关键词匹配语义同步 + version bump"
 - [x] **A2 词边界阴性** ✅：探针「帮我 decode 这段 base64」→ request/header = `deepseek-official/deepseek-v4-pro`（落打底，非 code 目标 glm-5.2）
 - [x] **A3 词边界阳性** ✅：探针「please refactor this function」→ request/header = `zai-coding-cn/glm-5.2`（code 规则命中）
 - [x] **A4 特异度排序** ✅：探针「帮我总结这次重构，顺便写个测试」（chitchat 1 词列表序在前 vs code 2 词）→ `zai-coding-cn/glm-5.2`（code 反超——旧列表序语义会命中 chitchat 的 deepseek-v4-pro，判别成立）
-- [ ] **A5 minHits 阈值** 👁：配置面 ✅（settings.yaml rule-4 `minHits: 2` 在案）；行为面待用户协验——当前激活预设 capability（无 minHits 规则），需切 saving 后发「帮我做个方案」/「plan：帮我做个方案」观察决策
+- [x] **A5 minHits 阈值** ✅（2026-08-26 深夜补验，激活预设=saving）：探针「帮我做个方案」（方案 1 词 < minHits 2）→ request/header = `deepseek-official/deepseek-v4-pro`（落打底，plan 规则未触发）；探针「plan：帮我做个方案」（plan+方案 2 词 ≥ 2）→ `qwen-token-plan-cn/qwen3.8-max-preview`（plan 规则触发）；用户本人消息同文路由一致
 - [ ] **A6 设置卡片输入** 👁：产物面 ✅（lib/client.js 含 `kt-minhits` 输入与「最少命中词数」文案，23:25 构建）；视觉渲染待用户目检（设置 → 月汐）
 - [x] **A7 存量兼容** ✅：重启后无新增 `.pre-v5` 留档；settings.yaml 复核 version 5、activePreset/flows/presets 字段无增删（code 词表 17/plan 4 词均为本次计划内调整）
 - [x] **A8 显式指令回归** ✅：探针「@kimi …」→ request/header = `kimi-coding/k3`（显式路由最高优先，不受匹配语义影响）
