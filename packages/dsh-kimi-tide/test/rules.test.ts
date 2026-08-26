@@ -58,7 +58,8 @@ describe('matchingRules', () => {
     const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
     expect(matchingRules(c, '帮我 decode 这段 base64', false).map((r) => r.id)).not.toContain('code-kfc')
     expect(matchingRules(c, 'unicode 转义问题', false).map((r) => r.id)).not.toContain('code-kfc')
-    expect(matchingRules(c, '生成 barcode 的脚本', false).map((r) => r.id)).not.toContain('code-kfc')
+    // 0.7.0 词表含 脚本——换不含 code 组词的说法验证 barcode 子串不误中
+    expect(matchingRules(c, '生成 barcode 的工具', false).map((r) => r.id)).not.toContain('code-kfc')
     expect(matchingRules(c, 'please refactor this function', false).map((r) => r.id)).toContain('code-kfc')
     expect(matchingRules(c, '这段代码有 bug', false).map((r) => r.id)).toContain('code-kfc')
     expect(matchingRules(c, '帮忙重构一下', false).map((r) => r.id)).toContain('code-kfc')
@@ -88,9 +89,9 @@ describe('matchingRules', () => {
     // code 2 词（重构+测试） vs chitchat 1 词（总结）→ code 反超列表序在前的 chitchat
     expect(matchingRules(c, '帮我总结这次重构，顺便写个测试', false).map((r) => r.id))
       .toEqual(['code-kfc', 'chitchat-flash'])
-    // 各命中 1 词 → 平手按列表序（当前内置序 chitchat 在前；Task 4 将调序）
+    // 各命中 1 词 → 平手按列表序（0.7.0 内置序 code 在前，Task 4 已调序）
     expect(matchingRules(c, '你好，帮我重构一下', false).map((r) => r.id))
-      .toEqual(['chitchat-flash', 'code-kfc'])
+      .toEqual(['code-kfc', 'chitchat-flash'])
     // 带图轮 image 规则分 = +∞：即使关键词规则列表序在前也恒被 image 压过
     const s = DEFAULT_CONFIG_V4(); s.activePreset = 'saving'
     s.presets.saving.rules = [

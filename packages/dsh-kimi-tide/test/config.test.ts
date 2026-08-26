@@ -28,12 +28,13 @@ describe('DEFAULT_CONFIG_V4', () => {
     expect(p.rules[0].target).toEqual({ provider: 'kimi-coding', model: 'k3' })
     expect(p.rules[1].target).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
   })
-  it('能力预设：k3 打底 + 闲聊→flash + 代码→kimi-for-coding', () => {
+  it('能力预设：k3 打底 + 代码→kimi-for-coding + 闲聊→flash（0.7.0 code 首序）', () => {
     const p = DEFAULT_CONFIG_V4().presets.capability
     expect(p.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
-    expect(p.rules[0].when).toEqual({ kind: 'keywords', group: 'chitchat' })
-    expect(p.rules[0].target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
-    expect(p.rules[1].when).toEqual({ kind: 'keywords', group: 'code' })
+    expect(p.rules[0].when).toEqual({ kind: 'keywords', group: 'code' })
+    expect(p.rules[0].target).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    expect(p.rules[1].when).toEqual({ kind: 'keywords', group: 'chitchat' })
+    expect(p.rules[1].target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
   })
   it('每次调用返回新对象（内置真相源不被意外共享改写）', () => {
     const a = DEFAULT_CONFIG_V4()
@@ -43,8 +44,8 @@ describe('DEFAULT_CONFIG_V4', () => {
   it('configKey 不变', () => {
     expect(configKey({ provider: 'kimi-coding', model: 'k3' })).toBe('kimi-coding/k3')
   })
-  it('关键词组内置词表（钉桩）', () => {
-    expect(DEFAULT_KEYWORD_GROUPS.code).toEqual(['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试'])
+  it('关键词组内置词表（钉桩；0.7.0 code 17 词）', () => {
+    expect(DEFAULT_KEYWORD_GROUPS.code).toEqual(['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试', '接口', '联调', '部署', '性能', '报错', '日志', '编译', '命令', '脚本'])
     expect(DEFAULT_KEYWORD_GROUPS.chitchat).toEqual(['你好', '谢谢', '怎么样', '随便', '聊聊', '翻译', '总结', '天气'])
   })
 })

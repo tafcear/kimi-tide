@@ -82,9 +82,11 @@ export interface RouterConfigV4 {
 
 export const configKey = (t: RouteTarget): string => `${t.provider}/${t.model}`
 
-/** 内置关键词组（用户可增删改；内置预设引用 code/chitchat）。 */
+/** 内置关键词组（用户可增删改；内置预设引用 code/chitchat）。
+ *  0.7.0：code 词表 8→17 词（消除「词表过薄」——覆盖调试/联调/部署/性能/
+ *  报错/日志/编译/命令/脚本九类高频编码场景）。 */
 export const DEFAULT_KEYWORD_GROUPS: Record<string, string[]> = {
-  code: ['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试'],
+  code: ['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试', '接口', '联调', '部署', '性能', '报错', '日志', '编译', '命令', '脚本'],
   chitchat: ['你好', '谢谢', '怎么样', '随便', '聊聊', '翻译', '总结', '天气'],
 }
 
@@ -104,9 +106,11 @@ export function DEFAULT_CONFIG_V4(): RouterConfigV4 {
       capability: {
         name: '能力',
         default: { provider: KIMI_PROVIDER, model: 'k3' },
+        // 0.7.0：code 提到 chitchat 前——chitchat 首序会劫持「你好，帮我写个
+        // 测试」类混合消息（平手按列表序，见 rules.ts 0.7.0 特异度排序）。
         rules: [
-          { id: 'chitchat-flash', when: { kind: 'keywords', group: 'chitchat' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
           { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } },
+          { id: 'chitchat-flash', when: { kind: 'keywords', group: 'chitchat' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
         ],
       },
     },
