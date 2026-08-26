@@ -36,7 +36,6 @@ import {
 } from './router.js'
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
-import { DEFAULT_TOOL_FAILURE_THRESHOLD, installToolFailureGuard } from './tool-failure-guard.js'
 import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
@@ -56,13 +55,6 @@ export interface Config {
   usagePollMs?: number
   /** Poll quota immediately on startup (default true). */
   usagePollOnStart?: boolean
-  /**
-   * 连续失败工具守卫阈值（0.7.0 兜底，B 方案）：一轮内连续 N 次工具返回
-   * isError 且无任何成功 → 阻断本轮（agent/pre-step reject → blocked）。
-   * 缺省 DEFAULT_TOOL_FAILURE_THRESHOLD（20）；≤0 或非整数 = 关闭。正常任务
-   * 偶发成功即重置连败，不会误伤。
-   */
-  maxConsecutiveToolFailures?: number
   /**
    * Router config composition seed. The entry still speaks the legacy v1
    * vocabulary (mode/primary/premium) — it is migrated through the
@@ -287,11 +279,6 @@ export function apply(ctx: Context, config: Config = {}) {
   config = config ?? {}
   const log: RouterLog = { info: (message: string) => { ctx.logger.info(message) } }
   const warn = (message: string) => { ctx.logger?.warn?.(message) }
-
-  // 连续失败工具守卫（0.7.0 兜底，B 方案）：无条件挂载——路由关（activePreset
-  // null）时也生效，才是真正的兜底网。挂在公开缝 agent/pre-step，宿主升级不影响；
-  // 与 installRouter 的 pre-step 监听器并存（prepend 恒外层，reject 短路下游转述）。
-  const disposeToolFailureGuard = installToolFailureGuard(ctx, config.maxConsecutiveToolFailures ?? DEFAULT_TOOL_FAILURE_THRESHOLD)
 
   // The strict persistence reader refuses logs with unknown event types.
   // The catalog Set lives on the INSTALLATION's dsh-session module instance;
@@ -698,5 +685,4 @@ export function apply(ctx: Context, config: Config = {}) {
   if (config.usagePollOnStart !== false) monitor.start()
   ctx.effect(() => () => monitor.stop())
   ctx.effect(() => () => disposeRouter?.())
-  ctx.effect(() => () => disposeToolFailureGuard())
 }

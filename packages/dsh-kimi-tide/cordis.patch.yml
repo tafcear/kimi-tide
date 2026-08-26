@@ -14,8 +14,6 @@
       # Optional knobs (nest under `config` to enable):
       #   usagePollMs: 60000      # quota poll period (月汐 dock)
       #   usagePollOnStart: true  # poll quota on startup
-      #   maxConsecutiveToolFailures: 20  # 连续失败工具守卫（0.7.0 兜底，B 方案）：一轮内连续 N 次工具
-      #                                   # isError 且无成功 → 阻断本轮（agent/pre-step reject）；≤0 关闭。缺省 20。
       #   router:                 # legacy static seed (v1 vocabulary, auto-migrated to the v4
       #                           # preset/rule shape); the 月汐 settings card owns the live config
       #                           # (or /kimi-tide preset <id|off>)

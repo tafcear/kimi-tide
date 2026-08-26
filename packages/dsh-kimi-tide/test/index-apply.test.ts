@@ -53,9 +53,9 @@ function makeCtx(agents: FakeAgent[], providers?: Array<{ id: string }>) {
       const cleanup = execute()
       return () => { void cleanup }
     },
-    on: (name: string, listener: (payload: unknown) => unknown, options?: { prepend?: boolean }) => {
+    on: (name: string, listener: (payload: unknown) => unknown) => {
       const arr = listeners.get(name) ?? []
-      options?.prepend ? arr.unshift(listener) : arr.push(listener)
+      arr.push(listener)
       listeners.set(name, arr)
       return () => {}
     },
@@ -430,7 +430,7 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
     const { ctx, listeners } = makeCtx([agent])
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
-    expect(await dispatchStep(listeners, agent, '请审查这段代码 review')).toBe(true) // 守卫监听器恒在；无路由器 → 不产生决策
+    expect(await dispatchStep(listeners, agent, '请审查这段代码 review')).toBe(false) // no router mounted
     expect(lastSnapshot(agent).decision).toBeNull()
     expect(lastSnapshot(agent).router).toMatchObject({ activePreset: null })
   })
