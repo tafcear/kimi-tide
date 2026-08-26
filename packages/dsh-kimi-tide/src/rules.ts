@@ -52,6 +52,31 @@ export interface RuleMatchConfig {
   keywordGroups: Record<string, string[]>
 }
 
+/** 转义正则元字符。 */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+interface KeywordMatcher {
+  matches(text: string): boolean
+}
+
+/**
+ * 编译关键词为匹配器（0.7.0 词边界语义，设计决策 B1）：
+ * - 纯 ASCII 词（^[a-z0-9_]+$，大小写不敏感）→ 邻接守卫正则
+ *   (?<![a-z0-9_])词(?![a-z0-9_])——decode/unicode/barcode 不误中 code；
+ *   CJK 邻接不阻断（「3d」仍命中「3d打印」）。
+ * - 其余（中文/混合/多词短语）→ 子串匹配（0.5.x 语义，逐字节兼容）。
+ */
+function compileKeyword(keyword: string): KeywordMatcher {
+  const lowered = keyword.toLowerCase()
+  if (/^[a-z0-9_]+$/.test(lowered)) {
+    const re = new RegExp(`(?<![a-z0-9_])${escapeRegExp(lowered)}(?![a-z0-9_])`)
+    return { matches: (text) => re.test(text) }
+  }
+  return { matches: (text) => text.includes(lowered) }
+}
+
 /** 按预设规则顺序返回全部命中规则（含目标不可用者；可用性过滤在路由层）。 */
 export function matchingRules(config: RuleMatchConfig, text: string, hasImage: boolean): RouterRule[] {
   if (config.activePreset === null) return []
@@ -66,7 +91,10 @@ export function matchingRules(config: RuleMatchConfig, text: string, hasImage: b
     }
     const words = config.keywordGroups[rule.when.group]
     if (words === undefined) continue
-    if (words.some((k) => k.length > 0 && lower.includes(k.toLowerCase()))) hits.push(rule)
+    // 每组词每轮编译一次（组词量级几十、每轮 decide 仅一次——开销可忽略，
+    // 免缓存复杂度的理由与既有 0.5.x 简单路径一致）。
+    const matchers: KeywordMatcher[] = words.map((k) => compileKeyword(k))
+    if (matchers.some((m, i) => words[i].length > 0 && m.matches(lower))) hits.push(rule)
   }
   return hits
 }

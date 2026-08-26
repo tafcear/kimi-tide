@@ -54,6 +54,15 @@ describe('matchingRules', () => {
     const c = DEFAULT_CONFIG_V4(); c.activePreset = 'nope'
     expect(matchingRules(c, '代码', true)).toEqual([])
   })
+  it('0.7.0 词边界：decode/unicode/barcode/planning 不误中英文词；纯词与中文邻接仍命中', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
+    expect(matchingRules(c, '帮我 decode 这段 base64', false).map((r) => r.id)).not.toContain('code-kfc')
+    expect(matchingRules(c, 'unicode 转义问题', false).map((r) => r.id)).not.toContain('code-kfc')
+    expect(matchingRules(c, '生成 barcode 的脚本', false).map((r) => r.id)).not.toContain('code-kfc')
+    expect(matchingRules(c, 'please refactor this function', false).map((r) => r.id)).toContain('code-kfc')
+    expect(matchingRules(c, '这段代码有 bug', false).map((r) => r.id)).toContain('code-kfc')
+    expect(matchingRules(c, '帮忙重构一下', false).map((r) => r.id)).toContain('code-kfc')
+  })
 })
 
 describe('ruleLabel / 消息工具', () => {
