@@ -10,7 +10,7 @@ const ruleSchema = Schema.object({
   id: Schema.string(),
   when: Schema.union([
     Schema.object({ kind: Schema.const('image') }),
-    Schema.object({ kind: Schema.const('keywords'), group: Schema.string() }),
+    Schema.object({ kind: Schema.const('keywords'), group: Schema.string(), minHits: Schema.number() }),
   ]),
   // v5：规则目标泛化为「纯模型 | 协作流引用」；流引用的存在性/类型（P1 仅
   // transcribe 可作规则目标）由 validateRouterConfig 语义校验，schema 只管形状。
@@ -102,8 +102,14 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
       } else if (typeof t.provider !== 'string' || t.provider === '' || typeof t.model !== 'string' || t.model === '') {
         return `规则 '${rule.id}' 的 target 不完整（provider/model 必须为非空字符串）`
       }
-      if (rule.when?.kind === 'keywords' && !(rule.when.group in raw.keywordGroups)) {
-        return `规则 '${rule.id}' 引用的关键词组 '${rule.when.group}' 不存在于 keywordGroups`
+      if (rule.when?.kind === 'keywords') {
+        if (!(rule.when.group in raw.keywordGroups)) {
+          return `规则 '${rule.id}' 引用的关键词组 '${rule.when.group}' 不存在于 keywordGroups`
+        }
+        const minHits = rule.when.minHits
+        if (minHits !== undefined && (!Number.isInteger(minHits) || minHits < 1)) {
+          return `规则 '${rule.id}' 的 minHits 越界（须为 ≥1 的整数）`
+        }
       }
     }
     if (preset.imageFallback === 'transcribe-lazy') {

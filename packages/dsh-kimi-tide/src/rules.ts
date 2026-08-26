@@ -101,8 +101,8 @@ export function matchingRules(config: RuleMatchConfig, text: string, hasImage: b
     for (const k of words) {
       if (k.length > 0 && compileKeyword(k).matches(lower)) matched += 1
     }
-    // score = 命中关键词种数（同一词多次出现只计一次）
-    if (matched > 0) hits.push({ rule, score: matched })
+    const minHits = rule.when.minHits ?? 1
+    if (matched >= minHits) hits.push({ rule, score: matched })
   }
   // ES2019+ 稳定排序：平手（含双 image 规则 ∞−∞=NaN 视同 0）保持列表序。
   hits.sort((a, b) => b.score - a.score)

@@ -122,3 +122,21 @@ describe('mergeResolved v5', () => {
     expect(merged.flows).toEqual(DEFAULT_FLOWS())
   })
 })
+
+describe('validateRouterConfig minHits（0.7.0）', () => {
+  const withMin = (mh: number) => {
+    const c = structuredClone(DEFAULT_CONFIG_V5()); c.activePreset = 'saving'
+    c.presets.saving.rules.unshift({
+      id: 'x', when: { kind: 'keywords', group: 'code', minHits: mh },
+      target: { provider: 'kimi-coding', model: 'k3' },
+    })
+    return validateRouterConfig(c)
+  }
+  it('越界（0/小数/负数）拒写；1/2/缺省通过', () => {
+    expect(withMin(0)).toContain('minHits')
+    expect(withMin(1.5)).toContain('minHits')
+    expect(withMin(-1)).toContain('minHits')
+    expect(withMin(1)).toBeUndefined()
+    expect(withMin(2)).toBeUndefined()
+  })
+})

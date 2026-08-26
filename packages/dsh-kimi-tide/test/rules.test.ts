@@ -63,6 +63,26 @@ describe('matchingRules', () => {
     expect(matchingRules(c, '这段代码有 bug', false).map((r) => r.id)).toContain('code-kfc')
     expect(matchingRules(c, '帮忙重构一下', false).map((r) => r.id)).toContain('code-kfc')
   })
+  it('0.7.0 minHits：命中数不足阈值不触发；缺省=1；达标触发', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'saving'
+    c.presets.saving.rules.unshift({
+      id: 'plan-2',
+      when: { kind: 'keywords', group: 'plan', minHits: 2 },
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    c.keywordGroups.plan = ['plan', '计划', '方案']
+    expect(matchingRules(c, '帮我做个方案', false).map((r) => r.id)).not.toContain('plan-2')
+    expect(matchingRules(c, 'plan：帮我做个方案', false).map((r) => r.id)).toContain('plan-2')
+    const d = DEFAULT_CONFIG_V4(); d.activePreset = 'saving'
+    d.presets.saving.rules.unshift({
+      id: 'plan-1',
+      when: { kind: 'keywords', group: 'plan' },
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    d.keywordGroups.plan = ['方案']
+    expect(matchingRules(d, '帮我做个方案', false).map((r) => r.id)).toContain('plan-1')
+  })
+
   it('0.7.0 特异度：命中词数多者优先；平手保持列表序；带图轮 image 规则恒优先', () => {
     const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
     // code 2 词（重构+测试） vs chitchat 1 词（总结）→ code 反超列表序在前的 chitchat

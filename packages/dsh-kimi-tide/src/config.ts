@@ -15,7 +15,7 @@ export const KIMI_PROVIDER = 'kimi-coding'
 
 export type RuleCondition =
   | { kind: 'image' }                    // 带图（本轮或历史含图，锁存后恒真）
-  | { kind: 'keywords'; group: string }  // 命名关键词组命中（大小写不敏感子串）
+  | { kind: 'keywords'; group: string; minHits?: number }  // 命名关键词组命中；minHits 缺省=1（0.7.0）
 
 export interface RouterRule {
   id: string
