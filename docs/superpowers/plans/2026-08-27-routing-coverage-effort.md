@@ -319,7 +319,7 @@ settings.section 的 `inject` 回调追加一行（`connection` 之后）：
     "@deepseek-ai/dsh-typert-protocol": "0.1.1-rc.2",
 ```
 
-然后 `npm ci`（还原 CI 同款布局；协议包经依赖树已存在，显式声明只为类型解析）。
+然后 `npm install`（**新增依赖须更新 package-lock.json——`npm ci` 只按既有锁安装会报 lock 失步**；npm install 维持 npm 平铺布局，避坑规则只禁 pnpm；协议包经依赖树已存在于 node_modules，本次仅声明 + 锁更新）。
 
 - [ ] **Step 10: 跑全量验证确认通过**
 
