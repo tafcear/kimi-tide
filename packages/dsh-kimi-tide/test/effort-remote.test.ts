@@ -1,50 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import { EFFORT_REMOTE_CONTRIBUTION, mountEffortCatalog } from '../src/client/effort-remote.js'
-import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
+import { EFFORT_CATALOG_NAMESPACE, fetchEffortsViaDescribe } from '../src/client/effort-remote.js'
 
-// 2026-08-27 实机验收 B5 缺陷回归：客户端 $mount 的 descriptor 会被 dsh-api-gateway
-// 客户端 kernel 以「result 必须 strict codec」强校验（client.js requireStrictCodec 镜像）。
-// src-json 只被宿主半链容忍——本测试把 kernel 同款校验钉死在仓库里，防再次回退。
+// 2026-08-27 实机验收 B5 换道回归：档位表经 settings.describe 读
+// kimi-tide-catalog 命名空间（原 typert $mount 手工贡献通道在真实 vendored
+// kernel 静默挂起，已证伪弃用）。本文件钉死 describe 通道的取数契约。
 
-function requireStrictResult(descriptor: InvocationDescriptor): void {
-  const codec = descriptor.result as { mode: string; schema?: { parse?: unknown } }
-  if (codec.mode !== 'strict' || typeof codec.schema?.parse !== 'function') {
-    throw new Error(
-      `client api: generated Remote ${descriptor.namespace}/${descriptor.method} field "result" has no strict codec`,
-    )
-  }
-}
-
-describe('effort-remote 客户端半链（实机验收 B5 缺陷回归）', () => {
-  it('descriptor result 必须过 kernel strict 校验（src-json 在客户端被拒）', () => {
-    for (const descriptor of EFFORT_REMOTE_CONTRIBUTION.descriptors) {
-      expect(() => requireStrictResult(descriptor)).not.toThrow()
-    }
-  })
-
-  it('strict codec parse 对纯 JSON 档位表做恒等解码', () => {
-    const descriptor = EFFORT_REMOTE_CONTRIBUTION.descriptors[0]
-    const codec = descriptor.result as { mode: 'strict'; schema: { parse: (v: unknown) => unknown } }
-    const table = { 'kimi-coding/k3': ['low', 'high', 'max'] }
-    expect(codec.schema.parse(table)).toEqual(table)
-  })
-
-  it('mount 贡献后取数闭包走 RemoteResult ok 分支', async () => {
-    const mounted: unknown[] = []
-    const table = { 'kimi-coding/k3': ['low', 'high', 'max'] }
-    const remote = {
-      async $mount(contribution: unknown) {
-        mounted.push(contribution)
-        return async () => {}
+const okDescribe = (namespaces: ReadonlyArray<{ ns: string; value: unknown }>) => ({
+  api: {
+    settings: {
+      async describe(_body: Record<string, never>) {
+        return { result: { ok: true as const, value: { namespaces } } }
       },
-      kimiTide: {
-        async effortCatalog(): Promise<{ ok: true; value: Record<string, string[]> }> {
-          return { ok: true, value: table }
+    },
+  },
+})
+
+describe('fetchEffortsViaDescribe（B5 换道：settings.describe 通道）', () => {
+  it('connection 缺失 → 抛错（不静默兜底）', async () => {
+    await expect(fetchEffortsViaDescribe(null)).rejects.toThrow(/connection 通道不可用/)
+  })
+
+  it('describe 失败（ok:false）→ 抛错', async () => {
+    const connection = {
+      api: {
+        settings: {
+          async describe(_body: Record<string, never>) {
+            return { result: { ok: false as const, error: { message: 'boom' } } }
+          },
         },
       },
     }
-    const fetch = await mountEffortCatalog(remote as never)
-    expect(mounted).toHaveLength(1)
-    await expect(fetch()).resolves.toEqual(table)
+    await expect(fetchEffortsViaDescribe(connection as never)).rejects.toThrow(/describe 失败：boom/)
+  })
+
+  it('命中 kimi-tide-catalog 命名空间 → 返回 efforts 表', async () => {
+    const table = { 'kimi-coding/k3': ['low', 'high', 'max'] }
+    const connection = okDescribe([
+      { ns: 'kimi-tide-router', value: {} },
+      { ns: EFFORT_CATALOG_NAMESPACE, value: { efforts: table } },
+    ])
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual(table)
+  })
+
+  it('命名空间缺席 → 空表（degrade 语义，不抛）', async () => {
+    const connection = okDescribe([{ ns: 'kimi-tide-router', value: {} }])
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({})
+  })
+
+  it('节内缺 efforts 字段 → 空表', async () => {
+    const connection = okDescribe([{ ns: EFFORT_CATALOG_NAMESPACE, value: {} }])
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({})
+  })
+
+  it('命名空间常量钉桩为 kimi-tide-catalog', () => {
+    expect(EFFORT_CATALOG_NAMESPACE).toBe('kimi-tide-catalog')
   })
 })

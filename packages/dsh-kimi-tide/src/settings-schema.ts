@@ -5,6 +5,13 @@ import { DEFAULT_CONFIG_V5, isFlowTarget, type RouterConfigV5, type RuleTarget }
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
 const D5 = DEFAULT_CONFIG_V5()
 
+// 0.8.0 B5 换道（2026-08-27）：kimi-tide-catalog 命名空间节形状——宿主把
+// effort 档位表写进这个自有命名空间，客户端经 settings.describe 读取。
+// 松散形状即可：值由宿主 buildEffortCatalog 构造，读取端已做缺省降级。
+export const EFFORT_CATALOG_SECTION_SCHEMA = Schema.object({
+  efforts: Schema.dict(Schema.array(Schema.string())),
+})
+
 const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string(), effort: Schema.string() })
 // 0.8.0（评审 M7）：review.reviewer 不接收 effort——flowSchema review 分支
 // 内联一份无 effort 的 target schema，尊重用户圈定范围（评审执行层不消费）。

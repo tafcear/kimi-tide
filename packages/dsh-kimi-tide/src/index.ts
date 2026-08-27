@@ -37,13 +37,12 @@ import {
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
 import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
-import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
+import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor } from './usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
-import type {} from '@deepseek-ai/dsh-typert-protocol'
-import { buildEffortCatalog, EFFORT_CATALOG_CONTRIBUTION, EFFORT_CATALOG_SERVICE } from './effort-catalog.js'
+import { buildEffortCatalog, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -386,9 +385,15 @@ export function apply(ctx: Context, config: Config = {}) {
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
   let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfig)
-  // 0.8.0 effort 档位目录：随候选枚举刷新（spike 实证通道，见 effort-catalog.ts）。
+  // 0.8.0 effort 档位目录：随候选枚举刷新。0.8.0 B5 换道（2026-08-27）：推送
+  // 通道改为 dsh-settings 自有命名空间 kimi-tide-catalog（见 inject 块内的
+  // syncCatalogNamespace），原 typert remote 手工 contribution 客户端半链实机
+  // 证伪（vendored kernel $mount 静默挂起），宿主 provide/typert 注册已随之移除。
   let effortCatalog: Record<string, string[]> = buildEffortCatalog(candidateMetas)
   let enumerationSeq = 0
+  // settings attach 后由 inject 块赋值；枚举刷新与 attach 双向都会触发一次同步
+  // （写前脏检查，settings.yaml 的 kimi-tide-catalog 节仅随模型清单变化才重写）。
+  let syncCatalogNamespace: (() => void) | null = null
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
     void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfig, warn)
@@ -396,6 +401,7 @@ export function apply(ctx: Context, config: Config = {}) {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
         effortCatalog = buildEffortCatalog(metas)
+        syncCatalogNamespace?.()
         mountRouter()
         pushPanelToAllSessions()
       })
@@ -448,31 +454,9 @@ export function apply(ctx: Context, config: Config = {}) {
     pushPanel(agent)
   }
 
-  // 0.8.0 自有 Host→Client 通道（Typert remote，spike 实证）：服务对象 + 手工
-  // contribution。ctx.provide 的处置随插件 fiber 自动回收；typert.register
-  // 返回的 disposer 手工挂到插件 fiber 上（注册表 effect 宿主级存活，插件
-  // 停止时显式撤回，防重挂载「already registered」）。
-  const effortService = {
-    effortCatalog: () => effortCatalog,
-  }
-  ;(effortService as { typertRemote?: unknown }).typertRemote = Object.freeze({
-    service: effortService,
-    serviceKey: EFFORT_CATALOG_SERVICE,
-    namespace: 'kimiTide',
-  })
-  if (typeof ctx.provide === 'function') {
-    ctx.provide(EFFORT_CATALOG_SERVICE, effortService)
-  }
-  try {
-    const disposeEffortRemote = (ctx.typert as unknown as {
-      register?: (contribution: unknown) => (() => Promise<void>) | undefined
-    }).register?.(EFFORT_CATALOG_CONTRIBUTION)
-    if (disposeEffortRemote !== undefined) {
-      ctx.effect(() => () => { void disposeEffortRemote() })
-    }
-  } catch (error) {
-    warn(`dsh-kimi-tide: effort 档位目录注册失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`)
-  }
+  // 0.8.0 B5 换道（2026-08-27）：原 typert remote 宿主半链（effortService
+  // provide + EFFORT_CATALOG_CONTRIBUTION 注册）随通道证伪一并移除——档位表
+  // 现经 kimi-tide-catalog 设置命名空间推送（inject 块内 syncCatalogNamespace）。
 
   mountRouter()
   refreshCandidates()
@@ -661,6 +645,37 @@ export function apply(ctx: Context, config: Config = {}) {
       replace: (section) => scope.replace(section),
     }
     settingsScope = port
+    // 0.8.0 B5 换道（2026-08-27）：档位表经第二个自有命名空间 kimi-tide-catalog
+    // 推送（客户端 settings.describe 按 ns 读取；原 typert $mount 客户端半链
+    // 实机证伪）。写入带脏检查——settings.yaml 的该节仅随模型清单变化才重写；
+    // 注册即首推（枚举可能先于 settings attach 完成），attach 后枚举刷新再推。
+    let catalogScope: {
+      get(): { efforts?: Record<string, string[]> }
+      replace(section: object): Promise<void>
+    } | null = null
+    let lastSyncedCatalog = ''
+    syncCatalogNamespace = () => {
+      if (catalogScope === null) return
+      const section = { efforts: effortCatalog }
+      const serialized = JSON.stringify(section)
+      if (serialized === lastSyncedCatalog) return
+      try {
+        void catalogScope.replace(section)
+          .then(() => { lastSyncedCatalog = serialized })
+          .catch((error: unknown) =>
+            warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 写入失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`))
+      } catch (error) {
+        warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 写入异常（${(error as Error).message}）`)
+      }
+    }
+    try {
+      catalogScope = sctx.settings.register(EFFORT_CATALOG_NAMESPACE as never, EFFORT_CATALOG_SECTION_SCHEMA as never, {}) as unknown as typeof catalogScope
+    } catch (error) {
+      warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 命名空间注册失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`)
+      catalogScope = null
+    }
+    syncCatalogNamespace()
+    sctx.effect(() => () => { catalogScope = null; syncCatalogNamespace = null })
     // v5 一次性迁移（0.6.0 协作编排，spec §6）。dsh-settings 的 replace 在 persist
     // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
     // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前旧形。

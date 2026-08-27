@@ -1,13 +1,16 @@
-// src/effort-catalog.ts — effort 档位目录通道（0.8.0，spike 2026-08-27 实证）：
-// 插件自有 Host→Client JSON 通道。宿主把候选枚举得到的 per-model
-// reasoningEfforts 打成表，经 Typert remote（手工 contribution，src-json
-// 编解码）供设置卡片读取；客户端经 ctx.remote.$mount 同名贡献获得
-// kimiTide.effortCatalog() 调用面（评审 S1：panel 投影通道证伪后的正选）。
-// 无装饰器、无生成器依赖：bindTypertRemote 形状以普通对象字面量复刻。
+// src/effort-catalog.ts — effort 档位目录（0.8.0）。
+// 通道史（2026-08-27 实机验收 B5 换道）：原设计为 Typert remote 手工
+// contribution（宿主 provide + 客户端 $mount）——宿主半链 spike 通过，但
+// 客户端半链在真实 vendored kernel 实机证伪：$mount 静默永久 pending
+// （不发 rpc、不 reject、无告警）。换道为 dsh-settings 自有命名空间
+// `kimi-tide-catalog`：宿主在候选枚举刷新后把档位表写进该节（写前脏
+// 检查，settings.yaml 里该节仅随模型清单变化），客户端经
+// connection.api.settings.describe（设置卡片同款静态注册表通道）读取。
+// 无装饰器、无生成器依赖。
 import type { CandidateMeta } from './config.js'
 
-/** 服务键（wire namespace 与之一致，见 EFFORT_CATALOG_DESCRIPTOR）。 */
-export const EFFORT_CATALOG_SERVICE = 'kimi-tide.catalog'
+/** 档位表命名空间（dsh-settings；客户端经 settings.describe 按 ns 读取）。 */
+export const EFFORT_CATALOG_NAMESPACE = 'kimi-tide-catalog'
 
 /** 档位表：'provider/model' → 支持的 reasoningEffort id 列表。 */
 export type EffortCatalog = Record<string, string[]>
@@ -21,23 +24,3 @@ export function buildEffortCatalog(metas: readonly CandidateMeta[]): EffortCatal
   }
   return out
 }
-
-/** 宿主/客户端共享的手工 InvocationDescriptor（两端逐字段一致）。 */
-export const EFFORT_CATALOG_DESCRIPTOR = {
-  id: 'dsh-kimi-tide#effortCatalog',
-  service: EFFORT_CATALOG_SERVICE,
-  namespace: 'kimiTide',
-  method: 'effortCatalog',
-  invocation: { kind: 'direct' },
-  parameters: [],
-  result: { mode: 'src-json' },
-} as const
-
-/** 宿主侧注册贡献（ctx.typert.register 的形状）。 */
-export const EFFORT_CATALOG_CONTRIBUTION = {
-  package: 'dsh-kimi-tide',
-  face: 'host',
-  schemas: [],
-  model: { services: [], events: [], objects: [] },
-  invocations: [EFFORT_CATALOG_DESCRIPTOR],
-} as const

@@ -1,53 +1,37 @@
-// src/client/effort-remote.ts — 客户端半链（0.8.0）：$mount 手工贡献 + 调用面。
-// 与宿主侧 src/effort-catalog.ts 的 descriptor 逐字段一致（同一 endpoint）。
-// 2026-08-27 实机验收 B5 缺陷修复：客户端 kernel（dsh-api-gateway client.js
-// requireStrictDescriptor）强制 result 为 strict codec——src-json 只被宿主半链
-// 容忍，客户端挂载即抛 "field \"result\" has no strict codec"，档位下拉全体禁用。
-// 档位表是纯 JSON（Record<string, string[]>），strict codec 恒等解码即可。
-import type { RemoteResult, TypertCodec, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+// src/client/effort-remote.ts — effort 档位表取数（0.8.0，B5 实机换道 2026-08-27）。
+// 原通道（ctx.remote.$mount 手工 typert contribution）实机证伪：真实 vendored
+// kernel 里 $mount 静默永久 pending——不发 rpc、不 reject、无告警（BrowserSkill
+// 浏览器取证三连：DOM 全禁用 + network 零 effortCatalog 请求 + console 零告警）。
+// 新通道 = describe 静态注册表：宿主把档位表写进自有 dsh-settings 命名空间
+// kimi-tide-catalog，客户端经 connection.api.settings.describe（设置卡片同款、
+// 实测健康）按 ns 取值。缺 ns/取数失败 → 抛错，由 card-store.loadEfforts 降级
+// 为 efforts=null（下拉「跟随默认」禁用态）。
+import { EFFORT_CATALOG_NAMESPACE } from '../effort-catalog.js'
 
-const EFFORT_CATALOG_RESULT_CODEC = {
-  mode: 'strict',
-  typeSymbol: 'Record<string, string[]>',
-  schema: {
-    parse: (value: unknown): Record<string, string[]> => value as Record<string, string[]>,
-  },
-} as const satisfies TypertCodec
+export { EFFORT_CATALOG_NAMESPACE }
 
-export const EFFORT_REMOTE_CONTRIBUTION: TypertRemoteContribution = {
-  package: 'dsh-kimi-tide',
-  descriptors: [{
-    id: 'dsh-kimi-tide#effortCatalog',
-    service: 'kimi-tide.catalog',
-    namespace: 'kimiTide',
-    method: 'effortCatalog',
-    invocation: { kind: 'direct' },
-    parameters: [],
-    result: EFFORT_CATALOG_RESULT_CODEC,
-  }],
-}
-
-declare module '@deepseek-ai/dsh-typert-protocol' {
-  interface TypertRemoteNamespaceMap {
-    kimiTide: {
-      effortCatalog(): Promise<RemoteResult<Record<string, string[]>>>
-    }
+/** settings.describe 全量视图里与档位表相关的最小结构面（镜像 dsh 线格式）。 */
+export interface EffortDescribeFace {
+  settings: {
+    describe(body: Record<string, never>): Promise<{
+      result:
+        | { ok: true; value: { namespaces: ReadonlyArray<{ ns: string; value: unknown }> } }
+        | { ok: false; error: { message: string } }
+    }>
   }
 }
 
-export type EffortCatalogFetcher = () => Promise<Record<string, string[]>>
+export type EffortsConnection = { api: EffortDescribeFace } | null
 
 /**
- * $mount 贡献并返回取数闭包。挂载失败/调用失败一律 reject——调用方
- * （client/index.ts）捕获后降级为空表（卡片显示「跟随默认」禁用态）。
+ * 经 settings.describe 读取档位表。连接缺失/describe 失败/命名空间缺席时抛错，
+ * 交由 card-store.loadEfforts 的 catch 统一降级——本函数不做静默兜底。
  */
-export async function mountEffortCatalog(remote: {
-  $mount(contribution: TypertRemoteContribution): Promise<() => Promise<void>>
-} & Record<'kimiTide', { effortCatalog(): Promise<RemoteResult<Record<string, string[]>>> }>): Promise<EffortCatalogFetcher> {
-  await remote.$mount(EFFORT_REMOTE_CONTRIBUTION)
-  return async () => {
-    const result = await remote.kimiTide.effortCatalog()
-    if (!result.ok) throw new Error(`effort 档位目录取数失败：${result.error.message}`)
-    return result.value
-  }
+export async function fetchEffortsViaDescribe(connection: EffortsConnection): Promise<Record<string, string[]>> {
+  if (connection === null) throw new Error('effort 档位表：connection 通道不可用')
+  const r = await connection.api.settings.describe({})
+  if (!r.result.ok) throw new Error(`effort 档位表 describe 失败：${r.result.error.message}`)
+  const view = r.result.value.namespaces.find((n) => n.ns === EFFORT_CATALOG_NAMESPACE)
+  const efforts = (view?.value as { efforts?: Record<string, string[]> } | undefined)?.efforts
+  return efforts ?? {}
 }
