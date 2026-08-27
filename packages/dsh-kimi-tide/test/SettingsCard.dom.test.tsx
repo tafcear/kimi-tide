@@ -279,3 +279,75 @@ describe('SettingsCard 协作流（v5）DOM lifecycle + 交互落盘（Task 11 S
     expect(deleteFlow).toHaveBeenCalledWith('my')
   })
 })
+
+describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  it('规则区标题真语义文案 + minHits 可见标签 + 行级条件摘要渲染', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readyV5Snapshot()) })
+    // Fails if: 标题仍为 0.5.0 时代「有序，首条命中生效」
+    expect(container.textContent).toContain('规则（命中词数多者优先，平手按列表序，带图恒第一）')
+    // Fails if: minHits 缺可见标签（0.7.0 只有 aria-label）
+    expect(container.textContent).toContain('最少命中词数')
+    // Fails if: 规则行缺自动条件摘要（code-kfc 行 = 「命中 code 组 ≥1 词」）
+    expect(container.textContent).toContain('命中 code 组 ≥1 词')
+  })
+
+  it('effort 下拉：有档位表 → 显示档位选项；模型未声明档位 → 禁用「跟随默认」', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => {
+      publish(readyV5Snapshot({ efforts: { 'kimi-coding/k3': ['low', 'high', 'max'] } }))
+    })
+    // saving 预设默认模型 deepseek-v4-flash：未在档位表 → 只渲染禁用「跟随默认」
+    const disabled = container.querySelectorAll<HTMLSelectElement>('select[aria-label="effort 默认模型"]')
+    expect(disabled.length).toBe(1)
+    expect(disabled[0].disabled).toBe(true)
+    // 规则 image-k3 目标 k3：在档位表 → 可选 low/high/max + 跟随默认
+    const k3 = container.querySelector<HTMLSelectElement>('select[aria-label="effort image-k3"]')
+    expect(k3).not.toBeNull()
+    expect([...k3!.options].map((o) => o.value)).toEqual(['', 'low', 'high', 'max'])
+  })
+
+  it('试一句：输入文本 → 实时显示命中规则词数与最终目标；标注按当前激活预设', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readyV5Snapshot()) })
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="试一句"]')
+    expect(input).not.toBeNull()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, '帮我重构这个函数')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    // Fails if: 测试器不显示命中规则（词数）与最终路由目标
+    expect(container.textContent).toContain('code')
+    expect(container.textContent).toContain('kimi-for-coding')
+    expect(container.textContent).toContain('按当前激活预设')
+    expect(container.textContent).toContain('仅文本探针')
+  })
+})

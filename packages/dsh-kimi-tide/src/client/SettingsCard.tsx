@@ -19,10 +19,16 @@
  * import-config 通道；宿主 validate-on-write 拒绝一律上浮 error 通道，不静默。
  *
  * 0.7.0 规则行关键词条件增「最少命中词数」输入（minHits，1..n 整数才写）。
+ *
+ * 0.8.0 可解释性 + effort（D2/D3）：规则区标题改真语义文案（命中词数多者优先）
+ * + minHits 可见标签 + 行级自动条件摘要 +「试一句」纯文本路由预测器（标注
+ * 「按当前激活预设」与「仅文本探针」偏差声明）；目标旁 EffortSelect 下拉
+ * （选项 = 宿主档位表 snapshot.efforts，未声明档位 → 禁用「跟随默认」）。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
+import { previewRoute, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -163,6 +169,32 @@ function TargetSelect(props: {
   )
 }
 
+/** effort 下拉（0.8.0 D3）：选项 = 该模型支持档位（宿主档位表）；未声明档位
+ *  → 只渲染禁用态「跟随默认」；value 不在选项集 → 视同「跟随默认」。 */
+function EffortSelect(props: {
+  label: string
+  value: string | undefined
+  options: string[] | undefined
+  disabled: boolean
+  onChange: (effort: string | undefined) => void
+}) {
+  const options = props.options ?? []
+  const known = props.value !== undefined && options.includes(props.value)
+  return (
+    <select
+      aria-label={`effort ${props.label}`}
+      value={known ? props.value! : ''}
+      disabled={props.disabled || options.length === 0}
+      onChange={(e) => props.onChange(e.target.value === '' ? undefined : e.target.value)}
+    >
+      <option value="">跟随默认</option>
+      {options.map((option) => (
+        <option key={option} value={option}>{option}</option>
+      ))}
+    </select>
+  )
+}
+
 /** 关键词组行：组名 + 词表 textarea（失焦整段保存）+ 删除组。 */
 function KeywordGroupRow(props: {
   name: string
@@ -206,6 +238,8 @@ function FlowRow(props: {
   modelOptions: string[]
   availability: Record<string, boolean> | null
   groupNames: string[]
+  /** effort 选项取数（0.8.0 D3）：宿主档位表按 configKey 查询。 */
+  effortsOf: (target: RouteTarget) => string[] | undefined
   onSave: (flow: CollaborationFlow) => void
   onDelete: () => void
 }) {
@@ -223,6 +257,19 @@ function FlowRow(props: {
             unavailable={props.availability?.[configKey(flow.visionModel)] === false}
             disabled={!props.writable}
             onChange={(value) => props.onSave({ ...flow, visionModel: parseTarget(value) })}
+          />
+          <EffortSelect
+            label={`${props.id} 视觉模型`}
+            value={flow.visionModel.effort}
+            options={props.effortsOf(flow.visionModel)}
+            disabled={!props.writable}
+            onChange={(effort) => {
+              const v = flow.visionModel
+              const next: RouteTarget = effort === undefined
+                ? { provider: v.provider, model: v.model }
+                : { ...v, effort }
+              props.onSave({ ...flow, visionModel: next })
+            }}
           />
           <select
             aria-label={`${props.id} 失败策略`}
@@ -340,6 +387,7 @@ export function SettingsCard(props: SettingsCardProps) {
   // React 直接卸载整卡（设置页「月汐」卡片空白；回归见 test/SettingsCard.dom.test.tsx）。
   const [newPresetName, setNewPresetName] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
+  const [trialText, setTrialText] = useState('')
 
   if (config === null) {
     // 现状不可用态原样保留。
@@ -352,6 +400,7 @@ export function SettingsCard(props: SettingsCardProps) {
   }
 
   const writable = snapshot.writable
+  const efforts = snapshot.efforts
   // T7 延期 Minor 门控：createPreset 在未就绪时会整段覆盖 presets、deletePreset
   // 双写非原子——新建/复制/删除按钮只在 status==='ready' && config!==null（此点
   // 之后 config 恒非 null）且可写时可用，UI 层门控是既定缓解。
@@ -369,6 +418,10 @@ export function SettingsCard(props: SettingsCardProps) {
   // 目标灰态：读快照 availability（数据源 = connection.api.llm.models，
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
+  // effort 选项取数（0.8.0 D3）：宿主档位表（snapshot.efforts，configKey 索引）；
+  // null/undefined（无通道/失败/模型未声明）→ 无档位可选（下拉禁用「跟随默认」）。
+  const effortsOf = (target: RouteTarget): string[] | undefined =>
+    efforts === null || efforts === undefined ? undefined : efforts[configKey(target)]
   const groupNames = Object.keys(config.keywordGroups)
 
   /* ---- 0.6.0 协作流（v5 门控；v4 配置下本节全部为空/不渲染，行为保持）---- */
@@ -506,10 +559,23 @@ export function SettingsCard(props: SettingsCardProps) {
               disabled={!writable}
               onChange={saveDefault}
             />
+            {/* 切换默认模型天然清空 effort（parseTarget 不产 effort 字段，D3 UI 语义） */}
+            <EffortSelect
+              label="默认模型"
+              value={active.default.effort}
+              options={effortsOf(active.default)}
+              disabled={!writable}
+              onChange={(effort) => {
+                const next: RouteTarget = effort === undefined
+                  ? { provider: active.default.provider, model: active.default.model }
+                  : { ...active.default, effort }
+                void store.savePreset(activeId, { ...active, default: next })
+              }}
+            />
           </label>
 
           <div className="kt-rules">
-            <span className="kt-h">规则（有序，首条命中生效）</span>
+            <span className="kt-h">规则（命中词数多者优先，平手按列表序，带图恒第一）</span>
             {active.rules.map((rule, index) => {
               const targetKey = ruleTargetValue(rule.target)
               const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
@@ -538,21 +604,25 @@ export function SettingsCard(props: SettingsCardProps) {
                     )}
                   </select>
                   {rule.when.kind === 'keywords' && (
-                    <input
-                      aria-label="最少命中词数"
-                      className="kt-minhits"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={rule.when.minHits ?? 1}
-                      disabled={!writable}
-                      onChange={(e) => {
-                        const n = Math.round(Number(e.target.value))
-                        if (Number.isInteger(n) && n >= 1) {
-                          editActiveRule(index, { when: { ...rule.when, minHits: n } })
-                        }
-                      }}
-                    />
+                    <label className="kt-row">
+                      <span className="kt-hint">最少命中词数</span>
+                      <input
+                        aria-label="最少命中词数"
+                        title="≥N 个词同时命中才触发"
+                        className="kt-minhits"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={rule.when.minHits ?? 1}
+                        disabled={!writable}
+                        onChange={(e) => {
+                          const n = Math.round(Number(e.target.value))
+                          if (Number.isInteger(n) && n >= 1) {
+                            editActiveRule(index, { when: { ...rule.when, minHits: n } })
+                          }
+                        }}
+                      />
+                    </label>
                   )}
                   <TargetSelect
                     label="目标"
@@ -563,6 +633,23 @@ export function SettingsCard(props: SettingsCardProps) {
                     disabled={!writable}
                     onChange={(value) => editActiveRule(index, { target: parseRuleTarget(value) })}
                   />
+                  {/* 切换规则目标天然清空 effort（parseRuleTarget 不产 effort 字段，D3 UI 语义） */}
+                  <span className="kt-hint">{ruleConditionSummary(rule, config)}</span>
+                  {!isFlowTarget(rule.target) && (
+                    <EffortSelect
+                      label={rule.id}
+                      value={rule.target.effort}
+                      options={effortsOf(rule.target)}
+                      disabled={!writable}
+                      onChange={(effort) => {
+                        const t = rule.target as RouteTarget
+                        const next: RouteTarget = effort === undefined
+                          ? { provider: t.provider, model: t.model }
+                          : { ...t, effort }
+                        editActiveRule(index, { target: next })
+                      }}
+                    />
+                  )}
                   <button
                     type="button"
                     aria-label="上移"
@@ -655,6 +742,46 @@ export function SettingsCard(props: SettingsCardProps) {
         )}
       </div>
 
+      {/* 「试一句」测试器（0.8.0 D2）：纯文本语义预测——命中规则（词数）+ 最终
+          目标；带图输入只展示规则命中、不承诺最终改道（浏览器侧无 modalities）。 */}
+      <details className="kt-trial">
+        <summary>试一句</summary>
+        <input
+          aria-label="试一句"
+          placeholder="输入一句话，看它会命中哪条规则、路由到哪个模型"
+          value={trialText}
+          disabled={false}
+          onChange={(e) => setTrialText(e.target.value)}
+        />
+        {trialText.trim() !== '' && (() => {
+          const preview = previewRoute(config, trialText, {
+            catalog: snapshot.catalog,
+            availability: snapshot.availability,
+            flows: isV5 ? config.flows : undefined,
+          })
+          return (
+            <div className="kt-trial-result">
+              <span className="kt-hint">按当前激活预设（{activeId === null ? '关闭' : active?.name ?? activeId}）</span>
+              {preview.hits.length === 0 && <div className="kt-h">未命中任何规则</div>}
+              {preview.hits.map(({ rule, score }) => (
+                <div key={rule.id} className="kt-trial-hit">
+                  {ruleLabel(rule)} 命中 {score === Number.POSITIVE_INFINITY ? '（带图规则）' : `${score} 词`}
+                  —— {ruleConditionSummary(rule, config)}
+                </div>
+              ))}
+              <div className="kt-trial-outcome">
+                最终路由：{preview.outcome.kind === 'off' ? preview.outcome.reason
+                  : preview.outcome.kind === 'explicit' ? preview.outcome.reason
+                  : preview.outcome.kind === 'rule'
+                    ? `${preview.outcome.reason} → ${preview.outcome.target === null ? '（不可判）' : isFlowTarget(preview.outcome.target) ? `协作流 ${preview.outcome.target.flow}` : configKey(preview.outcome.target)}`
+                    : `${preview.outcome.reason} → ${configKey(preview.outcome.target)}`}
+              </div>
+              <span className="kt-hint">仅文本探针：带图输入只展示规则命中，最终改道取决于图像护栏/协作流，此处不承诺。</span>
+            </div>
+          )
+        })()}
+      </details>
+
       {/* 关键词组管理区：组列表 + 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
       <details className="kt-groups">
         <summary>关键词组</summary>
@@ -702,6 +829,7 @@ export function SettingsCard(props: SettingsCardProps) {
               modelOptions={modelOptions}
               availability={availability}
               groupNames={groupNames}
+              effortsOf={effortsOf}
               onSave={(next) => void store.saveFlows({ ...flows, [flowId]: next })}
               onDelete={() => void store.deleteFlow(flowId)}
             />
