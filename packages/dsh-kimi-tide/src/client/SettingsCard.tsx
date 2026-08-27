@@ -750,7 +750,6 @@ export function SettingsCard(props: SettingsCardProps) {
           aria-label="试一句"
           placeholder="输入一句话，看它会命中哪条规则、路由到哪个模型"
           value={trialText}
-          disabled={false}
           onChange={(e) => setTrialText(e.target.value)}
         />
         {trialText.trim() !== '' && (() => {

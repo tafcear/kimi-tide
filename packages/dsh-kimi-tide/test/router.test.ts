@@ -346,6 +346,10 @@ describe('effortForTarget / replaceRoute（0.8.0）', () => {
       .toEqual({ provider: 'kimi-coding', model: 'k3', reasoningEffort: 'max' })
     expect(r.replaceRoute(base, { provider: 'kimi-coding', model: 'k3' }))
       .toEqual({ provider: 'kimi-coding', model: 'k3', reasoningEffort: 'low' })
+    // strip 路径：显式 effort 不在目标支持集（K3 = low/high/max，无 xhigh）→ 剥离
+    // （不钳制，用户显式语义；dsh-llm 对不支持档位抛错的第二保险），无 reasoningEffort 键。
+    expect(r.replaceRoute(base, { provider: 'kimi-coding', model: 'k3', effort: 'xhigh' }))
+      .toEqual({ provider: 'kimi-coding', model: 'k3' })
   })
 })
 

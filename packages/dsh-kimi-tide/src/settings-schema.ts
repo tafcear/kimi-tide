@@ -85,7 +85,8 @@ export const routerConfigSchema = Schema.object({
 /** v5 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
  *  级联（transcribe-lazy 的 imageFallbackFlow 缺省解析到预置 transcribe，显式引用须
- *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup。
+ *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup /
+ *  effort 形状检查（default/规则 target/visionModel 三处，非空 string——M4）。
  *  legacy version（≤4）直通返回 undefined（迁移兜底，注册期不做语义校验）。 */
 export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
   if ((raw as { version?: unknown }).version !== 5) return undefined

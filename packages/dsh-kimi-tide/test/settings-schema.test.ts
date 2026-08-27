@@ -151,12 +151,18 @@ describe('effort 形状（0.8.0）', () => {
   })
 
   it('预设 default 与 transcribe.visionModel 接受 effort；review.reviewer 无该字段（内联 schema）', () => {
+    // M7 语义钉桩：reviewer 内联 schema 无 effort 入口、评审执行层不消费 effort；
+    // 往 reviewer 塞 effort 只验「schemastery 非 strict 透传使塞入值存活」的现状——
+    // 若回滚 reviewerTargetSchema→targetSchema（reviewer 获得 effort 字段），本断言
+    // 不应变红（schema 层两式均接受），仅钉透传行为，非设计承诺。
     const c = DEFAULT_CONFIG_V5()
     ;(c.presets.saving.default as { effort?: string }).effort = 'high'
     ;(c.flows.transcribe.visionModel as { effort?: string }).effort = 'low'
+    ;(c.flows.review.reviewer as { effort?: string }).effort = 'max'
     const parsed = routerConfigSchema(c as never) as RouterConfigV5
     expect(parsed.presets.saving.default.effort).toBe('high')
     expect(parsed.flows.transcribe.visionModel.effort).toBe('low')
+    expect((parsed.flows.review.reviewer as { effort?: string }).effort).toBe('max')
   })
 
   it('effort 非法类型 → schema 拒绝（存在即校验）', () => {

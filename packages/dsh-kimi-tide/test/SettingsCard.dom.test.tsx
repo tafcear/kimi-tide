@@ -347,6 +347,8 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
     // Fails if: 测试器不显示命中规则（词数）与最终路由目标
     expect(container.textContent).toContain('code')
     expect(container.textContent).toContain('kimi-for-coding')
+    // 词数钉桩：'帮我重构这个函数' 在 saving 预设命中 code 组 重构+函数 2 词
+    expect(container.textContent).toContain('2 词')
     expect(container.textContent).toContain('按当前激活预设')
     expect(container.textContent).toContain('仅文本探针')
   })
