@@ -1,10 +1,12 @@
-# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0 → 匹配语义升级 0.7.0）
+# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0 → 匹配语义升级 0.7.0 → 覆盖面补全 + effort 0.8.0）
 
 本文以 `src/` 现行实现为准：0.5.0 起**规则驱动路由**架构（预设 = 默认模型 +
 有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到预设
 默认模型打底）；**0.6.0 起规则目标泛化为「模型 | 协作流」**（配置升 v5，见文末
 「0.6.0 协作编排扩展」节）；**0.7.0 起关键词匹配语义升级**（ASCII 词边界 +
-命中特异度排序 + 可选 minHits 阈值，见文末「0.7.0 匹配语义升级」节）。
+命中特异度排序 + 可选 minHits 阈值，见文末「0.7.0 匹配语义升级」节）；
+**0.8.0 起规则体系补全 + 可解释性 + 推理程度配置**（内置关键词组 2→7 组、
+`effort` 可选字段、条件摘要/试一句/决策原因词数，见文末「0.8.0」节）。
 0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
 selectCandidate，配 lambda/routeThreshold/预算窗口）已整体退役；v1/v2/v3 存量
 配置经迁移链自动桥接到 v4（见下文「迁移链」）。设计定稿见
@@ -43,7 +45,7 @@ export type RuleCondition =
 export interface RouterRule {
   id: string                  // 稳定 id（排序/编辑/测试锚点）
   when: RuleCondition
-  target: RouteTarget         // { provider, model }
+  target: RouteTarget         // { provider, model, effort? }（effort 可选，0.8.0）
 }
 
 export interface RouterPreset {
@@ -57,7 +59,7 @@ export interface RouterConfigV4 {
   /** null = 关闭（逃生舱）；否则为 presets 的键（内置: saving / capability） */
   activePreset: string | null
   presets: Record<string, RouterPreset>
-  /** 组名 → 词表；全局共享，内置 code / chitchat，用户可增删改 */
+  /** 组名 → 词表；全局共享，内置 7 组（0.8.0），用户可增删改 */
   keywordGroups: Record<string, string[]>
 }
 ```
@@ -68,21 +70,33 @@ export interface RouterConfigV4 {
 version: 4
 activePreset: null            # 默认关闭：装插件不改路由（保守默认）
 presets:
-  saving:                     # 省钱：默认 flash，带图升 k3，代码关键词升 kimi-for-coding
+  saving:                     # 省钱：默认 flash，带图升 k3，代码升 kimi-for-coding，翻译显式落 flash（0.8.0）
     name: 省钱
     default: { provider: deepseek-official, model: deepseek-v4-flash }
     rules:
-      - { id: image-k3,  when: { kind: image },                 target: { kimi-coding, k3 } }
-      - { id: code-kfc,  when: { kind: keywords, group: code }, target: { kimi-coding, kimi-for-coding } }
-  capability:                 # 能力：默认 k3，代码走 kimi-for-coding，闲聊关键词降级 flash（0.7.0 code 首序）
+      - { id: image-k3,      when: { kind: image },                 target: { kimi-coding, k3 } }
+      - { id: code-kfc,      when: { kind: keywords, group: code },     target: { kimi-coding, kimi-for-coding } }
+      - { id: translate-v4f, when: { kind: keywords, group: translate }, target: { deepseek-official, deepseek-v4-flash } }
+  capability:                 # 能力：默认 k3；0.8.0 序 image→review→code→math→longdoc→writing→translate→chitchat（review 先于 code：审查意图优先，平手落 review）
     name: 能力
     default: { provider: kimi-coding, model: k3 }
     rules:
-      - { id: code-kfc,       when: { kind: keywords, group: code },     target: { kimi-coding, kimi-for-coding } }
-      - { id: chitchat-flash, when: { kind: keywords, group: chitchat }, target: { deepseek-official, deepseek-v4-flash } }
-keywordGroups:
+      - { id: image-k3,       when: { kind: image },                 target: { kimi-coding, k3 } }
+      - { id: review-k3,      when: { kind: keywords, group: review },    target: { kimi-coding, k3 } }
+      - { id: code-kfc,       when: { kind: keywords, group: code },      target: { kimi-coding, kimi-for-coding } }
+      - { id: math-v4p,       when: { kind: keywords, group: math },      target: { deepseek-official, deepseek-v4-pro } }
+      - { id: longdoc-k3,     when: { kind: keywords, group: longdoc },   target: { kimi-coding, k3 } }
+      - { id: writing-v4p,    when: { kind: keywords, group: writing },   target: { deepseek-official, deepseek-v4-pro } }
+      - { id: translate-v4f,  when: { kind: keywords, group: translate }, target: { deepseek-official, deepseek-v4-flash } }
+      - { id: chitchat-flash, when: { kind: keywords, group: chitchat },  target: { deepseek-official, deepseek-v4-flash } }
+keywordGroups:               # 0.8.0 起内置 7 组（词表全文见文末「0.8.0」节）
   code:     [代码, code, bug, 重构, refactor, 实现, 函数, 测试, 接口, 联调, 部署, 性能, 报错, 日志, 编译, 命令, 脚本]
-  chitchat: [你好, 谢谢, 怎么样, 随便, 聊聊, 翻译, 总结, 天气]
+  chitchat: [你好, 谢谢, 怎么样, 随便, 聊聊, 天气]
+  review:   [审查, review, 评审, 挑毛病, 复检, 检查, audit, 意见, 打分]
+  writing:  [写作, 文案, 润色, 改写, 扩写, 标题, 推文, 周报, 演讲稿, 总结]
+  translate: [翻译, 译成, 中译英, 英译中, translate, 本地化]
+  longdoc:  [长文档, 通读, 逐段, 全文, 上万字, 大文档]
+  math:     [数学, 证明, 推导, 求解, 公式, 数论, 概率, 逻辑题]
 ```
 
 要点：
@@ -114,7 +128,7 @@ decide(messages, step, hasImageOverride?):
      preset = presets[activePreset]；缺失 → keep('active preset not found') + warn
      for rule of matchingRules(config, text, hasImage):               // 按序返回全部命中
        if 目标不在枚举池或 available:false → 跳过该规则（降级，继续）    // 见「降级语义」
-       else → route(rule.target, `规则「<条件名>」命中`, via: 'rule')
+       else → route(rule.target, `规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；image 规则无词数
   3. 打底：route(preset.default, `预设「<name>」默认`, via: 'default')
 ```
 
@@ -216,13 +230,13 @@ interface CandidateMeta extends RouteTarget {
 | `activePreset` | `string \| null` | `null` | 激活预设 id；`null` = 关闭（逃生舱） |
 | `presets` | `Record<string, RouterPreset>` | 内置 saving/capability | 预设表；键即预设 id |
 | `presets.<id>.name` | `string` | — | 显示名（非空，校验拒绝空名） |
-| `presets.<id>.default` | `{provider, model}` | — | 打底模型（未命中规则时的路由目标） |
+| `presets.<id>.default` | `{provider, model, effort?}` | — | 打底模型（未命中规则时的路由目标；effort 可选，0.8.0） |
 | `presets.<id>.rules` | `RouterRule[]` | — | 有序规则表；首条目标可用者生效 |
 | `rules[].id` | `string` | — | 稳定 id（排序/编辑/测试锚点） |
 | `rules[].when` | `{kind:'image'} \| {kind:'keywords', group, minHits?}` | — | 规则条件：带图 / 命名关键词组 |
 | `rules[].when.minHits` | `number \| undefined` | `undefined` | 命中关键词种数下限（≥1 整数；缺省 1；0.7.0） |
-| `rules[].target` | `{provider, model}` | — | 命中后的路由目标（provider/model 非空字符串） |
-| `keywordGroups` | `Record<string, string[]>` | 内置 code/chitchat | 组名 → 词表；全局共享，用户可增删改 |
+| `rules[].target` | `{provider, model, effort?}` \| `{flow}` | — | 命中后的路由目标（provider/model 非空字符串；effort 可选非空串，0.8.0——档位合法性运行期降级） |
+| `keywordGroups` | `Record<string, string[]>` | 内置 7 组（0.8.0） | 组名 → 词表；全局共享，用户可增删改 |
 
 **校验**（`settings-schema.ts: validateRouterConfig`，仅对 v4 生效）：
 `activePreset` 必须存在于 `presets`；预设名非空；每条规则 `target` 完整；
@@ -269,7 +283,8 @@ interface CandidateMeta extends RouteTarget {
   （reason 截断 120 字符，`scoreDelta` 字段已删除）。**上屏规则**：仅
   `via: explicit | rule` 的路由决策上浮；`via: default`（打底，每轮都发生，
   太吵）/ keep / 关闭一律返回 null。配置变更即清空（旧决策不泄漏）。
-  示例：`规则「代码」命中 → kimi-coding/kimi-for-coding`、
+  示例：`规则「code」命中 2 词（特异度最高） → kimi-coding/kimi-for-coding`
+  （0.8.0 起原因带命中词数；image 规则 = `规则「带图」命中`）、
   `显式 @kimi 指令 → kimi-coding/k3`。
 - **组件**（`src/client/`）：
   - `TideDock`（`conversation.composer.dock` 只读仪表）：主行 chips（📡 预设名
@@ -280,7 +295,10 @@ interface CandidateMeta extends RouteTarget {
     「月汐」卡片，0.5.0 重做为**预设管理器**——预设选择行（关闭/省钱/能力/
     自定义预设单选）、当前预设编辑器（默认模型下拉 + 规则表：条件下拉/目标
     下拉/上移下移删除/新增）、预设操作（新建/复制/删除）、关键词组管理区
-    （折叠；组词表编辑 + 新建/删除组）。写通道经 card-store 的
+    （折叠；组词表编辑 + 新建/删除组）。0.8.0 增：规则区真语义标题
+    （「命中词数多者优先，平手按列表序，带图恒第一」）、规则行 minHits
+    可见标签与自动条件摘要、目标 effort 档位下拉（模型未声明档位则禁用
+    「跟随默认」）、「试一句」测试器折叠区。写通道经 card-store 的
     `saveActivePreset` / `savePreset` / `createPreset` / `deletePreset` /
     `saveKeywordGroups` / `resetField`（规则表/词表的细粒度编辑由组件组装
     下一个完整字段值后整段提交），全部经 `scope.set`（或 connection 的
@@ -400,3 +418,87 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
 
 **向后兼容**：v5 配置形状不变，新字段全部可选；存量配置导入不迁移、不写回，
 未声明 `minHits` 的行为与旧版一致（仅排序与词边界语义按 0.7.0 生效）。
+
+## 0.8.0 规则体系补全 + 可解释性 + 推理程度配置（2026-08-27）
+
+### 关键词组 2 → 7 组（覆盖面补全）
+
+内置关键词组扩到 7 组——新增 review / writing / translate / longdoc / math
+五组，chitchat 瘦身为纯寒暄 6 词（「翻译」「总结」分别迁入 translate / writing
+组，消除「翻译任务被闲聊规则劫持到 flash」与「总结类写作无处安放」两类缺口）：
+
+| 组 | 词表 |
+|---|---|
+| `code` | 代码, code, bug, 重构, refactor, 实现, 函数, 测试, 接口, 联调, 部署, 性能, 报错, 日志, 编译, 命令, 脚本（0.7.0 已扩） |
+| `chitchat` | 你好, 谢谢, 怎么样, 随便, 聊聊, 天气（瘦身后纯寒暄） |
+| `review` | 审查, review, 评审, 挑毛病, 复检, 检查, audit, 意见, 打分 |
+| `writing` | 写作, 文案, 润色, 改写, 扩写, 标题, 推文, 周报, 演讲稿, 总结 |
+| `translate` | 翻译, 译成, 中译英, 英译中, translate, 本地化 |
+| `longdoc` | 长文档, 通读, 逐段, 全文, 上万字, 大文档 |
+| `math` | 数学, 证明, 推导, 求解, 公式, 数论, 概率, 逻辑题 |
+
+内置预设随之接组（组表仍全局共享、用户可增删改）：
+
+- **capability 序**：image → review → code → math → longdoc → writing →
+  translate → chitchat。review 排在 code 前（用户裁定 2026-08-27：审查意图
+  优先于泛 code 词——「帮我审查这段代码」review 1 词 + code 1 词平手时落
+  review 目标，平手按列表序）。
+- **saving 只加 translate**（image → code → translate；省钱姿态下翻译类消息
+  显式落 flash 打底位）。
+
+### `effort` 推理程度配置（可选字段）
+
+`RouteTarget` 增可选 `effort?: string`，共三个配置入口：规则 `target.effort`、
+预设 `default.effort`、转述流 `flows.<id>.visionModel.effort`。**review 流的
+`reviewer` 不接收 effort**（内联 schema 无该字段，评审执行层不消费——用户圈定
+范围，M7）。
+
+优先级与运行期语义（`router.ts: effortForTarget`）：
+
+1. **显式 `target.effort` 覆盖继承值**后再过支持集判定：模型档位表
+   （候选枚举时从 `llm.resolveModelInfo().reasoning.efforts` 打成
+   `reasoningEfforts: string[]` 挂 CandidateMeta；无 reasoning 的模型不带该
+   字段 = 能力未知）支持该档 → 原样写入 callConfig；**不支持 / 能力未知 /
+   仅 off → 剥离**（不钳制——用户显式指定的语义；dsh-llm-pi-ai 对不支持
+   显式档位抛 `UNSUPPORTED_REASONING_EFFORT` 是第二保险）。降级写日志：
+   `kimi-router: reasoning effort <x> → <y|∅> on <provider>/<model>`。
+2. **未指定 → 继承语义**（`reasoningEffortFor`，与 0.6.1 逐字节一致）：会话级
+   effort 从主力模型继承——支持保留 / 越级向下钳制 / 能力未知或仅 off 剥离。
+3. **护栏二次改道不带规则 effort**：图像护栏的改道目标是路由器内部构造的
+   多模态候选（无 effort 字段），走继承语义——规则 effort 不泄漏给视觉模型
+   （M5 用户裁定）。
+4. **显式 `@provider` 指令不指定 effort**：`@` 只锁 provider 层、模型取枚举
+   序首个可用，effort 走继承。
+5. **转述流 `visionModel.effort`**（`createStreamVisionCaller`）：经同一支持集
+   判定后显式下发——支持 → `options.reasoningEffort` 携带；不支持 / 未配置 →
+   不携带（视觉模型自身默认）。
+
+**档位合法性 = 运行期降级，非写入期拒绝（M4 口径）**：schema 与
+`validateRouterConfig` 只查形状（非空 string），任意档位串（含未知档如
+`xhigh`、自定义档）均可写入；运行期按模型支持集判定，不支持即剥离。模型
+目录的档位演进因此不需要迁移用户配置。
+
+设置卡片 effort 下拉与上述判定共用同一张档位表（`effort-catalog.ts` 经
+Typert remote src-json 通道下发 `provider/model → reasoningEfforts`）；模型
+未声明档位时下拉只剩禁用的「跟随默认」。
+
+### 可解释性：条件摘要 + 试一句 + 决策原因词数
+
+- **规则行条件摘要**（`rules.ts: ruleConditionSummary`）：设置卡片每条规则行
+  显示自动摘要——image 规则 =「带图」；keywords 规则 =「命中 code 组 ≥1 词」
+  （`minHits` 缺省 1，配置 ≥2 时如实显示）。
+- **「试一句」测试器**（`rules.ts: previewRoute` 纯函数 + 设置卡片折叠区）：
+  输入一句话，实时显示命中规则（含词数）与按当前激活预设的最终路由目标。
+  浏览器侧复刻 `decide` 的**文本语义**（显式 @ → 规则链首个目标可用者 →
+  打底；目标不可用即跳过），不模拟图像护栏与 flow 降级路径（浏览器侧无
+  modalities）——带图输入只展示规则命中，卡片固定声明不承诺最终改道。
+- **决策原因词数**：路由决策原因升级为 `规则「code」命中 2 词（特异度最高）`
+  （多命中时标注特异度最高；单命中 = `规则「code」命中 1 词`；image 规则 =
+  `规则「带图」命中`，∞ 无词数语义）。chip 数据经投影透传，
+  `DecisionSummary.reason` ≤120 截断契约不变；`via: default` 打底与 keep
+  仍不上 chip（既有语义）。
+
+### 非目标（0.8.0 明确不做）
+
+正则关键词、AND 组合条件、消息长度阈值、LLM 语义分类、`@effort` 行内指令
+语法、reviewer effort——均为非目标，不在本版交付面内。
