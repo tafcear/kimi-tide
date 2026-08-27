@@ -1,6 +1,18 @@
 // src/client/effort-remote.ts — 客户端半链（0.8.0）：$mount 手工贡献 + 调用面。
 // 与宿主侧 src/effort-catalog.ts 的 descriptor 逐字段一致（同一 endpoint）。
-import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+// 2026-08-27 实机验收 B5 缺陷修复：客户端 kernel（dsh-api-gateway client.js
+// requireStrictDescriptor）强制 result 为 strict codec——src-json 只被宿主半链
+// 容忍，客户端挂载即抛 "field \"result\" has no strict codec"，档位下拉全体禁用。
+// 档位表是纯 JSON（Record<string, string[]>），strict codec 恒等解码即可。
+import type { RemoteResult, TypertCodec, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+
+const EFFORT_CATALOG_RESULT_CODEC = {
+  mode: 'strict',
+  typeSymbol: 'Record<string, string[]>',
+  schema: {
+    parse: (value: unknown): Record<string, string[]> => value as Record<string, string[]>,
+  },
+} as const satisfies TypertCodec
 
 export const EFFORT_REMOTE_CONTRIBUTION: TypertRemoteContribution = {
   package: 'dsh-kimi-tide',
@@ -11,7 +23,7 @@ export const EFFORT_REMOTE_CONTRIBUTION: TypertRemoteContribution = {
     method: 'effortCatalog',
     invocation: { kind: 'direct' },
     parameters: [],
-    result: { mode: 'src-json' },
+    result: EFFORT_CATALOG_RESULT_CODEC,
   }],
 }
 
