@@ -86,10 +86,11 @@ describe('matchingRules', () => {
 
   it('0.7.0 特异度：命中词数多者优先；平手保持列表序；带图轮 image 规则恒优先', () => {
     const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
-    // code 2 词（重构+测试） vs chitchat 1 词（总结）→ code 反超列表序在前的 chitchat
+    // code 2 词（重构+测试） vs writing 1 词（总结）→ code 反超列表序在前的 writing
+    // （0.8.0：「总结」自 chitchat 迁入 writing，chitchat 瘦身后不再命中）
     expect(matchingRules(c, '帮我总结这次重构，顺便写个测试', false).map((r) => r.id))
-      .toEqual(['code-kfc', 'chitchat-flash'])
-    // 各命中 1 词 → 平手按列表序（0.7.0 内置序 code 在前，Task 4 已调序）
+      .toEqual(['code-kfc', 'writing-v4p'])
+    // 各命中 1 词 → 平手按列表序（0.8.0 内置序 code 在 chitchat 前）
     expect(matchingRules(c, '你好，帮我重构一下', false).map((r) => r.id))
       .toEqual(['code-kfc', 'chitchat-flash'])
     // 带图轮 image 规则分 = +∞：即使关键词规则列表序在前也恒被 image 压过

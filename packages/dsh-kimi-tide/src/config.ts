@@ -1,4 +1,4 @@
-export interface RouteTarget { provider: string; model: string }
+export interface RouteTarget { provider: string; model: string; effort?: string }
 /** 候选元数据（0.5.0：costTier 随评分面退役，Task 9 删除）。 */
 export interface CandidateMeta extends RouteTarget {
   modalities: string[]
@@ -82,12 +82,20 @@ export interface RouterConfigV4 {
 
 export const configKey = (t: RouteTarget): string => `${t.provider}/${t.model}`
 
-/** 内置关键词组（用户可增删改；内置预设引用 code/chitchat）。
+/** 内置关键词组（用户可增删改；内置预设引用全部 7 组）。
  *  0.7.0：code 词表 8→17 词（消除「词表过薄」——覆盖调试/联调/部署/性能/
- *  报错/日志/编译/命令/脚本九类高频编码场景）。 */
+ *  报错/日志/编译/命令/脚本九类高频编码场景）。
+ *  0.8.0（D1）覆盖面补全：内置 7 组——新增 review/writing/translate/longdoc/
+ *  math；chitchat 瘦身为纯寒暄 6 词（「翻译」「总结」分别迁入 translate/
+ *  writing 组）。 */
 export const DEFAULT_KEYWORD_GROUPS: Record<string, string[]> = {
   code: ['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试', '接口', '联调', '部署', '性能', '报错', '日志', '编译', '命令', '脚本'],
-  chitchat: ['你好', '谢谢', '怎么样', '随便', '聊聊', '翻译', '总结', '天气'],
+  chitchat: ['你好', '谢谢', '怎么样', '随便', '聊聊', '天气'],
+  review: ['审查', 'review', '评审', '挑毛病', '复检', '检查', 'audit', '意见', '打分'],
+  writing: ['写作', '文案', '润色', '改写', '扩写', '标题', '推文', '周报', '演讲稿', '总结'],
+  translate: ['翻译', '译成', '中译英', '英译中', 'translate', '本地化'],
+  longdoc: ['长文档', '通读', '逐段', '全文', '上万字', '大文档'],
+  math: ['数学', '证明', '推导', '求解', '公式', '数论', '概率', '逻辑题'],
 }
 
 export function DEFAULT_CONFIG_V4(): RouterConfigV4 {
@@ -101,15 +109,24 @@ export function DEFAULT_CONFIG_V4(): RouterConfigV4 {
         rules: [
           { id: 'image-k3', when: { kind: 'image' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
           { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } },
+          { id: 'translate-v4f', when: { kind: 'keywords', group: 'translate' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
         ],
       },
       capability: {
         name: '能力',
         default: { provider: KIMI_PROVIDER, model: 'k3' },
-        // 0.7.0：code 提到 chitchat 前——chitchat 首序会劫持「你好，帮我写个
-        // 测试」类混合消息（平手按列表序，见 rules.ts 0.7.0 特异度排序）。
+        // 0.8.0（D1）覆盖面补全：image → review → code → math → longdoc →
+        // writing → translate → chitchat。review 在 code 前（用户裁定 2026-08-27：
+        // 审查意图优先于泛 code 词，平手时落 review）；canonical 模型对 =
+        // kimi-coding × deepseek-official，不假设 qwen/glm 存在。
         rules: [
+          { id: 'image-k3', when: { kind: 'image' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
+          { id: 'review-k3', when: { kind: 'keywords', group: 'review' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
           { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } },
+          { id: 'math-v4p', when: { kind: 'keywords', group: 'math' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } },
+          { id: 'longdoc-k3', when: { kind: 'keywords', group: 'longdoc' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
+          { id: 'writing-v4p', when: { kind: 'keywords', group: 'writing' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } },
+          { id: 'translate-v4f', when: { kind: 'keywords', group: 'translate' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
           { id: 'chitchat-flash', when: { kind: 'keywords', group: 'chitchat' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
         ],
       },

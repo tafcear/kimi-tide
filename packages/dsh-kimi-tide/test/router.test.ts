@@ -64,7 +64,8 @@ describe('KimiRouter v4 decide', () => {
   it('能力预设：闲聊→flash，其余→k3 打底', () => {
     const r = new KimiRouter(cfg('capability'), METAS, log)
     expect(r.decide([textMsg('你好呀')], 1)).toMatchObject({ via: 'rule', target: { model: 'deepseek-v4-flash' } })
-    expect(r.decide([textMsg('推导这个式子')], 1)).toMatchObject({ via: 'default', target: { model: 'k3' } })
+    // 0.8.0 math 组含「推导」——原「推导这个式子」夹具改无命中说法，钉「未命中→打底」语义
+    expect(r.decide([textMsg('给我讲讲这个思路')], 1)).toMatchObject({ via: 'default', target: { model: 'k3' } })
   })
   it('显式 @kimi 优先于规则与默认', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)

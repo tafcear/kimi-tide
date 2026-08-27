@@ -408,8 +408,9 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
 
     const decision = lastSnapshot(agent).decision as { chosen: { provider: string; model: string }; reason: string } | null
     expect(decision).not.toBeNull()
-    expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
-    expect(decision!.reason).toContain('code')
+    // 0.8.0：review 组命中 2 词（审查+review）> code 1 词（代码）→ 特异度序 review-k3 首中
+    expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(decision!.reason).toContain('review')
   })
 
   it('a default-miss decision clears a previous rule summary (no stale leak)', async () => {

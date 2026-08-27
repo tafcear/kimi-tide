@@ -18,7 +18,7 @@ describe('routerConfigSchema v5', () => {
     c.presets.saving.rules.push({ id: 'img-flow', when: { kind: 'image' }, target: { flow: 'transcribe' } })
     c.presets.saving.imageFallback = 'latch'
     const parsed = routerConfigSchema(c as never) as RouterConfigV5
-    expect(parsed.presets.saving.rules[2].target).toEqual({ flow: 'transcribe' })
+    expect(parsed.presets.saving.rules[3].target).toEqual({ flow: 'transcribe' })
     expect(parsed.presets.saving.imageFallback).toBe('latch')
     expect(parsed.presets.saving.imageFallbackFlow).toBeUndefined()
     expect(parsed.presets.capability.imageFallback).toBeUndefined()
@@ -118,7 +118,7 @@ describe('mergeResolved v5', () => {
   it('部分覆盖深合并', () => {
     const merged = mergeResolved({ activePreset: 'saving' })
     expect(merged.activePreset).toBe('saving')
-    expect(merged.presets.capability.rules).toHaveLength(2)
+    expect(merged.presets.capability.rules).toHaveLength(8)
     expect(merged.flows).toEqual(DEFAULT_FLOWS())
   })
 })
