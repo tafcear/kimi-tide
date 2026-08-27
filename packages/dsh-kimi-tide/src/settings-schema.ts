@@ -5,7 +5,10 @@ import { DEFAULT_CONFIG_V5, isFlowTarget, type RouterConfigV5, type RuleTarget }
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
 const D5 = DEFAULT_CONFIG_V5()
 
-const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
+const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string(), effort: Schema.string() })
+// 0.8.0（评审 M7）：review.reviewer 不接收 effort——flowSchema review 分支
+// 内联一份无 effort 的 target schema，尊重用户圈定范围（评审执行层不消费）。
+const reviewerTargetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
 const ruleSchema = Schema.object({
   id: Schema.string(),
   when: Schema.union([
@@ -14,7 +17,11 @@ const ruleSchema = Schema.object({
   ]),
   // v5：规则目标泛化为「纯模型 | 协作流引用」；流引用的存在性/类型（P1 仅
   // transcribe 可作规则目标）由 validateRouterConfig 语义校验，schema 只管形状。
-  target: Schema.union([targetSchema, Schema.object({ flow: Schema.string() })]),
+  // 0.8.0 实证（node_modules schemastery）：union 只在所有分支皆抛时才抛；flow
+  // 分支不 required 时对「缺 flow 的任意对象」静默通过（缺省标量省略 + 透传），
+  // 吞掉 targetSchema 对 effort 非法类型的拒绝——故 flow 标 required 使分支真正
+  // 判别，union 错误消息经 toString/JSON 双通道携带 'effort'。
+  target: Schema.union([targetSchema, Schema.object({ flow: Schema.string().required() })]),
 })
 const presetSchema = Schema.object({
   name: Schema.string(),
@@ -34,7 +41,7 @@ const flowSchema = Schema.union([
   }),
   Schema.object({
     type: Schema.const('review'),
-    reviewer: targetSchema,
+    reviewer: reviewerTargetSchema,
     trigger: Schema.union([Schema.const('manual'), Schema.const('keywords')]),
     keywordGroup: Schema.string(),
     rounds: Schema.number(),
@@ -89,6 +96,10 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     if (typeof preset.name !== 'string' || preset.name.trim() === '') {
       return `预设 '${key}' 的名称不能为空`
     }
+    const dft = (preset.default ?? {}) as { effort?: unknown }
+    if (dft.effort !== undefined && (typeof dft.effort !== 'string' || dft.effort.trim() === '')) {
+      return `预设 '${key}' 的 default.effort 必须为非空字符串`
+    }
     for (const rule of preset.rules) {
       const t = (rule.target ?? {}) as RuleTarget
       if (isFlowTarget(t)) {
@@ -101,6 +112,10 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
         }
       } else if (typeof t.provider !== 'string' || t.provider === '' || typeof t.model !== 'string' || t.model === '') {
         return `规则 '${rule.id}' 的 target 不完整（provider/model 必须为非空字符串）`
+      }
+      if (typeof (t as { effort?: unknown }).effort !== 'undefined'
+        && (typeof (t as { effort?: unknown }).effort !== 'string' || ((t as { effort?: string }).effort as string).trim() === '')) {
+        return `规则 '${rule.id}' 的 target.effort 必须为非空字符串`
       }
       if (rule.when?.kind === 'keywords') {
         if (!(rule.when.group in raw.keywordGroups)) {
@@ -124,6 +139,12 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     }
   }
   for (const [fid, flow] of Object.entries(raw.flows)) {
+    if (flow.type === 'transcribe') {
+      const vm = (flow.visionModel ?? {}) as { effort?: unknown }
+      if (vm.effort !== undefined && (typeof vm.effort !== 'string' || vm.effort.trim() === '')) {
+        return `转述流 '${fid}' 的 visionModel.effort 必须为非空字符串`
+      }
+    }
     if (flow.type !== 'review') continue
     if (!Number.isInteger(flow.rounds) || flow.rounds < 1 || flow.rounds > 3) {
       return `评审流 '${fid}' 的 rounds 越界（须为 1..3 的整数）`

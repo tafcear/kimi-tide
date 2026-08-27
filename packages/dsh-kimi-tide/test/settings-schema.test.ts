@@ -140,3 +140,42 @@ describe('validateRouterConfig minHits（0.7.0）', () => {
     expect(withMin(2)).toBeUndefined()
   })
 })
+
+describe('effort 形状（0.8.0）', () => {
+  it('effort 缺省不注入（v5 默认往返相等保持）；提供则存活', () => {
+    const c = DEFAULT_CONFIG_V5()
+    expect(routerConfigSchema(c as never)).toEqual(DEFAULT_CONFIG_V5())  // 默认无 effort
+    ;(c.presets.saving.rules[0].target as { effort?: string }).effort = 'max'
+    const parsed = routerConfigSchema(c as never) as RouterConfigV5
+    expect(parsed.presets.saving.rules[0].target).toMatchObject({ effort: 'max' })
+  })
+
+  it('预设 default 与 transcribe.visionModel 接受 effort；review.reviewer 无该字段（内联 schema）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    ;(c.presets.saving.default as { effort?: string }).effort = 'high'
+    ;(c.flows.transcribe.visionModel as { effort?: string }).effort = 'low'
+    const parsed = routerConfigSchema(c as never) as RouterConfigV5
+    expect(parsed.presets.saving.default.effort).toBe('high')
+    expect(parsed.flows.transcribe.visionModel.effort).toBe('low')
+  })
+
+  it('effort 非法类型 → schema 拒绝（存在即校验）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    ;(c.presets.saving.rules[0].target as { effort?: unknown }).effort = 42
+    expect(() => routerConfigSchema(c as never)).toThrow(/effort/)
+  })
+})
+
+describe('validateRouterConfig effort（0.8.0，形状校验口径 M4）', () => {
+  const withEffort = (target: unknown, effort: unknown) => {
+    const c = structuredClone(DEFAULT_CONFIG_V5()); c.activePreset = 'saving'
+    ;(c.presets.saving.rules[0].target as Record<string, unknown>).effort = effort
+    return validateRouterConfig(c)
+  }
+  it('空串拒写；任意非空档位串（含未知档位）通过——档位合法性运行期降级', () => {
+    expect(withEffort({}, '')).toContain('effort')
+    expect(withEffort({}, 'max')).toBeUndefined()
+    expect(withEffort({}, 'xhigh')).toBeUndefined()
+    expect(withEffort({}, 'unknown-tier')).toBeUndefined()
+  })
+})
