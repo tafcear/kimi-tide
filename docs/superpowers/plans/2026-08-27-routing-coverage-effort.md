@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 📌 **决策注记（2026-08-27 用户裁定）**：0.7.0 不发版（用户不满意）——0.7.0 的 tag / 合并 main / Actions 发版环节整体取消；关键词匹配改进随 0.8.0 一并发布（0.8.0 基线含 0.7.0 全部内容）；发版门禁适用 0.8.0（实机验收 B1–B8 全绿 + 用户裁定 tag）。执行分支：`feat/0.8.0-routing-coverage`（自 feat/0.7.0 尖端起）。
+
 **Goal:** 按 0.8.0 设计稿 v2 落地三条决策线——D1 内置关键词组补 5 组并接线预设；D2 规则区可解释性（真语义标题 / minHits 标签 / 行级条件摘要 / 「试一句」测试器 / 决策 chip 命中词数）；D3 `effort` 可选字段（规则目标 / 预设默认 / 转述流视觉模型）经插件自有 Host→Client 通道（Typert remote）把 per-model 档位表送进设置卡片。
 
 **Architecture:** 数据面（新组/预设序/`RouteTarget.effort?`）集中在 `src/config.ts`；schema 形状与语义校验在 `src/settings-schema.ts`（review.reviewer 内联无 effort target schema）；纯函数面（`matchingScored` 命中计分、条件摘要、`previewRoute` 试一句预测）在 `src/rules.ts`；路由决策（词数原因、effort 优先级/降级、VisionCaller 能力注入）在 `src/router.ts`；档位目录通道 = 宿主服务 `kimi-tide.catalog`（手工 Typert contribution + `typertRemote` 绑定，spike 实证 PASS）+ 客户端 `ctx.remote.$mount` 同名贡献；UI 面在 `src/client/SettingsCard.tsx` + `card-store.ts`。
@@ -322,7 +324,7 @@ settings.section 的 `inject` 回调追加一行（`connection` 之后）：
 - [ ] **Step 10: 跑全量验证确认通过**
 
 Run: `npx vitest run --pool=threads && npm run typecheck && npm run build`
-Expected: 全绿（含 Step 1 新用例与全部存量测试——index-apply 测试 fake 无 `provide`/`typert`，接线代码的 `typeof` 守卫与 `?.` 保证其零影响）。
+Expected: 全绿（含 Step 1 新用例与全部存量测试——index-apply 测试 fake 无 `provide`/`typert`，接线代码的 `typeof` 守卫与 `?.` 保证其零影响）。注意：`test/SettingsCard.dom.test.tsx` 与 `test/SettingsCard.test.tsx` 的快照夹具（`makeDeferredStore` / `readySnapshot` / `readyV5Snapshot` 及 renderToString 夹具）构造 `CardSnapshot` 需同步补 `efforts: null` 字段——typecheck 绿的任务级义务归本任务（执行前裁定：字段新增者承担夹具连带更新，勿推迟到 Task 6）。
 
 - [ ] **Step 11: Commit**
 
@@ -438,7 +440,7 @@ capability rules 整体替换为：
 - [ ] **Step 4: 跑测试确认通过 + 全量验证**
 
 Run: `npx vitest run --pool=threads test/config.test.ts && npx vitest run --pool=threads && npm run typecheck && npm run build`
-Expected: 全绿。注意：`test/rules.test.ts` 里 `matchingRules(c, '今天天气怎么样', false)` 用 capability 预设断言空命中——capability 现有 chitchat 组含「天气」→ 该用例会命中 chitchat-flash！该用例在 `rules.test.ts` 用 saving 预设（`省钱预设无闲聊规则`），不受影响；但 `test/settings-schema.test.ts`/`test/router.test.ts` 里若有 capability 规则数/序的隐式断言，按失败信息逐条更新为 0.8.0 语义（此为本任务显式预期）。
+Expected: 全绿。注意：`test/rules.test.ts` 的「0.7.0 特异度」用例中『帮我总结这次重构，顺便写个测试』断言 `['code-kfc', 'chitchat-flash']` 需随 chitchat 瘦身（「总结」迁入 writing）更新为 `['code-kfc', 'writing-v4p']`——数据面变更的连带断言更新归本任务（执行前裁定：变更引发者当场修断言，保证每任务绿）。
 
 - [ ] **Step 5: Commit**
 
@@ -786,7 +788,7 @@ export function previewRoute(config: RuleMatchConfig, text: string, deps: RouteP
 - [ ] **Step 4: 跑测试确认通过 + 全量验证**
 
 Run: `npx vitest run --pool=threads test/rules.test.ts && npx vitest run --pool=threads && npm run typecheck && npm run build`
-Expected: 全绿（matchingRules 既有断言逐条保持——薄封装同序；`帮我总结这次重构，顺便写个测试` 在 0.8.0 词表下命中 code 2 词 + writing「总结」1 词——既有用例断言 `['code-kfc', 'chitchat-flash']` 需更新为 `['code-kfc', 'writing-v4p']`，本任务显式预期）。
+Expected: 全绿（matchingRules 既有断言逐条保持——薄封装同序；「总结」断言已在 Task 2 更新）。
 
 - [ ] **Step 5: Commit**
 
@@ -1307,7 +1309,7 @@ FlowRow 的 visionModel TargetSelect `onChange` 保持原样（parseTarget 天�
 - [ ] **Step 4: 跑测试确认通过 + 全量验证**
 
 Run: `npx vitest run --pool=threads test/SettingsCard.dom.test.tsx test/SettingsCard.test.tsx && npx vitest run --pool=threads && npm run typecheck && npm run build`
-Expected: 全绿。既有 `test/SettingsCard.test.tsx` 若有标题旧文案断言（「有序，首条命中生效」）与快照缺 `efforts` 字段的构造处，按失败信息逐条更新（快照 fixtures 加 `efforts: null`——本任务显式预期）。
+Expected: 全绿。既有 `test/SettingsCard.test.tsx` 若有标题旧文案断言（「有序，首条命中生效」）按失败信息逐条更新（fixtures 的 `efforts` 字段已在 Task 1 补过）。
 
 - [ ] **Step 5: Commit**
 
