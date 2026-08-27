@@ -51,6 +51,12 @@ export interface CardSnapshot {
    * 不为可用性失败污染 error 通道。
    */
   availability: Record<string, boolean> | null
+  /**
+   * per-model 推理档位表（'provider/model' → effort id 列表，0.8.0 自有
+   * Host→Client 通道）。null = 未取/取数失败——UI 降级为「跟随默认」禁用态，
+   * 与 availability 同款：不占 error 通道。
+   */
+  efforts: Record<string, string[]> | null
 }
 
 /** settings.mutate 的一枚 path op（set / unset）。 */
@@ -136,6 +142,8 @@ export interface CardStore {
   deleteFlow(id: string): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
+  /** 取 per-model 推理档位表（0.8.0 自有通道）；失败/未提供 → efforts=null。 */
+  loadEfforts(fetch: () => Promise<Record<string, string[]>>): Promise<void>
   getSnapshot(): CardSnapshot
   subscribe(listener: () => void): () => void
 }
@@ -159,6 +167,7 @@ export function createCardStore(
     error: null,
     catalog: null,
     availability: null,
+    efforts: null,
   }
   // connection/mutate 路径的乐观并发栅栏：最近一次 describe 读到的命名空间
   // revision。scope 路径不需要它（scope.set/unset 自带 latest-write 恢复）。
@@ -186,6 +195,7 @@ export function createCardStore(
       error: null,
       catalog: snapshot.catalog,
       availability: snapshot.availability,
+      efforts: snapshot.efforts,
     })
   }
 
@@ -251,13 +261,13 @@ export function createCardStore(
       try {
         const r = await connection.api.settings.describe({})
         if (!r.result.ok) {
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null, efforts: null })
           return
         }
         const view = r.result.value.namespaces.find((n) => n.ns === CARD_NAMESPACE)
         if (view === undefined) {
           revision = undefined
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null, efforts: null })
           return
         }
         revision = view.revision
@@ -270,6 +280,7 @@ export function createCardStore(
           error: null,
           catalog: snapshot.catalog,
           availability: snapshot.availability,
+          efforts: snapshot.efforts,
         })
       } catch (error) {
         fail(error)
@@ -426,6 +437,13 @@ export function createCardStore(
     saveFlows,
     deleteFlow,
     resetField,
+    loadEfforts: async (fetch) => {
+      try {
+        publish({ ...snapshot, efforts: await fetch() })
+      } catch {
+        publish({ ...snapshot, efforts: null })
+      }
+    },
     getSnapshot: () => snapshot,
     subscribe: (listener: () => void) => {
       listeners.add(listener)

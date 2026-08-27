@@ -42,6 +42,8 @@ import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor } from './usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
+import type {} from '@deepseek-ai/dsh-typert-protocol'
+import { buildEffortCatalog, EFFORT_CATALOG_CONTRIBUTION, EFFORT_CATALOG_SERVICE } from './effort-catalog.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -384,6 +386,8 @@ export function apply(ctx: Context, config: Config = {}) {
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
   let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfig)
+  // 0.8.0 effort 档位目录：随候选枚举刷新（spike 实证通道，见 effort-catalog.ts）。
+  let effortCatalog: Record<string, string[]> = buildEffortCatalog(candidateMetas)
   let enumerationSeq = 0
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
@@ -391,6 +395,7 @@ export function apply(ctx: Context, config: Config = {}) {
       .then((metas) => {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
+        effortCatalog = buildEffortCatalog(metas)
         mountRouter()
         pushPanelToAllSessions()
       })
@@ -437,6 +442,32 @@ export function apply(ctx: Context, config: Config = {}) {
       latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}`.slice(0, 120))
     }
     pushPanel(agent)
+  }
+
+  // 0.8.0 自有 Host→Client 通道（Typert remote，spike 实证）：服务对象 + 手工
+  // contribution。ctx.provide 的处置随插件 fiber 自动回收；typert.register
+  // 返回的 disposer 手工挂到插件 fiber 上（注册表 effect 宿主级存活，插件
+  // 停止时显式撤回，防重挂载「already registered」）。
+  const effortService = {
+    effortCatalog: () => effortCatalog,
+  }
+  ;(effortService as { typertRemote?: unknown }).typertRemote = Object.freeze({
+    service: effortService,
+    serviceKey: EFFORT_CATALOG_SERVICE,
+    namespace: 'kimiTide',
+  })
+  if (typeof ctx.provide === 'function') {
+    ctx.provide(EFFORT_CATALOG_SERVICE, effortService)
+  }
+  try {
+    const disposeEffortRemote = (ctx.typert as unknown as {
+      register?: (contribution: unknown) => (() => Promise<void>) | undefined
+    }).register?.(EFFORT_CATALOG_CONTRIBUTION)
+    if (disposeEffortRemote !== undefined) {
+      ctx.effect(() => () => { void disposeEffortRemote() })
+    }
+  } catch (error) {
+    warn(`dsh-kimi-tide: effort 档位目录注册失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`)
   }
 
   mountRouter()

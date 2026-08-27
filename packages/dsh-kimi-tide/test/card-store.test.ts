@@ -107,3 +107,22 @@ describe('card-store v4', () => {
     expect(snap.availability?.['kimi-coding/kimi-for-coding']).toBe(false)  // 未挂载 → 标灰
   })
 })
+
+describe('card-store effort 档位目录（0.8.0）', () => {
+  it('loadEfforts 取数成功 → efforts 入快照；取数失败 → efforts null（不占 error 通道）', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V4())
+    const store = createCardStore(scope, null)
+    await store.loadEfforts(async () => ({ 'kimi-coding/k3': ['low', 'high', 'max'] }))
+    expect(store.getSnapshot().efforts).toEqual({ 'kimi-coding/k3': ['low', 'high', 'max'] })
+    expect(store.getSnapshot().error).toBeNull()
+    await store.loadEfforts(async () => { throw new Error('remote 挂了') })
+    expect(store.getSnapshot().efforts).toBeNull()
+    expect(store.getSnapshot().error).toBeNull()  // 降级通道，不污染 error
+  })
+
+  it('无 fetch（旧宿主/未接 remote）→ efforts 保持 null', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V4())
+    const store = createCardStore(scope, null)
+    expect(store.getSnapshot().efforts).toBeNull()
+  })
+})

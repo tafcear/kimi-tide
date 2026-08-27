@@ -10,6 +10,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { TideDock, tideDockBridge } from './TideDock.js'
 import { SettingsCard } from './SettingsCard.js'
+import { mountEffortCatalog, type EffortCatalogFetcher } from './effort-remote.js'
 
 export const inject = ['slots', 'remote', 'remote.commands']
 
@@ -22,6 +23,15 @@ interface LocaleFace {
 const LOCALE_NS = 'settings.kimi-tide'
 
 export function apply(ctx: Context): void {
+  // 0.8.0 effort 档位目录：$mount 手工贡献，失败降级为空表（卡片显示
+  // 「跟随默认」禁用态）。catch 显式吞掉——绝不产生 unhandled rejection。
+  const effortFetcher: Promise<EffortCatalogFetcher> = mountEffortCatalog(ctx.remote).catch(
+    (error: unknown) => {
+      console.warn(`[kimi-tide] effort 档位目录不可用（${error instanceof Error ? error.message : String(error)}）`)
+      return async () => ({})
+    },
+  )
+
   // Wire the bridge so TideDock can call remote commands without receiving ctx as a prop.
   // The commands/execute contract differs by host version:
   //   - rc.8 (web): (agent, line, images) — images is a required business arg;
@@ -74,6 +84,7 @@ export function apply(ctx: Context): void {
       scope: (ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
         ?.bind({ namespace: 'kimi-tide-router' }) ?? null,
       connection: (ctx.get('connection') as unknown) ?? null,
+      fetchEfforts: () => effortFetcher.then((fetch) => fetch()),
     }),
   }, SettingsCard))
 

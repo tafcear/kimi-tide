@@ -41,6 +41,8 @@ export interface SettingsCardProps {
   scope: SettingsScopeLike | null
   connection: ConnectionLike | null
   close?: () => void
+  /** 0.8.0：per-model 推理档位取数（宿主自有通道）；缺席/失败 → 下拉「跟随默认」。 */
+  fetchEfforts?: () => Promise<Record<string, string[]>>
   /**
    * store 工厂缝（测试用）：默认 createCardStore。renderToString 不跑
    * effect，异步 availability 只能靠预制快照的 store 注入来覆盖渲染断言。
@@ -325,6 +327,11 @@ export function SettingsCard(props: SettingsCardProps) {
   useEffect(() => {
     void store.load()
   }, [store])
+  useEffect(() => {
+    if (props.fetchEfforts !== undefined) {
+      void store.loadEfforts(props.fetchEfforts)
+    }
+  }, [store, props.fetchEfforts])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const config = snapshot.config
 
