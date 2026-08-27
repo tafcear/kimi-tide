@@ -57,6 +57,7 @@ const baseSnapshot = (config: RouterConfigV4 | RouterConfigV5, overrides: Partia
   error: null,
   catalog: CATALOG,
   availability: null,
+  efforts: null,
   ...overrides,
 })
 

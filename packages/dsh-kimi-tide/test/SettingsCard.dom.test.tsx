@@ -37,6 +37,7 @@ function makeDeferredStore(overrides: Partial<CardStore> = {}) {
     error: null,
     catalog: null,
     availability: null,
+    efforts: null,
   }
   const listeners = new Set<() => void>()
   const store: CardStore = {
@@ -74,6 +75,7 @@ const readySnapshot = (): CardSnapshot => ({
   error: null,
   catalog: null,
   availability: null,
+  efforts: null,
 })
 
 /** Task 11 夹具：v5 就绪快照（含预置流注册表），激活省钱预设。 */
@@ -86,6 +88,7 @@ const readyV5Snapshot = (overrides: Partial<CardSnapshot> = {}): CardSnapshot =>
   error: null,
   catalog: null,
   availability: null,
+  efforts: null,
   ...overrides,
 })
 
