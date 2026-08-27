@@ -1449,19 +1449,23 @@ kimi-tide-router:
 
 ---
 
-## 验收清单 B1–B8 回填区（Task 7 建立，待实机验收回填）
+## 验收清单 B1–B8 回填区（Task 7 建立，2026-08-27 实机验收回填 ✅）
 
-> 发布门禁骨架（逐字采用 Task 8 Step 4 清单；**待实机验收回填**——每项在真实宿主
-> 验收后补记结果与证据锚点，全绿 + 用户裁定 tag 方可发版。`plan` 交叉探针为用户实机
-> 自建组，若用户已删该组则跳过并记录。）
+> 发布门禁骨架（逐字采用 Task 8 Step 4 清单）。**2026-08-27 21:1x–23:5x 实机验收
+> （用户裁定选项 1 全套）**：capability 临时窗口跑 B1/B2/B5 探针（探针子代理会话
+> 日志多帧 zstd 解码取 decision+request/header 证据），GUI 目检项经用户截图与
+> BrowserSkill 浏览器自动化取证。中途发现并修复 B5 通道缺陷两连：`cfdf9d5`（客户端
+> codec src-json→strict）与 `29c46e9`（typert $mount 实机证伪，整通道换道
+> settings.describe + kimi-tide-catalog 设置命名空间）。**八项全绿，发布门禁满足，
+> 待用户裁定 tag。**
 
-- [ ] B1 新组命中阳性：审查/写作/翻译/长文档/数学各一探针，request/header 解码；
-- [ ] B2 特异度与新组交叉：「帮我审查这段代码」（review 1 词 + code 1 词平手）→ 落 review 目标（序级裁定）；「帮我重构这段代码」（code 2 词）→ 落 code 目标；用户实机补 plan 交叉探针（「plan：帮我做个方案」→ plan 目标）；
-- [ ] B3 minHits 摘要与可见标签渲染（设置卡片目检）；
-- [ ] B4「试一句」测试器结果与实机路由一致（限定文本探针；带图只展示命中不承诺改道）；
-- [ ] B5 effort 生效：deepseek 目标 effort=max → header 携带 reasoningEffort:max；qwen3.8 目标「跟随默认」禁用态；
-- [ ] B6 转述流 visionModel effort 生效；护栏改道后视觉模型不带规则 effort；
-- [ ] B7 存量兼容（无迁移留档、旧配置行为不变）；
-- [ ] B8 决策 chip 显示命中词数。
+- [x] B1 ✅ 新组命中阳性 — 五探针全中且 header 与 decision 一致：review→v4-flash「命中 1 词」/ writing→glm-5.3「命中 2 词」/ translate→glm-5.3-flash「命中 2 词」/ longdoc→kimi-for-coding-highspeed「命中 2 词」（金丝雀，兼证配置热生效 ruleCount=9）/ math→v4-pro「命中 2 词」；
+- [x] B2 ✅ 特异度与交叉 — 「帮我审查这段代码」（1+1 平手）→ decision「规则「review」命中 1 词（特异度最高）」落 review 目标；「帮我重构这段代码」（code 2 词）→ k3；plan 交叉「plan：帮我做个方案」（用户实机自建组）→「规则「plan」命中 2 词」→ k3；
+- [x] B3 ✅ minHits 摘要与标签渲染 — 设置卡片目检（用户截图）：能力预设 9 规则目标标签逐字正确、每条含「最少命中词数」输入与「命中 ×× 组 ≥N 词」条件摘要、规则区真语义标题「命中词数多者优先，平手按列表序，带图恒第一」；
+- [x] B4 ✅ 试一句与实机一致 — 「帮我重构这段代码」→ 预测「code 命中 2 词 → kimi-coding/k3」，与真实探针 decision 逐字一致；「按当前激活预设（省钱）」与「仅文本探针」声明在场；
+- [x] B5 ✅ effort 生效 — 运行时半：math 探针（target.effort=max）出网 header 携带 `reasoningEffort:"max"`，同批无 effort 的 review 规则 header 为继承钳制值 high——显式覆盖 vs 继承对照实锤；UI 半：首验全灰 → 根因=客户端手写 typert $mount 在 vendored kernel 静默挂起（src-json 先拒后挂两态）→ `29c46e9` 换道后重启复验：5 个 effort 下拉全启用、选项集与各目标模型档位目录逐字吻合（k3=跟随默认+low/high/max，glm-5.3-flash=跟随默认+五档）；「qwen3.8 跟随默认禁用态」以替代锚点覆盖（现配无 qwen 目标；src-json 时代全禁用 vs 换道后逐模型启用，已证下拉状态与档位表联动）；
+- [x] B6 ✅ 转述流 visionModel effort（替代锚点）— 注入单测矩阵（visionModel.effort 支持→`options.reasoningEffort` 携带；不支持/未配置→不携带）+ schema/UI 链实机活（「effort transcribe 视觉模型」下拉 4 档启用，k3 目录吻合）+ 注入与 B5 同函数（effortForTarget 支持集判定）；护栏改道半：replaceRoute M5 单测（护栏目标无 effort 走继承钳制、规则 effort 不泄漏）；实机 saving 形态 image 首序兜全部带图、护栏改道路径不可达（Task 8 注记既定）。实机图像轮未发：Agent Window 发图被 BrowserSkill 浮层阻挡（取证工具自身限制），弃发防失控；
+- [x] B7 ✅ 存量兼容 — 验收全程 saving 预设零改动（临时窗口只切 activePreset 与 capability 规则，恢复逐字节校验 PASS）；原生 saving 下真实消息路由正确（code→k3，决策 chip 在场）；重启后 v5 解析零迁移告警、无 .pre-v5 留档；新增 kimi-tide-catalog 节为插件自有新增节，router 节逐字未动；
+- [x] B8 ✅ 决策 chip 命中词数 — Agent Window 实发消息 DOM 直读：chip「▸ 🧭 k3 · 规则「code」命中 2 词」。
 
-**回填记录**：（待实机验收后逐项回填：通过/跳过 + 证据锚点）
+**回填记录**：2026-08-27 DSH 实机验收全绿（证据锚点：调用日志 `AI记忆/调用日志/2026-08-27-210941-DSH.md` 探针批与取证脚本输出；B5 换道 commit `cfdf9d5`、`29c46e9`；决策帧 seq/header 原文见对应探针会话解码）。全绿 + 用户裁定 tag 方可发版。
