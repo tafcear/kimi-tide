@@ -33,7 +33,7 @@ import type {
 import { isFlowTarget } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
-import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from './rules.js'
+import { explicitProvider, latestUserText, matchingScored, messagesContainImage, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -172,6 +172,29 @@ export function reasoningEffortFor(
   return undefined
 }
 
+/**
+ * 目标 effort 判定（0.8.0，spec D3/M5）：explicit（target.effort）覆盖会话继承
+ * 值后再过支持集判定——支持 → 原样；不支持/能力未知/仅 off → 剥离（模型默认），
+ * 不做越级钳制（用户显式指定的语义；dsh-llm 对不支持显式档位抛
+ * UNSUPPORTED_REASONING_EFFORT，第二保险）。explicit 缺省 → 继承语义与
+ * reasoningEffortFor 逐字节一致（护栏二次改道 target 无 effort 即走此路，
+ * 保证规则 effort 不泄漏给视觉模型——M5 用户裁定）。
+ */
+export function effortForTarget(
+  metas: readonly CandidateMeta[],
+  target: RouteTarget,
+  inherited: ReasoningEffortId | undefined,
+  explicit: string | undefined,
+): ReasoningEffortId | undefined {
+  const meta = metas.find((m) => m.provider === target.provider && m.model === target.model)
+  const supported = meta?.reasoningEfforts
+  if (explicit !== undefined) {
+    if (supported !== undefined && supported.length > 0 && supported.includes(explicit)) return explicit as ReasoningEffortId
+    return undefined
+  }
+  return reasoningEffortFor(metas, target, inherited)
+}
+
 export interface RouterLog {
   info: (message: string) => void
 }
@@ -223,8 +246,13 @@ export class KimiRouter {
       return { kind: 'keep', reason: 'active preset not found' }
     }
     const flows = flowsOf(this.config)
-    for (const rule of matchingRules(this.config, text, hasImage)) {
+    const hits = matchingScored(this.config, text, hasImage)
+    for (const { rule, score } of hits) {
       const target = rule.target
+      // 0.8.0 原因升级：携带命中词数；多命中加（特异度最高）标注（image=∞ 不带）。
+      const note = score === Number.POSITIVE_INFINITY
+        ? ''
+        : ` ${score} 词${hits.length > 1 ? '（特异度最高）' : ''}`
       // 协作流目标（0.6.0，spec §5.1）：flow 存在 + transcribe 型 + visionModel
       // 在候选目录中可用 → flow 决策；任一不满足 → 跳过该规则（与模型目标不可
       // 用的降级语义一致）。v4 存量 flows 为空表，flow 目标恒按「不存在」降级。
@@ -236,11 +264,11 @@ export class KimiRouter {
           (m) => m.provider === flow.visionModel.provider && m.model === flow.visionModel.model && m.available,
         )
         if (vision === undefined) continue
-        return { kind: 'flow', flowId, flow, reason: `规则「${ruleLabel(rule)}」命中（协作流 ${flowId}）`, via: 'rule' }
+        return { kind: 'flow', flowId, flow, reason: `规则「${ruleLabel(rule)}」命中${note}（协作流 ${flowId}）`, via: 'rule' }
       }
       const meta = this.metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
       if (meta === undefined) continue
-      return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中`, via: 'rule' }
+      return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
     }
     // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
     return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
@@ -253,15 +281,16 @@ export class KimiRouter {
   }
 
   /**
-   * 把一轮请求替换到目标 provider/model，并把会话级推理等级映射到目标支持集
-   * （reasoningEffortFor：支持保留 / 越级钳制 / 未知剥离）。路由与图像护栏共用
-   * 这一条写路径，保证两条替换路径的 effort 语义一致。
+   * 把一轮请求替换到目标 provider/model，并把 effort 映射到目标支持集
+   * （effortForTarget：显式 target.effort 覆盖→支持集判定/不支持剥离；缺省
+   * → 继承语义 reasoningEffortFor 支持保留/越级钳制/未知剥离）。路由与图像
+   * 护栏共用这一条写路径，保证两条替换路径的 effort 语义一致。
    */
   replaceRoute(config: LlmCallConfig, target: RouteTarget): LlmCallConfig {
     const { reasoningEffort: inherited, ...rest } = config
-    const effort = reasoningEffortFor(this.metas, target, inherited)
-    if (effort !== inherited) {
-      this.log.info(`kimi-router: reasoning effort ${inherited ?? '∅'} → ${effort ?? '∅'} on ${target.provider}/${target.model}`)
+    const effort = effortForTarget(this.metas, target, inherited, target.effort)
+    if (effort !== (target.effort ?? inherited)) {
+      this.log.info(`kimi-router: reasoning effort ${target.effort ?? inherited ?? '∅'} → ${effort ?? '∅'} on ${target.provider}/${target.model}`)
     }
     return {
       ...rest,
@@ -334,16 +363,20 @@ export function extractResolvedImages(messages: readonly UserMessage[]): Resolve
   return out
 }
 
+/** 目标能力的档位查询缝（M6）：metas 池注入，供「visionModel.effort 不支持则降级」。 */
+export type EffortResolver = (target: RouteTarget) => string[] | undefined
+
 /**
  * 生产 VisionCaller（Task 9 组装，S1 实证链路）：ctx.llm.stream 直调视觉模型，
  * 图块按持久引用线形构造 `{ type:'image', attachment: ref }`（字节解析由适配器
  * 完成）；text-delta 手工累计成转述文字；finish reason.kind 为 error/aborted
  * 时抛错（Transcriber 记入失败集，同图不重打）。usage  chunk 随流穿过不累计
- * （S5 账单复核另案）。Ruling 2：不携带 reasoningEffort（adapter 默认）。
- * I-2：调用方 signal 透传进 GenerateOptions——pre-step 中止/有界超时由此
- * 到达视觉端，abort 的流以 finish aborted（或 reject）收尾，视同转述失败。
+ * （S5 账单复核另案）。0.8.0（D3）：visionModel.effort 经 EffortResolver
+ * 支持集判定后显式下发，不支持/未配置不携带（Ruling 2 的 adapter 默认语义
+ * 保持）。I-2：调用方 signal 透传进 GenerateOptions——pre-step 中止/有界超时
+ * 由此到达视觉端，abort 的流以 finish aborted（或 reject）收尾，视同转述失败。
  */
-export function createStreamVisionCaller(ctx: Context): VisionCaller {
+export function createStreamVisionCaller(ctx: Context, resolveEfforts: EffortResolver): VisionCaller {
   return async (target, prompt, images, signal) => {
     const content = [
       { type: 'text', text: prompt },
@@ -354,6 +387,14 @@ export function createStreamVisionCaller(ctx: Context): VisionCaller {
       model: target.model,
       messages: [{ role: 'user', content }] as unknown as Message[],
       ...(signal === undefined ? {} : { signal }),
+    }
+    // 0.8.0 D3：visionModel.effort 经支持集判定后显式下发；不支持/未配置 →
+    // 不携带（Ruling 2 的 adapter 默认语义保持）。
+    if (target.effort !== undefined) {
+      const supported = resolveEfforts(target)
+      if (supported !== undefined && supported.includes(target.effort)) {
+        options.reasoningEffort = target.effort as ReasoningEffortId
+      }
     }
     let text = ''
     for await (const chunk of ctx.llm.stream(options)) {

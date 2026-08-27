@@ -405,10 +405,14 @@ export function apply(ctx: Context, config: Config = {}) {
   let disposeRouter: (() => void) | null = null
   // 0.6.0 协作编排（Task 9 最小接线）：按图状态表 + 转述器随 apply 生命周期
   // 创建一次——配置变更/候选枚举重挂路由器时，转述缓存与图像状态不丢。生产
-  // VisionCaller = ctx.llm.stream 直调（Ruling 2：不传 reasoningEffort）。
+  // VisionCaller = ctx.llm.stream 直调；0.8.0（D3/M6）：visionModel.effort 经
+  // metas 支持集判定后显式下发，不支持/未配置不携带（Ruling 2 默认语义保持）。
+  // candidateMetas 是 let——闭包读最新枚举值。
   const imageStates = new ImageStateStore()
+  const resolveEfforts = (target: RouteTarget): string[] | undefined =>
+    candidateMetas.find((m) => m.provider === target.provider && m.model === target.model)?.reasoningEfforts
   const transcriber = new Transcriber({
-    caller: createStreamVisionCaller(ctx),
+    caller: createStreamVisionCaller(ctx, resolveEfforts),
     log: (message) => { ctx.logger.info(message) },
   })
   const mountRouter = () => {

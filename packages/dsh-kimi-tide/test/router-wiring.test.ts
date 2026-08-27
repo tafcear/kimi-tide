@@ -850,6 +850,8 @@ describe('extractResolvedImages（生产图块提取，spike S1 线形）', () =
 })
 
 describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
+  // 0.8.0（Task 5）：签名改 (ctx, resolveEfforts)；本块夹具目标无 effort 字段，
+  // 注入 () => undefined 保持「不携带 reasoningEffort」的默认语义断言不变。
   function fakeLlm(chunks: unknown[]) {
     const calls: unknown[] = []
     return {
@@ -873,7 +875,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
       { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } },
       { type: 'finish', reason: { kind: 'stop' } },
     ])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     const ref = imageRef('att-v')
     const out = await caller(VISION_EXP, '提示词', [{ attachmentId: 'att-v', ref }])
 
@@ -893,13 +895,13 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
     const { ctx } = fakeLlm([
       { type: 'finish', reason: { kind: 'error', failure: { code: 'UPSTREAM', message: 'boom' } } },
     ])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).rejects.toThrow('boom')
   })
 
   it('signal 透传进 ctx.llm.stream options（I-2：pre-step 中止/有界超时的链路终点）', async () => {
     const { ctx, calls } = fakeLlm([{ type: 'finish', reason: { kind: 'stop' } }])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     const controller = new AbortController()
     await caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }], controller.signal)
     expect((calls[0] as Record<string, unknown>).signal).toBe(controller.signal)
@@ -907,7 +909,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
 
   it('多图一次性送达（同一 user 消息多图块）', async () => {
     const { ctx, calls } = fakeLlm([{ type: 'finish', reason: { kind: 'stop' } }])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await caller(VISION_EXP, 'p', [
       { attachmentId: 'a1', ref: imageRef('a1') },
       { attachmentId: 'a2', ref: imageRef('a2') },
@@ -927,7 +929,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
         })(),
       },
     }
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).rejects.toThrow(/aborted/i)
   })
 
@@ -940,7 +942,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
       { type: 'usage', usage: { inputTokens: 5, outputTokens: 0 } },
       { type: 'finish', reason: { kind: 'stop' } },
     ])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).resolves.toBe('')
   })
 })
