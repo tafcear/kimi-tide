@@ -147,6 +147,19 @@ export function apply(ctx: Context): void {
     .kimi-tide-settings input, .kimi-tide-settings select, .kimi-tide-settings textarea { font-size: 12px; padding: 2px 6px;
       border: 1px solid var(--dsw-alias-border-l2, #d4d9e3); border-radius: 6px; background: var(--dsw-alias-bg-base, #fff);
       color: var(--dsw-alias-label-primary, #2b3245); }
+    /* ---- 协作流注册表 + 试一句 + 间隙控件（0.6.x池#8 样式欠账补齐）---- */
+    .kimi-tide-settings .kt-flows { display: flex; flex-direction: column; gap: 6px; }
+    .kimi-tide-settings .kt-flows summary, .kimi-tide-settings .kt-trial summary { cursor: pointer; opacity: 0.85; }
+    .kimi-tide-settings .kt-flow-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .kimi-tide-settings .kt-flow-badge { flex: none; font-size: 11px; padding: 0 6px; border-radius: 6px;
+      border: 1px solid var(--dsw-alias-border-l1, #e4e7ee); opacity: 0.85; }
+    .kimi-tide-settings .kt-flow-new { opacity: 0.95; }
+    .kimi-tide-settings .kt-fallback { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .kimi-tide-settings .kt-minhits { width: 64px; }
+    .kimi-tide-settings .kt-trial { display: flex; flex-direction: column; gap: 4px; }
+    .kimi-tide-settings .kt-trial-hit { opacity: 0.9; }
+    .kimi-tide-settings .kt-trial-result { display: flex; flex-direction: column; gap: 2px; }
+    .kimi-tide-settings .kt-trial-outcome { opacity: 0.9; }
   `
   document.head.appendChild(style)
   ctx.effect(() => () => style.remove())
