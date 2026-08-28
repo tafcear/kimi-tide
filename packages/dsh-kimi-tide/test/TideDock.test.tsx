@@ -46,6 +46,44 @@ describe('TideDock v4', () => {
   })
 })
 
+describe('TideDock 0.6.x池#1 图像上下文行 + 流事件客户端消费', () => {
+  const render = (panel: KimiTidePanelProjection, extra: Record<string, unknown> = {}): string =>
+    renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel, ...extra }))
+
+  it('imageContext 计数 chip 渲染（图/转/盲三态计数）', () => {
+    const html = render(makePanel({ imageContext: { native: 1, transcribed: 2, blind: 0 } }))
+    // Fails if: 投影 v6 数据宿主已推送但客户端零消费（0.6.x 池#1 C 级缺口）。
+    expect(html).toContain('🖼️')
+    expect(html).toContain('图1/转2/盲0')
+  })
+
+  it('blind>0 → 计数 chip 警示态（spec §8 承诺）', () => {
+    const html = render(makePanel({ imageContext: { native: 0, transcribed: 1, blind: 2 } }))
+    expect(html).toContain('kt-warn')
+    expect(html).toContain('盲2')
+  })
+
+  it('imageContext 缺席（无图会话）→ 不渲染该 chip', () => {
+    expect(render(makePanel({}))).not.toContain('🖼️')
+  })
+
+  it('ReasonPanel 渲染 lastFlowEvent 行（展开态）', () => {
+    const html = render(makePanel({
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
+      lastFlowEvent: 'flow:transcribe 执行 → deepseek-official/deepseek-v4-flash-vision-exp',
+    }), { defaultExpanded: true })
+    expect(html).toContain('🔁')
+    expect(html).toContain('flow:transcribe 执行 → deepseek-official/deepseek-v4-flash-vision-exp')
+  })
+
+  it('lastFlowEvent 缺席 → ReasonPanel 无流事件行', () => {
+    const html = render(makePanel({
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: 'x' },
+    }), { defaultExpanded: true })
+    expect(html).not.toContain('🔁')
+  })
+})
+
 describe('TideDock 0.8.x⑨ 限额区跟随当前路由目标', () => {
   const kimiQuota = {
     weekly: { used: 10, limit: 100, resetTime: 'w' },

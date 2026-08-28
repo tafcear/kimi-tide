@@ -13,6 +13,8 @@ export interface ReasonPanelProps {
   decision: DecisionSummary | null
   /** 当前预设名；null = 路由关闭（逃生舱）。 */
   presetName: string | null
+  /** 0.6.x 池#1：最近流执行摘要（投影 v6 lastFlowEvent）；缺席 = 无流事件。 */
+  lastFlowEvent?: string
 }
 
 const SOURCE_LABELS: Record<ConfigSource, string> = {
@@ -23,7 +25,7 @@ const SOURCE_LABELS: Record<ConfigSource, string> = {
 }
 
 export function ReasonPanel(props: ReasonPanelProps) {
-  const { configSource, decision, presetName } = props
+  const { configSource, decision, presetName, lastFlowEvent } = props
   const source = SOURCE_LABELS[configSource] ?? configSource
 
   return (
@@ -43,6 +45,8 @@ export function ReasonPanel(props: ReasonPanelProps) {
           <span className="kt-meta">💡 原因：{decision.reason}</span>
         </>
       )}
+      {/* 0.6.x 池#1：流执行事件行（投影 v6 lastFlowEvent，推送侧 ≤120 截断）。 */}
+      {lastFlowEvent !== undefined && <span className="kt-meta">🔁 最近流事件：{lastFlowEvent}</span>}
     </div>
   )
 }
