@@ -329,7 +329,7 @@ export interface RouterOrchestrationDeps {
   images: ImageStateStore
   transcriber: Transcriber
   resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
-  onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => void
+  onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string; flowDigest?: string }) => void
   transcribeTimeoutMs?: number
 }
 
@@ -562,6 +562,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // 4. 决策
       let decision = router.decide(payload.messages, payload.step, hasImage)
       let flowId: string | undefined
+      // 0.6.x池#a：转述成败摘要（ok/total + 败图 id + visionModel）——onDecision
+      // extra 透传给投影 lastFlowEvent（≤120 截断在推送侧）。
+      let flowDigest: string | undefined
       const latchTarget = effectiveVisionTarget(router, decision)
       // 5. eager 转述（规则目标 = transcribe 流）
       if (decision.kind === 'flow') {
@@ -582,6 +585,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           else images.mark(agent, img.attachmentId, 'transcribed', images.get(agent, img.attachmentId)?.latchTarget)
           ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
         }
+        flowDigest = `转述 ${texts.filter((t) => t !== null).length}/${texts.length} 成功`
+          + (failed.length > 0 ? ` · 败 ${failed.slice(0, 3).map((f) => f.attachmentId).join(',')}${failed.length > 3 ? '…' : ''}` : '')
+          + ` · ${flow.visionModel.model}`
         if (failed.length === 0) {
           hasImage = false
           decision = router.decide(payload.messages, payload.step, false)
@@ -643,6 +649,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
               else images.mark(agent, id, 'transcribed', native[i][1].latchTarget)
               ctx.logger?.info?.(`kimi-router: flow:${flowId} lazy 转述 attachmentId=${id} ${text === null ? '失败' : '成功'}`)
             }
+            flowDigest = `转述 ${texts.filter((t) => t !== null).length}/${texts.length} 成功`
+              + (failed.length > 0 ? ` · 败 ${failed.slice(0, 3).join(',')}${failed.length > 3 ? '…' : ''}` : '')
+              + ` · ${flow.visionModel.model}`
             if (failed.length > 0) {
               if (flow.failurePolicy === 'latch-image') {
                 // 败图保持 native，本轮落 flow.visionModel 原生视觉作答
@@ -663,7 +672,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       }
       // 7. 槽位 + 观测回调
       slots.set(agent, { decision, hasImage })
-      onDecision?.(agent, decision, flowId === undefined ? undefined : { flowId })
+      onDecision?.(agent, decision, flowId === undefined
+        ? undefined
+        : { flowId, ...(flowDigest === undefined ? {} : { flowDigest }) })
       return result
     }, { prepend: true })
     const disposeRequest = ctx.on('agent/request', async (payload, next) => {

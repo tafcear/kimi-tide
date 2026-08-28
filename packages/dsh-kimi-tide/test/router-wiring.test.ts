@@ -242,7 +242,7 @@ interface DepsFixture {
   images: ImageStateStore
   transcriber: Transcriber
   callerCalls: Array<{ target: RouteTarget; prompt: string; images: readonly ResolvedImage[] }>
-  decisions: Array<{ decision: RouteDecision; extra?: { flowId?: string } }>
+  decisions: Array<{ decision: RouteDecision; extra?: { flowId?: string; flowDigest?: string } }>
 }
 
 /** installRouter 0.6.0 deps 夹具：真实 ImageStateStore + 真实 Transcriber（caller 可注入）。 */
@@ -499,7 +499,7 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     expect(fx.images.get(agent as never, 'att-1')?.state).toBe('transcribed')
     // onDecision 携带 flowId
     expect(fx.decisions).toHaveLength(1)
-    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
+    expect(fx.decisions[0].extra).toMatchObject({ flowId: 'transcribe' })
 
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
     // decide 以 hasImage=false 重跑：image 规则不再命中 → 落预设默认文本模型；
@@ -519,7 +519,7 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     const entry = fx.images.get(agent as never, 'att-1')
     expect(entry?.state).toBe('native')
     expect(entry?.latchTarget).toEqual(VISION_EXP)
-    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
+    expect(fx.decisions[0].extra).toMatchObject({ flowId: 'transcribe' })
   })
 
   it('②b 转述失败（failurePolicy blind）→ 该图标 blind，放行文本默认模型', async () => {
@@ -570,6 +570,31 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
     expect(config).toEqual(SAVING_DEFAULT) // 全成 → hasImage=false 重跑 → 文本默认
   })
+
+  it('0.6.x池#a：flow 决策 extra 携带转述成败摘要（flowDigest：ok/total + 败图 id）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fx = makeDeps(async (_t, _p, images) => {
+      if (images[0].attachmentId === 'att-2') throw new Error('vision down')
+      return `转述:${images[0].attachmentId}`
+    })
+    installRouter(ctx as never, new KimiRouter(FLOW_CONFIG(), FLOW_METAS, { info: () => {} }), fx.deps)
+
+    const multi = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '两张截图' },
+        { type: 'image', attachment: imageRef('att-1') },
+        { type: 'image', attachment: imageRef('att-2') },
+      ],
+    } as unknown as UserMessage
+    await dispatch.preStep({ agent, messages: [multi], turn: 1, step: 1, signal: signal() })
+
+    // Fails if: extra 只有 flowId——lastFlowEvent 无法表达成败（语义缩水，
+    // 客户端补渲染也拿不到转述成败）。
+    expect(fx.decisions[0]?.extra?.flowId).toBe('transcribe')
+    expect(fx.decisions[0]?.extra?.flowDigest).toContain('转述 1/2')
+    expect(fx.decisions[0]?.extra?.flowDigest).toContain('att-2')
+  })
 })
 
 describe('installRouter 转述中止/超时（I-2：视觉端黑洞不得挂死整轮）', () => {
@@ -598,7 +623,7 @@ describe('installRouter 转述中止/超时（I-2：视觉端黑洞不得挂死�
     // 中止/超时视同转述失败：失败集 + failurePolicy latch-image 既有分支
     expect(config).toMatchObject(VISION_EXP)
     expect(fx.images.get(agent as never, 'att-1')?.state).toBe('native')
-    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
+    expect(fx.decisions[0].extra).toMatchObject({ flowId: 'transcribe' })
   })
 })
 

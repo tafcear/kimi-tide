@@ -443,13 +443,15 @@ export function apply(ctx: Context, config: Config = {}) {
   // A 会话的路由决策串进 B 会话面板；onDecision 只推决策所属会话。
   const latestDecisions = new Map<Agent, DecisionSummary | null>()
   const latestFlowEvents = new Map<Agent, string>()
-  const onDecision = (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => {
+  const onDecision = (agent: Agent, decision: RouteDecision, extra?: { flowId?: string; flowDigest?: string }) => {
     latestDecisions.set(agent, buildDecisionSummary(decision))
     if (extra?.flowId !== undefined) {
       const target = decision.kind === 'route'
         ? `${decision.target.provider}/${decision.target.model}`
         : decision.kind === 'flow' ? `flow:${decision.flowId}` : 'keep'
-      latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}`.slice(0, 120))
+      // 0.6.x池#a：携带转述成败摘要（ok/total + 败图 id + visionModel）。
+      const digest = extra.flowDigest !== undefined ? `（${extra.flowDigest}）` : ''
+      latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}${digest}`.slice(0, 120))
     }
     pushPanel(agent)
   }
