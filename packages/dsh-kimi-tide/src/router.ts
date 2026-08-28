@@ -509,6 +509,32 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
   const imageRefs = new Map<string, ResolvedImage>()
   const peek = (attachmentId: string): string | undefined => transcriber.peek(attachmentId)
 
+  /**
+   * 0.6.x池#4：eager/lazy 共用转述批处理——并发转述 + transcribed 标记
+   * （latchTarget 随条目保留，评审修复语义）+ 逐图日志 + 失败 id 回收。
+   * 盲答标记与 failurePolicy 两态分支仍归调用方（eager/lazy 语义各异）。
+   */
+  const transcribeBatch = async (
+    flowId: string,
+    flow: TranscribeFlow,
+    imgs: readonly ResolvedImage[],
+    signal: AbortSignal,
+    agent: Agent,
+  ): Promise<{ failedIds: string[]; okCount: number; total: number }> => {
+    const texts = await Promise.all(imgs.map((img) => transcriber.text(flow, img, signal)))
+    const failedIds: string[] = []
+    for (let i = 0; i < imgs.length; i++) {
+      const img = imgs[i]
+      const text = texts[i]
+      if (text === null) failedIds.push(img.attachmentId)
+      // latchTarget 随 transcribed 标记保留（评审修复）：缓存逐出降级回
+      // native 时条目自带改道目标（latch 不回溯更早条目）。
+      else images.mark(agent, img.attachmentId, 'transcribed', images.get(agent, img.attachmentId)?.latchTarget)
+      ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
+    }
+    return { failedIds, okCount: texts.length - failedIds.length, total: imgs.length }
+  }
+
   const activePreset = (): RouterPreset | undefined => {
     const config = router.config
     if (config.activePreset === null) return undefined
@@ -574,21 +600,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         // 延迟按图数叠加在 pre-step 这个整轮阻塞点上。Transcriber 的失败集/LRU
         // 均按 attachmentId 隔离，text() 内部不抛（null=失败），Promise.all
         // 无拒绝短路风险；结果按提交序回收，标记/日志语义与串行一致。
-        const texts = await Promise.all(untranscribed.map((img) => transcriber.text(flow, img, transcribeSignal)))
-        const failed: ResolvedImage[] = []
-        for (let i = 0; i < untranscribed.length; i++) {
-          const img = untranscribed[i]
-          const text = texts[i]
-          if (text === null) failed.push(img)
-          // latchTarget 随 transcribed 标记保留（评审修复）：缓存逐出降级回
-          // native 时条目自带改道目标（latch 不回溯更早条目）。
-          else images.mark(agent, img.attachmentId, 'transcribed', images.get(agent, img.attachmentId)?.latchTarget)
-          ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
-        }
-        flowDigest = `转述 ${texts.filter((t) => t !== null).length}/${texts.length} 成功`
-          + (failed.length > 0 ? ` · 败 ${failed.slice(0, 3).map((f) => f.attachmentId).join(',')}${failed.length > 3 ? '…' : ''}` : '')
-          + ` · ${flow.visionModel.model}`
-        if (failed.length === 0) {
+        const { failedIds, okCount, total } = await transcribeBatch(flowId, flow, untranscribed, transcribeSignal, agent)
+        flowDigest = flowDigestOf(okCount, total, failedIds, flow.visionModel)
+        if (failedIds.length === 0) {
           hasImage = false
           decision = router.decide(payload.messages, payload.step, false)
         } else if (flow.failurePolicy === 'latch-image') {
@@ -600,7 +614,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           }
           hasImage = true
         } else {
-          for (const img of failed) images.mark(agent, img.attachmentId, 'blind')
+          for (const id of failedIds) images.mark(agent, id, 'blind')
           hasImage = false
           decision = router.decide(payload.messages, payload.step, false)
         }
@@ -636,23 +650,18 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
             const flow = fallback.flow
             // 并发补转述（评审修复 2026-08-23，同 eager 循环的并发依据）：
             // imageRefs 查不到 ref 的图视同失败（插件重挂载前的历史图）。
-            const texts = await Promise.all(native.map(([id]) => {
+            // 缺 ref 的历史图视同失败（插件重挂载前进入会话，无 ref 可查）。
+            const missingIds: string[] = []
+            const imgs: ResolvedImage[] = []
+            for (const [id] of native) {
               const img = imageRefs.get(id)
-              return img === undefined ? Promise.resolve(null) : transcriber.text(flow, img, transcribeSignal)
-            }))
-            const failed: string[] = []
-            for (let i = 0; i < native.length; i++) {
-              const id = native[i][0]
-              const text = texts[i]
-              if (text === null) failed.push(id)
-              // latchTarget 保留（同 eager 循环，评审修复）
-              else images.mark(agent, id, 'transcribed', native[i][1].latchTarget)
-              ctx.logger?.info?.(`kimi-router: flow:${flowId} lazy 转述 attachmentId=${id} ${text === null ? '失败' : '成功'}`)
+              if (img === undefined) missingIds.push(id)
+              else imgs.push(img)
             }
-            flowDigest = `转述 ${texts.filter((t) => t !== null).length}/${texts.length} 成功`
-              + (failed.length > 0 ? ` · 败 ${failed.slice(0, 3).join(',')}${failed.length > 3 ? '…' : ''}` : '')
-              + ` · ${flow.visionModel.model}`
-            if (failed.length > 0) {
+            const { failedIds, okCount } = await transcribeBatch(flowId, flow, imgs, transcribeSignal, agent)
+            const allFailed = [...missingIds, ...failedIds]
+            flowDigest = flowDigestOf(okCount, imgs.length + missingIds.length, allFailed, flow.visionModel)
+            if (allFailed.length > 0) {
               if (flow.failurePolicy === 'latch-image') {
                 // 败图保持 native，本轮落 flow.visionModel 原生视觉作答
                 decision = {
@@ -662,7 +671,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
                   via: 'rule',
                 }
               } else {
-                for (const id of failed) images.mark(agent, id, 'blind')
+                for (const id of allFailed) images.mark(agent, id, 'blind')
               }
             }
             // 全成（或 blind 放行）：decision 不变——放行文本目标，投影缝供转述文字
@@ -779,4 +788,12 @@ function auxRewriteTarget(config: RouterConfigAny, metas: CandidateMeta[], purpo
   const meta = metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
   if (meta === undefined) return null
   return target
+}
+
+/** 0.6.x池#4：转述成败摘要（onDecision extra 透传，lastFlowEvent 消费；
+ * 败图 id 最多列 3 个防超长，≤120 截断在推送侧兜底）。 */
+function flowDigestOf(okCount: number, total: number, failedIds: readonly string[], visionModel: RouteTarget): string {
+  return `转述 ${okCount}/${total} 成功`
+    + (failedIds.length > 0 ? ` · 败 ${failedIds.slice(0, 3).join(',')}${failedIds.length > 3 ? '…' : ''}` : '')
+    + ` · ${visionModel.model}`
 }
