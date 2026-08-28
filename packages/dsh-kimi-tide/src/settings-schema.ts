@@ -114,6 +114,11 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     for (const rule of preset.rules) {
       const t = (rule.target ?? {}) as RuleTarget
       if (isFlowTarget(t)) {
+        // 0.6.x池#3（M-3）：流目标仅限带图条件——keywords 命中无图可转述，
+        // 运行期会静默保持会话模型（用户意图无声丢失）。
+        if (rule.when?.kind !== 'image') {
+          return `规则 '${rule.id}' 的流目标仅限带图条件（keywords 规则不能挂协作流）`
+        }
         const flow = raw.flows[t.flow]
         if (flow === undefined) {
           return `规则 '${rule.id}' 引用的协作流 '${t.flow}' 不存在于 flows`

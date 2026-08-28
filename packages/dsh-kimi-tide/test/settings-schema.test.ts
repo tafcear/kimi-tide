@@ -72,6 +72,13 @@ describe('validateRouterConfig v5', () => {
     c.presets.saving.rules.push({ id: 'rev-flow', when: { kind: 'image' }, target: { flow: 'review' } })
     expect(validateRouterConfig(c)).toContain('review')
   })
+  it('0.6.x池#3（M-3）：keywords 规则挂协作流目标 → 拒绝（流目标仅限带图条件）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.presets.saving.rules.push({ id: 'kw-flow', when: { kind: 'keywords', group: 'code' }, target: { flow: 'transcribe' } })
+    // Fails if: 校验只查流存在性/类型而不查条件种类——keywords 命中无图可转述，
+    // 运行期意图静默丢失。
+    expect(validateRouterConfig(c)).toContain('带图')
+  })
   it("imageFallback='transcribe-lazy' 缺 imageFallbackFlow → 默认解析预置 transcribe，通过", () => {
     const c = DEFAULT_CONFIG_V5()
     c.presets.saving.imageFallback = 'transcribe-lazy'

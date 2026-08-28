@@ -259,6 +259,10 @@ export class KimiRouter {
       // 在候选目录中可用 → flow 决策；任一不满足 → 跳过该规则（与模型目标不可
       // 用的降级语义一致）。v4 存量 flows 为空表，flow 目标恒按「不存在」降级。
       if (isFlowTarget(target)) {
+        // 0.6.x池#3（M-3）运行期兜底：流目标仅在带图轮有意义——纯文本轮跳过
+        // 该规则（写入期校验拒新配置；本守卫对存量手改配置防「静默保持会话
+        // 模型」。带图条件的流规则 hasImage=false 本就不命中，不受影响）。
+        if (!hasImage) continue
         const flowId = target.flow
         const flow = flows[flowId]
         if (flow === undefined || flow.type !== 'transcribe') continue

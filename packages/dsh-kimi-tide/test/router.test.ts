@@ -54,6 +54,23 @@ describe('KimiRouter v4 decide', () => {
       kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
     })
   })
+  it('0.6.x池#3（M-3）：keywords 规则挂流目标（存量非法配置）→ 纯文本轮跳过（decide 运行期兜底）', () => {
+    // 写入期校验（0.6.x池#3 validate 侧）拒新配置；本钉对存量手改配置兜底：
+    // 纯文本轮 flow 目标无图可转述，若不跳过会静默保持会话模型（意图丢失）。
+    // 夹具候选池必须含 flow.visionModel（vision-exp）——否则走「vision 不可用」
+    // 既有跳过路径，测不到本守卫。
+    const c5 = DEFAULT_CONFIG_V5()
+    c5.activePreset = 'saving'
+    c5.presets.saving.rules.unshift({ id: 'kw-flow', when: { kind: 'keywords', group: 'code' }, target: { flow: 'transcribe' } })
+    const metas: CandidateMeta[] = [
+      ...METAS,
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', modalities: ['text', 'image'], available: true },
+    ]
+    const r = new KimiRouter(c5, metas, log)
+    const d = r.decide([textMsg('帮我重构这段周报')], 1)
+    // Fails if: decide 对 hasImage=false 仍返回 flow 决策（applyTo 不改写 → 静默保持）。
+    expect(d).toMatchObject({ kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } })
+  })
   it('带图锁存：hasImageOverride=true 时纯文本轮也按带图处理', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
     const d = r.decide([textMsg('继续')], 2, true)

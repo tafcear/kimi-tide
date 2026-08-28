@@ -675,6 +675,46 @@ describe('installRouter 协作编排：lazy 转述（imageFallback = transcribe-
     expect(second).toEqual(SAVING_DEFAULT)
   })
 
+  it('0.6.x池#2：lazy 补转述失败（failurePolicy latch-image）→ 败图保持 native、本轮落 visionModel', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fx = makeDeps(async () => { throw new Error('vision down') })
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'saving'
+    config.presets.saving.imageFallback = 'transcribe-lazy'
+    installRouter(ctx as never, new KimiRouter(config, FLOW_METAS, { info: () => {} }), fx.deps)
+
+    // Turn 1 带图：image 规则 → k3 原生作答（native 登记历史图）
+    await dispatch.preStep({ agent, messages: [imageMessage('看图说话')], turn: 1, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    // Turn 2 纯文本：lazy 补转述失败 → latch-image → 本轮落 flow.visionModel
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+
+    // Fails if: lazy 侧失败两态语义与 eager 不一致（latch 分支未生效）。
+    expect(second).toMatchObject(VISION_EXP)
+    expect(fx.images.get(agent as never, 'att-1')?.state).toBe('native')
+  })
+
+  it('0.6.x池#2：lazy 补转述失败（failurePolicy blind）→ 败图标 blind、放行文本默认', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fx = makeDeps(async () => { throw new Error('vision down') })
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'saving'
+    config.presets.saving.imageFallback = 'transcribe-lazy'
+    const flow = config.flows.transcribe
+    if (flow.type !== 'transcribe') throw new Error('fixture')
+    flow.failurePolicy = 'blind'
+    installRouter(ctx as never, new KimiRouter(config, FLOW_METAS, { info: () => {} }), fx.deps)
+
+    await dispatch.preStep({ agent, messages: [imageMessage('看图说话')], turn: 1, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+
+    expect(second).toEqual(SAVING_DEFAULT)
+    expect(fx.images.get(agent as never, 'att-1')?.state).toBe('blind')
+  })
+
   it('③c 转述缓存 LRU 逐出 → 状态表降级回 native → 后续文本轮重转述（评审修复 2026-08-23）', async () => {
     const { ctx, dispatch } = makeCtx()
     const calls: string[] = []
