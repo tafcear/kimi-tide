@@ -58,6 +58,29 @@ describe('Transcriber 失败不重打', () => {
     expect(logs.length).toBeGreaterThan(0) // 失败可观测
   })
 
+  it('0.6.x池#b：失败集有界（cap=cacheCap）——最旧失败被逐出后同图可重试且自愈', async () => {
+    // 每 id 首次必败、重试成功：确定性驱动「逐出→重试→自愈」全链。
+    const attempts = new Map<string, number>()
+    const caller = vi.fn<VisionCaller>(async (_t, _p, images) => {
+      const id = images[0].attachmentId
+      const n = (attempts.get(id) ?? 0) + 1
+      attempts.set(id, n)
+      if (n === 1) throw new Error('down')
+      return `转述:${id}`
+    })
+    const t = new Transcriber({ caller, cacheCap: 2 })
+    await t.text(flow(), img('a')) // 失败集 {a}
+    await t.text(flow(), img('b')) // {a,b}
+    await t.text(flow(), img('c')) // 容量满 → 逐出 a → {b,c}
+    expect(caller).toHaveBeenCalledTimes(3)
+    // Fails if: 失败集无界增长（长生命周期进程跨会话累积 attachmentId）。
+    await t.text(flow(), img('a')) // a 已逐出 → 重试 → 成功自愈
+    expect(caller).toHaveBeenCalledTimes(4)
+    expect(t.peek('a')).toBe('转述:a')
+    await t.text(flow(), img('b')) // b 仍在失败集 → 不重打
+    expect(caller).toHaveBeenCalledTimes(4)
+  })
+
   it('一图失败不影响其他图', async () => {
     const caller = vi.fn<VisionCaller>()
       .mockRejectedValueOnce(new Error('boom'))
