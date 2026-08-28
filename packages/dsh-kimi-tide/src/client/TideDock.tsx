@@ -61,13 +61,15 @@ export function TideDock(props: TideDockProps) {
     setNotice('')
     try {
       const result = await tideDockBridge.execute(props.sessionId, line) as
-        | { ok?: boolean; message?: string; error?: unknown }
+        | { ok?: boolean; message?: string; error?: { message?: string } }
         | undefined
-      if (result !== undefined && 'ok' in result && result.ok === false) {
+      const errMessage = result?.error?.message
+      if (result !== undefined && result.ok === false) {
         // rc.8 命令 RPC 失败形态：error/result 字段可读时展示原文，否则提示通道。
-        const detail = (result as { error?: { message?: string } }).error?.message
-          ?? (result as { message?: string }).message
-        setNotice(detail !== undefined ? `命令执行失败：${detail}` : '命令通道不可用（需 dsh-api-remotes）')
+        setNotice(`命令执行失败：${errMessage ?? result.message ?? '命令通道不可用（需 dsh-api-remotes）'}`)
+      } else if (errMessage !== undefined) {
+        // 0.6.x池#d：error-only 形态（无 ok 字段带 error）不再按成功静默吞掉。
+        setNotice(`命令执行失败：${errMessage}`)
       }
     } catch (error) {
       console.error('kimi-tide dock execute failed:', error)
