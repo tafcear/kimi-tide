@@ -344,11 +344,12 @@ function FlowRow(props: {
             value={flow.rounds}
             disabled={!props.writable}
             onChange={(e) => {
-              const rounds = Math.round(Number(e.target.value))
-              // validate 界内才写（rounds 须为 1..3 整数），界外输入直接忽略。
-              if (Number.isInteger(rounds) && rounds >= 1 && rounds <= 3) {
-                props.onSave({ ...flow, rounds })
-              }
+              const raw = e.target.value
+              if (raw === '') return // 清空中间态不写盘（受控值随下次渲染回显）
+              const rounds = Math.round(Number(raw))
+              if (!Number.isInteger(rounds)) return
+              // 0.6.x池#c：界外输入回显钳制值（1..3），不再静默忽略致显示与落盘分叉。
+              props.onSave({ ...flow, rounds: Math.min(3, Math.max(1, rounds)) })
             }}
           />
           <label className="kt-row">
@@ -411,6 +412,9 @@ export function SettingsCard(props: SettingsCardProps) {
   const [newPresetName, setNewPresetName] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
   const [trialText, setTrialText] = useState('')
+  // 0.6.x池#7：新建协作流表单（预置流模板 + slug 化 id 去重）。
+  const [newFlowId, setNewFlowId] = useState('')
+  const [newFlowType, setNewFlowType] = useState<'transcribe' | 'review'>('transcribe')
 
   if (config === null) {
     // 现状不可用态原样保留。
@@ -639,10 +643,12 @@ export function SettingsCard(props: SettingsCardProps) {
                         value={rule.when.minHits ?? 1}
                         disabled={!writable}
                         onChange={(e) => {
-                          const n = Math.round(Number(e.target.value))
-                          if (Number.isInteger(n) && n >= 1) {
-                            editActiveRule(index, { when: { ...rule.when, minHits: n } })
-                          }
+                          const raw = e.target.value
+                          if (raw === '') return // 清空中间态不写盘（受控值随下次渲染回显）
+                          const n = Math.round(Number(raw))
+                          if (!Number.isInteger(n)) return
+                          // 0.6.x池#c：下限钳制到 1（原界外静默忽略致显示与落盘分叉）。
+                          editActiveRule(index, { when: { ...rule.when, minHits: Math.max(1, n) } })
                         }}
                       />
                     </label>
@@ -856,6 +862,39 @@ export function SettingsCard(props: SettingsCardProps) {
               onDelete={() => void store.deleteFlow(flowId)}
             />
           ))}
+          {/* 0.6.x池#7：新建流入口——预置流同型模板 + presetSlug 去重后缀。 */}
+          <div className="kt-flow-row kt-flow-new">
+            <select
+              aria-label="新建流类型"
+              value={newFlowType}
+              disabled={!writable}
+              onChange={(e) => setNewFlowType(e.target.value as 'transcribe' | 'review')}
+            >
+              <option value="transcribe">转述</option>
+              <option value="review">评审</option>
+            </select>
+            <input
+              aria-label="新建流 id"
+              type="text"
+              placeholder="新流 id"
+              value={newFlowId}
+              disabled={!writable}
+              onChange={(e) => setNewFlowId(e.target.value)}
+            />
+            <button
+              type="button"
+              aria-label="新建流"
+              disabled={!writable || newFlowId.trim() === ''}
+              title="按所选类型用预置流默认参数创建（id 冲突自动 -2 后缀）；创建后可在各行内改参数"
+              onClick={() => {
+                const id = presetSlug(newFlowId.trim(), flows)
+                void store.saveFlows({ ...flows, [id]: { ...DEFAULT_FLOWS()[newFlowType] } })
+                setNewFlowId('')
+              }}
+            >
+              新建流
+            </button>
+          </div>
         </details>
       )}
     </div>

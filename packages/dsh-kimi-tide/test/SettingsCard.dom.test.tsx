@@ -464,3 +464,124 @@ describe('SettingsCard 0.8.x④⑤ effort 显示如实 + catalogScope 刷新', (
     expect(listeners.size).toBe(0)
   })
 })
+
+describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
+  let container: HTMLDivElement
+  let root: Root | undefined
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    if (root !== undefined) {
+      await act(async () => {
+        root!.unmount()
+      })
+      root = undefined
+    }
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  function fireInput(input: HTMLInputElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('#c 评审轮次界外输入回显钳制值：9 → 落盘 3', async () => {
+    const saveFlows = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveFlows })
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="review 评审轮次"]')
+    expect(input).not.toBeNull()
+    await act(async () => {
+      fireInput(input!, '9')
+    })
+    // Fails if: 界外输入被静默忽略（显示与落盘分叉——池#c）。
+    expect(saveFlows).toHaveBeenCalledWith(expect.objectContaining({
+      review: expect.objectContaining({ rounds: 3 }),
+    }))
+  })
+
+  it('#c 最少命中词数 0 → 钳制为 1 落盘', async () => {
+    const savePreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ savePreset })
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="最少命中词数"]')
+    expect(input).not.toBeNull()
+    await act(async () => {
+      fireInput(input!, '0')
+    })
+    expect(savePreset).toHaveBeenCalledWith('saving', expect.objectContaining({
+      rules: expect.arrayContaining([expect.objectContaining({ when: expect.objectContaining({ minHits: 1 }) })]),
+    }))
+  })
+
+  it('#7 新建流：id + 类型 → saveFlows 合并新流（预置模板）', async () => {
+    const saveFlows = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveFlows })
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    const idInput = container.querySelector<HTMLInputElement>('input[aria-label="新建流 id"]')
+    // Fails if: 协作流手风琴无新建入口（自建流只能手写配置文件）。
+    expect(idInput).not.toBeNull()
+    await act(async () => {
+      fireInput(idInput!, 'my')
+    })
+    const btn = container.querySelector<HTMLButtonElement>('button[aria-label="新建流"]')
+    expect(btn).not.toBeNull()
+    expect(btn!.disabled).toBe(false)
+    await act(async () => {
+      btn!.click()
+    })
+    expect(saveFlows).toHaveBeenCalledWith(expect.objectContaining({
+      my: expect.objectContaining({ type: 'transcribe' }),
+    }))
+  })
+
+  it('#7 空 id → 新建按钮禁用；id 与预置冲突 → 自动 -2 后缀', async () => {
+    const saveFlows = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveFlows })
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    const btn = container.querySelector<HTMLButtonElement>('button[aria-label="新建流"]')
+    expect(btn!.disabled).toBe(true)
+    await act(async () => {
+      fireInput(container.querySelector<HTMLInputElement>('input[aria-label="新建流 id"]')!, 'transcribe')
+    })
+    expect(btn!.disabled).toBe(false)
+    await act(async () => {
+      btn!.click()
+    })
+    expect(saveFlows).toHaveBeenCalledWith(expect.objectContaining({
+      transcribe: expect.anything(),
+      'transcribe-2': expect.objectContaining({ type: 'transcribe' }),
+    }))
+  })
+})
