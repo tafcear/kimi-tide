@@ -812,6 +812,76 @@ describe('llm/stream 智能投影拦截器（S4c，spike 实证范式）', () =>
   })
 })
 
+describe('llm/stream 辅助请求改道（0.8.x⑧：purpose → auxTargets）', () => {
+  /** 池⑧夹具：saving 激活 + 可选 auxTargets（purpose → 模型目标）。 */
+  const AUX = (auxTargets?: RouterConfigV5['auxTargets']): RouterConfigV5 => {
+    const c = DEFAULT_CONFIG_V5()
+    c.activePreset = 'saving'
+    c.auxTargets = auxTargets
+    return c
+  }
+  /** 宿主标题请求信封形态（池⑦取证）：主路由打 k3 思考 + envelope 带 purpose。 */
+  const TITLE_OPTS = () => ({
+    provider: 'kimi-coding',
+    model: 'k3',
+    purpose: 'session-title',
+    reasoningEffort: 'max',
+    messages: [textMessage('给这段对话起个标题')],
+  })
+
+  it('purpose 命中 auxTargets 且目标可用 → 覆写 provider/model（短路自派，适配器只见改写载荷）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': SAVING_DEFAULT }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    // Fails if: llm/stream 拦截器不消费 envelope purpose（辅助请求改道缺失，
+    // 标题请求跟随主路由打思考模型——池⑦主根因的插件侧根治）。
+    expect(adapterCalls).toHaveLength(1)
+    expect(adapterCalls[0]).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+
+  it('改道后 effort 语义与 replaceRoute 一致：继承 reasoningEffort 面对无支持集目标 → 剥离（标题请求不携带思考等级）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': SAVING_DEFAULT }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    // Fails if: 改道只换 provider/model 而保留 k3 的 reasoningEffort（思考等级
+    // 泄漏进非思考快模型——0.8.0 图像护栏 M5 同族教训）。
+    expect('reasoningEffort' in (adapterCalls[0] as Record<string, unknown>)).toBe(false)
+  })
+
+  it('无 purpose 的普通请求不改道（agent-loop 语义不变）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': SAVING_DEFAULT }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream({
+      provider: 'kimi-coding', model: 'k3', reasoningEffort: 'max', messages: [textMessage('继续')],
+    }))
+    expect(adapterCalls).toHaveLength(1)
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+    expect((adapterCalls[0] as Record<string, unknown>).reasoningEffort).toBe('max')
+  })
+
+  it('purpose 无 auxTargets 键（或整表缺省）→ 原样放行（向后兼容缺省不改道）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX(undefined), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    expect(adapterCalls).toHaveLength(1)
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+  })
+
+  it('v4 存量配置（无 auxTargets 形）→ 原样放行', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+  })
+
+  it('auxTarget 目录不可用 → 原样放行（保守不改道，与规则目标不可用跳过同向）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': { provider: 'deepseek-official', model: 'ghost-model' } }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+  })
+})
+
 describe('布尔锁存退役', () => {
   it('⑤router.ts 不再引用 imageSeen（状态表替代布尔锁存）', async () => {
     const { readFile } = await import('node:fs/promises')

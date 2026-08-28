@@ -201,6 +201,7 @@ timeline
 | `presets.<id>.imageFallback` | 缺省 `latch` | 预设级带图兜底：latch 锁存 / blind 当无图 / transcribe-lazy 懒转述 |
 | `flows` | 预置 transcribe/review | 协作流注册表（规则目标可引用）；预置流注册但不绑定 |
 | `keywordGroups` | 内置 7 组（0.8.0） | 命名关键词组词表（用户可增删改） |
+| `auxTargets` | 缺省 `{}`（不改道） | 辅助请求改道表：envelope `purpose` → 模型目标，如 `"session-title": {"provider": "deepseek-official", "model": "deepseek-v4-flash"}`（0.8.x⑧）。宿主非 agent-loop 辅助调用（会话标题等）按表覆写 provider/model，effort 按支持集剥离——根治「标题请求跟随主路由打思考模型撞超时断连」（池⑦主根因的插件侧修复）；无该键 / 目标目录不可用 → 原样放行 |
 
 > **持久化**：设置命名空间（base 层 = 部署基座 / user 层 = 用户编辑，revision 冲突检测）→ 无设置服务的宿主回退 sidecar 文件 → 旧 sidecar 迁移后留档 `.legacy-imported`；0.4.x 时代升级的用户走 `kimi-tide/*` → `kimi-coding/*` 改名 + `.pre-v3` 留档（历史路径，0.5.0 起并入 `.pre-v4`）；**0.5.0 升级时 v1-v3 评分配置自动迁移为预设/规则（v4）并留档 `.pre-v4`**（scores/预算参数不迁移）；**0.6.0 升级时 v4 存量自动迁移为 v5（flows 注册表 + imageFallback）并留档 `.pre-v5`**。
 
@@ -516,6 +517,7 @@ Built-in preset wiring: capability = image → review → code → math → long
 | `presets.<id>.imageFallback` | `latch` by default | per-preset image fallback: latch / blind / transcribe-lazy |
 | `flows` | built-in transcribe/review | collaboration-flow registry (referenced by rule targets); built-ins ship registered but unbound |
 | `keywordGroups` | 7 built-in groups (0.8.0) | named keyword-group word lists (user-editable) |
+| `auxTargets` | `{}` by default (no rerouting) | auxiliary-request reroute table: envelope `purpose` → model target, e.g. `"session-title": {"provider": "deepseek-official", "model": "deepseek-v4-flash"}` (0.8.x⑧). Host non-agent-loop auxiliary calls (session titles etc.) get provider/model overridden and effort stripped per support set — cures "title requests follow the main route into a thinking model and die on the timeout" (plugin-side fix for the pool ⑦ root cause); missing key / target absent from the catalog → passed through untouched |
 
 > **Persistence**: settings namespace (base layer = deployment seed / user layer = edits, revision conflict detection) → sidecar fallback on hosts without a settings service → the old sidecar is archived as `.legacy-imported`; users who upgraded at 0.4.x got the `kimi-tide/*` → `kimi-coding/*` rename with a `.pre-v3` backup (historical path — from 0.5.0 it folds into `.pre-v4`); **on 0.5.0 upgrade, v1-v3 scoring configs auto-migrate into the v4 preset/rule shape with a `.pre-v4` backup** (scores/budget knobs are not migrated); **on 0.6.0 upgrade, v4 configs auto-migrate to v5 (flows registry + imageFallback) with a `.pre-v5` backup**.
 

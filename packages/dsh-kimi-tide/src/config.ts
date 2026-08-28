@@ -69,6 +69,13 @@ export interface RouterConfigV5 {
   /** 协作流注册表（预置 transcribe/review；预置流注册但不绑定）。 */
   flows: Record<string, CollaborationFlow>
   keywordGroups: Record<string, string[]>
+  /**
+   * 0.8.x⑧：非 agent-loop 辅助请求改道表（envelope `purpose` → 模型目标，
+   * 如 `session-title`）。缺省/空表/无该键 = 该类请求不改道（向后兼容）；
+   * 目标在候选目录不可用时保守放行（与规则目标降级同向）。语义校验见
+   * validateRouterConfig（键非空/目标完整/不收流引用/effort 形状）。
+   */
+  auxTargets?: Record<string, RouteTarget>
 }
 
 /* ---- @legacy v4（0.5.x）形状：迁移输入专用（后续迁移任务消费），新代码禁止消费 ---- */
@@ -161,6 +168,7 @@ export function DEFAULT_CONFIG_V5(): RouterConfigV5 {
     presets: v4.presets,
     flows: DEFAULT_FLOWS(),
     keywordGroups: v4.keywordGroups,
+    auxTargets: {},
   }
 }
 

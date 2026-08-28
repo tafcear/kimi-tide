@@ -85,6 +85,9 @@ export const routerConfigSchema = Schema.object({
   presets: Schema.dict(presetSchema).default(D5.presets as Record<string, ReturnType<typeof presetSchema>>),
   flows: Schema.dict(flowSchema),
   keywordGroups: Schema.dict(Schema.array(Schema.string())).default(D5.keywordGroups),
+  // 0.8.x⑧：辅助请求改道表（purpose → target）。dict 缺失注入 {}（flows 同款）；
+  // 语义校验（键非空/目标完整/effort 形状）在 validateRouterConfig。空表 = 不改道。
+  auxTargets: Schema.dict(targetSchema),
   // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
 })
@@ -159,6 +162,25 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     }
     if (flow.trigger === 'keywords' && (typeof flow.keywordGroup !== 'string' || flow.keywordGroup === '')) {
       return `评审流 '${fid}' 的 trigger=keywords 但未提供 keywordGroup`
+    }
+  }
+  // 0.8.x⑧：辅助请求改道表——形状（对象）+ 语义（purpose 键非空 / 目标完整
+  // provider+model / 不收协作流引用（辅助改道只落模型目标）/ effort 非空字符串）。
+  const aux = raw.auxTargets
+  if (aux !== undefined && (typeof aux !== 'object' || aux === null || Array.isArray(aux))) {
+    return 'auxTargets 必须为对象（purpose → target 映射）'
+  }
+  for (const [purpose, target] of Object.entries(aux ?? {}) as Array<[string, RuleTarget]>) {
+    if (purpose.trim() === '') return 'auxTargets 的 purpose 键不能为空'
+    if (isFlowTarget(target)) {
+      return `auxTargets['${purpose}'] 不接受协作流引用（辅助请求改道只落模型目标）`
+    }
+    if (typeof target.provider !== 'string' || target.provider === '' || typeof target.model !== 'string' || target.model === '') {
+      return `auxTargets['${purpose}'] 的 target 不完整（provider/model 必须为非空字符串）`
+    }
+    const e = (target as { effort?: unknown }).effort
+    if (e !== undefined && (typeof e !== 'string' || (e as string).trim() === '')) {
+      return `auxTargets['${purpose}'] 的 effort 必须为非空字符串`
     }
   }
   return undefined

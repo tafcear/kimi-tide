@@ -185,3 +185,38 @@ describe('validateRouterConfig effort（0.8.0，形状校验口径 M4）', () =>
     expect(withEffort({}, 'unknown-tier')).toBeUndefined()
   })
 })
+
+describe('auxTargets 辅助请求改道配置（0.8.x⑧）', () => {
+  it('缺省注入 {}（dict 隐式默认，flows 同款；空表 = 不改道）', () => {
+    const { auxTargets: _omit, ...rest } = DEFAULT_CONFIG_V5()
+    const parsed = routerConfigSchema(rest as never) as RouterConfigV5
+    // Fails if: schema 未列 auxTargets（未知键透传 → 缺失不注入）。
+    expect(parsed.auxTargets).toEqual({})
+  })
+  it('合法 purpose → target 过 schema 存活且 validate 通过', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.auxTargets = { 'session-title': { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
+    const parsed = routerConfigSchema(c as never) as RouterConfigV5
+    expect(parsed.auxTargets).toEqual({ 'session-title': { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(validateRouterConfig(parsed)).toBeUndefined()
+  })
+  it('target 缺 model → validate 拒绝并点名 purpose', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.auxTargets = { 'session-title': { provider: 'deepseek-official', model: '' } }
+    expect(validateRouterConfig(c)).toContain('session-title')
+  })
+  it('effort 空串 → validate 拒绝；非空任意档位串通过（运行期支持集判定）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.auxTargets = { 'session-title': { provider: 'a', model: 'b', effort: '' } }
+    expect(validateRouterConfig(c)).toContain('effort')
+    c.auxTargets = { 'session-title': { provider: 'a', model: 'b', effort: 'off' } }
+    expect(validateRouterConfig(c)).toBeUndefined()
+  })
+  it('auxTargets 非对象（null/数组）→ validate 拒绝', () => {
+    const c = DEFAULT_CONFIG_V5()
+    ;(c as { auxTargets?: unknown }).auxTargets = null
+    expect(validateRouterConfig(c)).toContain('auxTargets')
+    ;(c as { auxTargets?: unknown }).auxTargets = ['x']
+    expect(validateRouterConfig(c)).toContain('auxTargets')
+  })
+})

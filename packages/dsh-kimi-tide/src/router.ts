@@ -696,6 +696,30 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     const inFlight = new WeakSet<object>()
     const disposeStream = ctx.on('llm/stream', (options, next) => {
       if (inFlight.has(options)) return next()
+      // 0.8.x⑧：辅助请求改道——非 agent-loop 辅助调用（信封带 purpose，宿主
+      // 深冻结）按 auxTargets[purpose] 覆写 provider/model；effort 语义与
+      // replaceRoute 一致（继承值对目标支持集判定，不支持即剥离/钳制）。守卫
+      // 同款：自派 opts2 再入瀑布时被 inFlight 放行到 next()（下游投影缝照常
+      // 消费）。配置缺席/无该 purpose 键/目标不可用 → 原样放行（auxRewriteTarget）。
+      const auxTarget = auxRewriteTarget(router.config, router.metas, (options as { purpose?: unknown }).purpose)
+      if (auxTarget !== null) {
+        // llm/stream 载荷是 GenerateOptions（带 messages），与 agent/request 的
+        // LlmCallConfig 不同形——effort 语义经同一条 effortForTarget 写路径内联
+        // 对齐 replaceRoute（显式覆盖 → 支持集判定/越级钳制/未知剥离）。显式解构
+        // 是刻意的：spread 合并删不掉原载荷已有的 reasoningEffort 键，「剥离」
+        // 必须以键不出现的形式落地（标题请求不得携带思考等级）。
+        const { reasoningEffort: inherited, ...rest } = options
+        const effort = effortForTarget(router.metas, auxTarget, inherited, auxTarget.effort)
+        const opts2 = {
+          ...rest,
+          ...(effort === undefined ? {} : { reasoningEffort: effort }),
+          provider: auxTarget.provider,
+          model: auxTarget.model,
+        }
+        ctx.logger?.info?.(`kimi-router: 辅助请求 purpose=${String((options as { purpose?: unknown }).purpose)} → ${auxTarget.provider}/${auxTarget.model}`)
+        inFlight.add(opts2)
+        return ctx.llm.stream(opts2)
+      }
       const meta = router.metas.find((m) => m.provider === options.provider && m.model === options.model)
       if (meta === undefined || meta.modalities.includes('image')) return next()
       const rewritten = rewriteMessagesForText(options.messages, peek)
@@ -721,4 +745,23 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       disposeAdmission()
     }
   })
+}
+
+/**
+ * 0.8.x⑧（池⑧ 辅助请求路由改道）：判定一个 llm/stream 载荷是否为可改道的
+ * 辅助请求。宿主非 agent-loop 辅助调用（会话标题等）的信封携带 `purpose`
+ * 字段（深冻结，经 llm/stream 拦截器可见——池⑦根因调查实证）；该 purpose
+ * 命中 `config.auxTargets` 且目标在候选目录中可用 → 返回改道目标；否则
+ * null = 原样放行。缺省/空表/无该键 = 不改道（向后兼容 v4/v5 旧配置）；
+ * 目录读不到的目标不强行改道（保守放行，与规则目标不可用跳过同向）。
+ */
+function auxRewriteTarget(config: RouterConfigAny, metas: CandidateMeta[], purpose: unknown): RouteTarget | null {
+  if (typeof purpose !== 'string' || purpose === '') return null
+  const auxTargets = (config as { auxTargets?: Record<string, RouteTarget> }).auxTargets
+  if (auxTargets === null || typeof auxTargets !== 'object') return null
+  const target = auxTargets[purpose]
+  if (target === undefined || isFlowTarget(target)) return null
+  const meta = metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
+  if (meta === undefined) return null
+  return target
 }

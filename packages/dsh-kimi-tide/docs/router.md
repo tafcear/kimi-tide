@@ -232,6 +232,7 @@ interface CandidateMeta extends RouteTarget {
 | `presets.<id>.name` | `string` | — | 显示名（非空，校验拒绝空名） |
 | `presets.<id>.default` | `{provider, model, effort?}` | — | 打底模型（未命中规则时的路由目标；effort 可选，0.8.0） |
 | `presets.<id>.rules` | `RouterRule[]` | — | 特异度排序匹配（词数 desc/平手列表序/带图优先）；目标可用者生效，不可用跳过降级 |
+| `auxTargets` | `Record<string, RouteTarget>` | `{}` | 辅助请求改道表（envelope `purpose` → 模型目标，如 `session-title`）；空表/无该键 = 不改道，目标不可用保守放行（0.8.x⑧） |
 | `rules[].id` | `string` | — | 稳定 id（排序/编辑/测试锚点） |
 | `rules[].when` | `{kind:'image'} \| {kind:'keywords', group, minHits?}` | — | 规则条件：带图 / 命名关键词组 |
 | `rules[].when.minHits` | `number \| undefined` | `undefined` | 命中关键词种数下限（≥1 整数；缺省 1；0.7.0） |
@@ -370,6 +371,12 @@ export interface RouterConfigV5 {
 - **智能投影**（`llm/stream` 拦截器，S4c 缝）：text-only 目标请求中命中转述缓存的
   图块被替换为转述文字；无缓存图块保留（rc.2 原生占位投影兜底）；tool-result 嵌套
   图块递归同款处理；WeakSet 重入守卫 + 短路自派恰好一次。
+- **辅助请求改道**（`llm/stream` 拦截器，0.8.x⑧）：信封带 `purpose` 的非
+  agent-loop 辅助调用（宿主会话标题等）按 `auxTargets[purpose]` 覆写
+  provider/model，effort 经同一条支持集判定写路径（不支持即剥离——标题请求
+  不得携带思考等级）；缺省空表 = 不改道，目标目录不可用保守放行；WeakSet
+  重入守卫同款，短路自派恰好一次。动机：标题请求跟随主路由打思考模型撞
+  60s 截止（池⑦主根因），本特性为插件侧根治（宿主 profile 覆盖补丁仅解本机）。
 
 ### imageFallback 三态（`resolveImageFallback`）
 
