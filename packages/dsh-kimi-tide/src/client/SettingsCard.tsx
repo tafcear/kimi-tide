@@ -50,6 +50,13 @@ export interface SettingsCardProps {
   /** 0.8.0：per-model 推理档位取数（宿主自有通道）；缺席/失败 → 下拉「跟随默认」。 */
   fetchEfforts?: () => Promise<Record<string, string[]>>
   /**
+   * 0.8.x④：kimi-tide-catalog 命名空间 scope（settings/document-updated 推送
+   * 缝）。宿主 adapters 刷新重写档位表 → 该 scope 收到变更通知 → 卡片重取
+   * efforts，修「挂载时取一次、之后不刷新」的显示陈旧。缺席（旧宿主无
+   * settingsScope）→ 不订阅，保持既有单次取数行为。
+   */
+  catalogScope?: { subscribe(listener: () => void): () => void } | null
+  /**
    * store 工厂缝（测试用）：默认 createCardStore。renderToString 不跑
    * effect，异步 availability 只能靠预制快照的 store 注入来覆盖渲染断言。
    */
@@ -170,7 +177,9 @@ function TargetSelect(props: {
 }
 
 /** effort 下拉（0.8.0 D3）：选项 = 该模型支持档位（宿主档位表）；未声明档位
- *  → 只渲染禁用态「跟随默认」；value 不在选项集 → 视同「跟随默认」。 */
+ *  → 只渲染禁用态「跟随默认」。0.8.x⑤：存量值不在选项集（表缺席/漂移）时
+ *  追加显示存量原值——运行期由支持集判定（effortForTarget），显示不撒谎；
+ *  无选项集仍禁用（不可改选）。 */
 function EffortSelect(props: {
   label: string
   value: string | undefined
@@ -180,14 +189,16 @@ function EffortSelect(props: {
 }) {
   const options = props.options ?? []
   const known = props.value !== undefined && options.includes(props.value)
+  const stored = props.value !== undefined && !known
   return (
     <select
       aria-label={`effort ${props.label}`}
-      value={known ? props.value! : ''}
+      value={known || stored ? props.value! : ''}
       disabled={props.disabled || options.length === 0}
       onChange={(e) => props.onChange(e.target.value === '' ? undefined : e.target.value)}
     >
       <option value="">跟随默认</option>
+      {stored && <option value={props.value!}>{props.value!}</option>}
       {options.map((option) => (
         <option key={option} value={option}>{option}</option>
       ))}
@@ -379,6 +390,18 @@ export function SettingsCard(props: SettingsCardProps) {
       void store.loadEfforts(props.fetchEfforts)
     }
   }, [store, props.fetchEfforts])
+  // 0.8.x④：档位表随宿主 adapters 刷新——catalogScope（kimi-tide-catalog
+  // 命名空间，settings/document-updated 推送缝）通知即重取；退订随 effect
+  // cleanup（副作用可逆）。
+  useEffect(() => {
+    const catalog = props.catalogScope
+    if (catalog === undefined || catalog === null) return undefined
+    return catalog.subscribe(() => {
+      if (props.fetchEfforts !== undefined) {
+        void store.loadEfforts(props.fetchEfforts)
+      }
+    })
+  }, [store, props.fetchEfforts, props.catalogScope])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const config = snapshot.config
 

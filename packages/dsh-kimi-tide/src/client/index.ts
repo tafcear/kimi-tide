@@ -83,6 +83,10 @@ export function apply(ctx: Context): void {
       fetchEfforts: () => fetchEffortsViaDescribe(
         (ctx.get('connection') as Parameters<typeof fetchEffortsViaDescribe>[0]) ?? null,
       ).catch(() => ({})),
+      // 0.8.x④：绑 catalog 命名空间 scope 作变更信号（官方 document-updated
+      // 推送缝）——宿主 adapters 刷新重写档位表时卡片重取 efforts。
+      catalogScope: ((ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
+        ?.bind({ namespace: 'kimi-tide-catalog' }) ?? null) as { subscribe(listener: () => void): () => void } | null,
     }),
   }, SettingsCard))
 

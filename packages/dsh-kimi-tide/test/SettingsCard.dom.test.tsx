@@ -353,3 +353,114 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
     expect(container.textContent).toContain('仅文本探针')
   })
 })
+
+describe('SettingsCard 0.8.x④⑤ effort 显示如实 + catalogScope 刷新', () => {
+  let container: HTMLDivElement
+  let root: Root | undefined
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    if (root !== undefined) {
+      await act(async () => {
+        root!.unmount()
+      })
+      root = undefined
+    }
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  /** 存了 effort 的省钱预设快照：默认模型追加 effort: 'high'（其余同 v5 就绪快照）。 */
+  const snapshotWithStoredEffort = (efforts: CardSnapshot['efforts']): CardSnapshot => {
+    const base = readyV5Snapshot({ efforts })
+    const saving = base.config.presets.saving
+    return {
+      ...base,
+      config: {
+        ...base.config,
+        presets: {
+          ...base.config.presets,
+          saving: { ...saving, default: { ...saving.default, effort: 'high' } },
+        },
+      },
+    }
+  }
+
+  const mount = async (store: CardStore, extra: Record<string, unknown> = {}): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, {
+        scope: null,
+        connection: null,
+        close: () => {},
+        storeFactory: () => store,
+        ...extra,
+      }))
+    })
+  }
+
+  it('⑤ 档位表 null（取数失败）：存量 effort 仍如实显示，不谎报「跟随默认」', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => {
+      publish(snapshotWithStoredEffort(null))
+    })
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="effort 默认模型"]')
+    expect(select).not.toBeNull()
+    // Fails if: EffortSelect 把已存 effort 显示成「跟随默认」——运行期由
+    // 支持集判定（effortForTarget），显示层必须如实反映存量值。
+    expect(select!.value).toBe('high')
+    expect([...select!.options].some((o) => o.value === 'high')).toBe(true)
+    // 无选项集仍保持禁用（不可改选），但显示不撒谎。
+    expect(select!.disabled).toBe(true)
+  })
+
+  it('⑤ 档位表存在但存量值不在支持集（漂移）：以额外选项如实显示且可选', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => {
+      publish(snapshotWithStoredEffort({ 'deepseek-official/deepseek-v4-flash': ['off'] }))
+    })
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="effort 默认模型"]')
+    expect(select).not.toBeNull()
+    // Fails if: 存量 effort 不在档位表选项集时被显示层静默吞成「跟随默认」。
+    expect(select!.value).toBe('high')
+    expect(select!.disabled).toBe(false)
+    expect([...select!.options].map((o) => o.value)).toEqual(['', 'high', 'off'])
+  })
+
+  it('④ catalogScope 变更通知 → 重取档位表；卸载退订', async () => {
+    const listeners = new Set<() => void>()
+    const catalogScope = {
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    const loadEfforts = vi.fn(async () => {})
+    const { store } = makeDeferredStore({ loadEfforts })
+    await mount(store, { fetchEfforts: async () => ({}), catalogScope })
+    // 挂载即首取（既有行为）+ 订阅恰好一次。
+    expect(loadEfforts).toHaveBeenCalledTimes(1)
+    // Fails if: 卡片不订阅 catalogScope（kimi-tide-catalog 命名空间推送缝）。
+    expect(listeners.size).toBe(1)
+    await act(async () => {
+      for (const listener of [...listeners]) listener()
+    })
+    // Fails if: 档位表不随命名空间更新重取（④：efforts 表挂载时取一次，adapters 后更新不刷新）。
+    expect(loadEfforts).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      root!.unmount()
+    })
+    root = undefined
+    // Fails if: 订阅未随卡片卸载解除（副作用必须可逆）。
+    expect(listeners.size).toBe(0)
+  })
+})
