@@ -75,7 +75,7 @@ describe('TideDock 命令反馈（0.6.x池#d：error-only 形态）', () => {
   it('命令返回 error-only（无 ok 字段）→ 上浮失败提示不静默吞掉', async () => {
     execute.mockResolvedValue({ error: { message: 'boom' } })
     await mount()
-    const btn = container.querySelector<HTMLButtonElement>('button[title="刷新配额"]')
+    const btn = container.querySelector<HTMLButtonElement>('button.kt-refresh')
     expect(btn).not.toBeNull()
     await act(async () => {
       btn!.click()
@@ -87,7 +87,7 @@ describe('TideDock 命令反馈（0.6.x池#d：error-only 形态）', () => {
   it('命令成功（ok:true）→ 不出现失败提示', async () => {
     execute.mockResolvedValue({ ok: true, message: 'kimi-tide: quota refreshed' })
     await mount()
-    const btn = container.querySelector<HTMLButtonElement>('button[title="刷新配额"]')
+    const btn = container.querySelector<HTMLButtonElement>('button.kt-refresh')
     await act(async () => {
       btn!.click()
     })

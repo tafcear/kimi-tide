@@ -169,16 +169,33 @@ export function apply(ctx: Context): void {
     .kimi-tide-settings[data-tab='route'] > .kt-trial, .kimi-tide-settings[data-tab='route'] > .kt-flows,
     .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs),
     .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs) { display: none; }
-    /* ---- ⑥-B dock 两行 ---- */
-    .kimi-tide-dock.kt-dock-b { flex-direction: column; align-items: flex-start; row-gap: 4px; }
-    .kimi-tide-dock .kt-dock-r1, .kimi-tide-dock .kt-dock-r2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
-    .kimi-tide-dock .kt-dock-r2 { font-size: 11.5px; border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); padding-top: 4px; }
-    .kimi-tide-dock .kt-route-arrow { color: var(--dsw-alias-label-tertiary, #8b93a7); }
+    /* ---- ⑥-B dock 两行（2026-08-29 打磨：骨架恒定）---- */
+    .kimi-tide-dock.kt-dock-b { flex-direction: column; align-items: stretch; row-gap: 4px; }
+    /* r1 锁单行：决策原因不进文本流（在开关 title 里），长原因不再挤换行 */
+    .kimi-tide-dock .kt-dock-r1 { display: flex; align-items: center; gap: 8px; width: 100%;
+      white-space: nowrap; overflow: hidden; }
+    .kimi-tide-dock .kt-dock-r1-end { margin-left: auto; flex: none; }
+    /* r2 槽位常驻：左=额度槽+图像上下文，右贴=取数时间+刷新（对比稿欠账补齐） */
+    .kimi-tide-dock .kt-dock-r2 { display: flex; align-items: center; gap: 10px; width: 100%;
+      white-space: nowrap; font-size: 11.5px; border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); padding-top: 4px; }
+    .kimi-tide-dock .kt-dock-r2-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: none; }
+    .kimi-tide-dock .kt-slot { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+    .kimi-tide-dock .kt-chip { white-space: nowrap; }
+    .kimi-tide-dock .kt-ellip { overflow: hidden; text-overflow: ellipsis; }
+    .kimi-tide-dock .kt-dim { opacity: 0.45; }
+    .kimi-tide-dock .kt-route-arrow { color: var(--dsw-alias-label-tertiary, #8b93a7); flex: none; }
     .kimi-tide-dock .kt-route-target { color: var(--dsw-alias-brand-primary, #4d6bfe); font-weight: 600; }
-    .kimi-tide-dock .kt-quota-bar { display: inline-block; vertical-align: middle; width: 46px; height: 4px;
-      border-radius: 4px; background: var(--dsw-alias-border-l1, #e4e7ee); margin: 0 4px; overflow: hidden; }
+    .kimi-tide-dock .kt-quota-bar { display: inline-block; width: 46px; height: 4px; flex: none;
+      border-radius: 4px; background: var(--dsw-alias-border-l1, #e4e7ee); margin: 0 2px; overflow: hidden; }
     .kimi-tide-dock .kt-quota-bar i { display: block; height: 100%;
       background: var(--dsw-alias-brand-primary, #4d6bfe); border-radius: 4px; }
+    /* 决策面板 portal 悬浮层（挂 body，选择器不嵌 .kimi-tide-dock） */
+    .kt-dock-pop { position: fixed; z-index: 10000; width: min(430px, calc(100vw - 16px));
+      max-height: min(320px, 60vh); overflow: auto; padding: 8px 10px; font-size: 12px;
+      background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base, #fff));
+      border: 1px solid var(--dsw-alias-border-l2, #d4d9e3); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); color: var(--dsw-alias-label-primary, #2b3245); }
+    .kt-dock-pop .kt-reason { border-top: none; padding: 0; gap: 5px; }
   `
   document.head.appendChild(style)
   ctx.effect(() => () => style.remove())

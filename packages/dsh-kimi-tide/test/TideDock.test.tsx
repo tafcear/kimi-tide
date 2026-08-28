@@ -1,8 +1,11 @@
 /**
- * TideDock v4 render-to-string tests（Task 9 / Step 1）。
+ * TideDock render-to-string 钉桩（Task 9 → ⑥-B → ⑥-B 打磨 2026-08-29）。
  *
- * 钉桩 dock v4 视图：预设名/默认模型 chip、关闭态、决策 chip 显示 reason
- * 且无 scoreDelta。断言关键文案而非整树快照，对样式/标记微调保持稳健。
+ * ⑥-B 打磨（用户报告：r2 额度不居中 / 决策面板推挤布局 / 每轮乱跳 / emoji
+ * 语义不清）：r1 锁单行（原因只进 title）、r2 槽位恒定（⑨ 由整组隐藏改为
+ * 置灰「—」占位）、emoji 全量退役改内联 SVG（icons.tsx）。断言关键文案与
+ * 结构标记而非整树快照，对样式微调保持稳健。Portal 行为另见
+ * TideDock.portal.dom.test.tsx（renderToString 不渲染 portal）。
  */
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
@@ -29,34 +32,46 @@ function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePa
   }
 }
 
-describe('TideDock v4', () => {
+const kimiQuota = {
+  weekly: { used: 10, limit: 100, resetTime: 'w' },
+  fiveHour: { used: 80, limit: 100, resetTime: 'f' },
+  membershipLevel: 'L1',
+  fetchedAt: 1,
+  stale: false,
+}
+
+const render = (panel: KimiTidePanelProjection): string =>
+  renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
+
+const count = (html: string, marker: string): number => html.split(marker).length - 1
+
+/** React SSR 在相邻表达式文本间插 `<!-- -->` 注释节点——可见文本断言前剥掉。 */
+const visible = (html: string): string => html.replace(/<!-- -->/g, '')
+
+describe('TideDock 基础视图（v4 承继）', () => {
   it('dock 显示当前预设名与默认模型；关闭时显示关闭', () => {
-    const panel = makePanel({ router: { activePreset: 'saving', presetName: '省钱', defaultTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, ruleCount: 2 } })
-    const html = renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
+    const html = render(makePanel())
     expect(html).toContain('省钱')
     expect(html).toContain('deepseek-v4-flash')
-    const off = renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => makePanel({ router: { activePreset: null, presetName: null, defaultTarget: null, ruleCount: 0 } }) }))
+    const off = render(makePanel({ router: { activePreset: null, presetName: null, defaultTarget: null, ruleCount: 0 } }))
     expect(off).toContain('关闭')
   })
-  it('决策 chip 显示 reason，无 scoreDelta', () => {
-    const panel = makePanel({ decision: { chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '规则「code」命中' } })
-    const html = renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
-    expect(html).toContain('规则「code」命中')
+
+  it('⑥-B 打磨: 决策按钮固定短标签「决策」, 超长原因只进 title 不进 r1 文本（防换行跳动）', () => {
+    const long = 'flow:transcribe 转述失败（latch-image）→ 原生视觉作答'
+    const html = render(makePanel({ decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: long } }))
+    const button = html.match(/<button[^>]*kt-decision-toggle[\s\S]*?<\/button>/)
+    expect(button).not.toBeNull()
+    // 可见文本以「决策」收尾（原因在 title 属性里，不在文本流）
+    expect(button![0]).toMatch(/决策<\/button>$/)
+    // 原因全文仍可经悬浮提示查看
+    expect(html).toContain('决策可观测：')
+    expect(html).toContain('原生视觉作答')
     expect(html).not.toContain('Δ')
   })
 })
 
-describe('TideDock ⑥-B 两行布局重构', () => {
-  const kimiQuota = {
-    weekly: { used: 10, limit: 100, resetTime: 'w' },
-    fiveHour: { used: 80, limit: 100, resetTime: 'f' },
-    membershipLevel: 'L1',
-    fetchedAt: 1,
-    stale: false,
-  }
-  const render = (panel: KimiTidePanelProjection): string =>
-    renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
-
+describe('TideDock ⑥-B 两行布局', () => {
   it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
     const html = render(makePanel({
       quota: kimiQuota,
@@ -74,107 +89,89 @@ describe('TideDock ⑥-B 两行布局重构', () => {
   })
 })
 
-describe('TideDock 0.6.x池#1 图像上下文行 + 流事件客户端消费', () => {
-  const render = (panel: KimiTidePanelProjection, extra: Record<string, unknown> = {}): string =>
-    renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel, ...extra }))
-
-  it('imageContext 计数 chip 渲染（图/转/盲三态计数）', () => {
-    const html = render(makePanel({ imageContext: { native: 1, transcribed: 2, blind: 0 } }))
-    // Fails if: 投影 v6 数据宿主已推送但客户端零消费（0.6.x 池#1 C 级缺口）。
-    expect(html).toContain('🖼️')
-    expect(html).toContain('图1/转2/盲0')
-  })
-
-  it('blind>0 → 计数 chip 警示态（spec §8 承诺）', () => {
-    const html = render(makePanel({ imageContext: { native: 0, transcribed: 1, blind: 2 } }))
-    expect(html).toContain('kt-warn')
-    expect(html).toContain('盲2')
-  })
-
-  it('imageContext 缺席（无图会话）→ 不渲染该 chip', () => {
-    expect(render(makePanel({}))).not.toContain('🖼️')
-  })
-
-  it('ReasonPanel 渲染 lastFlowEvent 行（展开态）', () => {
-    const html = render(makePanel({
-      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
-      lastFlowEvent: 'flow:transcribe 执行 → deepseek-official/deepseek-v4-flash-vision-exp',
-    }), { defaultExpanded: true })
-    expect(html).toContain('🔁')
-    expect(html).toContain('flow:transcribe 执行 → deepseek-official/deepseek-v4-flash-vision-exp')
-  })
-
-  it('lastFlowEvent 缺席 → ReasonPanel 无流事件行', () => {
-    const html = render(makePanel({
+describe('TideDock ⑥-B 打磨: 骨架恒定（r2 槽位常驻置灰占位）', () => {
+  it('决策目标非 kimi → 额度/时钟槽置灰「—」占位而非整组消失（槽数与 kimi 态一致）', () => {
+    const kimiHtml = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
       decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: 'x' },
-    }), { defaultExpanded: true })
-    expect(html).not.toContain('🔁')
-  })
-})
-
-describe('TideDock 0.8.x⑨ 限额区跟随当前路由目标', () => {
-  const kimiQuota = {
-    weekly: { used: 10, limit: 100, resetTime: 'w' },
-    fiveHour: { used: 5, limit: 100, resetTime: 'f' },
-    membershipLevel: 'L1',
-    fetchedAt: 1,
-    stale: false,
-  }
-  const render = (panel: KimiTidePanelProjection): string =>
-    renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
-
-  it('决策目标非配额来源 provider → 限额区与刷新按钮隐藏（模型信息保留）', () => {
-    const html = render(makePanel({
+    }))
+    const dimHtml = render(makePanel({
       quota: kimiQuota,
       quotaProvider: 'kimi-coding',
-      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, reason: '预设「省钱」默认' },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, reason: 'x' },
     }))
-    // Fails if: dock 恒显 kimi 额度（限额区未跟随当前路由目标解绑——池⑨）。
-    expect(html).not.toContain('📊')
-    expect(html).not.toContain('🔄')
-    expect(html).toContain('deepseek-v4-pro')
+    // Fails if: ⑨ 仍按整组隐藏实现（r2 结构随目标变动——「每轮乱跳」来源之一）
+    expect(count(dimHtml, 'kt-slot')).toBe(count(kimiHtml, 'kt-slot'))
+    expect(dimHtml).toContain('kt-dim')
+    expect(dimHtml).toContain('—')
+    // kimi 态数值点亮（周 10/100 → 剩90）且无置灰
+    expect(visible(kimiHtml)).toContain('剩90')
+    expect(count(kimiHtml, 'kt-dim')).toBeLessThan(count(dimHtml, 'kt-dim'))
   })
 
-  it('决策目标 = 配额来源 provider → 限额区照常渲染', () => {
-    const html = render(makePanel({
+  it('r2 右端组独立成组（时钟/刷新右贴）；刷新按钮常驻不再随异源目标消失', () => {
+    const dimHtml = render(makePanel({
       quota: kimiQuota,
       quotaProvider: 'kimi-coding',
-      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, reason: 'x' },
     }))
-    expect(html).toContain('📊')
-    expect(html).toContain('🔄')
+    // Fails if: 时钟/刷新未右贴（对比稿 margin-left:auto 欠账——「不居中」来源）
+    expect(dimHtml).toContain('kt-dock-r2-end')
+    // Fails if: 刷新按钮仍随 quotaRelevant 消失
+    expect(dimHtml).toContain('kt-refresh')
   })
 
-  it('无决策回落激活预设默认 target：deepseek 默认 → 隐藏；kimi 默认 → 显示', () => {
-    expect(render(makePanel({ quota: kimiQuota, quotaProvider: 'kimi-coding' }))).not.toContain('📊')
-    const kimiDefault = makePanel({
-      quota: kimiQuota,
-      quotaProvider: 'kimi-coding',
-      router: { activePreset: 'capability', presetName: '能力', defaultTarget: { provider: 'kimi-coding', model: 'k3' }, ruleCount: 8 },
-    })
-    expect(render(kimiDefault)).toContain('📊')
-  })
-
-  it('旧载荷无 quotaProvider 视同 kimi 来源（向后兼容）：kimi 目标限额照常显示', () => {
+  it('kimi 目标但配额取数失败 → 槽位仍在且置灰, title 注明配额不可用', () => {
     const html = render(makePanel({
-      quota: kimiQuota,
-      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '显式 @kimi 指令' },
-    }))
-    expect(html).toContain('📊')
-  })
-
-  it('目标 = 配额来源但 quota null → 配额不可用提示保留；目标异源 → 提示一并隐藏', () => {
-    const kimiTarget = render(makePanel({
       quota: null,
       quotaProvider: 'kimi-coding',
       decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: 'x' },
     }))
-    expect(kimiTarget).toContain('配额不可用')
-    const deepseekTarget = render(makePanel({
+    expect(html).toContain('kt-dim')
+    expect(html).toContain('配额不可用')
+  })
+
+  it('异源目标 + 配额取数失败 → 只显「—」, 不显配额不可用（不误报 kimi 故障）', () => {
+    const html = render(makePanel({
       quota: null,
       quotaProvider: 'kimi-coding',
       decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, reason: 'x' },
     }))
-    expect(deepseekTarget).not.toContain('配额不可用')
+    expect(html).toContain('—')
+    expect(html).not.toContain('配额不可用')
+  })
+})
+
+describe('TideDock ⑥-B 打磨: emoji 退役 → 内联 SVG 图标', () => {
+  it('SVG 图标上线, 全部装饰 emoji 退役', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
+      imageContext: { native: 1, transcribed: 2, blind: 0 },
+    }))
+    // Fails if: 图标仍是 emoji（语义不清——2026-08-29 用户裁定换 SVG）
+    expect(html).toContain('<svg')
+    const retired = ['📊', '⏳', '🖼️', '🕐', '📡', '⚡', '🔄', '🌙', '⚠️', '🧭', '🔭', '🧰', '💡', '🔁', '🌫️', '✨']
+    for (const emoji of retired) expect(html).not.toContain(emoji)
+  })
+})
+
+describe('TideDock 图像上下文槽（0.6.x池#1 承继 + 新文案）', () => {
+  it('三态计数新文案: 图 原/述/盲', () => {
+    const html = render(makePanel({ imageContext: { native: 1, transcribed: 2, blind: 0 } }))
+    // Fails if: 回退旧「图1/转2/盲0」emoji 文案
+    expect(visible(html)).toContain('原1·述2·盲0')
+  })
+
+  it('blind>0 → 计数槽警示态（spec §8 承继）', () => {
+    const html = render(makePanel({ imageContext: { native: 0, transcribed: 1, blind: 2 } }))
+    expect(html).toContain('kt-warn')
+    expect(visible(html)).toContain('盲2')
+  })
+
+  it('imageContext 缺席（无图会话）→ 不渲染图像槽', () => {
+    expect(render(makePanel({}))).not.toContain('述')
   })
 })
