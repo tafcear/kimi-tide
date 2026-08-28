@@ -518,7 +518,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     flowId: string,
     flow: TranscribeFlow,
     imgs: readonly ResolvedImage[],
-    signal: AbortSignal,
+    signal: AbortSignal | undefined,
     agent: Agent,
   ): Promise<{ failedIds: string[]; okCount: number; total: number }> => {
     const texts = await Promise.all(imgs.map((img) => transcriber.text(flow, img, signal)))
