@@ -78,7 +78,7 @@ const SHAPES: Record<IconName, ReactNode> = {
   ),
 }
 
-export function Icon(props: { name: IconName; size?: number }) {
+export function Icon(props: { name: IconName; size?: number; className?: string }) {
   const size = props.size ?? 12
   return (
     <svg
@@ -91,6 +91,7 @@ export function Icon(props: { name: IconName; size?: number }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      className={props.className}
       style={{ flex: 'none' }}
     >
       {SHAPES[props.name]}

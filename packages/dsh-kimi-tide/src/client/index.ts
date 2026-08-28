@@ -185,6 +185,17 @@ export function apply(ctx: Context): void {
     .kimi-tide-dock .kt-dim { opacity: 0.45; }
     .kimi-tide-dock .kt-route-arrow { color: var(--dsw-alias-label-tertiary, #8b93a7); flex: none; }
     .kimi-tide-dock .kt-route-target { color: var(--dsw-alias-brand-primary, #4d6bfe); font-weight: 600; }
+    /* 图标语义色（⑥-B 打磨二轮 2026-08-29）：色彩即语义，明暗主题双适配；
+       额度槽告警/危险态（≥80%/90%）下图标回归 chip 色——「越用越红」不被覆盖 */
+    .kimi-tide-dock .kt-ic-moon { color: #a78bfa; }
+    .kimi-tide-dock .kt-ic-route { color: #0ea5e9; }
+    .kimi-tide-dock .kt-ic-base { color: #94a3b8; }
+    .kimi-tide-dock .kt-ic-target, .kimi-tide-dock .kt-ic-compass,
+    .kimi-tide-dock .kt-ic-calendar { color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-dock .kt-ic-gauge { color: #14b8a6; }
+    .kimi-tide-dock .kt-ic-image { color: #f59e0b; }
+    .kimi-tide-dock .kt-quota-slot.kt-warn .kt-ic-calendar, .kimi-tide-dock .kt-quota-slot.kt-danger .kt-ic-calendar,
+    .kimi-tide-dock .kt-quota-slot.kt-warn .kt-ic-gauge, .kimi-tide-dock .kt-quota-slot.kt-danger .kt-ic-gauge { color: inherit; }
     .kimi-tide-dock .kt-quota-bar { display: inline-block; width: 46px; height: 4px; flex: none;
       border-radius: 4px; background: var(--dsw-alias-border-l1, #e4e7ee); margin: 0 2px; overflow: hidden; }
     .kimi-tide-dock .kt-quota-bar i { display: block; height: 100%;

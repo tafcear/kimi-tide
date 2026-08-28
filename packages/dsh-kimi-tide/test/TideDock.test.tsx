@@ -156,6 +156,26 @@ describe('TideDock ⑥-B 打磨: emoji 退役 → 内联 SVG 图标', () => {
     const retired = ['📊', '⏳', '🖼️', '🕐', '📡', '⚡', '🔄', '🌙', '⚠️', '🧭', '🔭', '🧰', '💡', '🔁', '🌫️', '✨']
     for (const emoji of retired) expect(html).not.toContain(emoji)
   })
+
+  it('⑥-B 打磨二轮: 图标语义色钩子（kt-ic-* 类上色; 告警/品牌色沿用既有 currentColor 链）', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: 'x' },
+      imageContext: { native: 1, transcribed: 0, blind: 0 },
+    }))
+    // Fails if: 图标退回无色灰调（2026-08-29 用户复验「svg 没有色彩一般般」）
+    expect(html).toContain('kt-ic-moon')
+    expect(html).toContain('kt-ic-route')
+    expect(html).toContain('kt-ic-base')
+    expect(html).toContain('kt-ic-target')
+    expect(html).toContain('kt-ic-compass')
+    expect(html).toContain('kt-ic-calendar')
+    expect(html).toContain('kt-ic-gauge')
+    expect(html).toContain('kt-ic-image')
+    expect(html).toContain('kt-ic-clock')
+    expect(html).toContain('kt-ic-refresh')
+  })
 })
 
 describe('TideDock 图像上下文槽（0.6.x池#1 承继 + 新文案）', () => {

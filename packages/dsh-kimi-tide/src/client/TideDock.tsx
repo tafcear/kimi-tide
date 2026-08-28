@@ -134,7 +134,7 @@ export function TideDock(props: TideDockProps) {
   if (panel === undefined || panel === null) {
     return (
       <div className="kimi-tide-dock">
-        <span className="kt-label kt-slot"><Icon name="moon" /> 月汐</span>
+        <span className="kt-label kt-slot"><Icon name="moon" className="kt-ic-moon" /> 月汐</span>
         <span className="kt-dim">面板数据加载中…</span>
       </div>
     )
@@ -164,11 +164,11 @@ export function TideDock(props: TideDockProps) {
           className="kt-label kt-slot"
           title="推理输出已启用（DSH 原生渲染 reasoning-delta） · 路由设置已迁至 设置 → 月汐"
         >
-          <Icon name="moon" /> 月汐
+          <Icon name="moon" className="kt-ic-moon" /> 月汐
         </span>
 
         <span className="kt-chip kt-slot" title="当前路由预设">
-          <Icon name="route" /> {router.presetName ?? '关闭'}
+          <Icon name="route" className="kt-ic-route" /> {router.presetName ?? '关闭'}
         </span>
 
         {router.activePreset !== null && (
@@ -178,7 +178,7 @@ export function TideDock(props: TideDockProps) {
               className="kt-chip kt-slot kt-ellip"
               title={`预设打底模型 ${router.defaultTarget?.provider ?? ''}/${router.defaultTarget?.model ?? ''}（未命中规则时）`}
             >
-              <Icon name="base" /> {router.defaultTarget?.model}
+              <Icon name="base" className="kt-ic-base" /> {router.defaultTarget?.model}
             </span>
           </>
         )}
@@ -190,7 +190,7 @@ export function TideDock(props: TideDockProps) {
               className="kt-chip kt-slot kt-route-target kt-ellip"
               title={`本步决策目标 ${panel.decision.chosen.provider}/${panel.decision.chosen.model}`}
             >
-              {panel.decision.chosen.model}
+              <Icon name="target" className="kt-ic-target" /> {panel.decision.chosen.model}
             </span>
           </>
         )}
@@ -214,7 +214,7 @@ export function TideDock(props: TideDockProps) {
               aria-expanded={expanded}
               onClick={toggleExpand}
             >
-              {expanded ? '▾' : '▸'} <Icon name="compass" /> 决策
+              {expanded ? '▾' : '▸'} <Icon name="compass" className="kt-ic-compass" /> 决策
             </button>
           </span>
         )}
@@ -233,7 +233,7 @@ export function TideDock(props: TideDockProps) {
                 : '周配额已用比例'
           }
         >
-          <Icon name="calendar" /> 周{' '}
+          <Icon name="calendar" className="kt-ic-calendar" /> 周{' '}
           {showValues ? (
             <>
               <span className="kt-quota-bar"><i style={{ width: `${weekUsedPct}%` }} /></span>
@@ -254,7 +254,7 @@ export function TideDock(props: TideDockProps) {
                 : '五小时窗已用比例'
           }
         >
-          <Icon name="gauge" /> 5h{' '}
+          <Icon name="gauge" className="kt-ic-gauge" /> 5h{' '}
           {showValues ? (
             <>
               <span className="kt-quota-bar"><i style={{ width: `${fiveUsedPct}%` }} /></span>
@@ -272,7 +272,7 @@ export function TideDock(props: TideDockProps) {
             className={`kt-slot${panel.imageContext.blind > 0 ? ' kt-warn' : ''}`}
             title="本会话图像三态计数：原生视觉 / 已转述 / 盲答（盲>0 = 有图文本模型看不到）"
           >
-            <Icon name="image" /> 图 原{panel.imageContext.native}·述{panel.imageContext.transcribed}·盲{panel.imageContext.blind}
+            <Icon name="image" className="kt-ic-image" /> 图 原{panel.imageContext.native}·述{panel.imageContext.transcribed}·盲{panel.imageContext.blind}
           </span>
         )}
 
@@ -285,7 +285,7 @@ export function TideDock(props: TideDockProps) {
                 : '配额取数时间（当前目标不适用 kimi 限额）'
             }
           >
-            <Icon name="clock" />{' '}
+            <Icon name="clock" className="kt-ic-clock" />{' '}
             {quota !== null && quotaRelevant
               ? `${fmtClock(quota.fetchedAt)}${quota.stale ? ' (过期)' : ''}`
               : '—'}
@@ -297,7 +297,7 @@ export function TideDock(props: TideDockProps) {
             title="刷新配额（/kimi-tide refresh）"
             onClick={() => void run('/kimi-tide refresh')}
           >
-            <Icon name="refresh" />
+            <Icon name="refresh" className="kt-ic-refresh" />
           </button>
         </span>
       </div>
