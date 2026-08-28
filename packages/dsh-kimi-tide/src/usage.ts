@@ -7,6 +7,8 @@ import { parseQuotaSnapshot, type QuotaSnapshot } from './types.js'
 
 const USAGES_URL = 'https://api.kimi.com/coding/v1/usages'
 const NOTIFY_THROTTLE_MS = 2000
+/** 本监控探测的配额来源 provider（0.8.x⑨：投影 quotaProvider 标记同源）。 */
+export const QUOTA_SOURCE_PROVIDER = 'kimi-coding'
 
 export interface UsageMonitorOptions {
   pollMs: number

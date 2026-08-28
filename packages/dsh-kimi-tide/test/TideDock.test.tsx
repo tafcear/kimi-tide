@@ -45,3 +45,70 @@ describe('TideDock v4', () => {
     expect(html).not.toContain('Δ')
   })
 })
+
+describe('TideDock 0.8.x⑨ 限额区跟随当前路由目标', () => {
+  const kimiQuota = {
+    weekly: { used: 10, limit: 100, resetTime: 'w' },
+    fiveHour: { used: 5, limit: 100, resetTime: 'f' },
+    membershipLevel: 'L1',
+    fetchedAt: 1,
+    stale: false,
+  }
+  const render = (panel: KimiTidePanelProjection): string =>
+    renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
+
+  it('决策目标非配额来源 provider → 限额区与刷新按钮隐藏（模型信息保留）', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, reason: '预设「省钱」默认' },
+    }))
+    // Fails if: dock 恒显 kimi 额度（限额区未跟随当前路由目标解绑——池⑨）。
+    expect(html).not.toContain('📊')
+    expect(html).not.toContain('🔄')
+    expect(html).toContain('deepseek-v4-pro')
+  })
+
+  it('决策目标 = 配额来源 provider → 限额区照常渲染', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
+    }))
+    expect(html).toContain('📊')
+    expect(html).toContain('🔄')
+  })
+
+  it('无决策回落激活预设默认 target：deepseek 默认 → 隐藏；kimi 默认 → 显示', () => {
+    expect(render(makePanel({ quota: kimiQuota, quotaProvider: 'kimi-coding' }))).not.toContain('📊')
+    const kimiDefault = makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      router: { activePreset: 'capability', presetName: '能力', defaultTarget: { provider: 'kimi-coding', model: 'k3' }, ruleCount: 8 },
+    })
+    expect(render(kimiDefault)).toContain('📊')
+  })
+
+  it('旧载荷无 quotaProvider 视同 kimi 来源（向后兼容）：kimi 目标限额照常显示', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '显式 @kimi 指令' },
+    }))
+    expect(html).toContain('📊')
+  })
+
+  it('目标 = 配额来源但 quota null → 配额不可用提示保留；目标异源 → 提示一并隐藏', () => {
+    const kimiTarget = render(makePanel({
+      quota: null,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: 'x' },
+    }))
+    expect(kimiTarget).toContain('配额不可用')
+    const deepseekTarget = render(makePanel({
+      quota: null,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, reason: 'x' },
+    }))
+    expect(deepseekTarget).not.toContain('配额不可用')
+  })
+})

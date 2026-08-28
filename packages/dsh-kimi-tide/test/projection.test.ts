@@ -46,6 +46,15 @@ describe('panelSchema (projection v6)', () => {
     expect(out!.lastFlowEvent).toBe('transcribe ok sha256:ab12cd34 → vision-exp')
   })
 
+  it('0.8.x⑨：quotaProvider 标记（配额来源 provider）往返保留；缺席合法', () => {
+    const p = panel(1)
+    p.quotaProvider = 'kimi-coding'
+    // Fails if: schema 未列 quotaProvider（可选新字段随存载荷透传与否不确定，
+    // 必须显式入 schema 钉住往返）。
+    expect(parse(p)!.quotaProvider).toBe('kimi-coding')
+    expect(parse(panel(1))!.quotaProvider).toBeUndefined()
+  })
+
   it('v6：新字段缺席仍可解析（可选，对存量读取端向后兼容）', () => {
     const out = parse(panel(1))
     expect(out!.imageContext).toBeUndefined()

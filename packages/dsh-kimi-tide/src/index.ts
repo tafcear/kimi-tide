@@ -40,7 +40,7 @@ import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type Can
 import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
-import { UsageMonitor } from './usage.js'
+import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
 import { buildEffortCatalog, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
@@ -517,6 +517,8 @@ export function apply(ctx: Context, config: Config = {}) {
     const preset = routerConfig.activePreset === null ? undefined : routerConfig.presets[routerConfig.activePreset]
     const snapshot: KimiTidePanelProjection = {
       quota: monitor.snapshot().quota,
+      // 0.8.x⑨：配额来源标记（dock 按当前路由目标门控渲染限额区）。
+      quotaProvider: QUOTA_SOURCE_PROVIDER,
       kimi: kimiStatus,
       router: {
         activePreset: routerConfig.activePreset,

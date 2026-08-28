@@ -43,6 +43,9 @@ const panelSchema = z.object({
     fetchedAt: z.number(),
     stale: z.boolean(),
   }).nullable(),
+  // 0.8.x⑨：配额数据来源 provider（dock 限额区按当前路由目标门控渲染）。
+  // 可选——缺席 = 旧载荷（历史唯一来源视同 kimi-coding）。
+  quotaProvider: z.string().optional(),
   // projection v3 (0.4.x): 二态接入指示（spec §3.5/验收 5）——路由已注册 + key
   // 可解析，绝不携带 key 值。
   kimi: z.object({ route: z.boolean(), key: z.boolean() }),

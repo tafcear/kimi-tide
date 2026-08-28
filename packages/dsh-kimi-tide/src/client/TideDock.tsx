@@ -86,6 +86,14 @@ export function TideDock(props: TideDockProps) {
   const fiveUsedPct = quota === null ? 0 : pct(quota.fiveHour.used, quota.fiveHour.limit)
   const weekRemain = quota === null ? 0 : Math.max(0, quota.weekly.limit - quota.weekly.used)
   const fiveRemain = quota === null ? 0 : Math.max(0, quota.fiveHour.limit - quota.fiveHour.used)
+  // 0.8.x⑨：限额区跟随当前路由目标——末次决策目标优先，回落激活预设默认
+  // （关闭态无目标）。配额来源 provider（quotaProvider，缺席 = 旧载荷视同
+  // kimi-coding）与目标一致才渲染限额 chips / 刷新按钮 / 配额不可用提示；
+  // 无配额接口的服务隐藏限额区、只保留模型信息（用户裁定 2026-08-28）。
+  const targetProvider = panel.decision?.chosen.provider
+    ?? (router.activePreset !== null ? router.defaultTarget?.provider ?? null : null)
+  const quotaSource = panel.quotaProvider ?? 'kimi-coding'
+  const quotaRelevant = targetProvider !== null && targetProvider === quotaSource
 
   return (
     <div className="kimi-tide-dock">
@@ -118,7 +126,7 @@ export function TideDock(props: TideDockProps) {
         </span>
       )}
 
-      {quota === null ? (
+      {quotaRelevant && (quota === null ? (
         <span style={chip} className="kt-stale">🌫️ 配额不可用</span>
       ) : (
         <span style={chip} className={quota.stale ? 'kt-stale' : ''}>
@@ -128,9 +136,9 @@ export function TideDock(props: TideDockProps) {
           {` · 🕐 ${fmtClock(quota.fetchedAt)}`}
           {quota.stale && ' (过期)'}
         </span>
-      )}
+      ))}
 
-      <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>
+      {quotaRelevant && <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>}
 
       {expanded && panel.decision !== null && (
         <ReasonPanel configSource={panel.configSource} decision={panel.decision} presetName={router.presetName} />
