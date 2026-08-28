@@ -585,3 +585,52 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
     }))
   })
 })
+
+describe('SettingsCard ⑥-B 三页签', () => {
+  let container: HTMLDivElement
+  let root: Root | undefined
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    if (root !== undefined) {
+      await act(async () => {
+        root!.unmount()
+      })
+      root = undefined
+    }
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  it('默认路由页；切协作流/测试场仅 CSS 可见性切换（区块保持挂载，既有选择器零改动）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    const card = container.querySelector('.kimi-tide-settings')!
+    // Fails if: 页签导航缺失（默认路由页）。
+    expect(card.getAttribute('data-tab')).toBe('route')
+    expect(container.querySelectorAll('button.kt-tab')).toHaveLength(3)
+    // Fails if: 页签点击不切换 data-tab（CSS 可见性切换失效）。
+    await act(async () => {
+      ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '协作流')!.click()
+    })
+    expect(card.getAttribute('data-tab')).toBe('flows')
+    // 区块保持挂载：CSS display:none 切换，DOM 不卸载（既有测试选择器兼容）。
+    expect(container.querySelector('details.kt-flows')).not.toBeNull()
+    await act(async () => {
+      ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '测试场')!.click()
+    })
+    expect(card.getAttribute('data-tab')).toBe('trial')
+    expect(container.querySelector('details.kt-trial')).not.toBeNull()
+  })
+})

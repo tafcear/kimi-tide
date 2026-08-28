@@ -415,6 +415,9 @@ export function SettingsCard(props: SettingsCardProps) {
   // 0.6.x池#7：新建协作流表单（预置流模板 + slug 化 id 去重）。
   const [newFlowId, setNewFlowId] = useState('')
   const [newFlowType, setNewFlowType] = useState<'transcribe' | 'review'>('transcribe')
+  // ⑥-B：设置卡三页签（路由 / 协作流 / 测试场）——CSS 可见性切换（区块保持
+  // 挂载，受控表单状态与既有测试选择器零改动）。
+  const [activeTab, setActiveTab] = useState<'route' | 'flows' | 'trial'>('route')
 
   if (config === null) {
     // 现状不可用态原样保留。
@@ -545,7 +548,21 @@ export function SettingsCard(props: SettingsCardProps) {
   }
 
   return (
-    <div className="kimi-tide-settings">
+    <div className="kimi-tide-settings" data-tab={activeTab}>
+      {/* ⑥-B：三页签导航（CSS data-tab 可见性切换，区块保持挂载）。 */}
+      <div className="kt-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={activeTab === 'route'}
+          className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+          onClick={() => setActiveTab('route')}>路由</button>
+        {isV5 && (
+          <button type="button" role="tab" aria-selected={activeTab === 'flows'}
+            className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+            onClick={() => setActiveTab('flows')}>协作流</button>
+        )}
+        <button type="button" role="tab" aria-selected={activeTab === 'trial'}
+          className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+          onClick={() => setActiveTab('trial')}>测试场</button>
+      </div>
       {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
 
       {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
@@ -773,7 +790,7 @@ export function SettingsCard(props: SettingsCardProps) {
 
       {/* 「试一句」测试器（0.8.0 D2）：纯文本语义预测——命中规则（词数）+ 最终
           目标；带图输入只展示规则命中、不承诺最终改道（浏览器侧无 modalities）。 */}
-      <details className="kt-trial">
+      <details className="kt-trial" open>
         <summary>试一句</summary>
         <input
           aria-label="试一句"
@@ -844,7 +861,7 @@ export function SettingsCard(props: SettingsCardProps) {
       {/* 协作流注册表（0.6.0 spec §7，仅 v5）：预置流可改不可删；自建流可删
           （被引用时禁用删除，store.deleteFlow 守卫兜底并上浮 error）。 */}
       {isV5 && (
-        <details className="kt-flows">
+        <details className="kt-flows" open>
           <summary>协作流</summary>
           {flowEntries.map(([flowId, flow]) => (
             <FlowRow
