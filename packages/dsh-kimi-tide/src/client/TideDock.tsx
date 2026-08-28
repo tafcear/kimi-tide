@@ -98,61 +98,84 @@ export function TideDock(props: TideDockProps) {
   const quotaRelevant = targetProvider !== null && targetProvider === quotaSource
 
   return (
-    <div className="kimi-tide-dock">
-      <span className="kt-label" title="✨ 推理输出已启用（DSH 原生渲染 reasoning-delta） · 路由设置已迁至 设置 → 月汐">🌙 月汐</span>
+    <div className="kimi-tide-dock kt-dock-b">
+      {/* ⑥-B 第一行：身份 + 当前路由链（预设 → 打底 ⟶ 决策目标）+ 决策展开 */}
+      <div className="kt-dock-r1">
+        <span className="kt-label" title="✨ 推理输出已启用（DSH 原生渲染 reasoning-delta） · 路由设置已迁至 设置 → 月汐">🌙 月汐</span>
 
-      <span style={chip} title="当前路由预设">📡 {router.presetName ?? '关闭'}</span>
+        <span style={chip} title="当前路由预设">📡 {router.presetName ?? '关闭'}</span>
 
-      {router.activePreset !== null && (
-        <span style={chip}>
-          ⚡ {router.defaultTarget?.model}
-        </span>
-      )}
+        {router.activePreset !== null && (
+          <>
+            <span className="kt-route-arrow" aria-hidden>→</span>
+            <span style={chip} title="预设打底模型（未命中规则时）">⚡ {router.defaultTarget?.model}</span>
+          </>
+        )}
 
-      {panel.decision !== null && (
-        <button
-          type="button"
-          style={chip}
-          className="kt-decision-chip kt-decision-toggle"
-          title={`${expanded ? '收起' : '展开'}决策可观测`}
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? '▾' : '▸'} 🧭 {panel.decision.chosen.model} · {panel.decision.reason}
-        </button>
-      )}
+        {panel.decision !== null && (
+          <>
+            <span className="kt-route-arrow" aria-hidden>⟶</span>
+            <span style={chip} className="kt-route-target" title="本步决策目标">{panel.decision.chosen.model}</span>
+          </>
+        )}
 
-      {/* 0.6.x 池#1：投影 v6 图像上下文行客户端消费（spec §8）。缺席 = 无图
-          会话不渲染；blind>0 警示态（盲答图在历史里，文本模型看不到）。 */}
-      {panel.imageContext !== undefined && (
-        <span
-          style={chip}
-          className={panel.imageContext.blind > 0 ? 'kt-warn' : ''}
-          title="本会话按图三态计数：原生视觉 / 已转述 / 盲答（blind>0 = 有图文本模型看不到）"
-        >
-          {`🖼️ 图${panel.imageContext.native}/转${panel.imageContext.transcribed}/盲${panel.imageContext.blind}`}
-        </span>
-      )}
+        {(!kimi.route || !kimi.key) && (
+          <span style={chip} className="kt-warn" title="缺少 kimi-coding 路由或 API key（设置 → Models 配置，apiKeyEnv 指向你的凭据）">
+            ⚠️ Kimi 未接入：设置 → Models
+          </span>
+        )}
 
-      {(!kimi.route || !kimi.key) && (
-        <span style={chip} className="kt-warn" title="缺少 kimi-coding 路由或 API key（设置 → Models 配置，apiKeyEnv 指向你的凭据）">
-          ⚠️ Kimi 未接入：设置 → Models
-        </span>
-      )}
+        {panel.decision !== null && (
+          <button
+            type="button"
+            style={chip}
+            className="kt-decision-chip kt-decision-toggle"
+            title={`${expanded ? '收起' : '展开'}决策可观测`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? '▾' : '▸'} 🧭 {panel.decision.reason}
+          </button>
+        )}
+      </div>
 
-      {quotaRelevant && (quota === null ? (
-        <span style={chip} className="kt-stale">🌫️ 配额不可用</span>
-      ) : (
-        <span style={chip} className={quota.stale ? 'kt-stale' : ''}>
-          <span className={pctClass(weekUsedPct)}>📊 周 剩{weekRemain}</span>
-          {' · '}
-          <span className={pctClass(fiveUsedPct)}>⏳ 5h 剩{fiveRemain}</span>
-          {` · 🕐 ${fmtClock(quota.fetchedAt)}`}
-          {quota.stale && ' (过期)'}
-        </span>
-      ))}
+      {/* ⑥-B 第二行：可观测条——限额进度条（⑨ 门控）/ 图像上下文 / 时钟 / 刷新 */}
+      <div className="kt-dock-r2">
+        {quotaRelevant && (quota === null ? (
+          <span style={chip} className="kt-stale">🌫️ 配额不可用</span>
+        ) : (
+          <>
+            <span className={pctClass(weekUsedPct)} title="周配额已用比例">
+              📊 周
+              <span className="kt-quota-bar"><i style={{ width: `${weekUsedPct}%` }} /></span>
+              剩{weekRemain}
+            </span>
+            <span className={pctClass(fiveUsedPct)} title="五小时窗已用比例">
+              ⏳ 5h
+              <span className="kt-quota-bar"><i style={{ width: `${fiveUsedPct}%` }} /></span>
+              剩{fiveRemain}
+            </span>
+          </>
+        ))}
 
-      {quotaRelevant && <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>}
+        {/* 0.6.x 池#1：投影 v6 图像上下文行客户端消费（spec §8）。缺席 = 无图
+            会话不渲染；blind>0 警示态（盲答图在历史里，文本模型看不到）。 */}
+        {panel.imageContext !== undefined && (
+          <span
+            style={chip}
+            className={panel.imageContext.blind > 0 ? 'kt-warn' : ''}
+            title="本会话按图三态计数：原生视觉 / 已转述 / 盲答（blind>0 = 有图文本模型看不到）"
+          >
+            {`🖼️ 图${panel.imageContext.native}/转${panel.imageContext.transcribed}/盲${panel.imageContext.blind}`}
+          </span>
+        )}
+
+        {quotaRelevant && quota !== null && (
+          <span className="kt-h">🕐 {fmtClock(quota.fetchedAt)}{quota.stale ? ' (过期)' : ''}</span>
+        )}
+
+        {quotaRelevant && <button disabled={busy} title="刷新配额" onClick={() => void run('/kimi-tide refresh')}>🔄</button>}
+      </div>
 
       {expanded && panel.decision !== null && (
         <ReasonPanel

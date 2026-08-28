@@ -46,6 +46,34 @@ describe('TideDock v4', () => {
   })
 })
 
+describe('TideDock ⑥-B 两行布局重构', () => {
+  const kimiQuota = {
+    weekly: { used: 10, limit: 100, resetTime: 'w' },
+    fiveHour: { used: 80, limit: 100, resetTime: 'f' },
+    membershipLevel: 'L1',
+    fetchedAt: 1,
+    stale: false,
+  }
+  const render = (panel: KimiTidePanelProjection): string =>
+    renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel }))
+
+  it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
+      imageContext: { native: 0, transcribed: 1, blind: 0 },
+    }))
+    // Fails if: dock 仍是单行 chip 串（⑥-B 布局重构未落地）。
+    expect(html).toContain('kt-dock-r1')
+    expect(html).toContain('kt-dock-r2')
+    expect(html).toContain('kt-route-arrow')
+    expect(html).toContain('kt-quota-bar')
+    // 周用量 10/100 → 进度条宽度 10%
+    expect(html).toContain('width:10%')
+  })
+})
+
 describe('TideDock 0.6.x池#1 图像上下文行 + 流事件客户端消费', () => {
   const render = (panel: KimiTidePanelProjection, extra: Record<string, unknown> = {}): string =>
     renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => panel, ...extra }))
