@@ -61,6 +61,16 @@ describe('panelSchema (projection v6)', () => {
     expect(out!.lastFlowEvent).toBeUndefined()
   })
 
+  it('0.6.x池#6：imageContext 计数非负整数约束（负数/小数拒绝）', () => {
+    const bad = panel(1)
+    bad.imageContext = { native: -1, transcribed: 0, blind: 0 }
+    // Fails if: 计数字段裸 z.number()（wire 面拒负数与小数计数的防御缺口）。
+    expect(() => parse(bad)).toThrow()
+    const frac = panel(1)
+    frac.imageContext = { native: 1, transcribed: 0.5, blind: 0 }
+    expect(() => parse(frac)).toThrow()
+  })
+
   it('v6：imageContext 三态计数缺一不可（缺项拒绝）', () => {
     const p = panel(1)
     expect(() => parse({ ...p, imageContext: { native: 1, transcribed: 2 } })).toThrow()

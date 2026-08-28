@@ -68,9 +68,10 @@ const panelSchema = z.object({
   // imageContext 缺席 = 无图会话（投影不写该字段）；lastFlowEvent 沿用
   // decision 摘要的 ≤120 截断惯例（推送侧截断，schema 拒超长）。
   imageContext: z.object({
-    native: z.number(),
-    transcribed: z.number(),
-    blind: z.number(),
+    // 0.6.x池#6：计数语义 = 非负整数（wire 面拒绝负数与小数）。
+    native: z.number().int().nonnegative(),
+    transcribed: z.number().int().nonnegative(),
+    blind: z.number().int().nonnegative(),
   }).optional(),
   lastFlowEvent: z.string().max(120).optional(),
 }).nullable()
