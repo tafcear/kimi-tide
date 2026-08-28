@@ -26,7 +26,7 @@ export interface RouterRule {
 export interface RouterPreset {
   name: string
   default: RouteTarget
-  rules: RouterRule[]   // 有序；首条命中生效
+  rules: RouterRule[]   // 特异度排序匹配：命中词数 desc、平手按列表序、带图恒优先；目标不可用跳过降级
   /** 预设级带图兜底策略（0.6.0+；缺省 = 维持 0.5.x 行为，判定语义见 Task 8）。 */
   imageFallback?: ImageFallback
   /** imageFallback 为 'transcribe-lazy' 时引用的 flows 键。 */

@@ -247,12 +247,14 @@ export class KimiRouter {
     }
     const flows = flowsOf(this.config)
     const hits = matchingScored(this.config, text, hasImage)
-    for (const { rule, score } of hits) {
+    for (const [index, { rule, score }] of hits.entries()) {
       const target = rule.target
-      // 0.8.0 原因升级：携带命中词数；多命中加（特异度最高）标注（image=∞ 不带）。
+      // 0.8.0 原因升级：携带命中词数；多命中且为排序后首命中时加（特异度最高）
+      // 标注（image=∞ 不带）。0.8.x①：标注只属于首命中——首命中目标不可用
+      // 降级到后续命中时不得误标（后续命中并非特异度最高）。
       const note = score === Number.POSITIVE_INFINITY
         ? ''
-        : ` ${score} 词${hits.length > 1 ? '（特异度最高）' : ''}`
+        : ` ${score} 词${hits.length > 1 && index === 0 ? '（特异度最高）' : ''}`
       // 协作流目标（0.6.0，spec §5.1）：flow 存在 + transcribe 型 + visionModel
       // 在候选目录中可用 → flow 决策；任一不满足 → 跳过该规则（与模型目标不可
       // 用的降级语义一致）。v4 存量 flows 为空表，flow 目标恒按「不存在」降级。

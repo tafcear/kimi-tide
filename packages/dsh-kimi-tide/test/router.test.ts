@@ -315,6 +315,21 @@ describe('决策原因词数（0.8.0）', () => {
     const d = r2.decide([textMsg('帮我总结这次重构，顺便写个测试')], 1)
     expect(d.reason).toBe('规则「code」命中 2 词（特异度最高）')
   })
+  it('降级命中不误标：首命中目标不可用时，后续命中只带词数（0.8.x①）', () => {
+    // 同组双规则命中同句（同分 2 词，稳定排序保列表序）：排首的 code-ghost 目标
+    // 不可用 → 降级落到 code-kfc。它并非特异度最高的命中，reason 不得再带
+    // 「（特异度最高）」——该标注只属于排序后的首命中。
+    const c = cfg('capability')
+    c.presets.capability.rules.unshift({
+      id: 'code-ghost',
+      when: { kind: 'keywords', group: 'code' },
+      target: { provider: 'deepseek-official', model: 'ghost-model' },
+    })
+    const r = new KimiRouter(c, METAS, log)
+    const d = r.decide([textMsg('帮我总结这次重构，顺便写个测试')], 1)
+    expect(d).toMatchObject({ via: 'rule', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } })
+    expect(d.reason).toBe('规则「code」命中 2 词')
+  })
   it('image 规则：不带词数（∞ 无语义）', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
     expect(r.decide([imageMsg()], 1).reason).toBe('规则「带图」命中')

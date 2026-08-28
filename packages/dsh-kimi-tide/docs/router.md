@@ -51,7 +51,7 @@ export interface RouterRule {
 export interface RouterPreset {
   name: string                // 显示名
   default: RouteTarget        // 打底模型（未命中规则时的路由目标）
-  rules: RouterRule[]         // 有序；首条命中生效
+  rules: RouterRule[]         // 特异度排序匹配（命中词数 desc、平手按列表序、带图恒优先）；逐条尝试目标可用者生效
 }
 
 export interface RouterConfigV4 {
@@ -128,7 +128,7 @@ decide(messages, step, hasImageOverride?):
      preset = presets[activePreset]；缺失 → keep('active preset not found') + warn
      for rule of matchingRules(config, text, hasImage):               // 按序返回全部命中
        if 目标不在枚举池或 available:false → 跳过该规则（降级，继续）    // 见「降级语义」
-       else → route(rule.target, `规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；image 规则无词数
+       else → route(rule.target, `规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；（特异度最高）仅标注排序后首命中（0.8.x①：降级命中不误标）；image 规则无词数
   3. 打底：route(preset.default, `预设「<name>」默认`, via: 'default')
 ```
 
@@ -231,7 +231,7 @@ interface CandidateMeta extends RouteTarget {
 | `presets` | `Record<string, RouterPreset>` | 内置 saving/capability | 预设表；键即预设 id |
 | `presets.<id>.name` | `string` | — | 显示名（非空，校验拒绝空名） |
 | `presets.<id>.default` | `{provider, model, effort?}` | — | 打底模型（未命中规则时的路由目标；effort 可选，0.8.0） |
-| `presets.<id>.rules` | `RouterRule[]` | — | 有序规则表；首条目标可用者生效 |
+| `presets.<id>.rules` | `RouterRule[]` | — | 特异度排序匹配（词数 desc/平手列表序/带图优先）；目标可用者生效，不可用跳过降级 |
 | `rules[].id` | `string` | — | 稳定 id（排序/编辑/测试锚点） |
 | `rules[].when` | `{kind:'image'} \| {kind:'keywords', group, minHits?}` | — | 规则条件：带图 / 命名关键词组 |
 | `rules[].when.minHits` | `number \| undefined` | `undefined` | 命中关键词种数下限（≥1 整数；缺省 1；0.7.0） |
@@ -493,7 +493,8 @@ Typert remote src-json 通道下发 `provider/model → reasoningEfforts`）；�
   打底；目标不可用即跳过），不模拟图像护栏与 flow 降级路径（浏览器侧无
   modalities）——带图输入只展示规则命中，卡片固定声明不承诺最终改道。
 - **决策原因词数**：路由决策原因升级为 `规则「code」命中 2 词（特异度最高）`
-  （多命中时标注特异度最高；单命中 = `规则「code」命中 1 词`；image 规则 =
+  （多命中时仅排序后首命中标注特异度最高——0.8.x① 降级命中不误标；单命中 =
+  `规则「code」命中 1 词`；image 规则 =
   `规则「带图」命中`，∞ 无词数语义）。chip 数据经投影透传，
   `DecisionSummary.reason` ≤120 截断契约不变；`via: default` 打底与 keep
   仍不上 chip（既有语义）。
