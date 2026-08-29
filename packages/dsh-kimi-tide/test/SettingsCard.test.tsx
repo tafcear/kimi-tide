@@ -174,6 +174,21 @@ describe('SettingsCard 预设管理器（render，brief Task 8 Step 1）', () =>
     expect(html).not.toMatch(/<option[^>]*>kimi-coding\/kimi-for-coding<\/option>/)
     expect(html).toMatch(/<option[^>]*>kimi-coding\/k3<\/option>/)
   })
+  it('⑥-B 打磨三修订: provider 不在目录的已配置目标并入选项（不误标未挂载）', () => {
+    // 实机形态（2026-08-29）：llm.models 目录缺 kimi/zai provider，工作中的
+    // 模型被误标（未挂载）且回显丢失。Fails if: 已配置目标因目录缺口丢回显。
+    const cfg = v4cfg('saving')
+    const html = renderToString(createElement(SettingsCard, {
+      scope: null,
+      connection: null,
+      storeFactory: () => makeStore(baseSnapshot(cfg, {
+        catalog: [{ provider: 'deepseek-official', models: ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'] }],
+        availability: null,
+      })),
+    }))
+    expect(html).toMatch(/<option[^>]*>kimi-coding\/k3<\/option>/)
+    expect(html).not.toContain('（未挂载）')
+  })
   it('关闭态：只显示预设行，不显示编辑器', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg(null)) }))
     // Fails if: activePreset===null 时仍渲染当前预设编辑器（新增规则按钮泄漏）。

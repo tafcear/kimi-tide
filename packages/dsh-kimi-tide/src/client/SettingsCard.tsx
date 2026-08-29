@@ -28,7 +28,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { duplicateRuleIds, previewRoute, ruleConditionSummary, ruleLabel } from '../rules.js'
+import { duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -450,6 +450,28 @@ export function SettingsCard(props: SettingsCardProps) {
       .filter((model) => snapshot.availability === null || snapshot.availability[`${group.provider}/${model}`] !== false)
       .map((model) => `${group.provider}/${model}`),
   )
+  // ⑥-B 打磨三修订（实机 2026-08-29）：目录通道未列出的 provider（插件自挂
+  // 等）→ 把配置中的目标并入选项，否则工作中的模型被误标（未挂载）且回显
+  // 丢失；availability===false（provider 已知而模型缺失，真未挂载）仍排除
+  // （2026-08-21 用户裁定保持）。
+  {
+    const configured: RouteTarget[] = []
+    for (const preset of Object.values(config.presets)) {
+      configured.push(preset.default)
+      for (const rule of preset.rules) {
+        if (!isFlowTarget(rule.target)) configured.push(rule.target)
+      }
+    }
+    if (config.version === 5) {
+      for (const flow of Object.values(config.flows)) {
+        configured.push(flow.type === 'transcribe' ? flow.visionModel : flow.reviewer)
+      }
+    }
+    for (const target of configured) {
+      const key = configKey(target)
+      if (snapshot.availability?.[key] !== false && !modelOptions.includes(key)) modelOptions.push(key)
+    }
+  }
   // 目标灰态：读快照 availability（数据源 = connection.api.llm.models，
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
@@ -518,16 +540,41 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const addRule = (): void => {
     if (activeId === null || active === null) return
-    // 新规则默认带图条件——已存在带图规则即互斥冲突，直接阻止（比组装后再判更早反馈）。
-    if (active.rules.some((rule) => rule.when.kind === 'image')) {
-      setRuleConflict('已存在带图规则（条件互斥），新增被阻止——如需换目标请直接编辑既有规则')
+    // ⑥-B 打磨三修订（用户实测「不能新增了」2026-08-29）：新规则不再默认
+    // 带图（必撞互斥），自动选第一个未占用条件：带图空位 → 各组 minHits=1
+    // 空位 → 同组 minHits 递进；全部占满（且无组可进档）才阻止并提示。
+    const taken = new Set(active.rules.map((rule) => ruleConditionKey(rule.when)))
+    let when: RouterRule['when'] | null = null
+    if (!taken.has(ruleConditionKey({ kind: 'image' }))) {
+      when = { kind: 'image' }
+    } else {
+      for (const group of groupNames) {
+        if (!taken.has(`kw:${group}:1`)) {
+          when = { kind: 'keywords', group, minHits: 1 }
+          break
+        }
+      }
+      if (when === null) {
+        for (const group of groupNames) {
+          for (let minHits = 2; minHits <= active.rules.length + 1; minHits += 1) {
+            if (!taken.has(`kw:${group}:${minHits}`)) {
+              when = { kind: 'keywords', group, minHits }
+              break
+            }
+          }
+          if (when !== null) break
+        }
+      }
+    }
+    if (when === null) {
+      setRuleConflict('没有可用条件：所有条件均已被占用（可先在「关键词组」新建组，再新增规则）')
       return
     }
-    const next: RouterRule[] = [
+    updateRules(activeId, [
       ...active.rules,
-      { id: newRuleId(active.rules), when: { kind: 'image' }, target: active.default },
-    ]
-    if (saveRulesIfDistinct(activeId, active.rules, next)) setRuleConflict(null)
+      { id: newRuleId(active.rules), when, target: active.default },
+    ])
+    setRuleConflict(null)
   }
 
   const saveDefault = (value: string): void => {

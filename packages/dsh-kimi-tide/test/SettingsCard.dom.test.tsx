@@ -695,22 +695,49 @@ describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () =
     expect(saves).toEqual([{ id: 'saving', count: 1 }])
   })
 
-  it('已存在带图规则 → 新增规则被阻止 + 互斥提示（savePreset 不触）', async () => {
-    const saveSpy = vi.fn()
-    const { store, publish } = makeDeferredStore({ savePreset: saveSpy })
+  it('带图已占用 → 新增自动选未占用条件落盘（修订「不能新增」）', async () => {
+    const saves: Array<{ id: string; rules: Array<{ when: { kind: string; group?: string; minHits?: number } }> }> = []
+    const { store, publish } = makeDeferredStore({
+      savePreset: async (id, preset) => {
+        saves.push({ id, rules: preset.rules })
+      },
+    })
     await mount(store)
     await act(async () => {
       publish(readySnapshot())
     })
     const add = [...container.querySelectorAll('button')].find((b) => b.textContent === '新增规则')
     expect(add).not.toBeUndefined()
-    const rowsBefore = container.querySelectorAll('button[aria-label="删除规则"]').length
     await act(async () => {
       add!.click()
     })
-    // Fails if: 互斥约束失效（连点新增造出重复带图——用户截图死规则来源）
+    // Fails if: 新增被一刀切阻止（带图占用时永远加不了规则——用户实测 2026-08-29）
+    expect(saves.length).toBe(1)
+    expect(saves[0].rules.length).toBe(4)  // readySnapshot 默认 3 条 + 新增 1 条
+    // 新条件不与既有重复（互斥守卫在自动选条件后仍成立）
+    const keys = saves[0].rules.map((r) => (r.when.kind === 'image' ? 'image' : `${r.when.group}:${r.when.minHits ?? 1}`))
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('所有条件占满（无关键词组可进档）→ 阻止 + 提示', async () => {
+    const saveSpy = vi.fn()
+    const { store, publish } = makeDeferredStore({ savePreset: saveSpy })
+    await mount(store)
+    const cfg: RouterConfigV4 = { ...DEFAULT_CONFIG_V4(), activePreset: 'saving', keywordGroups: {} }
+    cfg.presets.saving = {
+      ...cfg.presets.saving,
+      rules: [{ id: 'only-image', when: { kind: 'image' }, target: { provider: 'p', model: 'm' } }],
+    }
+    await act(async () => {
+      publish({ ...readySnapshot(), config: cfg })
+    })
+    const add = [...container.querySelectorAll('button')].find((b) => b.textContent === '新增规则')
+    expect(add).not.toBeUndefined()
+    await act(async () => {
+      add!.click()
+    })
+    // Fails if: 无可用条件时静默无反馈
     expect(saveSpy).not.toHaveBeenCalled()
-    expect(container.textContent).toContain('互斥')
-    expect(container.querySelectorAll('button[aria-label="删除规则"]').length).toBe(rowsBefore)
+    expect(container.textContent).toContain('没有可用条件')
   })
 })

@@ -241,12 +241,18 @@ export function createCardStore(
         }
       }
       const availability: Record<string, boolean> = {}
+      const providerServed = new Set(catalog.map((group) => group.provider))
       const seen = new Set<string>()
       for (const target of targets) {
         const key = configKey(target)
         if (seen.has(key)) continue
         seen.add(key)
-        availability[key] = served.has(key)
+        // ⑥-B 打磨三修订（实机误报 2026-08-29）三态显式：目录命中 → true；
+        // provider 已知而模型缺失（真未挂载）→ false；provider 整个不在目录
+        // = 目录通道无法判定该 provider（插件自挂 provider 可经路由通道可达，
+        // 实机反例：kimi/zai 工作中却被标未挂载）→ 不落键（视同可用）。
+        if (served.has(key)) availability[key] = true
+        else if (providerServed.has(target.provider)) availability[key] = false
       }
       publish({ ...snapshot, catalog, availability })
     } catch {
