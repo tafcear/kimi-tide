@@ -1,4 +1,4 @@
-export interface RouteTarget { provider: string; model: string }
+export interface RouteTarget { provider: string; model: string; effort?: string }
 /** 候选元数据（0.5.0：costTier 随评分面退役，Task 9 删除）。 */
 export interface CandidateMeta extends RouteTarget {
   modalities: string[]
@@ -15,7 +15,7 @@ export const KIMI_PROVIDER = 'kimi-coding'
 
 export type RuleCondition =
   | { kind: 'image' }                    // 带图（本轮或历史含图，锁存后恒真）
-  | { kind: 'keywords'; group: string }  // 命名关键词组命中（大小写不敏感子串）
+  | { kind: 'keywords'; group: string; minHits?: number }  // 命名关键词组命中；minHits 缺省=1（0.7.0）
 
 export interface RouterRule {
   id: string
@@ -26,7 +26,7 @@ export interface RouterRule {
 export interface RouterPreset {
   name: string
   default: RouteTarget
-  rules: RouterRule[]   // 有序；首条命中生效
+  rules: RouterRule[]   // 特异度排序匹配：命中词数 desc、平手按列表序、带图恒优先；目标不可用跳过降级
   /** 预设级带图兜底策略（0.6.0+；缺省 = 维持 0.5.x 行为，判定语义见 Task 8）。 */
   imageFallback?: ImageFallback
   /** imageFallback 为 'transcribe-lazy' 时引用的 flows 键。 */
@@ -69,6 +69,13 @@ export interface RouterConfigV5 {
   /** 协作流注册表（预置 transcribe/review；预置流注册但不绑定）。 */
   flows: Record<string, CollaborationFlow>
   keywordGroups: Record<string, string[]>
+  /**
+   * 0.8.x⑧：非 agent-loop 辅助请求改道表（envelope `purpose` → 模型目标，
+   * 如 `session-title`）。缺省/空表/无该键 = 该类请求不改道（向后兼容）；
+   * 目标在候选目录不可用时保守放行（与规则目标降级同向）。语义校验见
+   * validateRouterConfig（键非空/目标完整/不收流引用/effort 形状）。
+   */
+  auxTargets?: Record<string, RouteTarget>
 }
 
 /* ---- @legacy v4（0.5.x）形状：迁移输入专用（后续迁移任务消费），新代码禁止消费 ---- */
@@ -82,10 +89,20 @@ export interface RouterConfigV4 {
 
 export const configKey = (t: RouteTarget): string => `${t.provider}/${t.model}`
 
-/** 内置关键词组（用户可增删改；内置预设引用 code/chitchat）。 */
+/** 内置关键词组（用户可增删改；内置预设引用全部 7 组）。
+ *  0.7.0：code 词表 8→17 词（消除「词表过薄」——覆盖调试/联调/部署/性能/
+ *  报错/日志/编译/命令/脚本九类高频编码场景）。
+ *  0.8.0（D1）覆盖面补全：内置 7 组——新增 review/writing/translate/longdoc/
+ *  math；chitchat 瘦身为纯寒暄 6 词（「翻译」「总结」分别迁入 translate/
+ *  writing 组）。 */
 export const DEFAULT_KEYWORD_GROUPS: Record<string, string[]> = {
-  code: ['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试'],
-  chitchat: ['你好', '谢谢', '怎么样', '随便', '聊聊', '翻译', '总结', '天气'],
+  code: ['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试', '接口', '联调', '部署', '性能', '报错', '日志', '编译', '命令', '脚本'],
+  chitchat: ['你好', '谢谢', '怎么样', '随便', '聊聊', '天气'],
+  review: ['审查', 'review', '评审', '挑毛病', '复检', '检查', 'audit', '意见', '打分'],
+  writing: ['写作', '文案', '润色', '改写', '扩写', '标题', '推文', '周报', '演讲稿', '总结'],
+  translate: ['翻译', '译成', '中译英', '英译中', 'translate', '本地化'],
+  longdoc: ['长文档', '通读', '逐段', '全文', '上万字', '大文档'],
+  math: ['数学', '证明', '推导', '求解', '公式', '数论', '概率', '逻辑题'],
 }
 
 export function DEFAULT_CONFIG_V4(): RouterConfigV4 {
@@ -99,14 +116,25 @@ export function DEFAULT_CONFIG_V4(): RouterConfigV4 {
         rules: [
           { id: 'image-k3', when: { kind: 'image' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
           { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } },
+          { id: 'translate-v4f', when: { kind: 'keywords', group: 'translate' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
         ],
       },
       capability: {
         name: '能力',
         default: { provider: KIMI_PROVIDER, model: 'k3' },
+        // 0.8.0（D1）覆盖面补全：image → review → code → math → longdoc →
+        // writing → translate → chitchat。review 在 code 前（用户裁定 2026-08-27：
+        // 审查意图优先于泛 code 词，平手时落 review）；canonical 模型对 =
+        // kimi-coding × deepseek-official，不假设 qwen/glm 存在。
         rules: [
-          { id: 'chitchat-flash', when: { kind: 'keywords', group: 'chitchat' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
+          { id: 'image-k3', when: { kind: 'image' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
+          { id: 'review-k3', when: { kind: 'keywords', group: 'review' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
           { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } },
+          { id: 'math-v4p', when: { kind: 'keywords', group: 'math' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } },
+          { id: 'longdoc-k3', when: { kind: 'keywords', group: 'longdoc' }, target: { provider: KIMI_PROVIDER, model: 'k3' } },
+          { id: 'writing-v4p', when: { kind: 'keywords', group: 'writing' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } },
+          { id: 'translate-v4f', when: { kind: 'keywords', group: 'translate' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
+          { id: 'chitchat-flash', when: { kind: 'keywords', group: 'chitchat' }, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
         ],
       },
     },
@@ -140,6 +168,7 @@ export function DEFAULT_CONFIG_V5(): RouterConfigV5 {
     presets: v4.presets,
     flows: DEFAULT_FLOWS(),
     keywordGroups: v4.keywordGroups,
+    auxTargets: {},
   }
 }
 

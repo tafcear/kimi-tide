@@ -1,8 +1,19 @@
 // test/rules.test.ts
 import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { DEFAULT_CONFIG_V4 } from '../src/config.js'
-import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from '../src/rules.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterRule } from '../src/config.js'
+import {
+  duplicateRuleIds,
+  explicitProvider,
+  latestUserText,
+  matchingRules,
+  matchingScored,
+  messagesContainImage,
+  previewRoute,
+  ruleConditionSummary,
+  ruleLabel,
+} from '../src/rules.js'
+import type { RoutePreviewDeps } from '../src/rules.js'
 
 const textMsg = (text: string): UserMessage => ({ role: 'user', content: [{ type: 'text', text }] }) as unknown as UserMessage
 const imageMsg = (): UserMessage => ({ role: 'user', content: [{ type: 'image', attachment: 'a1' }] }) as unknown as UserMessage
@@ -54,6 +65,53 @@ describe('matchingRules', () => {
     const c = DEFAULT_CONFIG_V4(); c.activePreset = 'nope'
     expect(matchingRules(c, '代码', true)).toEqual([])
   })
+  it('0.7.0 词边界：decode/unicode/barcode/planning 不误中英文词；纯词与中文邻接仍命中', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
+    expect(matchingRules(c, '帮我 decode 这段 base64', false).map((r) => r.id)).not.toContain('code-kfc')
+    expect(matchingRules(c, 'unicode 转义问题', false).map((r) => r.id)).not.toContain('code-kfc')
+    // 0.7.0 词表含 脚本——换不含 code 组词的说法验证 barcode 子串不误中
+    expect(matchingRules(c, '生成 barcode 的工具', false).map((r) => r.id)).not.toContain('code-kfc')
+    expect(matchingRules(c, 'please refactor this function', false).map((r) => r.id)).toContain('code-kfc')
+    expect(matchingRules(c, '这段代码有 bug', false).map((r) => r.id)).toContain('code-kfc')
+    expect(matchingRules(c, '帮忙重构一下', false).map((r) => r.id)).toContain('code-kfc')
+  })
+  it('0.7.0 minHits：命中数不足阈值不触发；缺省=1；达标触发', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'saving'
+    c.presets.saving.rules.unshift({
+      id: 'plan-2',
+      when: { kind: 'keywords', group: 'plan', minHits: 2 },
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    c.keywordGroups.plan = ['plan', '计划', '方案']
+    expect(matchingRules(c, '帮我做个方案', false).map((r) => r.id)).not.toContain('plan-2')
+    expect(matchingRules(c, 'plan：帮我做个方案', false).map((r) => r.id)).toContain('plan-2')
+    const d = DEFAULT_CONFIG_V4(); d.activePreset = 'saving'
+    d.presets.saving.rules.unshift({
+      id: 'plan-1',
+      when: { kind: 'keywords', group: 'plan' },
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    d.keywordGroups.plan = ['方案']
+    expect(matchingRules(d, '帮我做个方案', false).map((r) => r.id)).toContain('plan-1')
+  })
+
+  it('0.7.0 特异度：命中词数多者优先；平手保持列表序；带图轮 image 规则恒优先', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
+    // code 2 词（重构+测试） vs writing 1 词（总结）→ code 反超列表序在前的 writing
+    // （0.8.0：「总结」自 chitchat 迁入 writing，chitchat 瘦身后不再命中）
+    expect(matchingRules(c, '帮我总结这次重构，顺便写个测试', false).map((r) => r.id))
+      .toEqual(['code-kfc', 'writing-v4p'])
+    // 各命中 1 词 → 平手按列表序（0.8.0 内置序 code 在 chitchat 前）
+    expect(matchingRules(c, '你好，帮我重构一下', false).map((r) => r.id))
+      .toEqual(['code-kfc', 'chitchat-flash'])
+    // 带图轮 image 规则分 = +∞：即使关键词规则列表序在前也恒被 image 压过
+    const s = DEFAULT_CONFIG_V4(); s.activePreset = 'saving'
+    s.presets.saving.rules = [
+      { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+      { id: 'image-k3', when: { kind: 'image' }, target: { provider: 'kimi-coding', model: 'k3' } },
+    ]
+    expect(matchingRules(s, '看这个 bug 截图', true).map((r) => r.id)).toEqual(['image-k3', 'code-kfc'])
+  })
 })
 
 describe('ruleLabel / 消息工具', () => {
@@ -67,5 +125,95 @@ describe('ruleLabel / 消息工具', () => {
     expect(latestUserText([])).toBe('')
     expect(messagesContainImage([textMsg('x'), imageMsg()])).toBe(true)
     expect(messagesContainImage([textMsg('x')])).toBe(false)
+  })
+})
+
+describe('matchingScored（0.8.0）', () => {
+  it('返回 {rule, score} 计分排序（与 matchingRules 同序）；matchingRules 为薄封装', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
+    const scored = matchingScored(c, '帮我总结这次重构，顺便写个测试', false)
+    expect(scored.map((h) => h.rule.id)).toEqual(['code-kfc', 'writing-v4p'])
+    expect(scored.map((h) => h.score)).toEqual([2, 1])
+    expect(matchingRules(c, '帮我总结这次重构，顺便写个测试', false).map((r) => r.id))
+      .toEqual(scored.map((h) => h.rule.id))
+  })
+  it('带图轮 image 规则 score = +∞ 恒首位', () => {
+    const s = DEFAULT_CONFIG_V4(); s.activePreset = 'saving'
+    expect(matchingScored(s, '翻译这句话', true)[0]).toMatchObject({ rule: { id: 'image-k3' }, score: Number.POSITIVE_INFINITY })
+  })
+})
+
+describe('ruleConditionSummary（0.8.0）', () => {
+  it('image→带图；keywords→「命中 <组> 组 ≥N 词」（minHits 缺省 1）', () => {
+    const c = DEFAULT_CONFIG_V4()
+    expect(ruleConditionSummary(c.presets.saving.rules[0], c)).toBe('带图')
+    expect(ruleConditionSummary(c.presets.saving.rules[1], c)).toBe('命中 code 组 ≥1 词')
+    const s = DEFAULT_CONFIG_V4(); s.activePreset = 'saving'
+    s.presets.saving.rules.unshift({ id: 'plan-2', when: { kind: 'keywords', group: 'plan', minHits: 2 }, target: { provider: 'x', model: 'y' } })
+    s.keywordGroups.plan = ['plan', '计划']
+    expect(ruleConditionSummary(s.presets.saving.rules[0], s)).toBe('命中 plan 组 ≥2 词')
+  })
+})
+
+describe('previewRoute（0.8.0 试一句纯函数）', () => {
+  const CATALOG: RoutePreviewDeps['catalog'] = [
+    { provider: 'kimi-coding', models: ['k3', 'kimi-for-coding'] },
+    { provider: 'deepseek-official', models: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
+  ]
+  const DEPS: RoutePreviewDeps = { catalog: CATALOG, availability: null }
+  it('off：activePreset null', () => {
+    expect(previewRoute(DEFAULT_CONFIG_V4(), '随便一句', DEPS).outcome).toEqual({ kind: 'off', reason: '路由已关闭' })
+  })
+  it('rule：命中并显示词数；未命中 → default', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
+    // 夹具更正（T4，报告备案）：计划原文「帮我重构这个函数」命中 code 组 重构+函数 2 词，
+    // 与本块断言 score 1 / 下块「落 writing-v4p」不兼容；改等义句（重构×1 + 周报×1）。
+    const hit = previewRoute(c, '帮我重构这段周报', DEPS)
+    expect(hit.hits[0]).toMatchObject({ rule: { id: 'code-kfc' }, score: 1 })
+    expect(hit.outcome).toEqual({ kind: 'rule', ruleId: 'code-kfc', label: 'code', score: 1, target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '规则「code」命中 1 词' })
+    // 夹具更正（T4）：原文「今天天气不错」命中 chitchat「天气」（capability 含 chitchat 规则）；改零命中句
+    expect(previewRoute(c, '今天降温了', DEPS).outcome).toMatchObject({ kind: 'default', target: { provider: 'kimi-coding', model: 'k3' } })
+  })
+  it('rule：目标不可用（availability false）→ 跳过落下一命中', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'capability'
+    const deps: RoutePreviewDeps = { catalog: CATALOG, availability: { 'kimi-coding/kimi-for-coding': false } }
+    expect(previewRoute(c, '帮我重构这段周报', deps).outcome).toMatchObject({ kind: 'rule', ruleId: 'writing-v4p' })
+  })
+  it('explicit：@kimi → 该 provider 目录首个模型；目录缺失 → target 空 + 提示', () => {
+    const c = DEFAULT_CONFIG_V4(); c.activePreset = 'saving'
+    expect(previewRoute(c, '@kimi 帮我看代码', DEPS).outcome).toMatchObject({ kind: 'explicit', provider: 'kimi-coding', target: { provider: 'kimi-coding', model: 'k3' } })
+    expect(previewRoute(c, '@kimi 你好', { catalog: null, availability: null }).outcome).toMatchObject({ kind: 'explicit', target: null })
+  })
+  it('flow 目标（v5）：flow 存在且 transcribe → outcome 标注 flowId', () => {
+    const c = DEFAULT_CONFIG_V5(); c.activePreset = 'saving'
+    c.presets.saving.rules.unshift({ id: 'flow-first', when: { kind: 'image' }, target: { flow: 'transcribe' } })
+    // previewRoute 纯文本调用：带图规则不命中（无 hasImage 参数——文本探针语义）
+    const out = previewRoute(c, '帮我重构这个函数', { catalog: CATALOG, availability: null, flows: c.flows })
+    expect(out.outcome).toMatchObject({ kind: 'rule', ruleId: 'code-kfc' })
+  })
+})
+
+describe('duplicateRuleIds（⑥-B 打磨三 2026-08-29: 规则条件互斥约束）', () => {
+  const img = (id: string): RouterRule => ({ id, when: { kind: 'image' }, target: { provider: 'p', model: 'm' } })
+  const kw = (id: string, group: string, minHits?: number): RouterRule => ({
+    id,
+    when: { kind: 'keywords', group, ...(minHits === undefined ? {} : { minHits }) },
+    target: { provider: 'p', model: 'm' },
+  })
+
+  it('两条带图 → 后者入列（首条保留）', () => {
+    expect(duplicateRuleIds([img('a'), img('b')])).toEqual(['b'])
+  })
+  it('三连同条件 → 后两条都入列（保持顺序）', () => {
+    expect(duplicateRuleIds([img('a'), img('b'), img('c')])).toEqual(['b', 'c'])
+  })
+  it('同组同 minHits → 重复；同组不同 minHits → 不算（特异性不同，词数优先可区分）', () => {
+    expect(duplicateRuleIds([kw('a', 'code', 1), kw('b', 'code', 1)])).toEqual(['b'])
+    expect(duplicateRuleIds([kw('a', 'code', 1), kw('b', 'code', 2)])).toEqual([])
+  })
+  it('不同组不算重复；空表/单条 → 空', () => {
+    expect(duplicateRuleIds([kw('a', 'code'), kw('b', 'plan')])).toEqual([])
+    expect(duplicateRuleIds([])).toEqual([])
+    expect(duplicateRuleIds([img('a')])).toEqual([])
   })
 })

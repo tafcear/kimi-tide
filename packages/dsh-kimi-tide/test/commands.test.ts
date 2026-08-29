@@ -117,7 +117,9 @@ describe('applyKimiTideCommand', () => {
     const out = await applyKimiTideCommand(parseKimiTideCommand('show'), deps)
     expect(out).toContain('省钱')
     expect(out).toContain('deepseek-v4-flash')
-    expect(out).toContain('2')
+    // 0.8.0：saving 规则 3 条（+translate）、关键词组 7 个
+    expect(out).toContain('规则 3 条')
+    expect(out).toContain('关键词组 7 个')
   })
 
   it('/kimi-tide show（v5）→ 补 flows 注册表段与每预设 imageFallback 行（0.6.0）', async () => {

@@ -33,7 +33,7 @@ import type {
 import { isFlowTarget } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
-import { explicitProvider, latestUserText, matchingRules, messagesContainImage, ruleLabel } from './rules.js'
+import { explicitProvider, latestUserText, matchingScored, messagesContainImage, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -172,6 +172,29 @@ export function reasoningEffortFor(
   return undefined
 }
 
+/**
+ * 目标 effort 判定（0.8.0，spec D3/M5）：explicit（target.effort）覆盖会话继承
+ * 值后再过支持集判定——支持 → 原样；不支持/能力未知/仅 off → 剥离（模型默认），
+ * 不做越级钳制（用户显式指定的语义；dsh-llm 对不支持显式档位抛
+ * UNSUPPORTED_REASONING_EFFORT，第二保险）。explicit 缺省 → 继承语义与
+ * reasoningEffortFor 逐字节一致（护栏二次改道 target 无 effort 即走此路，
+ * 保证规则 effort 不泄漏给视觉模型——M5 用户裁定）。
+ */
+export function effortForTarget(
+  metas: readonly CandidateMeta[],
+  target: RouteTarget,
+  inherited: ReasoningEffortId | undefined,
+  explicit: string | undefined,
+): ReasoningEffortId | undefined {
+  const meta = metas.find((m) => m.provider === target.provider && m.model === target.model)
+  const supported = meta?.reasoningEfforts
+  if (explicit !== undefined) {
+    if (supported !== undefined && supported.length > 0 && supported.includes(explicit)) return explicit as ReasoningEffortId
+    return undefined
+  }
+  return reasoningEffortFor(metas, target, inherited)
+}
+
 export interface RouterLog {
   info: (message: string) => void
 }
@@ -223,12 +246,23 @@ export class KimiRouter {
       return { kind: 'keep', reason: 'active preset not found' }
     }
     const flows = flowsOf(this.config)
-    for (const rule of matchingRules(this.config, text, hasImage)) {
+    const hits = matchingScored(this.config, text, hasImage)
+    for (const [index, { rule, score }] of hits.entries()) {
       const target = rule.target
+      // 0.8.0 原因升级：携带命中词数；多命中且为排序后首命中时加（特异度最高）
+      // 标注（image=∞ 不带）。0.8.x①：标注只属于首命中——首命中目标不可用
+      // 降级到后续命中时不得误标（后续命中并非特异度最高）。
+      const note = score === Number.POSITIVE_INFINITY
+        ? ''
+        : ` ${score} 词${hits.length > 1 && index === 0 ? '（特异度最高）' : ''}`
       // 协作流目标（0.6.0，spec §5.1）：flow 存在 + transcribe 型 + visionModel
       // 在候选目录中可用 → flow 决策；任一不满足 → 跳过该规则（与模型目标不可
       // 用的降级语义一致）。v4 存量 flows 为空表，flow 目标恒按「不存在」降级。
       if (isFlowTarget(target)) {
+        // 0.6.x池#3（M-3）运行期兜底：流目标仅在带图轮有意义——纯文本轮跳过
+        // 该规则（写入期校验拒新配置；本守卫对存量手改配置防「静默保持会话
+        // 模型」。带图条件的流规则 hasImage=false 本就不命中，不受影响）。
+        if (!hasImage) continue
         const flowId = target.flow
         const flow = flows[flowId]
         if (flow === undefined || flow.type !== 'transcribe') continue
@@ -236,11 +270,11 @@ export class KimiRouter {
           (m) => m.provider === flow.visionModel.provider && m.model === flow.visionModel.model && m.available,
         )
         if (vision === undefined) continue
-        return { kind: 'flow', flowId, flow, reason: `规则「${ruleLabel(rule)}」命中（协作流 ${flowId}）`, via: 'rule' }
+        return { kind: 'flow', flowId, flow, reason: `规则「${ruleLabel(rule)}」命中${note}（协作流 ${flowId}）`, via: 'rule' }
       }
       const meta = this.metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
       if (meta === undefined) continue
-      return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中`, via: 'rule' }
+      return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
     }
     // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
     return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
@@ -253,15 +287,16 @@ export class KimiRouter {
   }
 
   /**
-   * 把一轮请求替换到目标 provider/model，并把会话级推理等级映射到目标支持集
-   * （reasoningEffortFor：支持保留 / 越级钳制 / 未知剥离）。路由与图像护栏共用
-   * 这一条写路径，保证两条替换路径的 effort 语义一致。
+   * 把一轮请求替换到目标 provider/model，并把 effort 映射到目标支持集
+   * （effortForTarget：显式 target.effort 覆盖→支持集判定/不支持剥离；缺省
+   * → 继承语义 reasoningEffortFor 支持保留/越级钳制/未知剥离）。路由与图像
+   * 护栏共用这一条写路径，保证两条替换路径的 effort 语义一致。
    */
   replaceRoute(config: LlmCallConfig, target: RouteTarget): LlmCallConfig {
     const { reasoningEffort: inherited, ...rest } = config
-    const effort = reasoningEffortFor(this.metas, target, inherited)
-    if (effort !== inherited) {
-      this.log.info(`kimi-router: reasoning effort ${inherited ?? '∅'} → ${effort ?? '∅'} on ${target.provider}/${target.model}`)
+    const effort = effortForTarget(this.metas, target, inherited, target.effort)
+    if (effort !== (target.effort ?? inherited)) {
+      this.log.info(`kimi-router: reasoning effort ${target.effort ?? inherited ?? '∅'} → ${effort ?? '∅'} on ${target.provider}/${target.model}`)
     }
     return {
       ...rest,
@@ -294,7 +329,7 @@ export interface RouterOrchestrationDeps {
   images: ImageStateStore
   transcriber: Transcriber
   resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
-  onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => void
+  onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string; flowDigest?: string }) => void
   transcribeTimeoutMs?: number
 }
 
@@ -334,16 +369,20 @@ export function extractResolvedImages(messages: readonly UserMessage[]): Resolve
   return out
 }
 
+/** 目标能力的档位查询缝（M6）：metas 池注入，供「visionModel.effort 不支持则降级」。 */
+export type EffortResolver = (target: RouteTarget) => string[] | undefined
+
 /**
  * 生产 VisionCaller（Task 9 组装，S1 实证链路）：ctx.llm.stream 直调视觉模型，
  * 图块按持久引用线形构造 `{ type:'image', attachment: ref }`（字节解析由适配器
  * 完成）；text-delta 手工累计成转述文字；finish reason.kind 为 error/aborted
  * 时抛错（Transcriber 记入失败集，同图不重打）。usage  chunk 随流穿过不累计
- * （S5 账单复核另案）。Ruling 2：不携带 reasoningEffort（adapter 默认）。
- * I-2：调用方 signal 透传进 GenerateOptions——pre-step 中止/有界超时由此
- * 到达视觉端，abort 的流以 finish aborted（或 reject）收尾，视同转述失败。
+ * （S5 账单复核另案）。0.8.0（D3）：visionModel.effort 经 EffortResolver
+ * 支持集判定后显式下发，不支持/未配置不携带（Ruling 2 的 adapter 默认语义
+ * 保持）。I-2：调用方 signal 透传进 GenerateOptions——pre-step 中止/有界超时
+ * 由此到达视觉端，abort 的流以 finish aborted（或 reject）收尾，视同转述失败。
  */
-export function createStreamVisionCaller(ctx: Context): VisionCaller {
+export function createStreamVisionCaller(ctx: Context, resolveEfforts: EffortResolver): VisionCaller {
   return async (target, prompt, images, signal) => {
     const content = [
       { type: 'text', text: prompt },
@@ -354,6 +393,14 @@ export function createStreamVisionCaller(ctx: Context): VisionCaller {
       model: target.model,
       messages: [{ role: 'user', content }] as unknown as Message[],
       ...(signal === undefined ? {} : { signal }),
+    }
+    // 0.8.0 D3：visionModel.effort 经支持集判定后显式下发；不支持/未配置 →
+    // 不携带（Ruling 2 的 adapter 默认语义保持）。
+    if (target.effort !== undefined) {
+      const supported = resolveEfforts(target)
+      if (supported !== undefined && supported.includes(target.effort)) {
+        options.reasoningEffort = target.effort as ReasoningEffortId
+      }
     }
     let text = ''
     for await (const chunk of ctx.llm.stream(options)) {
@@ -462,6 +509,32 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
   const imageRefs = new Map<string, ResolvedImage>()
   const peek = (attachmentId: string): string | undefined => transcriber.peek(attachmentId)
 
+  /**
+   * 0.6.x池#4：eager/lazy 共用转述批处理——并发转述 + transcribed 标记
+   * （latchTarget 随条目保留，评审修复语义）+ 逐图日志 + 失败 id 回收。
+   * 盲答标记与 failurePolicy 两态分支仍归调用方（eager/lazy 语义各异）。
+   */
+  const transcribeBatch = async (
+    flowId: string,
+    flow: TranscribeFlow,
+    imgs: readonly ResolvedImage[],
+    signal: AbortSignal | undefined,
+    agent: Agent,
+  ): Promise<{ failedIds: string[]; okCount: number; total: number }> => {
+    const texts = await Promise.all(imgs.map((img) => transcriber.text(flow, img, signal)))
+    const failedIds: string[] = []
+    for (let i = 0; i < imgs.length; i++) {
+      const img = imgs[i]
+      const text = texts[i]
+      if (text === null) failedIds.push(img.attachmentId)
+      // latchTarget 随 transcribed 标记保留（评审修复）：缓存逐出降级回
+      // native 时条目自带改道目标（latch 不回溯更早条目）。
+      else images.mark(agent, img.attachmentId, 'transcribed', images.get(agent, img.attachmentId)?.latchTarget)
+      ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
+    }
+    return { failedIds, okCount: texts.length - failedIds.length, total: imgs.length }
+  }
+
   const activePreset = (): RouterPreset | undefined => {
     const config = router.config
     if (config.activePreset === null) return undefined
@@ -515,6 +588,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // 4. 决策
       let decision = router.decide(payload.messages, payload.step, hasImage)
       let flowId: string | undefined
+      // 0.6.x池#a：转述成败摘要（ok/total + 败图 id + visionModel）——onDecision
+      // extra 透传给投影 lastFlowEvent（≤120 截断在推送侧）。
+      let flowDigest: string | undefined
       const latchTarget = effectiveVisionTarget(router, decision)
       // 5. eager 转述（规则目标 = transcribe 流）
       if (decision.kind === 'flow') {
@@ -524,18 +600,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         // 延迟按图数叠加在 pre-step 这个整轮阻塞点上。Transcriber 的失败集/LRU
         // 均按 attachmentId 隔离，text() 内部不抛（null=失败），Promise.all
         // 无拒绝短路风险；结果按提交序回收，标记/日志语义与串行一致。
-        const texts = await Promise.all(untranscribed.map((img) => transcriber.text(flow, img, transcribeSignal)))
-        const failed: ResolvedImage[] = []
-        for (let i = 0; i < untranscribed.length; i++) {
-          const img = untranscribed[i]
-          const text = texts[i]
-          if (text === null) failed.push(img)
-          // latchTarget 随 transcribed 标记保留（评审修复）：缓存逐出降级回
-          // native 时条目自带改道目标（latch 不回溯更早条目）。
-          else images.mark(agent, img.attachmentId, 'transcribed', images.get(agent, img.attachmentId)?.latchTarget)
-          ctx.logger?.info?.(`kimi-router: flow:${flowId} 转述 attachmentId=${img.attachmentId} ${text === null ? '失败' : '成功'}`)
-        }
-        if (failed.length === 0) {
+        const { failedIds, okCount, total } = await transcribeBatch(flowId, flow, untranscribed, transcribeSignal, agent)
+        flowDigest = flowDigestOf(okCount, total, failedIds, flow.visionModel)
+        if (failedIds.length === 0) {
           hasImage = false
           decision = router.decide(payload.messages, payload.step, false)
         } else if (flow.failurePolicy === 'latch-image') {
@@ -547,7 +614,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           }
           hasImage = true
         } else {
-          for (const img of failed) images.mark(agent, img.attachmentId, 'blind')
+          for (const id of failedIds) images.mark(agent, id, 'blind')
           hasImage = false
           decision = router.decide(payload.messages, payload.step, false)
         }
@@ -583,20 +650,18 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
             const flow = fallback.flow
             // 并发补转述（评审修复 2026-08-23，同 eager 循环的并发依据）：
             // imageRefs 查不到 ref 的图视同失败（插件重挂载前的历史图）。
-            const texts = await Promise.all(native.map(([id]) => {
+            // 缺 ref 的历史图视同失败（插件重挂载前进入会话，无 ref 可查）。
+            const missingIds: string[] = []
+            const imgs: ResolvedImage[] = []
+            for (const [id] of native) {
               const img = imageRefs.get(id)
-              return img === undefined ? Promise.resolve(null) : transcriber.text(flow, img, transcribeSignal)
-            }))
-            const failed: string[] = []
-            for (let i = 0; i < native.length; i++) {
-              const id = native[i][0]
-              const text = texts[i]
-              if (text === null) failed.push(id)
-              // latchTarget 保留（同 eager 循环，评审修复）
-              else images.mark(agent, id, 'transcribed', native[i][1].latchTarget)
-              ctx.logger?.info?.(`kimi-router: flow:${flowId} lazy 转述 attachmentId=${id} ${text === null ? '失败' : '成功'}`)
+              if (img === undefined) missingIds.push(id)
+              else imgs.push(img)
             }
-            if (failed.length > 0) {
+            const { failedIds, okCount } = await transcribeBatch(flowId, flow, imgs, transcribeSignal, agent)
+            const allFailed = [...missingIds, ...failedIds]
+            flowDigest = flowDigestOf(okCount, imgs.length + missingIds.length, allFailed, flow.visionModel)
+            if (allFailed.length > 0) {
               if (flow.failurePolicy === 'latch-image') {
                 // 败图保持 native，本轮落 flow.visionModel 原生视觉作答
                 decision = {
@@ -606,7 +671,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
                   via: 'rule',
                 }
               } else {
-                for (const id of failed) images.mark(agent, id, 'blind')
+                for (const id of allFailed) images.mark(agent, id, 'blind')
               }
             }
             // 全成（或 blind 放行）：decision 不变——放行文本目标，投影缝供转述文字
@@ -616,7 +681,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       }
       // 7. 槽位 + 观测回调
       slots.set(agent, { decision, hasImage })
-      onDecision?.(agent, decision, flowId === undefined ? undefined : { flowId })
+      onDecision?.(agent, decision, flowId === undefined
+        ? undefined
+        : { flowId, ...(flowDigest === undefined ? {} : { flowDigest }) })
       return result
     }, { prepend: true })
     const disposeRequest = ctx.on('agent/request', async (payload, next) => {
@@ -653,6 +720,30 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     const inFlight = new WeakSet<object>()
     const disposeStream = ctx.on('llm/stream', (options, next) => {
       if (inFlight.has(options)) return next()
+      // 0.8.x⑧：辅助请求改道——非 agent-loop 辅助调用（信封带 purpose，宿主
+      // 深冻结）按 auxTargets[purpose] 覆写 provider/model；effort 语义与
+      // replaceRoute 一致（继承值对目标支持集判定，不支持即剥离/钳制）。守卫
+      // 同款：自派 opts2 再入瀑布时被 inFlight 放行到 next()（下游投影缝照常
+      // 消费）。配置缺席/无该 purpose 键/目标不可用 → 原样放行（auxRewriteTarget）。
+      const auxTarget = auxRewriteTarget(router.config, router.metas, (options as { purpose?: unknown }).purpose)
+      if (auxTarget !== null) {
+        // llm/stream 载荷是 GenerateOptions（带 messages），与 agent/request 的
+        // LlmCallConfig 不同形——effort 语义经同一条 effortForTarget 写路径内联
+        // 对齐 replaceRoute（显式覆盖 → 支持集判定/越级钳制/未知剥离）。显式解构
+        // 是刻意的：spread 合并删不掉原载荷已有的 reasoningEffort 键，「剥离」
+        // 必须以键不出现的形式落地（标题请求不得携带思考等级）。
+        const { reasoningEffort: inherited, ...rest } = options
+        const effort = effortForTarget(router.metas, auxTarget, inherited, auxTarget.effort)
+        const opts2 = {
+          ...rest,
+          ...(effort === undefined ? {} : { reasoningEffort: effort }),
+          provider: auxTarget.provider,
+          model: auxTarget.model,
+        }
+        ctx.logger?.info?.(`kimi-router: 辅助请求 purpose=${String((options as { purpose?: unknown }).purpose)} → ${auxTarget.provider}/${auxTarget.model}`)
+        inFlight.add(opts2)
+        return ctx.llm.stream(opts2)
+      }
       const meta = router.metas.find((m) => m.provider === options.provider && m.model === options.model)
       if (meta === undefined || meta.modalities.includes('image')) return next()
       const rewritten = rewriteMessagesForText(options.messages, peek)
@@ -678,4 +769,31 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       disposeAdmission()
     }
   })
+}
+
+/**
+ * 0.8.x⑧（池⑧ 辅助请求路由改道）：判定一个 llm/stream 载荷是否为可改道的
+ * 辅助请求。宿主非 agent-loop 辅助调用（会话标题等）的信封携带 `purpose`
+ * 字段（深冻结，经 llm/stream 拦截器可见——池⑦根因调查实证）；该 purpose
+ * 命中 `config.auxTargets` 且目标在候选目录中可用 → 返回改道目标；否则
+ * null = 原样放行。缺省/空表/无该键 = 不改道（向后兼容 v4/v5 旧配置）；
+ * 目录读不到的目标不强行改道（保守放行，与规则目标不可用跳过同向）。
+ */
+function auxRewriteTarget(config: RouterConfigAny, metas: CandidateMeta[], purpose: unknown): RouteTarget | null {
+  if (typeof purpose !== 'string' || purpose === '') return null
+  const auxTargets = (config as { auxTargets?: Record<string, RouteTarget> }).auxTargets
+  if (auxTargets === null || typeof auxTargets !== 'object') return null
+  const target = auxTargets[purpose]
+  if (target === undefined || isFlowTarget(target)) return null
+  const meta = metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
+  if (meta === undefined) return null
+  return target
+}
+
+/** 0.6.x池#4：转述成败摘要（onDecision extra 透传，lastFlowEvent 消费；
+ * 败图 id 最多列 3 个防超长，≤120 截断在推送侧兜底）。 */
+function flowDigestOf(okCount: number, total: number, failedIds: readonly string[], visionModel: RouteTarget): string {
+  return `转述 ${okCount}/${total} 成功`
+    + (failedIds.length > 0 ? ` · 败 ${failedIds.slice(0, 3).join(',')}${failedIds.length > 3 ? '…' : ''}` : '')
+    + ` · ${visionModel.model}`
 }

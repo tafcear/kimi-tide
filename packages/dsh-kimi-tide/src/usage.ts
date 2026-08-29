@@ -7,12 +7,18 @@ import { parseQuotaSnapshot, type QuotaSnapshot } from './types.js'
 
 const USAGES_URL = 'https://api.kimi.com/coding/v1/usages'
 const NOTIFY_THROTTLE_MS = 2000
+/** 本监控探测的配额来源 provider（0.8.x⑨：投影 quotaProvider 标记同源）。 */
+export const QUOTA_SOURCE_PROVIDER = 'kimi-coding'
 
 export interface UsageMonitorOptions {
   pollMs: number
   onUpdate: () => void
   /** Per-request API key resolution (dsh-credentials contract: per-operation read). */
   resolveKey: () => Promise<string | null>
+  /** 配额端点（缺省 = Kimi coding usages；多 plan 2026-08-29 起可注入其它源）。 */
+  url?: string
+  /** 响应解析（缺省 = Kimi usages 形状；其它 plan 注入自己的解析器）。 */
+  parse?: (json: unknown, now: number) => QuotaSnapshot | null
   /** Test seam: inject a fake fetch. */
   fetchFn?: typeof fetch
   /** Test seam: inject a clock. */
@@ -26,10 +32,14 @@ export class UsageMonitor {
   private inFlight: Promise<void> | null = null
   private readonly fetchFn: typeof fetch
   private readonly now: () => number
+  private readonly url: string
+  private readonly parse: (json: unknown, now: number) => QuotaSnapshot | null
 
   constructor(private readonly options: UsageMonitorOptions) {
     this.fetchFn = options.fetchFn ?? fetch
     this.now = options.now ?? (() => Date.now())
+    this.url = options.url ?? USAGES_URL
+    this.parse = options.parse ?? parseQuotaSnapshot
   }
 
   start(): void {
@@ -83,12 +93,12 @@ export class UsageMonitor {
       const timeout = typeof AbortSignal.timeout === 'function'
         ? AbortSignal.timeout(Math.max(1, Math.floor(this.options.pollMs * 0.8)))
         : undefined
-      const response = await this.fetchFn(USAGES_URL, {
+      const response = await this.fetchFn(this.url, {
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
         ...(timeout === undefined ? {} : { signal: timeout }),
       })
       if (!response.ok) return null
-      return parseQuotaSnapshot(await response.json(), this.now())
+      return this.parse(await response.json(), this.now())
     } catch {
       return null
     }

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>月汐 UI 大改 · 三方向对比稿（池⑥）</title>
+<style>
+  :root {
+    --bg: #0f1117; --bg2: #161923; --bg3: #1d2130; --border: #2a2f42;
+    --fg: #dfe3ee; --fg2: #8b93a7; --fg3: #5c6379;
+    --accent: #4d6bfe; --accent-soft: rgba(77,107,254,.14);
+    --warn: #d97706; --danger: #e5484d; --ok: #30a46c;
+    --card: #161923; --chip-bg: rgba(255,255,255,.04);
+  }
+  body.light {
+    --bg: #f6f7fa; --bg2: #ffffff; --bg3: #eef0f6; --border: #dde1ec;
+    --fg: #2b3245; --fg2: #6b7288; --fg3: #9aa1b5;
+    --chip-bg: rgba(0,0,0,.03); --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; transition: background .2s, color .2s; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--fg2); font-size: 13px; margin: 0 0 24px; }
+  .theme-toggle { margin-left: auto; }
+  .theme-toggle button { background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .dir { border: 1px solid var(--border); border-radius: 14px; background: var(--bg2);
+    padding: 24px; margin-bottom: 32px; }
+  .dir > h2 { margin: 0 0 4px; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .tag { font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--fg2); font-weight: normal; }
+  .tag.rec { border-color: var(--accent); color: var(--accent); }
+  .oneline { color: var(--fg2); margin: 0 0 18px; font-size: 13px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .panel { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg); }
+  .panel h3 { margin: 0; padding: 8px 14px; font-size: 12px; font-weight: 600; color: var(--fg2);
+    background: var(--bg3); border-bottom: 1px solid var(--border); letter-spacing: .05em; }
+  .panel .body { padding: 14px; }
+  .meta { margin: 14px 2px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 12.5px; }
+  .meta div { background: var(--bg3); border-radius: 8px; padding: 8px 12px; }
+  .meta b { display: block; font-size: 11px; color: var(--fg2); font-weight: 600; margin-bottom: 2px; letter-spacing: .05em; }
+  /* ---- dock mock 基础 ---- */
+  .dock { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--fg2); }
+  .chip { white-space: nowrap; background: var(--chip-bg); border-radius: 6px; padding: 2px 8px; }
+  .chip.label { font-weight: 600; color: var(--fg); background: none; }
+  .chip.dec { color: var(--accent); border: 1px dashed var(--border); cursor: pointer; }
+  .chip.warn { color: var(--warn); }
+  .chip.stale { opacity: .55; }
+  .chip.btn { border: 1px solid var(--border); cursor: pointer; }
+  .reason { display: flex; flex-direction: column; gap: 3px; padding: 6px 0 2px; border-top: 1px dashed var(--border); width: 100%; font-size: 12px; }
+  .reason .m { opacity: .8; }
+  /* ============ 方向 A 视觉层级 ============ */
+  .a .dock { row-gap: 6px; }
+  .a .chip { padding: 3px 10px; border: 1px solid var(--border); border-radius: 8px; }
+  .a .chip.label { border: none; font-size: 12.5px; }
+  .a .chip.dec { border: 1px solid var(--accent); background: var(--accent-soft); }
+  .a .sep { width: 1px; height: 16px; background: var(--border); }
+  .a-card .section { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; background: var(--bg2); }
+  .a-card .section > .hd { font-size: 11px; letter-spacing: .08em; color: var(--fg2); font-weight: 600; margin-bottom: 8px; }
+  .a-card .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12.5px; flex-wrap: wrap; }
+  .a-card .lbl { width: 96px; flex: none; color: var(--fg2); }
+  .a-card select, .a-card input { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .a-card .hint { font-size: 11.5px; color: var(--fg3); }
+  .a-card .badge { font-size: 11px; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; opacity: .85; }
+  /* ============ 方向 B 布局重构 ============ */
+  .b .dock { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center; }
+  .b .r1 { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .b .route { font-weight: 600; color: var(--fg); }
+  .b .arrow { color: var(--fg3); }
+  .b .r2 { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--fg2);
+    border-top: 1px dashed var(--border); padding-top: 6px; }
+  .b .bar { flex: 1; min-width: 90px; height: 4px; border-radius: 4px; background: var(--bg3); position: relative; }
+  .b .bar i { position: absolute; inset: 0 auto 0 0; width: 58%; border-radius: 4px; background: var(--ok); }
+  .b .bar.w i { width: 82%; background: var(--warn); }
+  .b-card .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .b-card .tabs span { font-size: 12px; padding: 4px 14px; border-radius: 8px; color: var(--fg2); cursor: pointer; }
+  .b-card .tabs .on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .b-card table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .b-card th { text-align: left; color: var(--fg2); font-weight: 600; font-size: 11px; padding: 4px 6px;
+    border-bottom: 1px solid var(--border); letter-spacing: .04em; }
+  .b-card td { padding: 5px 6px; border-bottom: 1px solid var(--bg3); }
+  .b-card select, .b-card input { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 6px; font-size: 12px; width: auto; }
+  /* ============ 方向 C 交互重设计 ============ */
+  .c .dock { align-items: center; }
+  .c .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(48,164,108,.18); }
+  .c .dot.hot { background: var(--warn); box-shadow: 0 0 0 3px rgba(217,119,6,.18); }
+  .c .pop { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg2); padding: 12px 14px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; font-size: 12px; }
+  .c .pop .cell .h { font-size: 11px; color: var(--fg2); font-weight: 600; letter-spacing: .06em; margin-bottom: 6px; }
+  .c .pop .big { font-size: 15px; font-weight: 600; color: var(--fg); }
+  .c .pop .line { color: var(--fg2); margin-top: 2px; }
+  .c-card .md { display: grid; grid-template-columns: 120px 1fr; min-height: 210px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .c-card .nav { background: var(--bg3); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .c-card .nav span { font-size: 12px; padding: 6px 10px; border-radius: 8px; color: var(--fg2); cursor: pointer; }
+  .c-card .nav .on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .c-card .detail { padding: 12px 14px; font-size: 12.5px; }
+  .c-card .detail .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .c-card .lbl { width: 92px; flex: none; color: var(--fg2); }
+  .c-card select, .c-card input { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  footer.note { color: var(--fg3); font-size: 12.5px; border-top: 1px solid var(--border); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>月汐 UI 大改 · 三方向对比稿</h1>
+    <div class="theme-toggle"><button onclick="document.body.classList.toggle('light')">🌗 明暗切换</button></div>
+  </header>
+  <p class="sub">池⑥ 对比稿 · 三个方向均含 dock 面板与设置卡的「现状 → 改后」对照 · 数据为演示假数据 · 选中方向后再出实施计划</p>
+
+  <!-- ================= 方向 A ================= -->
+  <section class="dir a">
+    <h2>方向 A · 视觉层级升级 <span class="tag">改动小 · 风险低</span> <span class="tag rec">验收成本最小</span></h2>
+    <p class="oneline">保留现有单行 dock 与设置卡骨架，只升级排版系统：分级字号（11/12/12.5）、统一 8px 间距节奏、chip 描边化 + 分组分隔线、状态色语义统一（正常/警示/危险）、卡片化分组与表头。</p>
+    <div class="cols">
+      <div class="panel"><h3>DOCK · 现状</h3><div class="body">
+        <div class="dock">
+          <span class="chip label">🌙 月汐</span>
+          <span class="chip">📡 省钱</span>
+          <span class="chip">⚡ deepseek-v4-flash</span>
+          <span class="chip dec">▸ 🧭 deepseek-v4-pro · 规则「code」命中 2 词（特异度最高）</span>
+          <span class="chip">🖼️ 图0/转1/盲0</span>
+          <span class="chip">📊 周 剩42 · ⏳ 5h 剩8 · 🕐 21:0x</span>
+          <span class="chip btn">🔄</span>
+        </div>
+      </div></div>
+      <div class="panel"><h3>DOCK · 方向 A 改后</h3><div class="body">
+        <div class="dock">
+          <span class="chip label">🌙 月汐</span>
+          <span class="sep"></span>
+          <span class="chip">📡 省钱</span>
+          <span class="chip">⚡ deepseek-v4-flash</span>
+          <span class="sep"></span>
+          <span class="chip dec">▸ 🧭 deepseek-v4-pro · 规则「code」命中 2 词（特异度最高）</span>
+          <span class="sep"></span>
+          <span class="chip">🖼️ 图0/转1/盲0</span>
+          <span class="chip">📊 周 剩42 · ⏳ 5h 剩8 · 🕐 21:0x</span>
+          <span class="chip btn">🔄</span>
+        </div>
+        <div class="reason"><span class="m">🧰 配置来源：🛠 设置命名空间（settings）</span><span class="m">🔁 最近流事件：flow:transcribe 执行（转述 1/1 成功 · vision-exp）</span></div>
+      </div></div>
+    </div>
+    <div class="cols" style="margin-top:20px">
+      <div class="panel"><h3>设置卡 · 现状（紧凑工程风）</h3><div class="body">
+        <div class="dock" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <span class="chip">激活预设：〔关闭〕〔●省钱〕〔能力〕 ＋ 新建预设…</span>
+          <span class="chip">默认模型 [deepseek-v4-flash ▾]（effort [跟随默认 ▾]）</span>
+          <span class="chip">规则（命中词数多者优先…）：带图 → [k3 ▾]（effort）｜code ≥1 → [kimi-for-coding ▾]｜chitchat ≥1 → [flash ▾] ｜↑ ↓ 删 ＋ 新增规则</span>
+          <span class="chip">带图兜底 [latch ▾]｜协作流 ▸（转述 transcribe 视觉模型/失败策略…）｜关键词组 ▸｜试一句 ▸</span>
+        </div>
+      </div></div>
+      <div class="panel"><h3>设置卡 · 方向 A 改后（卡片化分组）</h3><div class="body">
+        <div class="a-card">
+          <div class="section"><div class="hd">激活预设</div>
+            <div class="row"><span class="badge">○ 关闭</span><span class="badge">● 省钱</span><span class="badge">○ 能力</span><span class="hint">＋ 新建预设</span></div>
+          </div>
+          <div class="section"><div class="hd">默认模型</div>
+            <div class="row"><span class="lbl">打底模型</span><select><option>deepseek-v4-flash</option></select>
+              <span class="lbl">推理档位</span><select><option>跟随默认</option></select><span class="hint">运行期按模型支持集判定</span></div>
+          </div>
+          <div class="section"><div class="hd">规则 · 命中词数多者优先，平手按列表序，带图恒第一</div>
+            <div class="row"><span class="badge">带图</span> → <select><option>k3</option></select><span class="hint">↑ ↓ 🗑</span></div>
+            <div class="row"><span class="badge">code ≥1</span> → <select><option>kimi-for-coding</option></select><span class="hint">↑ ↓ 🗑</span></div>
+            <div class="row"><span class="hint">＋ 新增规则</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+    <div class="meta">
+      <div><b>优点</b>风险最低；每处改动都是 CSS 级；实机验收几乎零新增面</div>
+      <div><b>代价</b>信息密度不变，「经常找不到入口」类抱怨不会消失</div>
+      <div><b>工作量</b>≈1 个会话（纯样式 + 少量 DOM 分组）</div>
+    </div>
+  </section>
+
+  <!-- ================= 方向 B ================= -->
+  <section class="dir b">
+    <h2>方向 B · 布局重构 <span class="tag">信息架构重排 · 中风险</span></h2>
+    <p class="oneline">dock 升为两行：第一行「身份 + 当前路由链」（预设 → 决策目标，箭头直读），第二行「可观测条」（限额进度条内联、图像上下文、流事件）。设置卡改三页签：路由 / 协作流 / 测试场，规则表改紧凑表格。</p>
+    <div class="cols">
+      <div class="panel"><h3>DOCK · 方向 B 改后（两行）</h3><div class="body">
+        <div class="dock">
+          <div class="r1">
+            <span class="chip label">🌙 月汐</span>
+            <span class="route">📡 省钱</span><span class="arrow">→</span>
+            <span class="route">deepseek-v4-flash</span><span class="arrow">⟶</span>
+            <span class="route" style="color:var(--accent)">deepseek-v4-pro</span>
+            <span class="chip dec" style="margin-left:auto">🧭 规则「code」命中 2 词 ▾</span>
+          </div>
+          <div class="r2">
+            <span>📊 周</span><span class="bar"><i></i></span><span>剩42</span>
+            <span>⏳ 5h</span><span class="bar w"><i></i></span><span>剩8</span>
+            <span>🖼️ 图0/转1/盲0</span>
+            <span style="margin-left:auto">🕐 21:0x</span><span class="chip btn">🔄</span>
+          </div>
+        </div>
+      </div></div>
+      <div class="panel"><h3>设置卡 · 方向 B 改后（三页签）</h3><div class="body">
+        <div class="b-card">
+          <div class="tabs"><span class="on">路由</span><span>协作流</span><span>测试场</span></div>
+          <table>
+            <tr><th>条件</th><th>目标</th><th>推理档位</th><th>序</th></tr>
+            <tr><td>🖼️ 带图</td><td><select><option>k3</option></select></td><td><select><option>跟随默认</option></select></td><td>↑ ↓</td></tr>
+            <tr><td>code ≥1 词</td><td><select><option>kimi-for-coding</option></select></td><td><select><option>max</option></select></td><td>↑ ↓</td></tr>
+            <tr><td>chitchat ≥1 词</td><td><select><option>flash</option></select></td><td>—</td><td>↑ ↓</td></tr>
+          </table>
+          <div class="row" style="margin-top:8px; font-size:12px; color:var(--fg2)">＋ 新增规则 · 打底 deepseek-v4-flash（effort 跟随默认）· 带图兜底 latch</div>
+        </div>
+      </div></div>
+    </div>
+    <div class="meta">
+      <div><b>优点</b>「谁在干活」一眼可读；限额进度条化；规则从手风琴堆叠变一张表</div>
+      <div><b>代价</b>dock 两行占更高 composer 空间；设置卡三页签引入新的导航状态</div>
+      <div><b>工作量</b>≈2 个会话（dock 结构重排 + 设置卡分区 + 测试全量回归）</div>
+    </div>
+  </section>
+
+  <!-- ================= 方向 C ================= -->
+  <section class="dir c">
+    <h2>方向 C · 交互模式重设计 <span class="tag">激进 · 高风险高收益</span></h2>
+    <p class="oneline">dock 收敛为「状态点 + 状态词」单 chip，点击弹出富信息 popover（路由链 / 限额 / 决策时间线 / 流事件全在弹层）；设置卡改主从布局（左导航：预设·规则·协作流·测试场，右编辑区）。</p>
+    <div class="cols">
+      <div class="panel"><h3>DOCK · 方向 C 改后（默认只占一个 chip）</h3><div class="body">
+        <div class="dock">
+          <span class="chip label" style="cursor:pointer">🌙 月汐 <span class="dot"></span></span>
+          <span class="chip">省钱 → flash <span class="dot hot" title="有盲答图"></span></span>
+          <span class="hint" style="font-size:11px; color:var(--fg3)">点击弹出完整面板 →</span>
+        </div>
+        <div class="pop">
+          <div class="cell"><div class="h">当前路由</div><div class="big">deepseek-v4-pro</div><div class="line">规则「code」命中 2 词（特异度最高）</div><div class="line">📡 省钱 → ⚡ flash 打底</div></div>
+          <div class="cell"><div class="h">配额（kimi）</div><div class="big">周 剩42 · 5h 剩8</div><div class="line">🕐 21:0x · 目标=kimi 时显示</div></div>
+          <div class="cell"><div class="h">本会话</div><div class="line">🖼️ 图0/转1/盲0</div><div class="line">🔁 flow:transcribe（1/1 成功）</div><div class="line">决策时间线 ▸</div></div>
+        </div>
+      </div></div>
+      <div class="panel"><h3>设置卡 · 方向 C 改后（主从布局）</h3><div class="body">
+        <div class="c-card">
+          <div class="md">
+            <div class="nav">
+              <span class="on">预设与规则</span><span>协作流</span><span>关键词组</span><span>测试场</span><span>高级</span>
+            </div>
+            <div class="detail">
+              <div class="row"><span class="lbl">激活预设</span><span class="badge">● 省钱</span><span class="badge">○ 能力</span><span class="badge">○ 关闭</span></div>
+              <div class="row"><span class="lbl">打底模型</span><select><option>deepseek-v4-flash</option></select><span class="lbl">档位</span><select><option>跟随默认</option></select></div>
+              <div class="row"><span class="lbl">规则预览</span><span class="hint">带图→k3 · code≥1→kimi-for-coding · chitchat≥1→flash（点开单行编辑）</span></div>
+              <div class="row"><span class="lbl">带图兜底</span><select><option>latch</option></select><span class="hint">失败锁存</span></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+    <div class="meta">
+      <div><b>优点</b>composer 占用最小化；信息按需展开；主从结构天然容纳未来更多配置面</div>
+      <div><b>代价</b>popover/主从需自绘浮层（DSH 槽位约束需 spike）；设置卡 hooks 纪律与受控表单全量重写</div>
+      <div><b>工作量</b>≥3 个会话（含 spike + 全量回归 + 实机验收重做）</div>
+    </div>
+  </section>
+
+  <footer class="note">
+    三方向共用前提：0.6.x 池 12 条已清（imageContext/流事件渲染、限额跟随路由、新建流入口、样式欠账均已在现分支落地）——本对比稿只决定「在此之上还改多少」。
+    选定方向后出实施计划（TDD）再动代码；A 可随时叠加在 B/C 之上。决策记录将写入 SDD 账本池⑥条目。
+  </footer>
+</div>
+</body>
+</html>

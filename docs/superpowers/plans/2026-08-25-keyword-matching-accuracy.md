@@ -535,3 +535,26 @@ git commit -m "docs: 0.7.0 关键词匹配语义同步 + version bump"
 1. **Spec 覆盖**：设计决策 B1→Task 1、B2→Task 2、B3→Task 3、B4→Task 4+5（UI）；「不做」清单无对应任务（有意为之）。✅
 2. **占位符扫描**：无 TBD/TODO；所有代码块为实际可编译内容。✅
 3. **类型一致性**：`minHits?: number` 在 config/rules/schema/SettingsCard 四处口径一致；`compileKeyword`/`KeywordMatcher` 名称 Task 1 定义、Task 2/3 复用；`matchingRules` 签名全程不变。✅
+
+---
+
+## 0.7.0 实机验收清单（发布门禁，2026-08-26 用户裁定增设）
+
+> **门禁语义**：本清单全绿 + 用户裁定 tag，二者齐备方可发版（打 `v0.7.0` / 触发 Actions Release）。
+> 门禁成文位置：仓库根 README「开发与测试」节（中英镜像）。执行前置：重启 `dsh web`
+> （bundle link 直连仓库源码，重启即装载 0.7.0 构建）；验收记录回写本节与路线图证据锚点。
+
+**执行记录（2026-08-26 23:4x，宿主重启于 23:33:58，PID 22464；profile pnpm `link:` 直连仓库 lib，23:25 构建）**：4 只读路由探针 + 会话日志 `request/header` 解码 + bundle/settings 静态核验。✅=主机侧自证通过；👁=待用户协验（清单未全绿，**发版仍冻结**）。
+
+- [x] **A1 装载回归** ✅：重启后插件加载正常（本会话持续工作、`kimi-tide/panel` 推送 ×11 在会话日志实见）；settings.yaml 逐字段复核（saving 4 条规则新序 image→code→plan→chitchat、code 组 17 词）；`/kimi-tide show` 文本输出未直验（命令面存活由会话日志 command/run 佐证）
+- [x] **A2 词边界阴性** ✅：探针「帮我 decode 这段 base64」→ request/header = `deepseek-official/deepseek-v4-pro`（落打底，非 code 目标 glm-5.2）
+- [x] **A3 词边界阳性** ✅：探针「please refactor this function」→ request/header = `zai-coding-cn/glm-5.2`（code 规则命中）
+- [x] **A4 特异度排序** ✅：探针「帮我总结这次重构，顺便写个测试」（chitchat 1 词列表序在前 vs code 2 词）→ `zai-coding-cn/glm-5.2`（code 反超——旧列表序语义会命中 chitchat 的 deepseek-v4-pro，判别成立）
+- [x] **A5 minHits 阈值** ✅（2026-08-26 深夜补验，激活预设=saving）：探针「帮我做个方案」（方案 1 词 < minHits 2）→ request/header = `deepseek-official/deepseek-v4-pro`（落打底，plan 规则未触发）；探针「plan：帮我做个方案」（plan+方案 2 词 ≥ 2）→ `qwen-token-plan-cn/qwen3.8-max-preview`（plan 规则触发）；用户本人消息同文路由一致
+- [x] **A6 设置卡片输入** ✅（用户目检截图，2026-08-26 深夜）：关键词规则行均渲染「最少命中词数」数字输入（code=1 / plan=2 / chitchat=1，值与 settings.yaml 回环一致）；纯带图规则行不渲染该输入；规则序 UI 显示 image→code→plan→chitchat 新序；带图兜底「盲答」与配置一致
+- [x] **A7 存量兼容** ✅：重启后无新增 `.pre-v5` 留档；settings.yaml 复核 version 5、activePreset/flows/presets 字段无增删（code 词表 17/plan 4 词均为本次计划内调整）
+- [x] **A8 显式指令回归** ✅：探针「@kimi …」→ request/header = `kimi-coding/k3`（显式路由最高优先，不受匹配语义影响）
+- [x] **A9 带图规则回归** ✅（用户实发截图，激活预设=saving）：带图消息命中 image-k3（目标 = transcribe 流）→ 转述链路实走（视觉模型转述文本注入上下文、本轮以文本模型正常推进，无 UNSUPPORTED_CONTENT）；UI 复核 image 行目标下拉显示「transcribe (转述)」；header 级解码补采随发版轮收口
+- [x] **A10 决策可观测** ✅（主机侧）：`kimi-tide/panel` 推送实见 ×11；六探针 request/header 与决策语义逐一吻合（A2/A3/A4/A5×2/A8）；chip 视觉渲染已随用户截图目检确认
+
+**结论（2026-08-26 深夜更新）**：**A1–A10 全部通过——清单全绿，发布门禁技术面解除；发版（tag `v0.7.0` + 合并 main）待用户裁定。**（A9 的 header 级解码证据在发版轮一并补采归档。）

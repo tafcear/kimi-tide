@@ -35,14 +35,22 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 }
 
 /** Wire-payload guard. Structural (passthrough) — the payload crosses one process boundary only. */
+const quotaSnapshotSchema = z.object({
+  weekly: z.object({ used: z.number(), limit: z.number(), resetTime: z.string() }),
+  fiveHour: z.object({ used: z.number(), limit: z.number(), resetTime: z.string() }),
+  membershipLevel: z.string(),
+  fetchedAt: z.number(),
+  stale: z.boolean(),
+})
+
 const panelSchema = z.object({
-  quota: z.object({
-    weekly: z.object({ used: z.number(), limit: z.number(), resetTime: z.string() }),
-    fiveHour: z.object({ used: z.number(), limit: z.number(), resetTime: z.string() }),
-    membershipLevel: z.string(),
-    fetchedAt: z.number(),
-    stale: z.boolean(),
-  }).nullable(),
+  quota: quotaSnapshotSchema.nullable(),
+  // 0.8.x⑨：配额数据来源 provider（dock 限额区按当前路由目标门控渲染）。
+  // 可选——缺席 = 旧载荷（历史唯一来源视同 kimi-coding）。
+  quotaProvider: z.string().optional(),
+  // 多 plan 配额（2026-08-29 用户裁定）：provider → 快照 | null（null = 已知源
+  // 本轮无数据）。可选——旧载荷无该字段照常通过（向后兼容）。
+  quotas: z.record(z.string(), quotaSnapshotSchema.nullable()).optional(),
   // projection v3 (0.4.x): 二态接入指示（spec §3.5/验收 5）——路由已注册 + key
   // 可解析，绝不携带 key 值。
   kimi: z.object({ route: z.boolean(), key: z.boolean() }),
@@ -65,9 +73,10 @@ const panelSchema = z.object({
   // imageContext 缺席 = 无图会话（投影不写该字段）；lastFlowEvent 沿用
   // decision 摘要的 ≤120 截断惯例（推送侧截断，schema 拒超长）。
   imageContext: z.object({
-    native: z.number(),
-    transcribed: z.number(),
-    blind: z.number(),
+    // 0.6.x池#6：计数语义 = 非负整数（wire 面拒绝负数与小数）。
+    native: z.number().int().nonnegative(),
+    transcribed: z.number().int().nonnegative(),
+    blind: z.number().int().nonnegative(),
   }).optional(),
   lastFlowEvent: z.string().max(120).optional(),
 }).nullable()

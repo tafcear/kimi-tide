@@ -1,11 +1,12 @@
 // test/router.test.ts（骨架；消息夹具同 T2）
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS,
-  type CandidateMeta, type CollaborationFlow, type RouterConfigV5, type RouterPreset,
+  type CandidateMeta, type CollaborationFlow, type RouteTarget, type RouterConfigV5, type RouterPreset,
 } from '../src/config.js'
 import type { ImageStateEntry } from '../src/image-state.js'
-import { KimiRouter, reasoningEffortFor, resolveImageFallback } from '../src/router.js'
+import type { ResolvedImage } from '../src/transcribe.js'
+import { createStreamVisionCaller, effortForTarget, KimiRouter, reasoningEffortFor, resolveImageFallback } from '../src/router.js'
 
 const log = { info: () => {} }
 const METAS: CandidateMeta[] = [
@@ -32,9 +33,11 @@ describe('KimiRouter v4 decide', () => {
   })
   it('规则命中 → via:rule，reason 含条件名', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
-    expect(r.decide([textMsg('帮我重构这个函数')], 1)).toEqual({
+    // 夹具更正（T5，报告备案，同 T4 rules.test.ts 先例）：计划原文「帮我重构这个函数」
+    // 命中 code 组 重构+函数 2 词，与本块断言「1 词」不兼容；改等义句（重构×1）。
+    expect(r.decide([textMsg('帮我重构这段周报')], 1)).toEqual({
       kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
-      reason: '规则「code」命中', via: 'rule',
+      reason: '规则「code」命中 1 词', via: 'rule',
     })
   })
   it('带图（消息含图）→ image 规则', () => {
@@ -51,6 +54,23 @@ describe('KimiRouter v4 decide', () => {
       kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, via: 'rule',
     })
   })
+  it('0.6.x池#3（M-3）：keywords 规则挂流目标（存量非法配置）→ 纯文本轮跳过（decide 运行期兜底）', () => {
+    // 写入期校验（0.6.x池#3 validate 侧）拒新配置；本钉对存量手改配置兜底：
+    // 纯文本轮 flow 目标无图可转述，若不跳过会静默保持会话模型（意图丢失）。
+    // 夹具候选池必须含 flow.visionModel（vision-exp）——否则走「vision 不可用」
+    // 既有跳过路径，测不到本守卫。
+    const c5 = DEFAULT_CONFIG_V5()
+    c5.activePreset = 'saving'
+    c5.presets.saving.rules.unshift({ id: 'kw-flow', when: { kind: 'keywords', group: 'code' }, target: { flow: 'transcribe' } })
+    const metas: CandidateMeta[] = [
+      ...METAS,
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', modalities: ['text', 'image'], available: true },
+    ]
+    const r = new KimiRouter(c5, metas, log)
+    const d = r.decide([textMsg('帮我重构这段周报')], 1)
+    // Fails if: decide 对 hasImage=false 仍返回 flow 决策（applyTo 不改写 → 静默保持）。
+    expect(d).toMatchObject({ kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } })
+  })
   it('带图锁存：hasImageOverride=true 时纯文本轮也按带图处理', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
     const d = r.decide([textMsg('继续')], 2, true)
@@ -64,7 +84,8 @@ describe('KimiRouter v4 decide', () => {
   it('能力预设：闲聊→flash，其余→k3 打底', () => {
     const r = new KimiRouter(cfg('capability'), METAS, log)
     expect(r.decide([textMsg('你好呀')], 1)).toMatchObject({ via: 'rule', target: { model: 'deepseek-v4-flash' } })
-    expect(r.decide([textMsg('推导这个式子')], 1)).toMatchObject({ via: 'default', target: { model: 'k3' } })
+    // 0.8.0 math 组含「推导」——原「推导这个式子」夹具改无命中说法，钉「未命中→打底」语义
+    expect(r.decide([textMsg('给我讲讲这个思路')], 1)).toMatchObject({ via: 'default', target: { model: 'k3' } })
   })
   it('显式 @kimi 优先于规则与默认', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
@@ -234,9 +255,10 @@ describe('flow 规则目标决策（Task 8）', () => {
   })
   it('v5 存量行为保持：flows 预置未绑定时 decide 与 v4 逐字节一致', () => {
     const r = new KimiRouter(cfg5('saving'), METAS, log)
-    expect(r.decide([textMsg('帮我重构这个函数')], 1)).toEqual({
+    // 夹具更正（T5，报告备案）：同上——「帮我重构这个函数」命中 2 词，改等义句（重构×1）。
+    expect(r.decide([textMsg('帮我重构这段周报')], 1)).toEqual({
       kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
-      reason: '规则「code」命中', via: 'rule',
+      reason: '规则「code」命中 1 词', via: 'rule',
     })
     expect(r.decide([imageMsg()], 1)).toEqual({
       kind: 'route', target: { provider: 'kimi-coding', model: 'k3' },
@@ -296,5 +318,85 @@ describe('resolveImageFallback 四态（Task 8）', () => {
     const native = nativeOf({ state: 'native', latchTarget: T1 })
     expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy', imageFallbackFlow: 'ghost' }), FLOWS, native)).toBeNull()
     expect(resolveImageFallback(preset({ imageFallback: 'transcribe-lazy', imageFallbackFlow: 'review' }), FLOWS, native)).toBeNull()
+  })
+})
+
+describe('决策原因词数（0.8.0）', () => {
+  it('单命中：reason 带词数；多命中：加（特异度最高）', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    // 夹具更正（T5，报告备案，同 T4 先例）：计划原文「帮我重构这个函数」命中 code 组
+    // 重构+函数 2 词，与本块断言「1 词」不兼容；改等义句（重构×1，saving 无 writing 规则）。
+    expect(r.decide([textMsg('帮我重构这段周报')], 1).reason).toBe('规则「code」命中 1 词')
+    const c = cfg('capability')
+    const r2 = new KimiRouter(c, METAS, log)
+    const d = r2.decide([textMsg('帮我总结这次重构，顺便写个测试')], 1)
+    expect(d.reason).toBe('规则「code」命中 2 词（特异度最高）')
+  })
+  it('降级命中不误标：首命中目标不可用时，后续命中只带词数（0.8.x①）', () => {
+    // 同组双规则命中同句（同分 2 词，稳定排序保列表序）：排首的 code-ghost 目标
+    // 不可用 → 降级落到 code-kfc。它并非特异度最高的命中，reason 不得再带
+    // 「（特异度最高）」——该标注只属于排序后的首命中。
+    const c = cfg('capability')
+    c.presets.capability.rules.unshift({
+      id: 'code-ghost',
+      when: { kind: 'keywords', group: 'code' },
+      target: { provider: 'deepseek-official', model: 'ghost-model' },
+    })
+    const r = new KimiRouter(c, METAS, log)
+    const d = r.decide([textMsg('帮我总结这次重构，顺便写个测试')], 1)
+    expect(d).toMatchObject({ via: 'rule', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } })
+    expect(d.reason).toBe('规则「code」命中 2 词')
+  })
+  it('image 规则：不带词数（∞ 无语义）', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    expect(r.decide([imageMsg()], 1).reason).toBe('规则「带图」命中')
+  })
+})
+
+describe('effortForTarget / replaceRoute（0.8.0）', () => {
+  const K3 = { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true, reasoningEfforts: ['low', 'high', 'max'] }
+  const FLASH = { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true, reasoningEfforts: ['off'] }
+  const UNKNOWN = { provider: 'kimi-coding', model: 'k3-256k', modalities: ['text', 'image'], available: true }
+
+  it('显式 effort 支持 → 覆盖继承值；不支持/能力未知 → 剥离（不钳制）', () => {
+    expect(effortForTarget([K3], K3, 'low', 'max')).toBe('max')
+    expect(effortForTarget([K3], K3, undefined, 'low')).toBe('low')
+    expect(effortForTarget([K3], K3, 'low', 'xhigh')).toBeUndefined()
+    expect(effortForTarget([UNKNOWN], UNKNOWN, 'low', 'max')).toBeUndefined()
+    expect(effortForTarget([FLASH], FLASH, undefined, 'max')).toBeUndefined()
+    expect(effortForTarget([K3], K3, undefined, undefined)).toBeUndefined()
+  })
+  it('无显式 effort → 继承语义不变（reasoningEffortFor 全量回归）', () => {
+    expect(effortForTarget([K3], K3, 'max', undefined)).toBe('max')
+    expect(effortForTarget([K3], K3, 'xhigh', undefined)).toBe('high')  // 越级钳制
+    expect(effortForTarget([FLASH], FLASH, 'max', undefined)).toBeUndefined()  // 仅 off → 剥离
+  })
+  it('replaceRoute：规则 target.effort=max 覆盖继承 low；护栏目标（无 effort）保持继承钳制', () => {
+    const r = new KimiRouter(cfg('saving'), [K3, FLASH, ...METAS], log)
+    const base = { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'low' }
+    expect(r.replaceRoute(base, { provider: 'kimi-coding', model: 'k3', effort: 'max' }))
+      .toEqual({ provider: 'kimi-coding', model: 'k3', reasoningEffort: 'max' })
+    expect(r.replaceRoute(base, { provider: 'kimi-coding', model: 'k3' }))
+      .toEqual({ provider: 'kimi-coding', model: 'k3', reasoningEffort: 'low' })
+    // strip 路径：显式 effort 不在目标支持集（K3 = low/high/max，无 xhigh）→ 剥离
+    // （不钳制，用户显式语义；dsh-llm 对不支持档位抛错的第二保险），无 reasoningEffort 键。
+    expect(r.replaceRoute(base, { provider: 'kimi-coding', model: 'k3', effort: 'xhigh' }))
+      .toEqual({ provider: 'kimi-coding', model: 'k3' })
+  })
+})
+
+describe('createStreamVisionCaller effort 注入（0.8.0 M6）', () => {
+  it('visionModel.effort 支持 → options.reasoningEffort 携带；不支持/未配置 → 不携带', async () => {
+    const stream = vi.fn(async function* () { yield { type: 'finish' as const, reason: { kind: 'stop' as const } } })
+    const ctx = { llm: { stream } } as never
+    const resolveEfforts = (t: RouteTarget) => t.model === 'vision-exp' ? ['low', 'high'] : undefined
+    const caller = createStreamVisionCaller(ctx, resolveEfforts)
+    const images: ResolvedImage[] = [{ attachmentId: 'a1', ref: {} }]
+    await caller({ provider: 'deepseek-official', model: 'vision-exp', effort: 'high' }, 'p', images)
+    expect(stream.mock.calls[0][0]).toMatchObject({ provider: 'deepseek-official', model: 'vision-exp', reasoningEffort: 'high' })
+    await caller({ provider: 'deepseek-official', model: 'vision-exp', effort: 'max' }, 'p', images)
+    expect(stream.mock.calls[1][0].reasoningEffort).toBeUndefined()
+    await caller({ provider: 'deepseek-official', model: 'vision-exp' }, 'p', images)
+    expect(stream.mock.calls[2][0].reasoningEffort).toBeUndefined()
   })
 })

@@ -81,16 +81,30 @@ export class Transcriber {
       // llm/stream 投影会把图块替换成空字符串，文本模型上下文静默缺一块。
       // 裁决放在本层（缓存所有者）——任何 VisionCaller 实现都受这条不变量保护。
       if (out.trim().length === 0) {
-        this.failed.add(id)
+        this.markFailed(id)
         this.log(`transcribe failed: attachmentId=${id} target=${flow.visionModel.provider}/${flow.visionModel.model} error=empty transcription`)
         return null
       }
       this.remember(id, out)
       return out
     } catch (err) {
-      this.failed.add(id)
+      this.markFailed(id)
       this.log(`transcribe failed: attachmentId=${id} target=${flow.visionModel.provider}/${flow.visionModel.model} error=${err instanceof Error ? err.message : String(err)}`)
       return null
+    }
+  }
+
+  /**
+   * 0.6.x池#b：失败集有界（与成功缓存同容量）——长生命周期进程不再跨会话
+   * 无界累积 attachmentId；最旧失败被逐出后该图允许重试（自愈缝）。
+   */
+  private markFailed(id: string): void {
+    this.failed.delete(id)
+    this.failed.add(id)
+    while (this.failed.size > this.cacheCap) {
+      const oldest = this.failed.keys().next().value
+      if (oldest === undefined) break
+      this.failed.delete(oldest)
     }
   }
 

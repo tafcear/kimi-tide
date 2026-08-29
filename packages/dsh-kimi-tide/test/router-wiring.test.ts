@@ -242,7 +242,7 @@ interface DepsFixture {
   images: ImageStateStore
   transcriber: Transcriber
   callerCalls: Array<{ target: RouteTarget; prompt: string; images: readonly ResolvedImage[] }>
-  decisions: Array<{ decision: RouteDecision; extra?: { flowId?: string } }>
+  decisions: Array<{ decision: RouteDecision; extra?: { flowId?: string; flowDigest?: string } }>
 }
 
 /** installRouter 0.6.0 deps 夹具：真实 ImageStateStore + 真实 Transcriber（caller 可注入）。 */
@@ -499,7 +499,7 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     expect(fx.images.get(agent as never, 'att-1')?.state).toBe('transcribed')
     // onDecision 携带 flowId
     expect(fx.decisions).toHaveLength(1)
-    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
+    expect(fx.decisions[0].extra).toMatchObject({ flowId: 'transcribe' })
 
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
     // decide 以 hasImage=false 重跑：image 规则不再命中 → 落预设默认文本模型；
@@ -519,7 +519,7 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     const entry = fx.images.get(agent as never, 'att-1')
     expect(entry?.state).toBe('native')
     expect(entry?.latchTarget).toEqual(VISION_EXP)
-    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
+    expect(fx.decisions[0].extra).toMatchObject({ flowId: 'transcribe' })
   })
 
   it('②b 转述失败（failurePolicy blind）→ 该图标 blind，放行文本默认模型', async () => {
@@ -570,6 +570,31 @@ describe('installRouter 协作编排：eager 转述（image 规则挂 transcribe
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
     expect(config).toEqual(SAVING_DEFAULT) // 全成 → hasImage=false 重跑 → 文本默认
   })
+
+  it('0.6.x池#a：flow 决策 extra 携带转述成败摘要（flowDigest：ok/total + 败图 id）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fx = makeDeps(async (_t, _p, images) => {
+      if (images[0].attachmentId === 'att-2') throw new Error('vision down')
+      return `转述:${images[0].attachmentId}`
+    })
+    installRouter(ctx as never, new KimiRouter(FLOW_CONFIG(), FLOW_METAS, { info: () => {} }), fx.deps)
+
+    const multi = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '两张截图' },
+        { type: 'image', attachment: imageRef('att-1') },
+        { type: 'image', attachment: imageRef('att-2') },
+      ],
+    } as unknown as UserMessage
+    await dispatch.preStep({ agent, messages: [multi], turn: 1, step: 1, signal: signal() })
+
+    // Fails if: extra 只有 flowId——lastFlowEvent 无法表达成败（语义缩水，
+    // 客户端补渲染也拿不到转述成败）。
+    expect(fx.decisions[0]?.extra?.flowId).toBe('transcribe')
+    expect(fx.decisions[0]?.extra?.flowDigest).toContain('转述 1/2')
+    expect(fx.decisions[0]?.extra?.flowDigest).toContain('att-2')
+  })
 })
 
 describe('installRouter 转述中止/超时（I-2：视觉端黑洞不得挂死整轮）', () => {
@@ -598,7 +623,7 @@ describe('installRouter 转述中止/超时（I-2：视觉端黑洞不得挂死�
     // 中止/超时视同转述失败：失败集 + failurePolicy latch-image 既有分支
     expect(config).toMatchObject(VISION_EXP)
     expect(fx.images.get(agent as never, 'att-1')?.state).toBe('native')
-    expect(fx.decisions[0].extra).toEqual({ flowId: 'transcribe' })
+    expect(fx.decisions[0].extra).toMatchObject({ flowId: 'transcribe' })
   })
 })
 
@@ -673,6 +698,46 @@ describe('installRouter 协作编排：lazy 转述（imageFallback = transcribe-
     }
     const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
     expect(second).toEqual(SAVING_DEFAULT)
+  })
+
+  it('0.6.x池#2：lazy 补转述失败（failurePolicy latch-image）→ 败图保持 native、本轮落 visionModel', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fx = makeDeps(async () => { throw new Error('vision down') })
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'saving'
+    config.presets.saving.imageFallback = 'transcribe-lazy'
+    installRouter(ctx as never, new KimiRouter(config, FLOW_METAS, { info: () => {} }), fx.deps)
+
+    // Turn 1 带图：image 规则 → k3 原生作答（native 登记历史图）
+    await dispatch.preStep({ agent, messages: [imageMessage('看图说话')], turn: 1, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    // Turn 2 纯文本：lazy 补转述失败 → latch-image → 本轮落 flow.visionModel
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+
+    // Fails if: lazy 侧失败两态语义与 eager 不一致（latch 分支未生效）。
+    expect(second).toMatchObject(VISION_EXP)
+    expect(fx.images.get(agent as never, 'att-1')?.state).toBe('native')
+  })
+
+  it('0.6.x池#2：lazy 补转述失败（failurePolicy blind）→ 败图标 blind、放行文本默认', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fx = makeDeps(async () => { throw new Error('vision down') })
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'saving'
+    config.presets.saving.imageFallback = 'transcribe-lazy'
+    const flow = config.flows.transcribe
+    if (flow.type !== 'transcribe') throw new Error('fixture')
+    flow.failurePolicy = 'blind'
+    installRouter(ctx as never, new KimiRouter(config, FLOW_METAS, { info: () => {} }), fx.deps)
+
+    await dispatch.preStep({ agent, messages: [imageMessage('看图说话')], turn: 1, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    await dispatch.preStep({ agent, messages: [textMessage('继续')], turn: 2, step: 1, signal: signal() })
+    const second = await dispatch.request({ agent, turn: 2, step: 1, signal: signal() }, baseConfig)
+
+    expect(second).toEqual(SAVING_DEFAULT)
+    expect(fx.images.get(agent as never, 'att-1')?.state).toBe('blind')
   })
 
   it('③c 转述缓存 LRU 逐出 → 状态表降级回 native → 后续文本轮重转述（评审修复 2026-08-23）', async () => {
@@ -812,6 +877,76 @@ describe('llm/stream 智能投影拦截器（S4c，spike 实证范式）', () =>
   })
 })
 
+describe('llm/stream 辅助请求改道（0.8.x⑧：purpose → auxTargets）', () => {
+  /** 池⑧夹具：saving 激活 + 可选 auxTargets（purpose → 模型目标）。 */
+  const AUX = (auxTargets?: RouterConfigV5['auxTargets']): RouterConfigV5 => {
+    const c = DEFAULT_CONFIG_V5()
+    c.activePreset = 'saving'
+    c.auxTargets = auxTargets
+    return c
+  }
+  /** 宿主标题请求信封形态（池⑦取证）：主路由打 k3 思考 + envelope 带 purpose。 */
+  const TITLE_OPTS = () => ({
+    provider: 'kimi-coding',
+    model: 'k3',
+    purpose: 'session-title',
+    reasoningEffort: 'max',
+    messages: [textMessage('给这段对话起个标题')],
+  })
+
+  it('purpose 命中 auxTargets 且目标可用 → 覆写 provider/model（短路自派，适配器只见改写载荷）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': SAVING_DEFAULT }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    // Fails if: llm/stream 拦截器不消费 envelope purpose（辅助请求改道缺失，
+    // 标题请求跟随主路由打思考模型——池⑦主根因的插件侧根治）。
+    expect(adapterCalls).toHaveLength(1)
+    expect(adapterCalls[0]).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+
+  it('改道后 effort 语义与 replaceRoute 一致：继承 reasoningEffort 面对无支持集目标 → 剥离（标题请求不携带思考等级）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': SAVING_DEFAULT }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    // Fails if: 改道只换 provider/model 而保留 k3 的 reasoningEffort（思考等级
+    // 泄漏进非思考快模型——0.8.0 图像护栏 M5 同族教训）。
+    expect('reasoningEffort' in (adapterCalls[0] as Record<string, unknown>)).toBe(false)
+  })
+
+  it('无 purpose 的普通请求不改道（agent-loop 语义不变）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': SAVING_DEFAULT }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream({
+      provider: 'kimi-coding', model: 'k3', reasoningEffort: 'max', messages: [textMessage('继续')],
+    }))
+    expect(adapterCalls).toHaveLength(1)
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+    expect((adapterCalls[0] as Record<string, unknown>).reasoningEffort).toBe('max')
+  })
+
+  it('purpose 无 auxTargets 键（或整表缺省）→ 原样放行（向后兼容缺省不改道）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX(undefined), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    expect(adapterCalls).toHaveLength(1)
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+  })
+
+  it('v4 存量配置（无 auxTargets 形）→ 原样放行', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+  })
+
+  it('auxTarget 目录不可用 → 原样放行（保守不改道，与规则目标不可用跳过同向）', async () => {
+    const { ctx, adapterCalls } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(AUX({ 'session-title': { provider: 'deepseek-official', model: 'ghost-model' } }), METAS, { info: () => {} }), makeDeps().deps)
+    await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream(TITLE_OPTS()))
+    expect(adapterCalls[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3' })
+  })
+})
+
 describe('布尔锁存退役', () => {
   it('⑤router.ts 不再引用 imageSeen（状态表替代布尔锁存）', async () => {
     const { readFile } = await import('node:fs/promises')
@@ -850,6 +985,8 @@ describe('extractResolvedImages（生产图块提取，spike S1 线形）', () =
 })
 
 describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
+  // 0.8.0（Task 5）：签名改 (ctx, resolveEfforts)；本块夹具目标无 effort 字段，
+  // 注入 () => undefined 保持「不携带 reasoningEffort」的默认语义断言不变。
   function fakeLlm(chunks: unknown[]) {
     const calls: unknown[] = []
     return {
@@ -873,7 +1010,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
       { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } },
       { type: 'finish', reason: { kind: 'stop' } },
     ])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     const ref = imageRef('att-v')
     const out = await caller(VISION_EXP, '提示词', [{ attachmentId: 'att-v', ref }])
 
@@ -893,13 +1030,13 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
     const { ctx } = fakeLlm([
       { type: 'finish', reason: { kind: 'error', failure: { code: 'UPSTREAM', message: 'boom' } } },
     ])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).rejects.toThrow('boom')
   })
 
   it('signal 透传进 ctx.llm.stream options（I-2：pre-step 中止/有界超时的链路终点）', async () => {
     const { ctx, calls } = fakeLlm([{ type: 'finish', reason: { kind: 'stop' } }])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     const controller = new AbortController()
     await caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }], controller.signal)
     expect((calls[0] as Record<string, unknown>).signal).toBe(controller.signal)
@@ -907,7 +1044,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
 
   it('多图一次性送达（同一 user 消息多图块）', async () => {
     const { ctx, calls } = fakeLlm([{ type: 'finish', reason: { kind: 'stop' } }])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await caller(VISION_EXP, 'p', [
       { attachmentId: 'a1', ref: imageRef('a1') },
       { attachmentId: 'a2', ref: imageRef('a2') },
@@ -927,7 +1064,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
         })(),
       },
     }
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).rejects.toThrow(/aborted/i)
   })
 
@@ -940,7 +1077,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
       { type: 'usage', usage: { inputTokens: 5, outputTokens: 0 } },
       { type: 'finish', reason: { kind: 'stop' } },
     ])
-    const caller = createStreamVisionCaller(ctx as never)
+    const caller = createStreamVisionCaller(ctx as never, () => undefined)
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).resolves.toBe('')
   })
 })

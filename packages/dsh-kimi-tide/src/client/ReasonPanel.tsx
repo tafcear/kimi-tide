@@ -4,6 +4,8 @@
  * 显示：配置来源（configSource）、本步路由决策（decision.reason），
  * 以及「实际路由：xxx（router 决策）」。预设切换入口在官方设置页「月汐」
  * 卡片。Δ 评分差行随评分面退役删除（Task 9）。
+ * ⑥-B 打磨（2026-08-29）：emoji 前缀退役（用户裁定语义不清），标签纯文字
+ * 化；本组件由 TideDock 以 portal 悬浮层承载（不再内联推挤布局）。
  */
 import type { ConfigSource, DecisionSummary } from '../types.js'
 
@@ -13,36 +15,41 @@ export interface ReasonPanelProps {
   decision: DecisionSummary | null
   /** 当前预设名；null = 路由关闭（逃生舱）。 */
   presetName: string | null
+  /** 0.6.x 池#1：最近流执行摘要（投影 v6 lastFlowEvent）；缺席 = 无流事件。 */
+  lastFlowEvent?: string
 }
 
 const SOURCE_LABELS: Record<ConfigSource, string> = {
-  settings: '🛠 设置命名空间',
-  sidecar: '📄 sidecar 文件',
-  patch: '🩹 patch 静态块',
-  default: '⚙️ 内置默认',
+  settings: '设置命名空间',
+  // 评审 P3/C7：平实措辞——原键仍经下方（{configSource}）括注保留供排障。
+  sidecar: '配置文件',
+  patch: '补丁配置',
+  default: '内置默认',
 }
 
 export function ReasonPanel(props: ReasonPanelProps) {
-  const { configSource, decision, presetName } = props
+  const { configSource, decision, presetName, lastFlowEvent } = props
   const source = SOURCE_LABELS[configSource] ?? configSource
 
   return (
     <div className="kt-reason">
-      <span className="kt-h">🔭 决策可观测</span>
-      <span className="kt-meta">🧰 配置来源：{source}（{configSource}）</span>
+      <span className="kt-h">决策可观测</span>
+      <span className="kt-meta">配置来源：{source}（{configSource}）</span>
       {decision === null ? (
         <span className="kt-meta">
-          🧭 实际路由：{presetName === null ? '（路由已关闭）' : '（暂无本步决策 — 尚未发生规则命中或为默认目标）'}
+          实际路由：{presetName === null ? '（路由已关闭）' : '（暂无本步决策 — 尚未发生规则命中或为默认目标）'}
         </span>
       ) : (
         <>
           <span>
-            🧭 实际路由：<strong>{decision.chosen.provider}/{decision.chosen.model}</strong>
+            实际路由：<strong>{decision.chosen.provider}/{decision.chosen.model}</strong>
             <span className="kt-meta">（router 决策）</span>
           </span>
-          <span className="kt-meta">💡 原因：{decision.reason}</span>
+          <span className="kt-meta">原因：{decision.reason}</span>
         </>
       )}
+      {/* 0.6.x 池#1：流执行事件行（投影 v6 lastFlowEvent，推送侧 ≤120 截断）。 */}
+      {lastFlowEvent !== undefined && <span className="kt-meta">最近流事件：{lastFlowEvent}</span>}
     </div>
   )
 }

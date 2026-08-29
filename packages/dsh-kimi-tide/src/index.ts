@@ -37,11 +37,13 @@ import {
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
 import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
-import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
+import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA } from './settings-schema.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
-import { UsageMonitor } from './usage.js'
+import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
+import { ZAI_QUOTA_URL, parseZaiQuota } from './zai-usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
+import { buildEffortCatalog, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -292,23 +294,29 @@ export function apply(ctx: Context, config: Config = {}) {
   // 0.4.x：零接入层——Kimi 模型经 settings.yaml 的 llm-pi-ai.providers.kimi-coding
   // 路由（官方 Models 页维护）进 DSH LLM 注册表。本插件只负责读该路由的
   // apiKeyEnv 引用名并解析 key（配额轮询用），永不触碰密钥本体。
-  const kimiApiKeyEnv = (): string => {
+  // 多 plan 配额（2026-08-29 用户裁定）：解析器按 provider 泛化——每个 pi-ai
+  // code plan 一个配额监控源。
+  const providerApiKeyEnv = (providerId: string, fallbackEnv: string): string => {
     const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
     const section = settings?.get?.('llm-pi-ai') as { providers?: Record<string, { apiKeyEnv?: string }> } | undefined
-    return section?.providers?.['kimi-coding']?.apiKeyEnv ?? 'KIMI_API_KEY'
+    return section?.providers?.[providerId]?.apiKeyEnv ?? fallbackEnv
   }
-  const resolveKey = async (): Promise<string | null> => {
-    const env = kimiApiKeyEnv()
-    const credentials = ctx.get('credentials') as { resolve?: (ref: string) => Promise<{ value: string } | undefined> } | undefined
-    if (typeof credentials?.resolve === 'function') {
-      try {
-        const resolved = await credentials.resolve(env)
-        if (resolved !== undefined && resolved.value.length > 0) return resolved.value
-      } catch { /* 落到 env 兜底 */ }
+  const resolveProviderKey = (providerId: string, fallbackEnv: string): (() => Promise<string | null>) => {
+    return async (): Promise<string | null> => {
+      const env = providerApiKeyEnv(providerId, fallbackEnv)
+      const credentials = ctx.get('credentials') as { resolve?: (ref: string) => Promise<{ value: string } | undefined> } | undefined
+      if (typeof credentials?.resolve === 'function') {
+        try {
+          const resolved = await credentials.resolve(env)
+          if (resolved !== undefined && resolved.value.length > 0) return resolved.value
+        } catch { /* 落到 env 兜底 */ }
+      }
+      const fromEnv = process.env[env]
+      return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
     }
-    const fromEnv = process.env[env]
-    return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
   }
+  const resolveKey = resolveProviderKey('kimi-coding', 'KIMI_API_KEY')
+  const resolveZaiKey = resolveProviderKey('zai-coding-cn', 'ZAI_API_KEY')
 
   // 0.4.x 二态接入指示：路由注册 + key 可解析。缺任一 → 面板显示配置指引
   // （spec §3.5/验收 5）。刷新触发：启动、llm/adapters-updated、设置文档变化
@@ -337,6 +345,16 @@ export function apply(ctx: Context, config: Config = {}) {
       void refreshKimiStatus()
     },
     resolveKey,
+  })
+  // 多 plan 第二源：zai-coding-cn（GLM Coding Plan，api.z.ai 内部用量接口）。
+  const zaiMonitor = new UsageMonitor({
+    pollMs: config.usagePollMs ?? 60_000,
+    onUpdate: () => {
+      pushPanelToAllSessions()
+    },
+    resolveKey: resolveZaiKey,
+    url: ZAI_QUOTA_URL,
+    parse: parseZaiQuota,
   })
 
   // Router persistence (0.4.0): the dsh-settings namespace `kimi-tide-router`
@@ -384,13 +402,23 @@ export function apply(ctx: Context, config: Config = {}) {
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
   let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfig)
+  // 0.8.0 effort 档位目录：随候选枚举刷新。0.8.0 B5 换道（2026-08-27）：推送
+  // 通道改为 dsh-settings 自有命名空间 kimi-tide-catalog（见 inject 块内的
+  // syncCatalogNamespace），原 typert remote 手工 contribution 客户端半链实机
+  // 证伪（vendored kernel $mount 静默挂起），宿主 provide/typert 注册已随之移除。
+  let effortCatalog: Record<string, string[]> = buildEffortCatalog(candidateMetas)
   let enumerationSeq = 0
+  // settings attach 后由 inject 块赋值；枚举刷新与 attach 双向都会触发一次同步
+  // （写前脏检查，settings.yaml 的 kimi-tide-catalog 节仅随模型清单变化才重写）。
+  let syncCatalogNamespace: (() => void) | null = null
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
     void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfig, warn)
       .then((metas) => {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
+        effortCatalog = buildEffortCatalog(metas)
+        syncCatalogNamespace?.()
         mountRouter()
         pushPanelToAllSessions()
       })
@@ -400,10 +428,14 @@ export function apply(ctx: Context, config: Config = {}) {
   let disposeRouter: (() => void) | null = null
   // 0.6.0 协作编排（Task 9 最小接线）：按图状态表 + 转述器随 apply 生命周期
   // 创建一次——配置变更/候选枚举重挂路由器时，转述缓存与图像状态不丢。生产
-  // VisionCaller = ctx.llm.stream 直调（Ruling 2：不传 reasoningEffort）。
+  // VisionCaller = ctx.llm.stream 直调；0.8.0（D3/M6）：visionModel.effort 经
+  // metas 支持集判定后显式下发，不支持/未配置不携带（Ruling 2 默认语义保持）。
+  // candidateMetas 是 let——闭包读最新枚举值。
   const imageStates = new ImageStateStore()
+  const resolveEfforts = (target: RouteTarget): string[] | undefined =>
+    candidateMetas.find((m) => m.provider === target.provider && m.model === target.model)?.reasoningEfforts
   const transcriber = new Transcriber({
-    caller: createStreamVisionCaller(ctx),
+    caller: createStreamVisionCaller(ctx, resolveEfforts),
     log: (message) => { ctx.logger.info(message) },
   })
   const mountRouter = () => {
@@ -428,16 +460,22 @@ export function apply(ctx: Context, config: Config = {}) {
   // A 会话的路由决策串进 B 会话面板；onDecision 只推决策所属会话。
   const latestDecisions = new Map<Agent, DecisionSummary | null>()
   const latestFlowEvents = new Map<Agent, string>()
-  const onDecision = (agent: Agent, decision: RouteDecision, extra?: { flowId?: string }) => {
+  const onDecision = (agent: Agent, decision: RouteDecision, extra?: { flowId?: string; flowDigest?: string }) => {
     latestDecisions.set(agent, buildDecisionSummary(decision))
     if (extra?.flowId !== undefined) {
       const target = decision.kind === 'route'
         ? `${decision.target.provider}/${decision.target.model}`
         : decision.kind === 'flow' ? `flow:${decision.flowId}` : 'keep'
-      latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}`.slice(0, 120))
+      // 0.6.x池#a：携带转述成败摘要（ok/total + 败图 id + visionModel）。
+      const digest = extra.flowDigest !== undefined ? `（${extra.flowDigest}）` : ''
+      latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}${digest}`.slice(0, 120))
     }
     pushPanel(agent)
   }
+
+  // 0.8.0 B5 换道（2026-08-27）：原 typert remote 宿主半链（effortService
+  // provide + EFFORT_CATALOG_CONTRIBUTION 注册）随通道证伪一并移除——档位表
+  // 现经 kimi-tide-catalog 设置命名空间推送（inject 块内 syncCatalogNamespace）。
 
   mountRouter()
   refreshCandidates()
@@ -478,7 +516,10 @@ export function apply(ctx: Context, config: Config = {}) {
 
   registerKimiTideCommands(ctx, {
     sidecar,
-    monitor,
+    // 多 plan 配额（2026-08-29）：refresh 覆盖全部已配源。
+    monitor: {
+      refresh: async () => { await Promise.all([monitor.refresh(), zaiMonitor.refresh()]) },
+    },
     current: () => routerConfig,
     // A getter, not a snapshot: the settings service attaches asynchronously
     // (ctx.inject) and can detach, so the command layer must read the CURRENT
@@ -498,6 +539,13 @@ export function apply(ctx: Context, config: Config = {}) {
     const preset = routerConfig.activePreset === null ? undefined : routerConfig.presets[routerConfig.activePreset]
     const snapshot: KimiTidePanelProjection = {
       quota: monitor.snapshot().quota,
+      // 0.8.x⑨：配额来源标记（dock 按当前路由目标门控渲染限额区）。
+      quotaProvider: QUOTA_SOURCE_PROVIDER,
+      // 多 plan 配额（2026-08-29）：provider → 快照 | null（dock 按当前命中目标取）。
+      quotas: {
+        'kimi-coding': monitor.snapshot().quota,
+        'zai-coding-cn': zaiMonitor.snapshot().quota,
+      },
       kimi: kimiStatus,
       router: {
         activePreset: routerConfig.activePreset,
@@ -571,6 +619,7 @@ export function apply(ctx: Context, config: Config = {}) {
   ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/reference-updated', () => {
     void refreshKimiStatus()
     void monitor.refresh()
+    void zaiMonitor.refresh()
   })
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     liveAgents.add(payload.agent)
@@ -626,6 +675,37 @@ export function apply(ctx: Context, config: Config = {}) {
       replace: (section) => scope.replace(section),
     }
     settingsScope = port
+    // 0.8.0 B5 换道（2026-08-27）：档位表经第二个自有命名空间 kimi-tide-catalog
+    // 推送（客户端 settings.describe 按 ns 读取；原 typert $mount 客户端半链
+    // 实机证伪）。写入带脏检查——settings.yaml 的该节仅随模型清单变化才重写；
+    // 注册即首推（枚举可能先于 settings attach 完成），attach 后枚举刷新再推。
+    let catalogScope: {
+      get(): { efforts?: Record<string, string[]> }
+      replace(section: object): Promise<void>
+    } | null = null
+    let lastSyncedCatalog = ''
+    syncCatalogNamespace = () => {
+      if (catalogScope === null) return
+      const section = { efforts: effortCatalog }
+      const serialized = JSON.stringify(section)
+      if (serialized === lastSyncedCatalog) return
+      try {
+        void catalogScope.replace(section)
+          .then(() => { lastSyncedCatalog = serialized })
+          .catch((error: unknown) =>
+            warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 写入失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`))
+      } catch (error) {
+        warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 写入异常（${(error as Error).message}）`)
+      }
+    }
+    try {
+      catalogScope = sctx.settings.register(EFFORT_CATALOG_NAMESPACE as never, EFFORT_CATALOG_SECTION_SCHEMA as never, {}) as unknown as typeof catalogScope
+    } catch (error) {
+      warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 命名空间注册失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`)
+      catalogScope = null
+    }
+    syncCatalogNamespace()
+    sctx.effect(() => () => { catalogScope = null; syncCatalogNamespace = null })
     // v5 一次性迁移（0.6.0 协作编排，spec §6）。dsh-settings 的 replace 在 persist
     // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
     // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前旧形。
@@ -682,7 +762,13 @@ export function apply(ctx: Context, config: Config = {}) {
   })
 
   // Quota polling lifecycle.
-  if (config.usagePollOnStart !== false) monitor.start()
-  ctx.effect(() => () => monitor.stop())
+  if (config.usagePollOnStart !== false) {
+    monitor.start()
+    zaiMonitor.start()
+  }
+  ctx.effect(() => () => {
+    monitor.stop()
+    zaiMonitor.stop()
+  })
   ctx.effect(() => () => disposeRouter?.())
 }

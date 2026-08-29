@@ -5,16 +5,30 @@ import { DEFAULT_CONFIG_V5, isFlowTarget, type RouterConfigV5, type RuleTarget }
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
 const D5 = DEFAULT_CONFIG_V5()
 
-const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
+// 0.8.0 B5 换道（2026-08-27）：kimi-tide-catalog 命名空间节形状——宿主把
+// effort 档位表写进这个自有命名空间，客户端经 settings.describe 读取。
+// 松散形状即可：值由宿主 buildEffortCatalog 构造，读取端已做缺省降级。
+export const EFFORT_CATALOG_SECTION_SCHEMA = Schema.object({
+  efforts: Schema.dict(Schema.array(Schema.string())),
+})
+
+const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string(), effort: Schema.string() })
+// 0.8.0（评审 M7）：review.reviewer 不接收 effort——flowSchema review 分支
+// 内联一份无 effort 的 target schema，尊重用户圈定范围（评审执行层不消费）。
+const reviewerTargetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
 const ruleSchema = Schema.object({
   id: Schema.string(),
   when: Schema.union([
     Schema.object({ kind: Schema.const('image') }),
-    Schema.object({ kind: Schema.const('keywords'), group: Schema.string() }),
+    Schema.object({ kind: Schema.const('keywords'), group: Schema.string(), minHits: Schema.number() }),
   ]),
   // v5：规则目标泛化为「纯模型 | 协作流引用」；流引用的存在性/类型（P1 仅
   // transcribe 可作规则目标）由 validateRouterConfig 语义校验，schema 只管形状。
-  target: Schema.union([targetSchema, Schema.object({ flow: Schema.string() })]),
+  // 0.8.0 实证（node_modules schemastery）：union 只在所有分支皆抛时才抛；flow
+  // 分支不 required 时对「缺 flow 的任意对象」静默通过（缺省标量省略 + 透传），
+  // 吞掉 targetSchema 对 effort 非法类型的拒绝——故 flow 标 required 使分支真正
+  // 判别，union 错误消息经 toString/JSON 双通道携带 'effort'。
+  target: Schema.union([targetSchema, Schema.object({ flow: Schema.string().required() })]),
 })
 const presetSchema = Schema.object({
   name: Schema.string(),
@@ -34,7 +48,7 @@ const flowSchema = Schema.union([
   }),
   Schema.object({
     type: Schema.const('review'),
-    reviewer: targetSchema,
+    reviewer: reviewerTargetSchema,
     trigger: Schema.union([Schema.const('manual'), Schema.const('keywords')]),
     keywordGroup: Schema.string(),
     rounds: Schema.number(),
@@ -71,6 +85,9 @@ export const routerConfigSchema = Schema.object({
   presets: Schema.dict(presetSchema).default(D5.presets as Record<string, ReturnType<typeof presetSchema>>),
   flows: Schema.dict(flowSchema),
   keywordGroups: Schema.dict(Schema.array(Schema.string())).default(D5.keywordGroups),
+  // 0.8.x⑧：辅助请求改道表（purpose → target）。dict 缺失注入 {}（flows 同款）；
+  // 语义校验（键非空/目标完整/effort 形状）在 validateRouterConfig。空表 = 不改道。
+  auxTargets: Schema.dict(targetSchema),
   // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
 })
@@ -78,7 +95,8 @@ export const routerConfigSchema = Schema.object({
 /** v5 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
  *  级联（transcribe-lazy 的 imageFallbackFlow 缺省解析到预置 transcribe，显式引用须
- *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup。
+ *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup /
+ *  effort 形状检查（default/规则 target/visionModel 三处，非空 string——M4）。
  *  legacy version（≤4）直通返回 undefined（迁移兜底，注册期不做语义校验）。 */
 export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
   if ((raw as { version?: unknown }).version !== 5) return undefined
@@ -89,9 +107,18 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     if (typeof preset.name !== 'string' || preset.name.trim() === '') {
       return `预设 '${key}' 的名称不能为空`
     }
+    const dft = (preset.default ?? {}) as { effort?: unknown }
+    if (dft.effort !== undefined && (typeof dft.effort !== 'string' || dft.effort.trim() === '')) {
+      return `预设 '${key}' 的 default.effort 必须为非空字符串`
+    }
     for (const rule of preset.rules) {
       const t = (rule.target ?? {}) as RuleTarget
       if (isFlowTarget(t)) {
+        // 0.6.x池#3（M-3）：流目标仅限带图条件——keywords 命中无图可转述，
+        // 运行期会静默保持会话模型（用户意图无声丢失）。
+        if (rule.when?.kind !== 'image') {
+          return `规则 '${rule.id}' 的流目标仅限带图条件（keywords 规则不能挂协作流）`
+        }
         const flow = raw.flows[t.flow]
         if (flow === undefined) {
           return `规则 '${rule.id}' 引用的协作流 '${t.flow}' 不存在于 flows`
@@ -102,8 +129,18 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
       } else if (typeof t.provider !== 'string' || t.provider === '' || typeof t.model !== 'string' || t.model === '') {
         return `规则 '${rule.id}' 的 target 不完整（provider/model 必须为非空字符串）`
       }
-      if (rule.when?.kind === 'keywords' && !(rule.when.group in raw.keywordGroups)) {
-        return `规则 '${rule.id}' 引用的关键词组 '${rule.when.group}' 不存在于 keywordGroups`
+      if (typeof (t as { effort?: unknown }).effort !== 'undefined'
+        && (typeof (t as { effort?: unknown }).effort !== 'string' || ((t as { effort?: string }).effort as string).trim() === '')) {
+        return `规则 '${rule.id}' 的 target.effort 必须为非空字符串`
+      }
+      if (rule.when?.kind === 'keywords') {
+        if (!(rule.when.group in raw.keywordGroups)) {
+          return `规则 '${rule.id}' 引用的关键词组 '${rule.when.group}' 不存在于 keywordGroups`
+        }
+        const minHits = rule.when.minHits
+        if (minHits !== undefined && (!Number.isInteger(minHits) || minHits < 1)) {
+          return `规则 '${rule.id}' 的 minHits 越界（须为 ≥1 的整数）`
+        }
       }
     }
     if (preset.imageFallback === 'transcribe-lazy') {
@@ -118,12 +155,37 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     }
   }
   for (const [fid, flow] of Object.entries(raw.flows)) {
+    if (flow.type === 'transcribe') {
+      const vm = (flow.visionModel ?? {}) as { effort?: unknown }
+      if (vm.effort !== undefined && (typeof vm.effort !== 'string' || vm.effort.trim() === '')) {
+        return `转述流 '${fid}' 的 visionModel.effort 必须为非空字符串`
+      }
+    }
     if (flow.type !== 'review') continue
     if (!Number.isInteger(flow.rounds) || flow.rounds < 1 || flow.rounds > 3) {
       return `评审流 '${fid}' 的 rounds 越界（须为 1..3 的整数）`
     }
     if (flow.trigger === 'keywords' && (typeof flow.keywordGroup !== 'string' || flow.keywordGroup === '')) {
       return `评审流 '${fid}' 的 trigger=keywords 但未提供 keywordGroup`
+    }
+  }
+  // 0.8.x⑧：辅助请求改道表——形状（对象）+ 语义（purpose 键非空 / 目标完整
+  // provider+model / 不收协作流引用（辅助改道只落模型目标）/ effort 非空字符串）。
+  const aux = raw.auxTargets
+  if (aux !== undefined && (typeof aux !== 'object' || aux === null || Array.isArray(aux))) {
+    return 'auxTargets 必须为对象（purpose → target 映射）'
+  }
+  for (const [purpose, target] of Object.entries(aux ?? {}) as Array<[string, RuleTarget]>) {
+    if (purpose.trim() === '') return 'auxTargets 的 purpose 键不能为空'
+    if (isFlowTarget(target)) {
+      return `auxTargets['${purpose}'] 不接受协作流引用（辅助请求改道只落模型目标）`
+    }
+    if (typeof target.provider !== 'string' || target.provider === '' || typeof target.model !== 'string' || target.model === '') {
+      return `auxTargets['${purpose}'] 的 target 不完整（provider/model 必须为非空字符串）`
+    }
+    const e = (target as { effort?: unknown }).effort
+    if (e !== undefined && (typeof e !== 'string' || (e as string).trim() === '')) {
+      return `auxTargets['${purpose}'] 的 effort 必须为非空字符串`
     }
   }
   return undefined

@@ -1,14 +1,28 @@
 # dsh-kimi-tide（月汐）
 
-DeepSeek Harness 的**预设 + 规则 + 协作流模型路由插件**（0.6.0）：命名预设（省钱/能力/可自建）
+DeepSeek Harness 的**预设 + 规则 + 协作流模型路由插件**（0.8.0）：命名预设（省钱/能力/可自建）
 + 有序规则（带图 / 关键词组 / **协作流引用**），按任务在 Kimi（`kimi-coding`）与 DeepSeek 之间自动
 选路，未命中走预设默认模型（打底），带图像护栏、图像转述流、官方配额显示与决策可观测。
+
+**匹配语义（0.7.0）**：纯 ASCII 关键词按词边界匹配（`decode`/`unicode`/`barcode` 不误中
+`code`），中文关键词保持子串；命中规则按特异度排序（命中词数多者优先、平手按列表序、
+带图恒优先）；关键词条件可选 `minHits` 最少命中词数（≥1 整数，缺省 1）。
+
+**0.8.0**：内置关键词组扩到 **7 组**（新增 review / writing / translate / longdoc / math，
+chitchat 瘦身纯寒暄）；能力预设序 带图→审查→代码→数学→长文→写作→翻译→闲聊、省钱加翻译；
+规则目标/预设默认/转述流视觉模型可选 **`effort` 推理档位**（运行期按模型档位支持集判定，
+不支持剥离记日志；reviewer 不接收）；设置卡片规则行条件摘要 + effort 下拉 + **「试一句」**
+测试器；dock 决策原因带命中词数。
 
 0.4.x 起插件**零接入层代码**——Kimi 模型经官方 pi-ai 原生 `kimi-coding` 路由
 （设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层
 （约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、协作编排、观测**。
 
-> **当前状态（2026-08-23）**：0.6.0「协作编排」**已发布**（tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)）——规则目标泛化为
+> **当前状态（2026-08-27）**：0.8.0「规则体系补全 + 可解释性 + effort」**已实施、待实机验收
+> B1–B8 门禁**（分支 `feat/0.8.0-routing-coverage`；发版 = 实机验收清单全绿 + 用户裁定 tag，
+> 门禁成文见仓库根 README「开发与测试」节）——7 组词表 + 预设接组 + effort 三入口 + 条件
+> 摘要/试一句/决策词数；385/385 绿 + typecheck 0 + build 过。
+> 0.6.0「协作编排」已发布（tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)）——规则目标泛化为
 > 「模型 | 协作流」，预置图像转述流（vision-exp，eager/lazy）与评审流（P2 触发）注册但不绑定；
 > 按图三态（native/transcribed/blind）退役布尔锁存；预设级 `imageFallback` 三态（锁存/盲答/懒转述）；
 > `llm/stream` 智能投影（已转述图块 → 转述文字）；实机验收 10 项全过（含 T4 门）。路由架构详见
@@ -34,7 +48,7 @@ DeepSeek Harness 的**预设 + 规则 + 协作流模型路由插件**（0.6.0）
 
 ```bash
 npm install && npm run build && npm pack
-dsh plugin --profile web add ./dsh-kimi-tide-0.6.0.tgz
+dsh plugin --profile web add ./dsh-kimi-tide-0.8.0.tgz
 ```
 
 然后到 DSH「设置 → Models」添加 provider **`kimi-coding`**，`apiKeyEnv` 填
@@ -54,7 +68,9 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 > `kimi-tide-router`，base/user 分层 + revision 冲突检测）；`router` 静态块仅为
 > 部署基座（base 层），用户编辑落 user 层。无 settings 服务时（rc.6）回退 sidecar
 > 文件。**0.6.0 起配置形状为 v5**（`activePreset` / `presets`（默认模型 + 有序规则 +
-> `imageFallback` 三态）/ `keywordGroups` / `flows`（协作流注册表））；v1-v4 存量配置经
+> `imageFallback` 三态）/ `keywordGroups`（内置 7 组，0.8.0）/ `flows`（协作流注册表））；
+> **0.8.0 起三处可选 `effort` 推理档位**（规则 target / 预设 default / 转述流
+> visionModel；运行期按模型支持集判定，不支持剥离，reviewer 不接收）；v1-v4 存量配置经
 > 迁移链自动桥接并留档 `.pre-v4` / `.pre-v5`（行为保持：预置流注册但不绑定，缺省维持
 > 0.5.x 锁存语义）。
 
@@ -74,7 +90,8 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
   设置 → Models」指引。
 - **官方配额显示**：周配额 / 5 小时窗口（≥80% 黄、≥90% 红），`upd HH:MM` 为上次
   刷新时间，凭据失效时灰化显示「过期」。
-- **决策 chip**：规则命中 / 显式 @ 指令路由时显示实际路由 + 理由（打底与 keep 不上屏）。
+- **决策 chip**：规则命中 / 显式 @ 指令路由时显示实际路由 + 理由（0.8.0 起原因带命中词数，
+  如「规则「code」命中 2 词（特异度最高）」；打底与 keep 不上屏）。
 - **刷新配额**：主行只读侧保留「🔄 刷新配额」按钮（`/kimi-tide refresh`，不写配置）。
 - **推理状态**：推理输出已由 DSH 原生渲染（reasoning-delta），面板仅提示「已启用」。
 

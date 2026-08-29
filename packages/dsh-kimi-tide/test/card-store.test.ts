@@ -106,4 +106,38 @@ describe('card-store v4', () => {
     expect(snap.availability?.['kimi-coding/k3']).toBe(true)
     expect(snap.availability?.['kimi-coding/kimi-for-coding']).toBe(false)  // 未挂载 → 标灰
   })
+  it('⑥-B 打磨三修订: provider 整个不在目录 → 不判 false（目录通道无法判定，插件自挂 provider 可经路由可达——实机误报 2026-08-29）', async () => {
+    // Fails if: 目录缺 provider 即给其配置目标标 false（工作中的模型被误标未挂载）
+    const connection = { api: {
+      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }), mutate: async () => ({}) },
+      llm: { models: async () => ({ result: { ok: true as const, value: { groups: [
+        { id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash' }] },
+      ] } } }) },
+    } }
+    const store = createCardStore(null, connection as never)
+    await store.load()
+    const snap = store.getSnapshot()
+    expect(snap.availability?.['kimi-coding/k3']).toBeUndefined()
+    expect(snap.availability?.['kimi-coding/kimi-for-coding']).toBeUndefined()
+    expect(snap.availability?.['deepseek-official/deepseek-v4-flash']).toBe(true)  // 目录内目标照常判定
+  })
+})
+
+describe('card-store effort 档位目录（0.8.0）', () => {
+  it('loadEfforts 取数成功 → efforts 入快照；取数失败 → efforts null（不占 error 通道）', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V4())
+    const store = createCardStore(scope, null)
+    await store.loadEfforts(async () => ({ 'kimi-coding/k3': ['low', 'high', 'max'] }))
+    expect(store.getSnapshot().efforts).toEqual({ 'kimi-coding/k3': ['low', 'high', 'max'] })
+    expect(store.getSnapshot().error).toBeNull()
+    await store.loadEfforts(async () => { throw new Error('remote 挂了') })
+    expect(store.getSnapshot().efforts).toBeNull()
+    expect(store.getSnapshot().error).toBeNull()  // 降级通道，不污染 error
+  })
+
+  it('无 fetch（旧宿主/未接 remote）→ efforts 保持 null', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V4())
+    const store = createCardStore(scope, null)
+    expect(store.getSnapshot().efforts).toBeNull()
+  })
 })

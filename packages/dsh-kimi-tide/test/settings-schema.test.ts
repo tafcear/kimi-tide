@@ -18,7 +18,7 @@ describe('routerConfigSchema v5', () => {
     c.presets.saving.rules.push({ id: 'img-flow', when: { kind: 'image' }, target: { flow: 'transcribe' } })
     c.presets.saving.imageFallback = 'latch'
     const parsed = routerConfigSchema(c as never) as RouterConfigV5
-    expect(parsed.presets.saving.rules[2].target).toEqual({ flow: 'transcribe' })
+    expect(parsed.presets.saving.rules[3].target).toEqual({ flow: 'transcribe' })
     expect(parsed.presets.saving.imageFallback).toBe('latch')
     expect(parsed.presets.saving.imageFallbackFlow).toBeUndefined()
     expect(parsed.presets.capability.imageFallback).toBeUndefined()
@@ -72,6 +72,13 @@ describe('validateRouterConfig v5', () => {
     c.presets.saving.rules.push({ id: 'rev-flow', when: { kind: 'image' }, target: { flow: 'review' } })
     expect(validateRouterConfig(c)).toContain('review')
   })
+  it('0.6.x池#3（M-3）：keywords 规则挂协作流目标 → 拒绝（流目标仅限带图条件）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.presets.saving.rules.push({ id: 'kw-flow', when: { kind: 'keywords', group: 'code' }, target: { flow: 'transcribe' } })
+    // Fails if: 校验只查流存在性/类型而不查条件种类——keywords 命中无图可转述，
+    // 运行期意图静默丢失。
+    expect(validateRouterConfig(c)).toContain('带图')
+  })
   it("imageFallback='transcribe-lazy' 缺 imageFallbackFlow → 默认解析预置 transcribe，通过", () => {
     const c = DEFAULT_CONFIG_V5()
     c.presets.saving.imageFallback = 'transcribe-lazy'
@@ -118,7 +125,105 @@ describe('mergeResolved v5', () => {
   it('部分覆盖深合并', () => {
     const merged = mergeResolved({ activePreset: 'saving' })
     expect(merged.activePreset).toBe('saving')
-    expect(merged.presets.capability.rules).toHaveLength(2)
+    expect(merged.presets.capability.rules).toHaveLength(8)
     expect(merged.flows).toEqual(DEFAULT_FLOWS())
+  })
+})
+
+describe('validateRouterConfig minHits（0.7.0）', () => {
+  const withMin = (mh: number) => {
+    const c = structuredClone(DEFAULT_CONFIG_V5()); c.activePreset = 'saving'
+    c.presets.saving.rules.unshift({
+      id: 'x', when: { kind: 'keywords', group: 'code', minHits: mh },
+      target: { provider: 'kimi-coding', model: 'k3' },
+    })
+    return validateRouterConfig(c)
+  }
+  it('越界（0/小数/负数）拒写；1/2/缺省通过', () => {
+    expect(withMin(0)).toContain('minHits')
+    expect(withMin(1.5)).toContain('minHits')
+    expect(withMin(-1)).toContain('minHits')
+    expect(withMin(1)).toBeUndefined()
+    expect(withMin(2)).toBeUndefined()
+  })
+})
+
+describe('effort 形状（0.8.0）', () => {
+  it('effort 缺省不注入（v5 默认往返相等保持）；提供则存活', () => {
+    const c = DEFAULT_CONFIG_V5()
+    expect(routerConfigSchema(c as never)).toEqual(DEFAULT_CONFIG_V5())  // 默认无 effort
+    ;(c.presets.saving.rules[0].target as { effort?: string }).effort = 'max'
+    const parsed = routerConfigSchema(c as never) as RouterConfigV5
+    expect(parsed.presets.saving.rules[0].target).toMatchObject({ effort: 'max' })
+  })
+
+  it('预设 default 与 transcribe.visionModel 接受 effort；review.reviewer 无该字段（内联 schema）', () => {
+    // M7 语义钉桩：reviewer 内联 schema 无 effort 入口、评审执行层不消费 effort；
+    // 往 reviewer 塞 effort 只验「schemastery 非 strict 透传使塞入值存活」的现状——
+    // 若回滚 reviewerTargetSchema→targetSchema（reviewer 获得 effort 字段），本断言
+    // 不应变红（schema 层两式均接受），仅钉透传行为，非设计承诺。
+    const c = DEFAULT_CONFIG_V5()
+    ;(c.presets.saving.default as { effort?: string }).effort = 'high'
+    ;(c.flows.transcribe.visionModel as { effort?: string }).effort = 'low'
+    ;(c.flows.review.reviewer as { effort?: string }).effort = 'max'
+    const parsed = routerConfigSchema(c as never) as RouterConfigV5
+    expect(parsed.presets.saving.default.effort).toBe('high')
+    expect(parsed.flows.transcribe.visionModel.effort).toBe('low')
+    expect((parsed.flows.review.reviewer as { effort?: string }).effort).toBe('max')
+  })
+
+  it('effort 非法类型 → schema 拒绝（存在即校验）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    ;(c.presets.saving.rules[0].target as { effort?: unknown }).effort = 42
+    expect(() => routerConfigSchema(c as never)).toThrow(/effort/)
+  })
+})
+
+describe('validateRouterConfig effort（0.8.0，形状校验口径 M4）', () => {
+  const withEffort = (target: unknown, effort: unknown) => {
+    const c = structuredClone(DEFAULT_CONFIG_V5()); c.activePreset = 'saving'
+    ;(c.presets.saving.rules[0].target as Record<string, unknown>).effort = effort
+    return validateRouterConfig(c)
+  }
+  it('空串拒写；任意非空档位串（含未知档位）通过——档位合法性运行期降级', () => {
+    expect(withEffort({}, '')).toContain('effort')
+    expect(withEffort({}, 'max')).toBeUndefined()
+    expect(withEffort({}, 'xhigh')).toBeUndefined()
+    expect(withEffort({}, 'unknown-tier')).toBeUndefined()
+  })
+})
+
+describe('auxTargets 辅助请求改道配置（0.8.x⑧）', () => {
+  it('缺省注入 {}（dict 隐式默认，flows 同款；空表 = 不改道）', () => {
+    const { auxTargets: _omit, ...rest } = DEFAULT_CONFIG_V5()
+    const parsed = routerConfigSchema(rest as never) as RouterConfigV5
+    // Fails if: schema 未列 auxTargets（未知键透传 → 缺失不注入）。
+    expect(parsed.auxTargets).toEqual({})
+  })
+  it('合法 purpose → target 过 schema 存活且 validate 通过', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.auxTargets = { 'session-title': { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
+    const parsed = routerConfigSchema(c as never) as RouterConfigV5
+    expect(parsed.auxTargets).toEqual({ 'session-title': { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(validateRouterConfig(parsed)).toBeUndefined()
+  })
+  it('target 缺 model → validate 拒绝并点名 purpose', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.auxTargets = { 'session-title': { provider: 'deepseek-official', model: '' } }
+    expect(validateRouterConfig(c)).toContain('session-title')
+  })
+  it('effort 空串 → validate 拒绝；非空任意档位串通过（运行期支持集判定）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.auxTargets = { 'session-title': { provider: 'a', model: 'b', effort: '' } }
+    expect(validateRouterConfig(c)).toContain('effort')
+    c.auxTargets = { 'session-title': { provider: 'a', model: 'b', effort: 'off' } }
+    expect(validateRouterConfig(c)).toBeUndefined()
+  })
+  it('auxTargets 非对象（null/数组）→ validate 拒绝', () => {
+    const c = DEFAULT_CONFIG_V5()
+    ;(c as { auxTargets?: unknown }).auxTargets = null
+    expect(validateRouterConfig(c)).toContain('auxTargets')
+    ;(c as { auxTargets?: unknown }).auxTargets = ['x']
+    expect(validateRouterConfig(c)).toContain('auxTargets')
   })
 })

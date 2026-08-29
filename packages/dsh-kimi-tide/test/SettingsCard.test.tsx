@@ -57,6 +57,7 @@ const baseSnapshot = (config: RouterConfigV4 | RouterConfigV5, overrides: Partia
   error: null,
   catalog: CATALOG,
   availability: null,
+  efforts: null,
   ...overrides,
 })
 
@@ -173,6 +174,21 @@ describe('SettingsCard 预设管理器（render，brief Task 8 Step 1）', () =>
     expect(html).not.toMatch(/<option[^>]*>kimi-coding\/kimi-for-coding<\/option>/)
     expect(html).toMatch(/<option[^>]*>kimi-coding\/k3<\/option>/)
   })
+  it('⑥-B 打磨三修订: provider 不在目录的已配置目标并入选项（不误标未挂载）', () => {
+    // 实机形态（2026-08-29）：llm.models 目录缺 kimi/zai provider，工作中的
+    // 模型被误标（未挂载）且回显丢失。Fails if: 已配置目标因目录缺口丢回显。
+    const cfg = v4cfg('saving')
+    const html = renderToString(createElement(SettingsCard, {
+      scope: null,
+      connection: null,
+      storeFactory: () => makeStore(baseSnapshot(cfg, {
+        catalog: [{ provider: 'deepseek-official', models: ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'] }],
+        availability: null,
+      })),
+    }))
+    expect(html).toMatch(/<option[^>]*>kimi-coding\/k3<\/option>/)
+    expect(html).not.toContain('（未挂载）')
+  })
   it('关闭态：只显示预设行，不显示编辑器', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg(null)) }))
     // Fails if: activePreset===null 时仍渲染当前预设编辑器（新增规则按钮泄漏）。
@@ -270,6 +286,8 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
     expect(html).toContain('>盲答<')
     expect(html).toContain('>懒转述<')
     expect(html).toContain('带图后锁定视觉模型')
+    // 评审 P3/E-7：括注「（0.5.x 语义）」版本号行话退役
+    expect(html).not.toContain('0.5.x')
   })
   it('imageFallback=transcribe-lazy 时懒转述流选择器可编（默认预置 transcribe）；其余两态不渲染', () => {
     const lazy = v5cfg('saving')
@@ -280,6 +298,18 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
     const latch = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
     // Fails if: 非 lazy 态仍渲染懒转述流选择器（brief：仅当选 transcribe-lazy 时可编）。
     expect(latch).not.toContain('aria-label="懒转述流"')
+  })
+  it('0.7.0 minHits 输入：关键词条件行渲染、纯带图规则行不渲染', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    // Fails if: 关键词规则行的「最少命中词数」数字输入缺失（0.7.0 Task 5）。
+    expect(html).toContain('最少命中词数')
+    const imageOnly = v4cfg('saving')
+    imageOnly.presets.saving.rules = [
+      { id: 'image-k3', when: { kind: 'image' }, target: { provider: 'kimi-coding', model: 'k3' } },
+    ]
+    const html2 = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(imageOnly) }))
+    // Fails if: 纯带图规则行也渲染 minHits 输入（字段只在 keywords 条件下有意义）。
+    expect(html2).not.toContain('最少命中词数')
   })
 })
 
@@ -558,5 +588,26 @@ describe('settings.section registration', () => {
     expect(registered).toHaveLength(1)
     expect(registered[0][0]).toBe('settings.kimi-tide')
     expect(registered[0][1].zh.nav).toBe('月汐')
+  })
+})
+
+describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () => {
+  it('存量重复条件 → 互斥警示条 + 涉事行 kt-conflict 标记', () => {
+    const cfg = v4cfg('saving')
+    const saving = cfg.presets.saving
+    const img = saving.rules.find((r) => r.when.kind === 'image')!
+    cfg.presets.saving = {
+      ...saving,
+      rules: [img, { ...img, id: 'image-dup' }, ...saving.rules.filter((r) => r.when.kind !== 'image')],
+    }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 重复条件零提示（死规则不可见——2026-08-29 用户裁定互斥约束）
+    expect(html).toContain('检测到重复条件')
+    expect(html).toContain('kt-conflict')
+  })
+
+  it('无重复 → 不渲染互斥警示条', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    expect(html).not.toContain('检测到重复条件')
   })
 })

@@ -350,6 +350,21 @@ describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
       reason: '规则「带图」命中（协作流 transcribe）',
     })
   })
+
+  it('buildDecisionSummary：0.8.0 原因含命中词数；flow 决策与 via:default 语义不变', () => {
+    expect(buildDecisionSummary({
+      kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      reason: '规则「code」命中 2 词（特异度最高）', via: 'rule',
+    })?.reason).toBe('规则「code」命中 2 词（特异度最高）')
+    expect(buildDecisionSummary({
+      kind: 'route', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      reason: '预设「省钱」默认', via: 'default',
+    })).toBeNull()  // 打底不上 chip（既有语义）
+    expect(buildDecisionSummary({
+      kind: 'flow', flowId: 'transcribe', flow: { type: 'transcribe', visionModel: { provider: 'x', model: 'y' }, failurePolicy: 'blind' },
+      reason: '规则「带图」命中（协作流 transcribe）', via: 'rule',
+    })).toMatchObject({ chosen: { provider: 'flow', model: 'transcribe' } })
+  })
 })
 
 describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
@@ -408,8 +423,9 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
 
     const decision = lastSnapshot(agent).decision as { chosen: { provider: string; model: string }; reason: string } | null
     expect(decision).not.toBeNull()
-    expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
-    expect(decision!.reason).toContain('code')
+    // 0.8.0：review 组命中 2 词（审查+review）> code 1 词（代码）→ 特异度序 review-k3 首中
+    expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(decision!.reason).toContain('review')
   })
 
   it('a default-miss decision clears a previous rule summary (no stale leak)', async () => {
