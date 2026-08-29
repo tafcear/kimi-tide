@@ -27,6 +27,7 @@
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
+import { Icon } from './icons.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
@@ -107,7 +108,7 @@ const parseRuleTarget = (value: string): RuleTarget =>
 
 /** imageFallback 三态的一句话后果提示（spec §7）。 */
 const FALLBACK_HINTS: Record<ImageFallback, string> = {
-  latch: '带图后锁定视觉模型，后续文本轮继续走视觉（0.5.x 语义）',
+  latch: '带图后锁定视觉模型，后续文本轮继续走视觉',
   blind: '文本轮当无图处理——看不到历史图，可能盲答',
   'transcribe-lazy': '文本轮先把历史图转写为文字再作答（多一次视觉调用）',
 }
@@ -473,8 +474,8 @@ export function SettingsCard(props: SettingsCardProps) {
     // 现状不可用态原样保留。
     return (
       <div className="kimi-tide-settings">
-        <span className="kt-hint">⚙️ 路由设置不可用</span>
-        {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
+        <span className="kt-hint">路由设置不可用</span>
+        {snapshot.error !== null && <span className="kt-warn"><Icon name="warn" /> {snapshot.error}</span>}
       </div>
     )
   }
@@ -685,7 +686,7 @@ export function SettingsCard(props: SettingsCardProps) {
           className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('trial')}>测试场</button>
       </div>
-      {snapshot.error !== null && <span className="kt-warn kt-error" role="alert">⚠️ {snapshot.error}</span>}
+      {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
       {savedFlash && <span className="kt-saved" role="status">已保存</span>}
 
       {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
@@ -749,7 +750,7 @@ export function SettingsCard(props: SettingsCardProps) {
 
           <div className="kt-card kt-rules">
             <div className="kt-card-head">
-              <span className="kt-card-title">规则</span>
+              <h4 className="kt-card-title">规则</h4>
               <span className="kt-h">命中词数多者优先，平手按列表序，带图恒第一</span>
             </div>
             {/* ⑥-B 打磨三：存量重复条件警示条 + 一键清理被遮蔽规则。 */}
@@ -893,7 +894,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     </button>
                   </span>
                   {conflicted && (
-                    <span className="kt-conflict-hint">条件重复：与前列相同，永不优先命中</span>
+                    <span className="kt-conflict-hint">条件重复：与上方某条规则条件相同，永不优先命中</span>
                   )}
                 </div>
               )

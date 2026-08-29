@@ -132,6 +132,8 @@ describe('SettingsCard DOM lifecycle', () => {
       )
     })
     expect(container.textContent).toContain('路由设置不可用')
+    // 评审 P3/C6：⚙️ emoji 退役（文字自明）
+    expect(container.textContent).not.toContain('⚙️')
 
     await act(async () => {
       publish(readySnapshot())
@@ -275,6 +277,8 @@ describe('SettingsCard 评审修复批次2（2026-08-29）', () => {
     // Fails if: 错误横幅不加 kt-error 类（协作流页签 display:none 藏住错误）
     expect(err).not.toBeNull()
     expect(err!.textContent).toContain('boom')
+    // 评审 P3/C6：错误横幅 ⚠️ emoji 退役（与「emoji 全量退役」裁定一致）
+    expect(container.textContent).not.toContain('⚠️')
   })
 })
 
@@ -344,6 +348,34 @@ describe('SettingsCard a11y 批次3（2026-08-29 评审 P2-6/7/8）', () => {
     expect(container.querySelector('button[aria-label="第 2 条 · 删除规则"]')).not.toBeNull()
     expect(container.querySelector('button[aria-label="第 1 条 · 上移"]')).not.toBeNull()
     expect(container.querySelector('select[aria-label="effort rule-2"]')).toBeNull()
+  })
+
+  it('E-13 规则区块标题为 heading 语义（读屏可按标题跳转）', async () => {
+    await mountReady()
+    const title = container.querySelector('.kt-card-title') as HTMLElement
+    // Fails if: 标题退回裸 span（无 heading 层级）
+    expect(title.tagName).toBe('H4')
+  })
+
+  it('C12 行内冲突提示措辞指向「上方规则」（「前列」歧义）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    const snap = readySnapshot()
+    const dupRule = { id: 'rule-dup', when: { kind: 'image' }, target: { provider: 'zai-coding-cn', model: 'glm-5.3-flash' } }
+    snap.config = {
+      ...snap.config,
+      presets: {
+        ...snap.config.presets,
+        saving: { ...snap.config.presets.saving, rules: [dupRule, { ...dupRule, id: 'rule-dup-2' }] },
+      },
+    } as typeof snap.config
+    await act(async () => { publish(snap) })
+    expect(container.textContent).toContain('与上方')
+    // Fails if: 措辞退回「与前列相同」（列？排名？歧义）
+    expect(container.textContent).not.toContain('与前列')
   })
 })
 

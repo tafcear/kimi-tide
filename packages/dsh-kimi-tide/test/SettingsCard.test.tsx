@@ -286,6 +286,8 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
     expect(html).toContain('>盲答<')
     expect(html).toContain('>懒转述<')
     expect(html).toContain('带图后锁定视觉模型')
+    // 评审 P3/E-7：括注「（0.5.x 语义）」版本号行话退役
+    expect(html).not.toContain('0.5.x')
   })
   it('imageFallback=transcribe-lazy 时懒转述流选择器可编（默认预置 transcribe）；其余两态不渲染', () => {
     const lazy = v5cfg('saving')

@@ -37,7 +37,7 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-card { border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
       border-radius: 10px; padding: 8px 10px; }
     .kimi-tide-settings .kt-card-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-    .kimi-tide-settings .kt-card-title { font-size: 12.5px; font-weight: 600;
+    .kimi-tide-settings .kt-card-title { font-size: 12.5px; font-weight: 600; margin: 0;
       color: var(--dsw-alias-label-primary, #2b3245); }
     /* 预设选择行（关闭/各预设单选按钮组） */
     .kimi-tide-settings .kt-preset-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -126,11 +126,13 @@ export const CLIENT_CSS = `
     .kimi-tide-dock .kt-dock-r1-end { margin-left: auto; flex: none; }
     /* r2 槽位常驻：左=额度槽+图像上下文，右贴=取数时间+刷新（对比稿欠账补齐） */
     .kimi-tide-dock .kt-dock-r2 { display: flex; align-items: center; gap: 10px; width: 100%;
-      white-space: nowrap; font-size: 11.5px; border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); padding-top: 4px; }
+      white-space: nowrap; font-size: 11.5px; border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); padding-top: 4px;
+      overflow: hidden; }
     .kimi-tide-dock .kt-dock-r2-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: none; }
     .kimi-tide-dock .kt-slot { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
     .kimi-tide-dock .kt-chip { white-space: nowrap; }
-    .kimi-tide-dock .kt-ellip { overflow: hidden; text-overflow: ellipsis; }
+    /* 评审 A6：ellipsis 作用于内层文本 span（flex 容器上 text-overflow 无效） */
+    .kimi-tide-dock .kt-ellip { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .kimi-tide-dock .kt-dim { opacity: 0.45; }
     .kimi-tide-dock .kt-route-arrow { color: var(--dsw-alias-label-tertiary, #8b93a7); flex: none; }
     .kimi-tide-dock .kt-route-target { color: var(--dsw-alias-brand-primary, #4d6bfe); font-weight: 600; }

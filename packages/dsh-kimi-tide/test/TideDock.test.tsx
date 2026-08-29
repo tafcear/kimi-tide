@@ -105,6 +105,29 @@ describe('TideDock a11y 批次3（评审 P2-9/10）', () => {
   })
 })
 
+describe('TideDock 批次4 打磨（P3）', () => {
+  it('A6 长模型名省略号作用到内层文本 span（flex 容器上 text-overflow 无效）', () => {
+    const html = render(makePanel({
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则「code」命中' },
+    }))
+    // Fails if: kt-ellip 退回 flex 容器本身（长名被 r1 硬裁无省略号）
+    expect(count(html, '<span class="kt-ellip">')).toBeGreaterThanOrEqual(1)
+  })
+
+  it('C8 r1 tooltip 去 reasoning-delta 行话', () => {
+    const html = render(makePanel())
+    // Fails if: tooltip 恢复「DSH 原生渲染 reasoning-delta」行话
+    expect(html).not.toContain('reasoning-delta')
+  })
+
+  it('C9 盲答>0 时图像 chip 追加可见警示文字（不再仅靠 title/hover）', () => {
+    const html = render(makePanel({ imageContext: { native: 0, transcribed: 1, blind: 2 } }))
+    // title 里本有一处「文本模型看不到」；可见文字追加后应为两处
+    // Fails if: 警示只存在于 hover title（触屏/读屏不可达）
+    expect(count(html, '文本模型看不到')).toBeGreaterThanOrEqual(2)
+  })
+})
+
 describe('TideDock ⑥-B 两行布局', () => {
   it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
     const html = render(makePanel({

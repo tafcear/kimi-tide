@@ -187,7 +187,7 @@ export function TideDock(props: TideDockProps) {
       <div className="kt-dock-r1">
         <span
           className="kt-label kt-slot"
-          title="推理输出已启用（DSH 原生渲染 reasoning-delta） · 路由设置已迁至 设置 → 月汐"
+          title="推理输出已启用 · 路由设置见 设置 → 月汐"
         >
           <Icon name="moon" className="kt-ic-moon" /> 月汐
         </span>
@@ -200,10 +200,10 @@ export function TideDock(props: TideDockProps) {
           <>
             <span className="kt-route-arrow" aria-hidden>→</span>
             <span
-              className="kt-chip kt-slot kt-ellip"
+              className="kt-chip kt-slot"
               title={`预设打底模型 ${router.defaultTarget?.provider ?? ''}/${router.defaultTarget?.model ?? ''}（未命中规则时）`}
             >
-              <Icon name="base" className="kt-ic-base" /> {router.defaultTarget?.model}
+              <Icon name="base" className="kt-ic-base" /> <span className="kt-ellip">{router.defaultTarget?.model}</span>
             </span>
           </>
         )}
@@ -212,10 +212,10 @@ export function TideDock(props: TideDockProps) {
           <>
             <span className="kt-route-arrow" aria-hidden>⟶</span>
             <span
-              className="kt-chip kt-slot kt-route-target kt-ellip"
+              className="kt-chip kt-slot kt-route-target"
               title={`本步决策目标 ${panel.decision.chosen.provider}/${panel.decision.chosen.model}`}
             >
-              <Icon name="target" className="kt-ic-target" /> {panel.decision.chosen.model}
+              <Icon name="target" className="kt-ic-target" /> <span className="kt-ellip">{panel.decision.chosen.model}</span>
             </span>
           </>
         )}
@@ -291,6 +291,9 @@ export function TideDock(props: TideDockProps) {
             title="本会话图像三态计数：原生视觉 / 已转述 / 盲答（盲>0 = 有图文本模型看不到）"
           >
             <Icon name="image" className="kt-ic-image" /> 图 原{panel.imageContext.native}·述{panel.imageContext.transcribed}·盲{panel.imageContext.blind}
+            {panel.imageContext.blind > 0 && (
+              <span className="kt-warn">有图文本模型看不到</span>
+            )}
           </span>
         )}
 
@@ -336,7 +339,7 @@ export function TideDock(props: TideDockProps) {
       )}
 
       {notice !== '' && (
-        <span className="kt-warn kt-slot"><Icon name="warn" /> {notice}</span>
+        <span className="kt-warn kt-slot" role="status"><Icon name="warn" /> {notice}</span>
       )}
     </div>
   )

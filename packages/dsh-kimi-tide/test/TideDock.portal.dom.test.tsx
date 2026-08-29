@@ -155,4 +155,30 @@ describe('TideDock 决策面板 portal 悬浮层', () => {
     expect(pop).not.toBeNull()
     expect(pop!.textContent).toContain('暂无本步决策')
   })
+
+  it('C7 配置来源标签平实化（sidecar → 配置文件，原键括注保留供排障）', async () => {
+    await mount(makePanel({ configSource: 'sidecar' }))
+    await open()
+    const pop = document.querySelector('.kt-dock-pop')!
+    // Fails if: 标签退回「sidecar 文件」行话（ReasonPanel 在 portal 内，须 jsdom 展开）
+    expect(pop.textContent).toContain('配置文件')
+    expect(pop.textContent).not.toContain('sidecar 文件')
+  })
+
+  it('E-12 命令失败 notice 为 role=status 活动区（读屏播报，非静默插入）', async () => {
+    const { tideDockBridge } = await import('../src/client/TideDock.js')
+    const original = tideDockBridge.execute
+    tideDockBridge.execute = async () => { throw new Error('通道断开') }
+    try {
+      await mount(makePanel())
+      await act(() => { container.querySelector('.kt-refresh')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+      await act(async () => { await Promise.resolve() })
+      const notice = container.querySelector('.kimi-tide-dock > .kt-warn')
+      // Fails if: notice 退回无 role 的裸 span（读屏用户听不到失败提示）
+      expect(notice).not.toBeNull()
+      expect(notice!.getAttribute('role')).toBe('status')
+    } finally {
+      tideDockBridge.execute = original
+    }
+  })
 })

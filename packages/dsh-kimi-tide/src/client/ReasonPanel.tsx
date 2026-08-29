@@ -21,8 +21,9 @@ export interface ReasonPanelProps {
 
 const SOURCE_LABELS: Record<ConfigSource, string> = {
   settings: '设置命名空间',
-  sidecar: 'sidecar 文件',
-  patch: 'patch 静态块',
+  // 评审 P3/C7：平实措辞——原键仍经下方（{configSource}）括注保留供排障。
+  sidecar: '配置文件',
+  patch: '补丁配置',
   default: '内置默认',
 }
 

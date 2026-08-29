@@ -43,4 +43,9 @@ describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
     // Fails if: 选择器退回 :not(.kt-flows):not(.kt-tabs)（错误横幅在协作流页签被 display:none 藏住）
     expect(CLIENT_CSS).toMatch(/data-tab='flows'\] > :not\(\.kt-flows\):not\(\.kt-tabs\):not\(\.kt-error\)/)
   })
+
+  it('A9 r2 行带 overflow 管理（窄窗口槽位溢出不顶破容器）', () => {
+    // Fails if: .kt-dock-r2 退回无 overflow 控制
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock \.kt-dock-r2 \{[^}]*overflow: hidden/)
+  })
 })
