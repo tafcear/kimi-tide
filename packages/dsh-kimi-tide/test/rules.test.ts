@@ -1,8 +1,9 @@
 // test/rules.test.ts
 import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterRule } from '../src/config.js'
 import {
+  duplicateRuleIds,
   explicitProvider,
   latestUserText,
   matchingRules,
@@ -189,5 +190,30 @@ describe('previewRoute（0.8.0 试一句纯函数）', () => {
     // previewRoute 纯文本调用：带图规则不命中（无 hasImage 参数——文本探针语义）
     const out = previewRoute(c, '帮我重构这个函数', { catalog: CATALOG, availability: null, flows: c.flows })
     expect(out.outcome).toMatchObject({ kind: 'rule', ruleId: 'code-kfc' })
+  })
+})
+
+describe('duplicateRuleIds（⑥-B 打磨三 2026-08-29: 规则条件互斥约束）', () => {
+  const img = (id: string): RouterRule => ({ id, when: { kind: 'image' }, target: { provider: 'p', model: 'm' } })
+  const kw = (id: string, group: string, minHits?: number): RouterRule => ({
+    id,
+    when: { kind: 'keywords', group, ...(minHits === undefined ? {} : { minHits }) },
+    target: { provider: 'p', model: 'm' },
+  })
+
+  it('两条带图 → 后者入列（首条保留）', () => {
+    expect(duplicateRuleIds([img('a'), img('b')])).toEqual(['b'])
+  })
+  it('三连同条件 → 后两条都入列（保持顺序）', () => {
+    expect(duplicateRuleIds([img('a'), img('b'), img('c')])).toEqual(['b', 'c'])
+  })
+  it('同组同 minHits → 重复；同组不同 minHits → 不算（特异性不同，词数优先可区分）', () => {
+    expect(duplicateRuleIds([kw('a', 'code', 1), kw('b', 'code', 1)])).toEqual(['b'])
+    expect(duplicateRuleIds([kw('a', 'code', 1), kw('b', 'code', 2)])).toEqual([])
+  })
+  it('不同组不算重复；空表/单条 → 空', () => {
+    expect(duplicateRuleIds([kw('a', 'code'), kw('b', 'plan')])).toEqual([])
+    expect(duplicateRuleIds([])).toEqual([])
+    expect(duplicateRuleIds([img('a')])).toEqual([])
   })
 })

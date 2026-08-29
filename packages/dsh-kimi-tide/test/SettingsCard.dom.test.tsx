@@ -18,7 +18,7 @@ import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import type { CardSnapshot, CardStore } from '../src/client/card-store.js'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV4 } from '../src/config.js'
 
 declare global {
   // React 18 act 环境开关（react-dom/client 在非测试构建下需要）。
@@ -305,16 +305,20 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
     })
   }
 
-  it('规则区标题真语义文案 + minHits 可见标签 + 行级条件摘要渲染', async () => {
+  it('规则区标题真语义文案 + 规则表格化（列头/行网格/minHits 输入）', async () => {
     const { store, publish } = makeDeferredStore()
     await mount(store)
     await act(async () => { publish(readyV5Snapshot()) })
     // Fails if: 标题仍为 0.5.0 时代「有序，首条命中生效」
-    expect(container.textContent).toContain('规则（命中词数多者优先，平手按列表序，带图恒第一）')
-    // Fails if: minHits 缺可见标签（0.7.0 只有 aria-label）
-    expect(container.textContent).toContain('最少命中词数')
-    // Fails if: 规则行缺自动条件摘要（code-kfc 行 = 「命中 code 组 ≥1 词」）
-    expect(container.textContent).toContain('命中 code 组 ≥1 词')
+    expect(container.textContent).toContain('命中词数多者优先')
+    // ⑥-B 打磨三（2026-08-29）：规则区表格化——列头 + 行网格
+    // Fails if: 回退手风琴堆叠行（无列结构）
+    expect(container.querySelector('.kt-rule-head')).not.toBeNull()
+    expect(container.querySelectorAll('.kt-rule-grid').length).toBeGreaterThanOrEqual(2)
+    // minHits 输入（aria 钩子）仍在条件列
+    expect(container.querySelector('input[aria-label="最少命中词数"]')).not.toBeNull()
+    // 行级「命中 code 组 ≥1 词」摘要随表格化退役（条件列所见即所得，原钉退役）
+    expect(container.textContent).not.toContain('命中 code 组 ≥1 词')
   })
 
   it('effort 下拉：有档位表 → 显示档位选项；模型未声明档位 → 禁用「跟随默认」', async () => {
@@ -632,5 +636,81 @@ describe('SettingsCard ⑥-B 三页签', () => {
     })
     expect(card.getAttribute('data-tab')).toBe('trial')
     expect(container.querySelector('details.kt-trial')).not.toBeNull()
+  })
+})
+
+describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  /** 重复条件夹具：saving 预设两条同条件带图规则（用户截图死规则形态）。 */
+  const dupImageConfig = (): RouterConfigV4 => {
+    const cfg: RouterConfigV4 = { ...DEFAULT_CONFIG_V4(), activePreset: 'saving' }
+    const saving = cfg.presets.saving
+    const img = saving.rules.find((r) => r.when.kind === 'image')!
+    return { ...cfg, presets: { ...cfg.presets, saving: { ...saving, rules: [img, { ...img, id: 'image-dup' }] } } }
+  }
+
+  it('存量重复 → 警示条 + 涉事行标记 + 「删除重复项」一键去重落盘', async () => {
+    const saves: Array<{ id: string; count: number }> = []
+    const { store, publish } = makeDeferredStore({
+      savePreset: async (id, preset) => {
+        saves.push({ id, count: preset.rules.length })
+      },
+    })
+    await mount(store)
+    await act(async () => {
+      publish({ ...readySnapshot(), config: dupImageConfig() })
+    })
+    // Fails if: 重复条件零提示（死规则不可见——2026-08-29 用户裁定互斥约束）
+    expect(container.textContent).toContain('检测到重复条件')
+    expect(container.querySelectorAll('.kt-conflict').length).toBe(1)
+    const cleanup = [...container.querySelectorAll('button')].find((b) => b.textContent === '删除重复项')
+    expect(cleanup).not.toBeUndefined()
+    await act(async () => {
+      cleanup!.click()
+    })
+    // Fails if: 一键清理缺失（用户须手删死规则）
+    expect(saves).toEqual([{ id: 'saving', count: 1 }])
+  })
+
+  it('已存在带图规则 → 新增规则被阻止 + 互斥提示（savePreset 不触）', async () => {
+    const saveSpy = vi.fn()
+    const { store, publish } = makeDeferredStore({ savePreset: saveSpy })
+    await mount(store)
+    await act(async () => {
+      publish(readySnapshot())
+    })
+    const add = [...container.querySelectorAll('button')].find((b) => b.textContent === '新增规则')
+    expect(add).not.toBeUndefined()
+    const rowsBefore = container.querySelectorAll('button[aria-label="删除规则"]').length
+    await act(async () => {
+      add!.click()
+    })
+    // Fails if: 互斥约束失效（连点新增造出重复带图——用户截图死规则来源）
+    expect(saveSpy).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('互斥')
+    expect(container.querySelectorAll('button[aria-label="删除规则"]').length).toBe(rowsBefore)
   })
 })

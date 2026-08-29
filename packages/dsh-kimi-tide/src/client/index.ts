@@ -111,24 +111,52 @@ export function apply(ctx: Context): void {
     .kimi-tide-dock .kt-decision-chip { color: var(--dsw-alias-brand-primary, #4d6bfe); }
     .kimi-tide-dock .kt-decision-toggle { border: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
 
-    /* ---- settings card（设置页「月汐」，0.5.0 预设管理器）---- */
-    .kimi-tide-settings { display: flex; flex-direction: column; gap: 10px; font-size: 12px;
+    /* ---- settings card（设置页「月汐」，0.5.0 预设管理器；⑥-B 打磨三 2026-08-29
+         卡片化 + 8px 节奏 + 字号分级 11/12/12.5）---- */
+    .kimi-tide-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px;
       color: var(--dsw-alias-label-primary, #2b3245); }
     .kimi-tide-settings .kt-warn { color: var(--dsw-alias-warning-strong, #d97706); }
     .kimi-tide-settings .kt-h { font-size: 11px; opacity: 0.65; }
     .kimi-tide-settings .kt-hint { opacity: 0.6; }
     .kimi-tide-settings .kt-field-label { width: 108px; flex: none; opacity: 0.85; }
     .kimi-tide-settings .kt-row { display: flex; align-items: center; gap: 6px; }
+    /* 区块卡片化：规则/带图兜底/试一句/关键词组/协作流 */
+    .kimi-tide-settings .kt-card { border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
+      border-radius: 10px; padding: 8px 10px; }
+    .kimi-tide-settings .kt-card-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+    .kimi-tide-settings .kt-card-title { font-size: 12.5px; font-weight: 600;
+      color: var(--dsw-alias-label-primary, #2b3245); }
     /* 预设选择行（关闭/各预设单选按钮组） */
     .kimi-tide-settings .kt-preset-row { display: flex; gap: 6px; flex-wrap: wrap; }
     .kimi-tide-settings .kt-preset { font-size: 12px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
       background: transparent; color: inherit; border-radius: 6px; padding: 2px 10px; }
     .kimi-tide-settings .kt-preset.kt-active { background: var(--dsw-alias-interactive-bg-hover-accent, rgba(77,107,254,0.12));
       color: var(--dsw-alias-brand-primary, #4d6bfe); border-color: currentColor; }
-    /* 当前预设编辑器 + 规则表 */
-    .kimi-tide-settings .kt-editor { display: flex; flex-direction: column; gap: 6px; }
-    .kimi-tide-settings .kt-rules { display: flex; flex-direction: column; gap: 4px; }
-    .kimi-tide-settings .kt-rule-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    /* 当前预设编辑器 + 规则表（紧凑表格：序/条件/目标/档位/操作，所见即优先级） */
+    .kimi-tide-settings .kt-editor { display: flex; flex-direction: column; gap: 8px; }
+    .kimi-tide-settings .kt-rules { display: flex; flex-direction: column; gap: 6px; }
+    .kimi-tide-settings .kt-rule-grid { display: grid; grid-template-columns:
+      20px minmax(0, 1.15fr) minmax(0, 1.3fr) 92px auto; gap: 4px 6px; align-items: center; }
+    .kimi-tide-settings .kt-rule-head { font-size: 11px; font-weight: 600;
+      color: var(--dsw-alias-label-tertiary, #8b93a7);
+      padding-bottom: 3px; border-bottom: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
+    .kimi-tide-settings .kt-rule-no { font-size: 11px; opacity: 0.6;
+      font-variant-numeric: tabular-nums; text-align: center; }
+    .kimi-tide-settings .kt-cond { display: inline-flex; align-items: center; gap: 4px;
+      min-width: 0; flex-wrap: wrap; }
+    .kimi-tide-settings .kt-cond .kt-minhits { width: 46px; }
+    .kimi-tide-settings .kt-cell { display: inline-flex; align-items: center; min-width: 0; }
+    .kimi-tide-settings .kt-cell .kt-target-wrap { width: 100%; }
+    .kimi-tide-settings .kt-ops { display: inline-flex; gap: 4px; }
+    /* 条件互斥：存量重复行标警示 + 顶部警示条 + 阻止提示 */
+    .kimi-tide-settings .kt-rule-row.kt-conflict { background: rgba(217, 119, 6, 0.07); border-radius: 6px; }
+    .kimi-tide-settings .kt-conflict-hint { grid-column: 1 / -1; font-size: 11px;
+      color: var(--dsw-alias-warning-strong, #d97706); }
+    .kimi-tide-settings .kt-conflict-banner { display: flex; align-items: center;
+      justify-content: space-between; gap: 8px; font-size: 11.5px;
+      border: 1px solid rgba(217, 119, 6, 0.4); background: rgba(217, 119, 6, 0.08);
+      border-radius: 8px; padding: 4px 8px; }
+    .kimi-tide-settings .kt-rule-conflict-msg { font-size: 11.5px; }
     .kimi-tide-settings .kt-unavailable { opacity: 0.5; }
     /* 预设操作行 + 规则行按钮 */
     .kimi-tide-settings .kt-preset-ops { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

@@ -28,7 +28,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { previewRoute, ruleConditionSummary, ruleLabel } from '../rules.js'
+import { duplicateRuleIds, previewRoute, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -418,6 +418,8 @@ export function SettingsCard(props: SettingsCardProps) {
   // ⑥-B：设置卡三页签（路由 / 协作流 / 测试场）——CSS 可见性切换（区块保持
   // 挂载，受控表单状态与既有测试选择器零改动）。
   const [activeTab, setActiveTab] = useState<'route' | 'flows' | 'trial'>('route')
+  // ⑥-B 打磨三（2026-08-29）：规则条件互斥——编辑产生新重复时保存被阻止的提示。
+  const [ruleConflict, setRuleConflict] = useState<string | null>(null)
 
   if (config === null) {
     // 现状不可用态原样保留。
@@ -437,6 +439,9 @@ export function SettingsCard(props: SettingsCardProps) {
   const canManagePresets = writable && snapshot.status === 'ready'
   const activeId = config.activePreset
   const active = activeId !== null ? config.presets[activeId] ?? null : null
+  // ⑥-B 打磨三：存量重复条件（首条保留，其后被遮蔽）——警示条与行标记的数据源。
+  const dupIds = active !== null ? duplicateRuleIds(active.rules) : []
+  const dupSet = new Set(dupIds)
   const catalog = snapshot.catalog ?? []
   // 下拉只列可用模型（用户裁定 2026-08-21）：availability 明确 false（未挂载/目录未列出）即剔除；
   // availability 为 null（无连接通道）时不设灰态，全目录入选项。
@@ -477,9 +482,23 @@ export function SettingsCard(props: SettingsCardProps) {
     void store.savePreset(presetId, { ...preset, rules })
   }
 
+  // ⑥-B 打磨三（2026-08-29）：条件互斥——同条件（带图 / 同组同 minHits）规则
+  // 只能存在一条，后者永不优先。编辑/新增产生「新增重复」→ 阻止保存（返回
+  // false，由调用方上浮提示）；存量重复不阻止编辑，走顶部警示条 + 一键清理。
+  const saveRulesIfDistinct = (presetId: string, before: RouterRule[], next: RouterRule[]): boolean => {
+    if (duplicateRuleIds(next).length > duplicateRuleIds(before).length) return false
+    updateRules(presetId, next)
+    return true
+  }
+
   const editActiveRule = (index: number, patch: Partial<RouterRule>): void => {
     if (activeId === null || active === null) return
-    updateRules(activeId, active.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)))
+    const next = active.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule))
+    if (!saveRulesIfDistinct(activeId, active.rules, next)) {
+      setRuleConflict('条件重复（互斥）：同条件规则只能保留一条，本次修改未保存')
+      return
+    }
+    setRuleConflict(null)
   }
 
   const moveRule = (index: number, delta: -1 | 1): void => {
@@ -492,15 +511,23 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const removeRule = (index: number): void => {
     if (activeId === null || active === null) return
-    updateRules(activeId, active.rules.filter((_, i) => i !== index))
+    if (saveRulesIfDistinct(activeId, active.rules, active.rules.filter((_, i) => i !== index))) {
+      setRuleConflict(null)
+    }
   }
 
   const addRule = (): void => {
     if (activeId === null || active === null) return
-    updateRules(activeId, [
+    // 新规则默认带图条件——已存在带图规则即互斥冲突，直接阻止（比组装后再判更早反馈）。
+    if (active.rules.some((rule) => rule.when.kind === 'image')) {
+      setRuleConflict('已存在带图规则（条件互斥），新增被阻止——如需换目标请直接编辑既有规则')
+      return
+    }
+    const next: RouterRule[] = [
       ...active.rules,
       { id: newRuleId(active.rules), when: { kind: 'image' }, target: active.default },
-    ])
+    ]
+    if (saveRulesIfDistinct(activeId, active.rules, next)) setRuleConflict(null)
   }
 
   const saveDefault = (value: string): void => {
@@ -572,7 +599,10 @@ export function SettingsCard(props: SettingsCardProps) {
           className={activeId === null ? 'kt-preset kt-active' : 'kt-preset'}
           aria-pressed={activeId === null}
           disabled={!writable}
-          onClick={() => void store.saveActivePreset(null)}
+          onClick={() => {
+            setRuleConflict(null)
+            void store.saveActivePreset(null)
+          }}
         >
           关闭
         </button>
@@ -583,7 +613,10 @@ export function SettingsCard(props: SettingsCardProps) {
             className={id === activeId ? 'kt-preset kt-active' : 'kt-preset'}
             aria-pressed={id === activeId}
             disabled={!writable}
-            onClick={() => void store.saveActivePreset(id)}
+            onClick={() => {
+              setRuleConflict(null)
+              void store.saveActivePreset(id)
+            }}
           >
             {preset.name}
           </button>
@@ -618,38 +651,68 @@ export function SettingsCard(props: SettingsCardProps) {
             />
           </label>
 
-          <div className="kt-rules">
-            <span className="kt-h">规则（命中词数多者优先，平手按列表序，带图恒第一）</span>
+          <div className="kt-card kt-rules">
+            <div className="kt-card-head">
+              <span className="kt-card-title">规则</span>
+              <span className="kt-h">命中词数多者优先，平手按列表序，带图恒第一</span>
+            </div>
+            {/* ⑥-B 打磨三：存量重复条件警示条 + 一键清理被遮蔽规则。 */}
+            {dupIds.length > 0 && (
+              <div className="kt-conflict-banner" role="alert">
+                <span className="kt-warn">
+                  检测到重复条件（{dupIds.length} 条被遮蔽）——同条件规则只有首条可命中
+                </span>
+                <button
+                  type="button"
+                  disabled={!writable}
+                  onClick={() => {
+                    if (activeId === null || active === null) return
+                    const shadowed = new Set(dupIds)
+                    updateRules(activeId, active.rules.filter((rule) => !shadowed.has(rule.id)))
+                  }}
+                >
+                  删除重复项
+                </button>
+              </div>
+            )}
+            <div className="kt-rule-grid kt-rule-head" aria-hidden="true">
+              <span>#</span>
+              <span>条件</span>
+              <span>目标</span>
+              <span>档位</span>
+              <span>操作</span>
+            </div>
             {active.rules.map((rule, index) => {
               const targetKey = ruleTargetValue(rule.target)
               const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
+              const conflicted = dupSet.has(rule.id)
               return (
-                <div key={rule.id} className="kt-rule-row">
-                  <select
-                    aria-label="条件"
-                    value={conditionValue(rule)}
-                    disabled={!writable}
-                    onChange={(e) => {
-                      const parsed = parseCondition(e.target.value)
-                      // 条件切换保留 minHits（0.7.0：parseCondition 不含该字段，
-                      // keywords→keywords 切组时组合补回）。
-                      const when = rule.when.kind === 'keywords' && parsed.kind === 'keywords'
-                        ? { ...parsed, minHits: rule.when.minHits }
-                        : parsed
-                      editActiveRule(index, { when })
-                    }}
-                  >
-                    <option value={IMAGE_VALUE}>带图</option>
-                    {groupNames.map((group) => (
-                      <option key={group} value={kwValue(group)}>{group}</option>
-                    ))}
-                    {rule.when.kind === 'keywords' && missingGroup && (
-                      <option value={kwValue(rule.when.group)}>{rule.when.group}（缺失）</option>
-                    )}
-                  </select>
-                  {rule.when.kind === 'keywords' && (
-                    <label className="kt-row">
-                      <span className="kt-hint">最少命中词数</span>
+                <div key={rule.id} className={`kt-rule-grid kt-rule-row${conflicted ? ' kt-conflict' : ''}`}>
+                  <span className="kt-rule-no">{index + 1}</span>
+                  <span className="kt-cond">
+                    <select
+                      aria-label="条件"
+                      value={conditionValue(rule)}
+                      disabled={!writable}
+                      onChange={(e) => {
+                        const parsed = parseCondition(e.target.value)
+                        // 条件切换保留 minHits（0.7.0：parseCondition 不含该字段，
+                        // keywords→keywords 切组时组合补回）。
+                        const when = rule.when.kind === 'keywords' && parsed.kind === 'keywords'
+                          ? { ...parsed, minHits: rule.when.minHits }
+                          : parsed
+                        editActiveRule(index, { when })
+                      }}
+                    >
+                      <option value={IMAGE_VALUE}>带图</option>
+                      {groupNames.map((group) => (
+                        <option key={group} value={kwValue(group)}>{group}</option>
+                      ))}
+                      {rule.when.kind === 'keywords' && missingGroup && (
+                        <option value={kwValue(rule.when.group)}>{rule.when.group}（缺失）</option>
+                      )}
+                    </select>
+                    {rule.when.kind === 'keywords' && (
                       <input
                         aria-label="最少命中词数"
                         title="≥N 个词同时命中才触发"
@@ -668,68 +731,81 @@ export function SettingsCard(props: SettingsCardProps) {
                           editActiveRule(index, { when: { ...rule.when, minHits: Math.max(1, n) } })
                         }}
                       />
-                    </label>
-                  )}
-                  <TargetSelect
-                    label="目标"
-                    value={targetKey}
-                    options={modelOptions}
-                    flowOptions={transcribeFlowOptions}
-                    unavailable={availability?.[targetKey] === false}
-                    disabled={!writable}
-                    onChange={(value) => editActiveRule(index, { target: parseRuleTarget(value) })}
-                  />
-                  {/* 切换规则目标天然清空 effort（parseRuleTarget 不产 effort 字段，D3 UI 语义） */}
-                  <span className="kt-hint">{ruleConditionSummary(rule, config)}</span>
-                  {!isFlowTarget(rule.target) && (
-                    <EffortSelect
-                      label={rule.id}
-                      value={rule.target.effort}
-                      options={effortsOf(rule.target)}
+                    )}
+                  </span>
+                  <span className="kt-cell">
+                    <TargetSelect
+                      label="目标"
+                      value={targetKey}
+                      options={modelOptions}
+                      flowOptions={transcribeFlowOptions}
+                      unavailable={availability?.[targetKey] === false}
                       disabled={!writable}
-                      onChange={(effort) => {
-                        const t = rule.target as RouteTarget
-                        const next: RouteTarget = effort === undefined
-                          ? { provider: t.provider, model: t.model }
-                          : { ...t, effort }
-                        editActiveRule(index, { target: next })
-                      }}
+                      onChange={(value) => editActiveRule(index, { target: parseRuleTarget(value) })}
                     />
+                  </span>
+                  {/* 切换规则目标天然清空 effort（parseRuleTarget 不产 effort 字段，D3 UI 语义） */}
+                  <span className="kt-cell">
+                    {!isFlowTarget(rule.target) ? (
+                      <EffortSelect
+                        label={rule.id}
+                        value={rule.target.effort}
+                        options={effortsOf(rule.target)}
+                        disabled={!writable}
+                        onChange={(effort) => {
+                          const t = rule.target as RouteTarget
+                          const next: RouteTarget = effort === undefined
+                            ? { provider: t.provider, model: t.model }
+                            : { ...t, effort }
+                          editActiveRule(index, { target: next })
+                        }}
+                      />
+                    ) : (
+                      <span className="kt-hint">—</span>
+                    )}
+                  </span>
+                  <span className="kt-ops">
+                    <button
+                      type="button"
+                      aria-label="上移"
+                      disabled={!writable || index === 0}
+                      onClick={() => moveRule(index, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="下移"
+                      disabled={!writable || index === active.rules.length - 1}
+                      onClick={() => moveRule(index, 1)}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="删除规则"
+                      disabled={!writable}
+                      onClick={() => removeRule(index)}
+                    >
+                      删除
+                    </button>
+                  </span>
+                  {conflicted && (
+                    <span className="kt-conflict-hint">条件重复：与前列相同，永不优先命中</span>
                   )}
-                  <button
-                    type="button"
-                    aria-label="上移"
-                    disabled={!writable || index === 0}
-                    onClick={() => moveRule(index, -1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="下移"
-                    disabled={!writable || index === active.rules.length - 1}
-                    onClick={() => moveRule(index, 1)}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="删除规则"
-                    disabled={!writable}
-                    onClick={() => removeRule(index)}
-                  >
-                    删除
-                  </button>
                 </div>
               )
             })}
+            {ruleConflict !== null && (
+              <span className="kt-warn kt-rule-conflict-msg" role="alert">{ruleConflict}</span>
+            )}
             <button type="button" disabled={!writable} onClick={addRule}>新增规则</button>
           </div>
 
           {/* 带图兜底三态（0.6.0，仅 v5）：锁存/盲答/懒转述 + 一句话后果提示；
               懒转述流选择器仅 transcribe-lazy 态渲染（缺省指向预置 transcribe）。 */}
           {isV5 && (
-            <div className="kt-fallback">
+            <div className="kt-card kt-fallback">
               <label className="kt-row">
                 <span className="kt-field-label">带图兜底</span>
                 <select
@@ -790,7 +866,7 @@ export function SettingsCard(props: SettingsCardProps) {
 
       {/* 「试一句」测试器（0.8.0 D2）：纯文本语义预测——命中规则（词数）+ 最终
           目标；带图输入只展示规则命中、不承诺最终改道（浏览器侧无 modalities）。 */}
-      <details className="kt-trial" open>
+      <details className="kt-trial kt-card" open>
         <summary>试一句</summary>
         <input
           aria-label="试一句"
@@ -828,7 +904,7 @@ export function SettingsCard(props: SettingsCardProps) {
       </details>
 
       {/* 关键词组管理区：组列表 + 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
-      <details className="kt-groups">
+      <details className="kt-groups kt-card">
         <summary>关键词组</summary>
         {groupNames.map((name) => (
           <KeywordGroupRow
@@ -861,7 +937,7 @@ export function SettingsCard(props: SettingsCardProps) {
       {/* 协作流注册表（0.6.0 spec §7，仅 v5）：预置流可改不可删；自建流可删
           （被引用时禁用删除，store.deleteFlow 守卫兜底并上浮 error）。 */}
       {isV5 && (
-        <details className="kt-flows" open>
+        <details className="kt-flows kt-card" open>
           <summary>协作流</summary>
           {flowEntries.map(([flowId, flow]) => (
             <FlowRow

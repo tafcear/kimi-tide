@@ -573,3 +573,24 @@ describe('settings.section registration', () => {
     expect(registered[0][1].zh.nav).toBe('月汐')
   })
 })
+
+describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () => {
+  it('存量重复条件 → 互斥警示条 + 涉事行 kt-conflict 标记', () => {
+    const cfg = v4cfg('saving')
+    const saving = cfg.presets.saving
+    const img = saving.rules.find((r) => r.when.kind === 'image')!
+    cfg.presets.saving = {
+      ...saving,
+      rules: [img, { ...img, id: 'image-dup' }, ...saving.rules.filter((r) => r.when.kind !== 'image')],
+    }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 重复条件零提示（死规则不可见——2026-08-29 用户裁定互斥约束）
+    expect(html).toContain('检测到重复条件')
+    expect(html).toContain('kt-conflict')
+  })
+
+  it('无重复 → 不渲染互斥警示条', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    expect(html).not.toContain('检测到重复条件')
+  })
+})

@@ -128,6 +128,31 @@ export function ruleConditionSummary(rule: RouterRule, config: RuleMatchConfig):
   return `命中 ${rule.when.group} 组 ≥${rule.when.minHits ?? 1} 词`
 }
 
+/**
+ * 规则条件互斥键（⑥-B 打磨三 2026-08-29）：image → 'image'；
+ * keywords → `组:minHits`。同键规则在后永不优先（带图同分 ∞ 按列表序；
+ * 关键词同分按列表序）——设置界面以此禁存新重复/警示存量重复。
+ * 同组不同 minHits 键不同：特异性不同，词数优先语义可区分，不算重复。
+ */
+export function ruleConditionKey(when: RouterRule['when']): string {
+  return when.kind === 'image' ? 'image' : `kw:${when.group}:${when.minHits ?? 1}`
+}
+
+/**
+ * 条件重复的被遮蔽规则 id（首条保留，其后即重复，保持出现顺序）。纯函数，
+ * 设置界面查重共用：保存前比对数量（新增重复才阻止），加载后标警示。
+ */
+export function duplicateRuleIds(rules: readonly RouterRule[]): string[] {
+  const seen = new Set<string>()
+  const shadowed: string[] = []
+  for (const rule of rules) {
+    const key = ruleConditionKey(rule.when)
+    if (seen.has(key)) shadowed.push(rule.id)
+    else seen.add(key)
+  }
+  return shadowed
+}
+
 /** 试一句测试器依赖（0.8.0 D2）：候选目录与已配置目标可用性（浏览器侧无 modalities）。 */
 export interface RoutePreviewDeps {
   catalog: Array<{ provider: string; models: string[] }> | null
