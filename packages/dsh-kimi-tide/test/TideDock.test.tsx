@@ -71,6 +71,17 @@ describe('TideDock 基础视图（v4 承继）', () => {
   })
 })
 
+describe('TideDock 未接入指引文案（评审 P2-11）', () => {
+  it('指引指向真实页签名「设置 → 模型」，不再引用不存在的 Models', () => {
+    const html = visible(render(makePanel({ kimi: { route: false, key: false } })))
+    // Fails if: 文案回退到「设置 → Models」（设置页真实导航按钮叫「模型」，照 Models 找不到）
+    expect(html).toContain('Kimi 未接入：设置 → 模型')
+    expect(html).not.toContain('Models')
+    // title 内的配置指引同步修正
+    expect(html).toContain('设置 → 模型 配置')
+  })
+})
+
 describe('TideDock ⑥-B 两行布局', () => {
   it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
     const html = render(makePanel({

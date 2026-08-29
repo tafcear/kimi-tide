@@ -58,7 +58,7 @@ export function TideDock(props: TideDockProps) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [expanded, setExpanded] = useState(props.defaultExpanded ?? false)
-  const [popPos, setPopPos] = useState<{ left: number; top: number } | null>(null)
+  const [popPos, setPopPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null)
   const dockRef = useRef<HTMLDivElement | null>(null)
   const popRef = useRef<HTMLDivElement | null>(null)
   const toggleRef = useRef<HTMLButtonElement | null>(null)
@@ -86,17 +86,27 @@ export function TideDock(props: TideDockProps) {
     }
   }
 
-  /** 悬浮层定位：dock 下缘 + 右对齐（视口钳位）。jsdom 零矩形也安全。 */
+  /**
+   * 悬浮层定位：右对齐（视口钳位）；下方空间不足且上方更宽裕时改锚 bottom
+   * 向上展开——dock 位于输入区下缘，恒向下开 320px 面板会整块出屏
+   * （2026-08-29 评审 P1-2）。锚 bottom 无需预知面板高度，max-height 兜底。
+   * jsdom 零矩形也安全（下方空间全屏 → 走向下分支）。
+   */
   const placePop = () => {
     const el = dockRef.current
     if (el === null) return
     const rect = el.getBoundingClientRect()
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 768
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1024
     const width = Math.min(POP_WIDTH, vw - 16)
-    setPopPos({
-      left: Math.max(8, Math.min(rect.right - width, vw - width - 8)),
-      top: rect.bottom + 6,
-    })
+    const left = Math.max(8, Math.min(rect.right - width, vw - width - 8))
+    const spaceBelow = vh - rect.bottom
+    const maxH = Math.min(320, vh * 0.6)
+    if (spaceBelow < maxH && rect.top > spaceBelow) {
+      setPopPos({ left, bottom: vh - rect.top + 6 })
+    } else {
+      setPopPos({ left, top: rect.bottom + 6 })
+    }
   }
 
   const toggleExpand = () => {
@@ -198,9 +208,9 @@ export function TideDock(props: TideDockProps) {
         {(!kimi.route || !kimi.key) && (
           <span
             className="kt-chip kt-slot kt-warn"
-            title="缺少 kimi-coding 路由或 API key（设置 → Models 配置，apiKeyEnv 指向你的凭据）"
+            title="缺少 kimi-coding 路由或 API key（设置 → 模型 配置，apiKeyEnv 指向你的凭据）"
           >
-            <Icon name="warn" /> Kimi 未接入：设置 → Models
+            <Icon name="warn" /> Kimi 未接入：设置 → 模型
           </span>
         )}
 
@@ -307,7 +317,7 @@ export function TideDock(props: TideDockProps) {
         <div
           className="kt-dock-pop"
           ref={popRef}
-          style={{ left: popPos?.left ?? 8, top: popPos?.top ?? 40 }}
+          style={{ left: popPos?.left ?? 8, top: popPos?.top, bottom: popPos?.bottom }}
         >
           <ReasonPanel
             configSource={panel.configSource}
