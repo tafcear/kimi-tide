@@ -50,6 +50,8 @@ flowchart LR
 - 🌊 **协作编排**（0.6.0）：规则目标可指向**协作流**——预置图像转述流（vision-exp 读图转文字，eager/lazy 双时态，缓存+超时+失败不重打）与评审流（预置注册，P2 命令式触发）；预设级带图兜底三态（锁存/盲答/懒转述）；`llm/stream` 智能投影让文本模型凭转述文字接力看图。
 - 🖼️ **图像护栏**：带图消息自动改道多模态模型；按图三态状态表（native/transcribed/blind）防止历史含图后文本模型崩溃（`UNSUPPORTED_CONTENT`）。
 - 👁️ **决策可观测**：dock 面板实时显示「这步选了谁、为什么」（原因带命中词数，0.8.0），按会话隔离、会话日志留痕可复查——不黑箱。
+- 💰 **多 plan 配额（1.0.0）**：dock 额度槽**跟随当前命中目标自动切换**——命中 Kimi 规则显示 Kimi Code 周配额/5h 窗，未命中走 GLM 显示 GLM Coding Plan 的 5h token 窗/7 天周窗（中文短格式：剩 6.7亿）；开通哪个套餐就显示哪个，DeepSeek 等无套餐目标自动置灰。
+- 🎨 **月汐品牌视觉（1.0.0）**：月汐紫主题贯穿明暗双主题——设置导航月牙图标、卡片柔影浮起、focus 紫色外环、主按钮实心紫、规则表主卡渐变底；控件层次与重点一眼可辨。
 - ⚙️ **官方设置卡片**：路由配置就在 DSH「设置 → 月汐」里编辑，原生分层持久化，重启保持；规则行带条件摘要（「命中 code 组 ≥1 词」）、目标可配 `effort` 档位下拉，折叠区「试一句」测试器实时预演一句话命中哪条规则、路由到哪个模型（0.8.0）。
 - 🌙 **Kimi 专用增强**（0.4.x）：Kimi 模型经 pi-ai 原生 `kimi-coding` 路由接入，**一把 Console API Key 即可**；dock 面板轮询 Kimi Code 官方用量接口，周配额 / 5h 窗口一目了然。（路由本身不限 Kimi——这两项是 Kimi Code 订阅用户的加餐。）
 - ⌨️ **`/kimi-tide` 命令族**：`preset` / `show` / `set` / `export-config` / `import-config` / `refresh`，配置可导出备份、可导入恢复。
@@ -235,7 +237,7 @@ timeline
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（当前 385/385 通过，24 个测试文件）
+npm test            # vitest（当前 497/497 通过，31 个测试文件）
 npm run build       # tsc 宿主 + esbuild 浏览器 half
 ```
 
@@ -247,7 +249,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 
 ## 路线图
 
-> 当前版本：**v0.8.0（2026-08-27）**——规则体系补全 + 可解释性 + 推理程度配置。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）· **发版门禁：实机验收清单全绿 + 用户裁定 tag（见「开发与测试」）**
+> 当前版本：**v1.0.0（2026-08-29）**——大版本：0.7.0 关键词匹配 + 0.8.0 规则体系/effort/决策可观测 + 品牌主题化 + 多 plan 配额。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）· **发版门禁：实机验收清单全绿 + 用户裁定 tag（见「开发与测试」）**
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
@@ -259,7 +261,8 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 | 0.6.0 协作编排 | ✅ 已发布（2026-08-23） | tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)，337/337 绿 + typecheck 0 + build 过；实机验收 10 项全过（含 T4 门）；验收修复 `e2d3c68`（rc.2 宿主 model-selection 覆盖） |
 | 0.6.1 评审修复波 | ✅ 已发布（2026-08-23） | tag `v0.6.1`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1)，354/354 绿 + typecheck 0 + build 过；转述并发 / 轮询有界 / 面板去重 / LRU 对账 / 空转述裁决 / 决策按会话隔离（`13ede6e`）+ CI 版本窗修正（`f4fde04`） |
 | 0.7.0 关键词匹配准确性 | 🟢 已实施 + **实机验收清单全绿**（2026-08-26，分支 `feat/0.7.0-keyword-matching`；发版 = 用户裁定 tag + 合并 main） | 词边界 + 特异度排序 + minHits（`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`），359/359 绿 + typecheck 0 + build 过；**A1–A10 全过**：六探针 request/header 解码实锤（A2 阴性→deepseek-v4-pro / A3 阳性→glm-5.2 / A4 特异度→glm-5.2 / A8 @kimi→k3 / A5 阴性→deepseek-v4-pro、阳性→qwen3.8-max-preview）+ A6/A9 用户实机目检与带图转述链路实走 + A7 存量兼容（清单见 [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md) 末节） |
-| 0.8.0 规则覆盖面 + 可解释性 + effort | 🟢 已实施、**待实机验收 B1–B8**（2026-08-27，分支 `feat/0.8.0-routing-coverage`；发版 = 验收清单全绿 + 用户裁定 tag + 合并 main） | 关键词组 2→7 组 + 预设接组 + effort 三入口 + 条件摘要/试一句/决策词数（`515218c`/`eed3cb2`/`f18cdbf` 等 6 任务），385/385 绿 + typecheck 0 + build 过；验收清单 B1–B8 见 [`superpowers/plans/2026-08-27-routing-coverage-effort.md`](docs/superpowers/plans/2026-08-27-routing-coverage-effort.md) 末节（待实机回填） |
+| 0.8.0 规则覆盖面 + 可解释性 + effort | ✅ 已实施 + **实机验收 B1–B8 全绿**（2026-08-27）+ **已随 v1.0.0 发布**（分支 `feat/0.8.0-routing-coverage`） | 关键词组 2→7 组 + 预设接组 + effort 三入口 + 条件摘要/试一句/决策词数（`515218c`/`eed3cb2`/`f18cdbf` 等 6 任务）；验收清单 B1–B8 见 [`superpowers/plans/2026-08-27-routing-coverage-effort.md`](docs/superpowers/plans/2026-08-27-routing-coverage-effort.md) 末节（全绿回填） |
+| **v1.0.0 大版本** | ✅ **已发布（2026-08-29）** | tag `v1.0.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.0.0)，497/497 绿 + typecheck 0 + build 过；内含 0.8.x 池全清（499 根治/限额跟随/布局重构）+ 打磨三连 + UI 交叉评审批次 + 月汐品牌主题化 + 设置导航月牙图标 + 多 plan 配额（kimi/GLM 跟随命中目标，CREDIT_LIMIT 积分制适配） |
 
 - **0.1.x**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
 - **0.2.x**：双模型路由器 + dock 面板 + 用量显示；失效修复闭环与 M5 实机验证 ✅。
