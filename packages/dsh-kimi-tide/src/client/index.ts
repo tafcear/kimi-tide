@@ -132,11 +132,15 @@ export function apply(ctx: Context): void {
       background: transparent; color: inherit; border-radius: 6px; padding: 2px 10px; }
     .kimi-tide-settings .kt-preset.kt-active { background: var(--dsw-alias-interactive-bg-hover-accent, rgba(77,107,254,0.12));
       color: var(--dsw-alias-brand-primary, #4d6bfe); border-color: currentColor; }
-    /* 当前预设编辑器 + 规则表（紧凑表格：序/条件/目标/档位/操作，所见即优先级） */
+    /* 当前预设编辑器 + 规则表（紧凑表格：序/条件/目标/档位/操作，所见即优先级）；
+       单一表格容器共享列轨 + 行 subgrid——表头与数据列对齐（⑥-B 打磨三修订） */
     .kimi-tide-settings .kt-editor { display: flex; flex-direction: column; gap: 8px; }
     .kimi-tide-settings .kt-rules { display: flex; flex-direction: column; gap: 6px; }
-    .kimi-tide-settings .kt-rule-grid { display: grid; grid-template-columns:
-      20px minmax(0, 1.15fr) minmax(0, 1.3fr) 92px auto; gap: 4px 6px; align-items: center; }
+    .kimi-tide-settings .kt-rule-table { display: grid;
+      grid-template-columns: 20px minmax(0, 1.15fr) minmax(0, 1.3fr) 92px auto;
+      gap: 4px 6px; align-items: center; }
+    .kimi-tide-settings .kt-rule-grid { display: grid; grid-template-columns: subgrid;
+      grid-column: 1 / -1; }
     .kimi-tide-settings .kt-rule-head { font-size: 11px; font-weight: 600;
       color: var(--dsw-alias-label-tertiary, #8b93a7);
       padding-bottom: 3px; border-bottom: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }

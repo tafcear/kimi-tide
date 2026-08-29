@@ -321,6 +321,18 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
     expect(container.textContent).not.toContain('命中 code 组 ≥1 词')
   })
 
+  it('⑥-B 打磨三修订: 列轨共享——全部行网格收进单一 kt-rule-table（表头与数据列对齐）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readyV5Snapshot()) })
+    const table = container.querySelector('.kt-rule-table')
+    // Fails if: 行仍是独立 grid 容器（fr 列宽按各自内容计算，表头对不齐数据列——2026-08-29 用户截图）
+    expect(table).not.toBeNull()
+    const gridsInTable = table!.querySelectorAll('.kt-rule-grid').length
+    expect(gridsInTable).toBeGreaterThanOrEqual(2)
+    expect(container.querySelectorAll('.kt-rule-grid').length).toBe(gridsInTable)
+  })
+
   it('effort 下拉：有档位表 → 显示档位选项；模型未声明档位 → 禁用「跟随默认」', async () => {
     const { store, publish } = makeDeferredStore()
     await mount(store)

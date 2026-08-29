@@ -722,13 +722,15 @@ export function SettingsCard(props: SettingsCardProps) {
                 </button>
               </div>
             )}
-            <div className="kt-rule-grid kt-rule-head" aria-hidden="true">
-              <span>#</span>
-              <span>条件</span>
-              <span>目标</span>
-              <span>档位</span>
-              <span>操作</span>
-            </div>
+            {/* ⑥-B 打磨三修订：单一表格容器共享列轨（行用 subgrid），表头与数据列对齐。 */}
+            <div className="kt-rule-table">
+              <div className="kt-rule-grid kt-rule-head" aria-hidden="true">
+                <span>#</span>
+                <span>条件</span>
+                <span>目标</span>
+                <span>档位</span>
+                <span>操作</span>
+              </div>
             {active.rules.map((rule, index) => {
               const targetKey = ruleTargetValue(rule.target)
               const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
@@ -843,6 +845,7 @@ export function SettingsCard(props: SettingsCardProps) {
                 </div>
               )
             })}
+            </div>
             {ruleConflict !== null && (
               <span className="kt-warn kt-rule-conflict-msg" role="alert">{ruleConflict}</span>
             )}
