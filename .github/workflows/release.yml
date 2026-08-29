@@ -52,8 +52,12 @@ jobs:
           # --notes-from-tag：附注 tag 消息即 Release 更新说明（发版约定 =
           # git tag -a，消息写更新要点）。2026-08-23 前为固定模板句——Release
           # 页长期只有「构建/测试通过」一行的根因。
+          # 2026-08-29 v1.0.0 发版实测：新版 gh 禁止 --notes-from-tag 与 --repo
+          # 组合（秒败 exit 1）——去掉 --repo（repo 从 checkout origin 推断）；
+          # 且 checkout 只拉 tag 指向的 commit 不拉 tag 对象，gh 读不到附注——
+          # 先补拉 tag 对象再创建。
+          git fetch --no-tags origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
             --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
             --notes-from-tag \
             dsh-kimi-tide-*.tgz
