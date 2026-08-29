@@ -164,9 +164,24 @@ export function TideDock(props: TideDockProps) {
   const quotaRelevant = targetProvider !== null && targetProvider === quotaSource
   const quotaDim = !quotaRelevant || quota === null
   const showValues = quota !== null && quotaRelevant
+  // 评审 P2-10：置灰槽的「—」对读屏是零语义破折号，title 又不可达——
+  // 把原因进 aria-label（仅置灰态；点亮态保留自然文本朗读，避免吞掉剩 N 数字）。
+  const weekTitle = !quotaRelevant
+    ? `周配额仅 kimi 目标适用（当前目标 ${targetProvider ?? '—'}）`
+    : quota === null
+      ? '周配额（取数失败，配额不可用）'
+      : '周配额已用比例'
+  const fiveTitle = !quotaRelevant
+    ? `五小时窗仅 kimi 目标适用（当前目标 ${targetProvider ?? '—'}）`
+    : quota === null
+      ? '五小时窗配额（取数失败，配额不可用）'
+      : '五小时窗已用比例'
+  const clockTitle = quota !== null && quotaRelevant
+    ? `配额取数时间${quota.stale ? '（已过期）' : ''}`
+    : '配额取数时间（当前目标不适用 kimi 限额）'
 
   return (
-    <div className="kimi-tide-dock kt-dock-b" ref={dockRef}>
+    <div className="kimi-tide-dock kt-dock-b" ref={dockRef} role="region" aria-label="月汐路由状态">
       {/* ⑥-B 第一行（锁单行）：身份 + 路由链（预设 → 打底 ⟶ 决策目标）+ 右贴决策开关。
           决策原因不进文本流（只在开关 title 与悬浮面板），长原因不再把 r1 挤换行。 */}
       <div className="kt-dock-r1">
@@ -238,13 +253,8 @@ export function TideDock(props: TideDockProps) {
       <div className="kt-dock-r2">
         <span
           className={`kt-slot kt-quota-slot ${pctClass(weekUsedPct)}${quotaDim ? ' kt-dim' : ''}`}
-          title={
-            !quotaRelevant
-              ? `周配额仅 kimi 目标适用（当前目标 ${targetProvider ?? '—'}）`
-              : quota === null
-                ? '周配额（取数失败，配额不可用）'
-                : '周配额已用比例'
-          }
+          title={weekTitle}
+          aria-label={quotaDim ? weekTitle : undefined}
         >
           <Icon name="calendar" className="kt-ic-calendar" /> 周{' '}
           {showValues ? (
@@ -259,13 +269,8 @@ export function TideDock(props: TideDockProps) {
 
         <span
           className={`kt-slot kt-quota-slot ${pctClass(fiveUsedPct)}${quotaDim ? ' kt-dim' : ''}`}
-          title={
-            !quotaRelevant
-              ? `五小时窗仅 kimi 目标适用（当前目标 ${targetProvider ?? '—'}）`
-              : quota === null
-                ? '五小时窗配额（取数失败，配额不可用）'
-                : '五小时窗已用比例'
-          }
+          title={fiveTitle}
+          aria-label={quotaDim ? fiveTitle : undefined}
         >
           <Icon name="gauge" className="kt-ic-gauge" /> 5h{' '}
           {showValues ? (
@@ -292,11 +297,8 @@ export function TideDock(props: TideDockProps) {
         <span className="kt-dock-r2-end">
           <span
             className={`kt-slot kt-h${quotaDim ? ' kt-dim' : ''}`}
-            title={
-              quota !== null && quotaRelevant
-                ? `配额取数时间${quota.stale ? '（已过期）' : ''}`
-                : '配额取数时间（当前目标不适用 kimi 限额）'
-            }
+            title={clockTitle}
+            aria-label={quotaDim ? clockTitle : undefined}
           >
             <Icon name="clock" className="kt-ic-clock" />{' '}
             {quota !== null && quotaRelevant

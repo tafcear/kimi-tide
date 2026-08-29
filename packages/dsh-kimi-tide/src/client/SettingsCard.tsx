@@ -192,7 +192,7 @@ function EffortSelect(props: {
   const stored = props.value !== undefined && !known
   return (
     <select
-      aria-label={`effort ${props.label}`}
+      aria-label={props.label}
       value={known || stored ? props.value! : ''}
       disabled={props.disabled || options.length === 0}
       onChange={(e) => props.onChange(e.target.value === '' ? undefined : e.target.value)}
@@ -734,7 +734,7 @@ export function SettingsCard(props: SettingsCardProps) {
             />
             {/* 切换默认模型天然清空 effort（parseTarget 不产 effort 字段，D3 UI 语义） */}
             <EffortSelect
-              label="默认模型"
+              label="默认模型 · 档位"
               value={active.default.effort}
               options={effortsOf(active.default)}
               disabled={!writable}
@@ -773,7 +773,8 @@ export function SettingsCard(props: SettingsCardProps) {
             )}
             {/* ⑥-B 打磨三修订：单一表格容器共享列轨（行用 subgrid），表头与数据列对齐。 */}
             <div className="kt-rule-table">
-              <div className="kt-rule-grid kt-rule-head" aria-hidden="true">
+              {/* 评审 P2-6：表头不再 aria-hidden——列头进入可访问树（读屏可听列名）。 */}
+            <div className="kt-rule-grid kt-rule-head">
                 <span>#</span>
                 <span>条件</span>
                 <span>目标</span>
@@ -789,7 +790,7 @@ export function SettingsCard(props: SettingsCardProps) {
                   <span className="kt-rule-no">{index + 1}</span>
                   <span className="kt-cond">
                     <select
-                      aria-label="条件"
+                      aria-label={`第 ${index + 1} 条 · 条件`}
                       value={conditionValue(rule)}
                       disabled={!writable}
                       onChange={(e) => {
@@ -813,7 +814,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     {rule.when.kind === 'keywords' && (
                       <>
                         <input
-                          aria-label="最少命中词数"
+                          aria-label={`第 ${index + 1} 条 · 最少命中词数`}
                           title="最少命中词数：≥N 个词同时命中才触发"
                           className="kt-minhits"
                           type="number"
@@ -836,7 +837,7 @@ export function SettingsCard(props: SettingsCardProps) {
                   </span>
                   <span className="kt-cell">
                     <TargetSelect
-                      label="目标"
+                      label={`第 ${index + 1} 条 · 目标`}
                       value={targetKey}
                       options={modelOptions}
                       flowOptions={transcribeFlowOptions}
@@ -849,7 +850,7 @@ export function SettingsCard(props: SettingsCardProps) {
                   <span className="kt-cell">
                     {!isFlowTarget(rule.target) ? (
                       <EffortSelect
-                        label={rule.id}
+                        label={`第 ${index + 1} 条 · 档位`}
                         value={rule.target.effort}
                         options={effortsOf(rule.target)}
                         disabled={!writable}
@@ -868,7 +869,7 @@ export function SettingsCard(props: SettingsCardProps) {
                   <span className="kt-ops">
                     <button
                       type="button"
-                      aria-label="上移"
+                      aria-label={`第 ${index + 1} 条 · 上移`}
                       disabled={!writable || index === 0}
                       onClick={() => moveRule(index, -1)}
                     >
@@ -876,7 +877,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     </button>
                     <button
                       type="button"
-                      aria-label="下移"
+                      aria-label={`第 ${index + 1} 条 · 下移`}
                       disabled={!writable || index === active.rules.length - 1}
                       onClick={() => moveRule(index, 1)}
                     >
@@ -884,7 +885,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     </button>
                     <button
                       type="button"
-                      aria-label="删除规则"
+                      aria-label={`第 ${index + 1} 条 · 删除规则`}
                       disabled={!writable}
                       onClick={() => removeRule(index)}
                     >

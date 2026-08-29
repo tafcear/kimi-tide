@@ -90,6 +90,21 @@ describe('TideDock 决策入口常驻（评审 P2-12）', () => {
   })
 })
 
+describe('TideDock a11y 批次3（评审 P2-9/10）', () => {
+  it('P2-9 dock 带 region 地标语义（读屏可按地标直达）', () => {
+    const html = render(makePanel())
+    // Fails if: dock 根退回无角色裸 div（8 个 StaticText 平铺无法分节）
+    expect(html).toContain('role="region"')
+    expect(html).toContain('月汐路由状态')
+  })
+
+  it('P2-10 额度槽置灰时把「不适用」原因进 aria-label（不再是无语义「—」）', () => {
+    const html = render(makePanel()) // decision=null → 非 kimi 目标 → 槽位置灰
+    // Fails if: 置灰槽退回裸「—」无 aria-label（读屏听到零语义破折号）
+    expect(html).toContain('aria-label="周配额仅 kimi 目标适用（当前目标 deepseek-official）"')
+  })
+})
+
 describe('TideDock ⑥-B 两行布局', () => {
   it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
     const html = render(makePanel({

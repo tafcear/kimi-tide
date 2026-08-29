@@ -278,6 +278,75 @@ describe('SettingsCard 评审修复批次2（2026-08-29）', () => {
   })
 })
 
+describe('SettingsCard a11y 批次3（2026-08-29 评审 P2-6/7/8）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  /** 两条例子规则（带图 + 关键词组 minHits=2），覆盖全部行控件形态。 */
+  const readyWithRules = () => {
+    const snap = readySnapshot()
+    snap.config = {
+      ...snap.config,
+      keywordGroups: { code: ['pytest'] },
+      presets: {
+        ...snap.config.presets,
+        saving: {
+          ...snap.config.presets.saving,
+          rules: [
+            { id: 'rule-1', when: { kind: 'image' }, target: { provider: 'zai-coding-cn', model: 'glm-5.3-flash' } },
+            { id: 'rule-2', when: { kind: 'keywords', group: 'code', minHits: 2 }, target: { provider: 'kimi-coding', model: 'k3' } },
+          ],
+        },
+      },
+    } as typeof snap.config
+    return snap
+  }
+
+  const mountReady = async (): Promise<void> => {
+    const { store, publish } = makeDeferredStore()
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => { publish(readyWithRules()) })
+  }
+
+  it('P2-6 表头不再 aria-hidden（列头进入可访问树）', async () => {
+    await mountReady()
+    const head = container.querySelector('.kt-rule-head')!
+    expect(head).not.toBeNull()
+    // Fails if: 表头恢复 aria-hidden="true"（读屏听不到列头，行列关系全靠猜）
+    expect(head.getAttribute('aria-hidden')).toBeNull()
+    expect(head.textContent).toContain('条件')
+  })
+
+  it('P2-7/8 行控件可访问名带序号，effort 不再泄漏内部规则 id', async () => {
+    await mountReady()
+    // Fails if: accName 退回裸「条件/目标」或「effort rule-2」（9 行同名/内部 id 行话）
+    expect(container.querySelector('select[aria-label="第 1 条 · 条件"]')).not.toBeNull()
+    expect(container.querySelector('select[aria-label="第 2 条 · 目标"]')).not.toBeNull()
+    expect(container.querySelector('input[aria-label="第 2 条 · 最少命中词数"]')).not.toBeNull()
+    expect(container.querySelector('select[aria-label="第 2 条 · 档位"]')).not.toBeNull()
+    expect(container.querySelector('button[aria-label="第 2 条 · 删除规则"]')).not.toBeNull()
+    expect(container.querySelector('button[aria-label="第 1 条 · 上移"]')).not.toBeNull()
+    expect(container.querySelector('select[aria-label="effort rule-2"]')).toBeNull()
+  })
+})
+
 describe('SettingsCard 协作流（v5）DOM lifecycle + 交互落盘（Task 11 Step 1）', () => {
   let container: HTMLDivElement
   let root: Root
@@ -344,7 +413,7 @@ describe('SettingsCard 协作流（v5）DOM lifecycle + 交互落盘（Task 11 S
       publish(readyV5Snapshot())
     })
 
-    const select = container.querySelectorAll<HTMLSelectElement>('select[aria-label="目标"]')[0]
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="第 1 条 · 目标"]')
     expect(select).toBeDefined()
     await act(async () => {
       fireSelectChange(select, 'flow:transcribe')
@@ -418,8 +487,8 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
     // Fails if: 回退手风琴堆叠行（无列结构）
     expect(container.querySelector('.kt-rule-head')).not.toBeNull()
     expect(container.querySelectorAll('.kt-rule-grid').length).toBeGreaterThanOrEqual(2)
-    // minHits 输入（aria 钩子）仍在条件列
-    expect(container.querySelector('input[aria-label="最少命中词数"]')).not.toBeNull()
+    // minHits 输入（aria 钩子）仍在条件列（批次3 起可访问名带行号，后缀匹配）
+    expect(container.querySelector('input[aria-label$="最少命中词数"]')).not.toBeNull()
     // 行级「命中 code 组 ≥1 词」摘要随表格化退役（条件列所见即所得，原钉退役）
     expect(container.textContent).not.toContain('命中 code 组 ≥1 词')
   })
@@ -443,11 +512,12 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
       publish(readyV5Snapshot({ efforts: { 'kimi-coding/k3': ['low', 'high', 'max'] } }))
     })
     // saving 预设默认模型 deepseek-v4-flash：未在档位表 → 只渲染禁用「跟随默认」
-    const disabled = container.querySelectorAll<HTMLSelectElement>('select[aria-label="effort 默认模型"]')
+    const disabled = container.querySelectorAll<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
     expect(disabled.length).toBe(1)
     expect(disabled[0].disabled).toBe(true)
     // 规则 image-k3 目标 k3：在档位表 → 可选 low/high/max + 跟随默认
-    const k3 = container.querySelector<HTMLSelectElement>('select[aria-label="effort image-k3"]')
+    const k3 = [...container.querySelectorAll<HTMLSelectElement>('select[aria-label$="· 档位"]')]
+      .find((s) => [...s.options].some((o) => o.value === 'max'))
     expect(k3).not.toBeNull()
     expect([...k3!.options].map((o) => o.value)).toEqual(['', 'low', 'high', 'max'])
   })
@@ -529,7 +599,7 @@ describe('SettingsCard 0.8.x④⑤ effort 显示如实 + catalogScope 刷新', (
     await act(async () => {
       publish(snapshotWithStoredEffort(null))
     })
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="effort 默认模型"]')
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
     expect(select).not.toBeNull()
     // Fails if: EffortSelect 把已存 effort 显示成「跟随默认」——运行期由
     // 支持集判定（effortForTarget），显示层必须如实反映存量值。
@@ -545,7 +615,7 @@ describe('SettingsCard 0.8.x④⑤ effort 显示如实 + catalogScope 刷新', (
     await act(async () => {
       publish(snapshotWithStoredEffort({ 'deepseek-official/deepseek-v4-flash': ['off'] }))
     })
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="effort 默认模型"]')
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
     expect(select).not.toBeNull()
     // Fails if: 存量 effort 不在档位表选项集时被显示层静默吞成「跟随默认」。
     expect(select!.value).toBe('high')
@@ -642,7 +712,7 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
     await act(async () => {
       publish(readyV5Snapshot())
     })
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="最少命中词数"]')
+    const input = container.querySelector<HTMLInputElement>('input[aria-label$="最少命中词数"]')
     expect(input).not.toBeNull()
     await act(async () => {
       fireInput(input!, '0')
