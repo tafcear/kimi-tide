@@ -12,6 +12,7 @@ import { TideDock, tideDockBridge } from './TideDock.js'
 import { SettingsCard } from './SettingsCard.js'
 import { fetchEffortsViaDescribe } from './effort-remote.js'
 import { CLIENT_CSS } from './styles.js'
+import { registerSettingsNavIcon } from './settings-nav-icon.js'
 
 export const inject = ['slots', 'remote', 'remote.commands']
 
@@ -58,6 +59,10 @@ export function apply(ctx: Context): void {
     const t = locale.bind(LOCALE_NS)
     navLabel = () => t('nav')
   }
+
+  // 设置导航图标标记（视觉升级 2026-08-29）：契约无 icon 字段——按文案标记
+  // 自己的导航行，CSS 把宿主默认齿轮换成月汐紫月牙（先例：dsh-better-sidebar）。
+  ctx.effect(() => registerSettingsNavIcon(navLabel))
 
   ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
     name: 'conversation.composer.dock',

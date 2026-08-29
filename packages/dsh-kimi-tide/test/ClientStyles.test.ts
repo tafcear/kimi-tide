@@ -86,4 +86,11 @@ describe('client CSS 结构钉：月汐品牌主题化视觉升级（2026-08-29 
     expect(CLIENT_CSS).toMatch(/\.kt-btn-primary[^}]*--kt-accent/)
     expect(CLIENT_CSS).toMatch(/\.kt-row-image[^}]*--kt-accent-soft/)
   })
+
+  it('设置导航图标标记 CSS：标记行藏齿轮 + 月牙 mask 注入', () => {
+    // Fails if: 标记选择器或月牙 mask 被删（导航行退回宿主默认齿轮）
+    expect(CLIENT_CSS).toContain('[data-kimi-tide-settings-nav] svg { display: none')
+    expect(CLIENT_CSS).toContain('[data-kimi-tide-settings-nav]::before')
+    expect(CLIENT_CSS).toContain('mask: url("data:image/svg+xml')
+  })
 })

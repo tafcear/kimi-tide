@@ -159,6 +159,14 @@ export const CLIENT_CSS = `
     .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs) { display: none; }
     .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--kt-accent-strong); }
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
+    /* 设置导航图标标记：契约无 icon 字段——按文案标记自己的行后，
+       CSS 把宿主默认齿轮换成月汐紫月牙（先例：dsh-better-sidebar）。
+       导航行在宿主设置对话框内，不在本插件作用域——accent 走回退值 */
+    [data-kimi-tide-settings-nav] svg { display: none; }
+    [data-kimi-tide-settings-nav]::before { content: ''; width: 16px; height: 16px; flex: none;
+      background: var(--kt-accent, #8b6ff4);
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z'/%3E%3C/svg%3E") center / contain no-repeat;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z'/%3E%3C/svg%3E") center / contain no-repeat; }
     /* ---- ⑥-B dock 两行（2026-08-29 打磨：骨架恒定）---- */
     .kimi-tide-dock.kt-dock-b { flex-direction: column; align-items: stretch; row-gap: 4px; }
     /* r1 锁单行：决策原因不进文本流（在开关 title 里），长原因不再挤换行 */
