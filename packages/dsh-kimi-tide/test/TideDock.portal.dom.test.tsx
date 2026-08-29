@@ -145,4 +145,14 @@ describe('TideDock 决策面板 portal 悬浮层', () => {
     expect(pop.style.top).toBe('66px') // rect.bottom + 6
     expect(pop.style.bottom).toBe('')
   })
+
+  it('无决策也可展开面板：显示空态解释而非无面板（评审 P2-12）', async () => {
+    await mount(makePanel({ decision: null }))
+    const toggle = container.querySelector('.kt-decision-toggle')!
+    await act(() => { toggle.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    const pop = document.querySelector('.kt-dock-pop')
+    // Fails if: portal 恢复 decision!==null 门控（空态解释成死代码，用户零入口）
+    expect(pop).not.toBeNull()
+    expect(pop!.textContent).toContain('暂无本步决策')
+  })
 })

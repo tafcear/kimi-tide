@@ -214,20 +214,23 @@ export function TideDock(props: TideDockProps) {
           </span>
         )}
 
-        {panel.decision !== null && (
-          <span className="kt-dock-r1-end">
-            <button
-              type="button"
-              ref={toggleRef}
-              className="kt-decision-chip kt-decision-toggle"
-              title={`${expanded ? '收起' : '展开'}决策可观测：${panel.decision.reason}`}
-              aria-expanded={expanded}
-              onClick={toggleExpand}
-            >
-              {expanded ? '▾' : '▸'} <Icon name="compass" className="kt-ic-compass" /> 决策
-            </button>
-          </span>
-        )}
+        {/* 评审 P2-12（2026-08-29）：开关常驻——无决策时面板走空态解释分支，
+            消除「为什么没有决策」的可观测性空窗（原 decision!==null 门控使
+            空态文案成死代码）。 */}
+        <span className="kt-dock-r1-end">
+          <button
+            type="button"
+            ref={toggleRef}
+            className="kt-decision-chip kt-decision-toggle"
+            title={panel.decision === null
+              ? `${expanded ? '收起' : '展开'}决策可观测（本步无决策）`
+              : `${expanded ? '收起' : '展开'}决策可观测：${panel.decision.reason}`}
+            aria-expanded={expanded}
+            onClick={toggleExpand}
+          >
+            {expanded ? '▾' : '▸'} <Icon name="compass" className="kt-ic-compass" /> 决策
+          </button>
+        </span>
       </div>
 
       {/* ⑥-B 第二行（槽位常驻）：左=额度槽×2 + 图像上下文；右贴=取数时间 + 刷新。
@@ -312,8 +315,9 @@ export function TideDock(props: TideDockProps) {
         </span>
       </div>
 
-      {/* 决策可观测面板：portal 到 body 的悬浮层（fixed 定位），开合零推挤。 */}
-      {expanded && panel.decision !== null && createPortal(
+      {/* 决策可观测面板：portal 到 body 的悬浮层（fixed 定位），开合零推挤。
+          评审 P2-12：无决策也渲染——ReasonPanel 空态分支解释「暂无本步决策」。 */}
+      {expanded && createPortal(
         <div
           className="kt-dock-pop"
           ref={popRef}

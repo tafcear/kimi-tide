@@ -113,8 +113,11 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-tab-on { background: var(--dsw-alias-interactive-bg-hover-accent, rgba(77,107,254,.12));
       color: var(--dsw-alias-brand-primary, #4d6bfe); border-color: currentColor; font-weight: 600; }
     .kimi-tide-settings[data-tab='route'] > .kt-trial, .kimi-tide-settings[data-tab='route'] > .kt-flows,
-    .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs),
+    /* 评审 P2-5：错误横幅任何页签可见（此前被 flows 页签的 :not 链藏住） */
+    .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs):not(.kt-error),
     .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs) { display: none; }
+    .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     /* ---- ⑥-B dock 两行（2026-08-29 打磨：骨架恒定）---- */
     .kimi-tide-dock.kt-dock-b { flex-direction: column; align-items: stretch; row-gap: 4px; }
     /* r1 锁单行：决策原因不进文本流（在开关 title 里），长原因不再挤换行 */

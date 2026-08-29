@@ -25,7 +25,7 @@
  * 「按当前激活预设」与「仅文本探针」偏差声明）；目标旁 EffortSelect 下拉
  * （选项 = 宿主档位表 snapshot.efforts，未声明档位 → 禁用「跟随默认」）。
  */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
@@ -215,10 +215,20 @@ function KeywordGroupRow(props: {
   onDelete: () => void
 }) {
   const [draft, setDraft] = useState(() => props.words.join('\n'))
+  // 评审 P2-4（2026-08-29）：草稿仅挂载时初始化 → 外部推送（他端/他 agent 改
+  // 词表）后失焦会用旧草稿整段覆盖新值 = 静默丢修改。joined 变化且本行
+  // textarea 未聚焦时重同步；聚焦中不打断编辑（失焦保存本地草稿仍是既有语义）。
+  const joined = props.words.join('\n')
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    if (document.activeElement !== taRef.current) setDraft(joined)
+    // draft 不入依赖：仅在权威词表变化时重同步，用户击键不触发。
+  }, [joined])
   return (
     <div className="kt-group-row">
       <span className="kt-field-label">{props.name}</span>
       <textarea
+        ref={taRef}
         aria-label={`${props.name} 词表`}
         disabled={!props.writable}
         value={draft}
@@ -420,6 +430,44 @@ export function SettingsCard(props: SettingsCardProps) {
   const [activeTab, setActiveTab] = useState<'route' | 'flows' | 'trial'>('route')
   // ⑥-B 打磨三（2026-08-29）：规则条件互斥——编辑产生新重复时保存被阻止的提示。
   const [ruleConflict, setRuleConflict] = useState<string | null>(null)
+  // 评审 P2-2（2026-08-29）：删除预设两步确认——首击武装（3 秒自动解除），再击才删。
+  const [deleteArmed, setDeleteArmed] = useState(false)
+  useEffect(() => {
+    if (!deleteArmed) return
+    const timer = window.setTimeout(() => setDeleteArmed(false), 3000)
+    return () => window.clearTimeout(timer)
+  }, [deleteArmed])
+  // 评审 P2-3：保存反馈——写路径全部经 storeWriter（下方包装），落盘即闪「已保存」。
+  const [savedFlash, setSavedFlash] = useState(false)
+  const flashTimer = useRef<number | undefined>(undefined)
+  // 写方法包装器：flash 后透传原方法（读路径 load/subscribe/getSnapshot 不包装）。
+  // 反馈在点击时刻亮起（写为异步，失败仍经 snapshot.error 上浮展示）。
+  const storeWriter = useMemo(() => {
+    const flash = (): void => {
+      setSavedFlash(true)
+      if (flashTimer.current !== undefined) window.clearTimeout(flashTimer.current)
+      flashTimer.current = window.setTimeout(() => setSavedFlash(false), 1600)
+    }
+    const wrap = <K extends keyof CardStore>(key: K): CardStore[K] =>
+      ((...args: unknown[]) => {
+        flash()
+        return (store[key] as (...a: unknown[]) => Promise<unknown>)(...args)
+      }) as CardStore[K]
+    return {
+      ...store,
+      saveTop: wrap('saveTop'),
+      saveActivePreset: wrap('saveActivePreset'),
+      savePreset: wrap('savePreset'),
+      createPreset: wrap('createPreset'),
+      deletePreset: wrap('deletePreset'),
+      saveKeywordGroups: wrap('saveKeywordGroups'),
+      saveFlows: wrap('saveFlows'),
+      deleteFlow: wrap('deleteFlow'),
+      resetField: wrap('resetField'),
+    }
+    // store 由 useState 惰性初始化，实例恒定；flash 闭包稳定。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (config === null) {
     // 现状不可用态原样保留。
@@ -501,7 +549,7 @@ export function SettingsCard(props: SettingsCardProps) {
   const updateRules = (presetId: string, rules: RouterRule[]): void => {
     const preset = config.presets[presetId]
     if (preset === undefined) return
-    void store.savePreset(presetId, { ...preset, rules })
+    void storeWriter.savePreset(presetId, { ...preset, rules })
   }
 
   // ⑥-B 打磨三（2026-08-29）：条件互斥——同条件（带图 / 同组同 minHits）规则
@@ -579,17 +627,17 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const saveDefault = (value: string): void => {
     if (activeId === null || active === null) return
-    void store.savePreset(activeId, { ...active, default: parseTarget(value) })
+    void storeWriter.savePreset(activeId, { ...active, default: parseTarget(value) })
   }
 
   const saveImageFallback = (value: ImageFallback): void => {
     if (activeId === null || active === null) return
-    void store.savePreset(activeId, { ...active, imageFallback: value })
+    void storeWriter.savePreset(activeId, { ...active, imageFallback: value })
   }
 
   const saveImageFallbackFlow = (flowId: string): void => {
     if (activeId === null || active === null) return
-    void store.savePreset(activeId, { ...active, imageFallbackFlow: flowId })
+    void storeWriter.savePreset(activeId, { ...active, imageFallbackFlow: flowId })
   }
 
   const createPreset = (): void => {
@@ -599,25 +647,25 @@ export function SettingsCard(props: SettingsCardProps) {
       ?? (modelOptions.length > 0
         ? parseTarget(modelOptions[0])
         : { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
-    void store.createPreset(id, { name: name !== '' ? name : id, default: fallbackDefault, rules: [] })
+    void storeWriter.createPreset(id, { name: name !== '' ? name : id, default: fallbackDefault, rules: [] })
     setNewPresetName('')
   }
 
   const duplicateActive = (): void => {
     if (activeId === null || active === null) return
     const name = `${active.name} 副本`
-    void store.createPreset(presetSlug(name, config.presets), { ...active, name, rules: [...active.rules] })
+    void storeWriter.createPreset(presetSlug(name, config.presets), { ...active, name, rules: [...active.rules] })
   }
 
   const deleteActive = (): void => {
     if (activeId === null) return
-    void store.deletePreset(activeId)
+    void storeWriter.deletePreset(activeId)
   }
 
   const addGroup = (): void => {
     const name = newGroupName.trim()
     if (name === '' || Object.hasOwn(config.keywordGroups, name)) return
-    void store.saveKeywordGroups({ ...config.keywordGroups, [name]: [] })
+    void storeWriter.saveKeywordGroups({ ...config.keywordGroups, [name]: [] })
     setNewGroupName('')
   }
 
@@ -637,7 +685,8 @@ export function SettingsCard(props: SettingsCardProps) {
           className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('trial')}>测试场</button>
       </div>
-      {snapshot.error !== null && <span className="kt-warn">⚠️ {snapshot.error}</span>}
+      {snapshot.error !== null && <span className="kt-warn kt-error" role="alert">⚠️ {snapshot.error}</span>}
+      {savedFlash && <span className="kt-saved" role="status">已保存</span>}
 
       {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
       <div className="kt-preset-row">
@@ -648,7 +697,7 @@ export function SettingsCard(props: SettingsCardProps) {
           disabled={!writable}
           onClick={() => {
             setRuleConflict(null)
-            void store.saveActivePreset(null)
+            void storeWriter.saveActivePreset(null)
           }}
         >
           关闭
@@ -662,7 +711,7 @@ export function SettingsCard(props: SettingsCardProps) {
             disabled={!writable}
             onClick={() => {
               setRuleConflict(null)
-              void store.saveActivePreset(id)
+              void storeWriter.saveActivePreset(id)
             }}
           >
             {preset.name}
@@ -693,7 +742,7 @@ export function SettingsCard(props: SettingsCardProps) {
                 const next: RouteTarget = effort === undefined
                   ? { provider: active.default.provider, model: active.default.model }
                   : { ...active.default, effort }
-                void store.savePreset(activeId, { ...active, default: next })
+                void storeWriter.savePreset(activeId, { ...active, default: next })
               }}
             />
           </label>
@@ -912,7 +961,23 @@ export function SettingsCard(props: SettingsCardProps) {
         {active !== null && (
           <>
             <button type="button" disabled={!canManagePresets} onClick={duplicateActive}>复制</button>
-            <button type="button" disabled={!canManagePresets} onClick={deleteActive}>删除</button>
+            {/* 评审 P2-2：删除预设连全部规则——两步确认（3 秒自动解除）。 */}
+            <button
+              type="button"
+              className={deleteArmed ? 'kt-danger' : undefined}
+              disabled={!canManagePresets}
+              title={deleteArmed ? '再次点击确认删除（3 秒内有效）' : undefined}
+              onClick={() => {
+                if (!deleteArmed) {
+                  setDeleteArmed(true)
+                  return
+                }
+                setDeleteArmed(false)
+                deleteActive()
+              }}
+            >
+              {deleteArmed ? '确认删除？' : '删除'}
+            </button>
           </>
         )}
       </div>
@@ -965,8 +1030,8 @@ export function SettingsCard(props: SettingsCardProps) {
             name={name}
             words={config.keywordGroups[name]}
             writable={writable}
-            onSave={(words) => void store.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
-            onDelete={() => void store.saveKeywordGroups(omitKey(config.keywordGroups, name))}
+            onSave={(words) => void storeWriter.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
+            onDelete={() => void storeWriter.saveKeywordGroups(omitKey(config.keywordGroups, name))}
           />
         ))}
         <div className="kt-row">
@@ -1004,8 +1069,8 @@ export function SettingsCard(props: SettingsCardProps) {
               availability={availability}
               groupNames={groupNames}
               effortsOf={effortsOf}
-              onSave={(next) => void store.saveFlows({ ...flows, [flowId]: next })}
-              onDelete={() => void store.deleteFlow(flowId)}
+              onSave={(next) => void storeWriter.saveFlows({ ...flows, [flowId]: next })}
+              onDelete={() => void storeWriter.deleteFlow(flowId)}
             />
           ))}
           {/* 0.6.x池#7：新建流入口——预置流同型模板 + presetSlug 去重后缀。 */}
@@ -1034,7 +1099,7 @@ export function SettingsCard(props: SettingsCardProps) {
               title="按所选类型用预置流默认参数创建（id 冲突自动 -2 后缀）；创建后可在各行内改参数"
               onClick={() => {
                 const id = presetSlug(newFlowId.trim(), flows)
-                void store.saveFlows({ ...flows, [id]: { ...DEFAULT_FLOWS()[newFlowType] } })
+                void storeWriter.saveFlows({ ...flows, [id]: { ...DEFAULT_FLOWS()[newFlowType] } })
                 setNewFlowId('')
               }}
             >

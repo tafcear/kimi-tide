@@ -82,6 +82,14 @@ describe('TideDock 未接入指引文案（评审 P2-11）', () => {
   })
 })
 
+describe('TideDock 决策入口常驻（评审 P2-12）', () => {
+  it('无决策时「决策」开关仍渲染（可观测入口不再随 decision===null 消失）', () => {
+    const html = render(makePanel())
+    // Fails if: 开关恢复 decision!==null 门控（无决策时用户零入口，空态解释成死代码）
+    expect(html).toContain('kt-decision-toggle')
+  })
+})
+
 describe('TideDock ⑥-B 两行布局', () => {
   it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
     const html = render(makePanel({

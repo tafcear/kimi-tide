@@ -38,4 +38,9 @@ describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
     expect(CLIENT_CSS).toMatch(/\.kt-dock-pop \.kt-reason \{[^}]*border-top:\s*none/)
     expect(CLIENT_CSS).toMatch(/\.kt-dock-pop \.kt-reason \{[^}]*padding:\s*0/)
   })
+
+  it("flows 页签隐藏选择器豁免 .kt-error（错误横幅任何页签可见，评审 P2-5）", () => {
+    // Fails if: 选择器退回 :not(.kt-flows):not(.kt-tabs)（错误横幅在协作流页签被 display:none 藏住）
+    expect(CLIENT_CSS).toMatch(/data-tab='flows'\] > :not\(\.kt-flows\):not\(\.kt-tabs\):not\(\.kt-error\)/)
+  })
 })

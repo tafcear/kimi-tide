@@ -175,6 +175,109 @@ describe('SettingsCard DOM lifecycle', () => {
   })
 })
 
+describe('SettingsCard 评审修复批次2（2026-08-29）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  const buttonByText = (text: string): HTMLButtonElement =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent === text)!
+
+  it('P2-2 删除预设两步确认：首击仅武装提示，再击才落盘', async () => {
+    const deletePreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ deletePreset })
+    await mount(store)
+    await act(async () => { publish(readySnapshot()) })
+    // 规则行删除按钮可见文本同样是「删除」——限定预设操作行容器
+    const del = [...container.querySelectorAll('.kt-preset-ops button')].find((b) => b.textContent === '删除')!
+    await act(async () => { del.click() })
+    // Fails if: 一击即删（删除预设连全部规则，零确认）
+    expect(deletePreset).not.toHaveBeenCalled()
+    expect(del.textContent).toContain('确认删除')
+    await act(async () => { del.click() })
+    expect(deletePreset).toHaveBeenCalledTimes(1)
+    expect(deletePreset).toHaveBeenCalledWith('saving')
+  })
+
+  it('P2-2 武装态 3 秒自动解除（误击窗口有限）', async () => {
+    // 真实定时器等待（fake timers 与 React 调度器相互打架，2026-08-29 实测）：
+    // 3.2 秒 > 3 秒解除阈值，确定性换速度。
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readySnapshot()) })
+    const del = [...container.querySelectorAll('.kt-preset-ops button')].find((b) => b.textContent === '删除')!
+    await act(async () => { del.click() })
+    expect(del.textContent).toContain('确认删除')
+    await act(async () => {
+      await new Promise((resolve) => { setTimeout(resolve, 3200) })
+    })
+    // Fails if: 武装态无超时解除
+    expect(del.textContent).toBe('删除')
+  })
+
+  it('P2-3 改动落盘后出现「已保存」反馈', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readySnapshot()) })
+    await act(async () => { buttonByText('省钱').click() })
+    // Fails if: 即改即存仍无任何可见反馈（误改不可感知）
+    expect(container.textContent).toContain('已保存')
+  })
+
+  it('P2-4 关键词组外部推送重同步草稿（未聚焦时）；聚焦中不打断编辑', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    const snap = readyV5Snapshot()
+    snap.config = { ...snap.config, keywordGroups: { alpha: ['a1'], beta: ['b1'] } }
+    await act(async () => { publish(snap) })
+    const ta = container.querySelector('textarea') as HTMLTextAreaElement
+    expect(ta.value).toContain('a1')
+    const republish = (groups: Record<string, string[]>) => {
+      const next = readyV5Snapshot()
+      next.config = { ...next.config, keywordGroups: groups }
+      return act(async () => { publish(next) })
+    }
+    await republish({ alpha: ['a1', 'a2'], beta: ['b1'] })
+    // Fails if: draft 恢复仅挂载初始化（外部新值会被旧草稿覆盖丢失）
+    expect(ta.value).toContain('a2')
+    ta.focus()
+    await republish({ alpha: ['a9'], beta: ['b1'] })
+    // 聚焦中 → 不打断编辑
+    expect(ta.value).toContain('a2')
+    expect(ta.value).not.toContain('a9')
+  })
+
+  it('P2-5 错误横幅带 kt-error 类（协作流页签白名单豁免的结构锚点）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish({ ...readySnapshot(), error: 'boom' }) })
+    const err = container.querySelector('.kt-error')
+    // Fails if: 错误横幅不加 kt-error 类（协作流页签 display:none 藏住错误）
+    expect(err).not.toBeNull()
+    expect(err!.textContent).toContain('boom')
+  })
+})
+
 describe('SettingsCard 协作流（v5）DOM lifecycle + 交互落盘（Task 11 Step 1）', () => {
   let container: HTMLDivElement
   let root: Root
