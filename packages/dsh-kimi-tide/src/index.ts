@@ -41,6 +41,7 @@ import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
+import { ZAI_QUOTA_URL, parseZaiQuota } from './zai-usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
 import { buildEffortCatalog, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
@@ -293,23 +294,29 @@ export function apply(ctx: Context, config: Config = {}) {
   // 0.4.x：零接入层——Kimi 模型经 settings.yaml 的 llm-pi-ai.providers.kimi-coding
   // 路由（官方 Models 页维护）进 DSH LLM 注册表。本插件只负责读该路由的
   // apiKeyEnv 引用名并解析 key（配额轮询用），永不触碰密钥本体。
-  const kimiApiKeyEnv = (): string => {
+  // 多 plan 配额（2026-08-29 用户裁定）：解析器按 provider 泛化——每个 pi-ai
+  // code plan 一个配额监控源。
+  const providerApiKeyEnv = (providerId: string, fallbackEnv: string): string => {
     const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
     const section = settings?.get?.('llm-pi-ai') as { providers?: Record<string, { apiKeyEnv?: string }> } | undefined
-    return section?.providers?.['kimi-coding']?.apiKeyEnv ?? 'KIMI_API_KEY'
+    return section?.providers?.[providerId]?.apiKeyEnv ?? fallbackEnv
   }
-  const resolveKey = async (): Promise<string | null> => {
-    const env = kimiApiKeyEnv()
-    const credentials = ctx.get('credentials') as { resolve?: (ref: string) => Promise<{ value: string } | undefined> } | undefined
-    if (typeof credentials?.resolve === 'function') {
-      try {
-        const resolved = await credentials.resolve(env)
-        if (resolved !== undefined && resolved.value.length > 0) return resolved.value
-      } catch { /* 落到 env 兜底 */ }
+  const resolveProviderKey = (providerId: string, fallbackEnv: string): (() => Promise<string | null>) => {
+    return async (): Promise<string | null> => {
+      const env = providerApiKeyEnv(providerId, fallbackEnv)
+      const credentials = ctx.get('credentials') as { resolve?: (ref: string) => Promise<{ value: string } | undefined> } | undefined
+      if (typeof credentials?.resolve === 'function') {
+        try {
+          const resolved = await credentials.resolve(env)
+          if (resolved !== undefined && resolved.value.length > 0) return resolved.value
+        } catch { /* 落到 env 兜底 */ }
+      }
+      const fromEnv = process.env[env]
+      return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
     }
-    const fromEnv = process.env[env]
-    return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
   }
+  const resolveKey = resolveProviderKey('kimi-coding', 'KIMI_API_KEY')
+  const resolveZaiKey = resolveProviderKey('zai-coding-cn', 'ZAI_API_KEY')
 
   // 0.4.x 二态接入指示：路由注册 + key 可解析。缺任一 → 面板显示配置指引
   // （spec §3.5/验收 5）。刷新触发：启动、llm/adapters-updated、设置文档变化
@@ -338,6 +345,16 @@ export function apply(ctx: Context, config: Config = {}) {
       void refreshKimiStatus()
     },
     resolveKey,
+  })
+  // 多 plan 第二源：zai-coding-cn（GLM Coding Plan，api.z.ai 内部用量接口）。
+  const zaiMonitor = new UsageMonitor({
+    pollMs: config.usagePollMs ?? 60_000,
+    onUpdate: () => {
+      pushPanelToAllSessions()
+    },
+    resolveKey: resolveZaiKey,
+    url: ZAI_QUOTA_URL,
+    parse: parseZaiQuota,
   })
 
   // Router persistence (0.4.0): the dsh-settings namespace `kimi-tide-router`
@@ -499,7 +516,10 @@ export function apply(ctx: Context, config: Config = {}) {
 
   registerKimiTideCommands(ctx, {
     sidecar,
-    monitor,
+    // 多 plan 配额（2026-08-29）：refresh 覆盖全部已配源。
+    monitor: {
+      refresh: async () => { await Promise.all([monitor.refresh(), zaiMonitor.refresh()]) },
+    },
     current: () => routerConfig,
     // A getter, not a snapshot: the settings service attaches asynchronously
     // (ctx.inject) and can detach, so the command layer must read the CURRENT
@@ -521,6 +541,11 @@ export function apply(ctx: Context, config: Config = {}) {
       quota: monitor.snapshot().quota,
       // 0.8.x⑨：配额来源标记（dock 按当前路由目标门控渲染限额区）。
       quotaProvider: QUOTA_SOURCE_PROVIDER,
+      // 多 plan 配额（2026-08-29）：provider → 快照 | null（dock 按当前命中目标取）。
+      quotas: {
+        'kimi-coding': monitor.snapshot().quota,
+        'zai-coding-cn': zaiMonitor.snapshot().quota,
+      },
       kimi: kimiStatus,
       router: {
         activePreset: routerConfig.activePreset,
@@ -594,6 +619,7 @@ export function apply(ctx: Context, config: Config = {}) {
   ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/reference-updated', () => {
     void refreshKimiStatus()
     void monitor.refresh()
+    void zaiMonitor.refresh()
   })
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     liveAgents.add(payload.agent)
@@ -736,7 +762,13 @@ export function apply(ctx: Context, config: Config = {}) {
   })
 
   // Quota polling lifecycle.
-  if (config.usagePollOnStart !== false) monitor.start()
-  ctx.effect(() => () => monitor.stop())
+  if (config.usagePollOnStart !== false) {
+    monitor.start()
+    zaiMonitor.start()
+  }
+  ctx.effect(() => () => {
+    monitor.stop()
+    zaiMonitor.stop()
+  })
   ctx.effect(() => () => disposeRouter?.())
 }

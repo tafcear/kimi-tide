@@ -44,6 +44,13 @@ function pctClass(usedPct: number): string {
   return ''
 }
 
+/** 中文短格式（2026-08-29 用户裁定）：zai 周期为亿级 token 计数，不撑爆 dock 行。 */
+export function fmtRemain(n: number): string {
+  if (n >= 1e8) return `${(n / 1e8).toFixed(1)}亿`
+  if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`
+  return String(n)
+}
+
 function fmtClock(ts: number): string {
   if (ts <= 0) return '--:--'
   const d = new Date(ts)
@@ -150,35 +157,49 @@ export function TideDock(props: TideDockProps) {
     )
   }
 
-  const { quota, router, kimi } = panel
+  const { router, kimi } = panel
+  // 多 plan 配额（2026-08-29 用户裁定「所有 code plan 的余额」）：quotas map
+  // 按当前命中目标 provider 取源快照（kimi/zai 自动跟随）；旧载荷（无 map）
+  // 回落 legacy quota+quotaProvider 通道，⑨ 语义不变。
+  // 0.8.x⑨：限额区跟随当前路由目标——末次决策目标优先，回落激活预设默认。
+  // ⑥-B 打磨改语义（用户裁定 2026-08-29）：无数据时槽位仍渲染但置灰「—」
+  // 占位（结构恒定防跳动）。
+  const quotaSourceProvider = panel.quotaProvider ?? 'kimi-coding'
+  const targetProvider = panel.decision?.chosen.provider
+    ?? (router.activePreset !== null ? router.defaultTarget?.provider ?? null : null)
+  const quota = panel.quotas !== undefined
+    ? (targetProvider !== null && Object.hasOwn(panel.quotas, targetProvider)
+        ? panel.quotas[targetProvider] ?? null
+        : null)
+    : targetProvider === quotaSourceProvider ? panel.quota : null
+  // 置灰二态：目标无配额源（不适用）vs 有源但取数失败（配额不可用）——语义分开。
+  const targetHasSource = targetProvider !== null && (
+    panel.quotas !== undefined
+      ? Object.hasOwn(panel.quotas, targetProvider)
+      : targetProvider === quotaSourceProvider)
+  const quotaDim = quota === null
+  const showValues = quota !== null
   const weekUsedPct = quota === null ? 0 : pct(quota.weekly.used, quota.weekly.limit)
   const fiveUsedPct = quota === null ? 0 : pct(quota.fiveHour.used, quota.fiveHour.limit)
   const weekRemain = quota === null ? 0 : Math.max(0, quota.weekly.limit - quota.weekly.used)
   const fiveRemain = quota === null ? 0 : Math.max(0, quota.fiveHour.limit - quota.fiveHour.used)
-  // 0.8.x⑨：限额区跟随当前路由目标——末次决策目标优先，回落激活预设默认。
-  // ⑥-B 打磨改语义（用户裁定 2026-08-29）：非 kimi 目标时槽位仍渲染但置灰
-  // 「—」占位（结构恒定防跳动），数据点亮仅限目标 = 配额来源 provider。
-  const targetProvider = panel.decision?.chosen.provider
-    ?? (router.activePreset !== null ? router.defaultTarget?.provider ?? null : null)
-  const quotaSource = panel.quotaProvider ?? 'kimi-coding'
-  const quotaRelevant = targetProvider !== null && targetProvider === quotaSource
-  const quotaDim = !quotaRelevant || quota === null
-  const showValues = quota !== null && quotaRelevant
   // 评审 P2-10：置灰槽的「—」对读屏是零语义破折号，title 又不可达——
   // 把原因进 aria-label（仅置灰态；点亮态保留自然文本朗读，避免吞掉剩 N 数字）。
-  const weekTitle = !quotaRelevant
-    ? `周配额仅 kimi 目标适用（当前目标 ${targetProvider ?? '—'}）`
-    : quota === null
+  const weekTitle = quota !== null
+    ? '周配额已用比例'
+    : targetHasSource
       ? '周配额（取数失败，配额不可用）'
-      : '周配额已用比例'
-  const fiveTitle = !quotaRelevant
-    ? `五小时窗仅 kimi 目标适用（当前目标 ${targetProvider ?? '—'}）`
-    : quota === null
-      ? '五小时窗配额（取数失败，配额不可用）'
-      : '五小时窗已用比例'
-  const clockTitle = quota !== null && quotaRelevant
+      : `周配额不适用于当前目标（${targetProvider ?? '—'}）`
+  const fiveTitle = quota !== null
+    ? '五小时窗已用比例'
+    : targetHasSource
+      ? '五小时窗（取数失败，配额不可用）'
+      : `五小时窗不适用于当前目标（${targetProvider ?? '—'}）`
+  const clockTitle = quota !== null
     ? `配额取数时间${quota.stale ? '（已过期）' : ''}`
-    : '配额取数时间（当前目标不适用 kimi 限额）'
+    : targetHasSource
+      ? '配额取数时间（取数失败，配额不可用）'
+      : '配额取数时间（当前目标无配额数据）'
 
   return (
     <div className="kimi-tide-dock kt-dock-b" ref={dockRef} role="region" aria-label="月汐路由状态">
@@ -260,7 +281,7 @@ export function TideDock(props: TideDockProps) {
           {showValues ? (
             <>
               <span className="kt-quota-bar"><i style={{ width: `${weekUsedPct}%` }} /></span>
-              剩{weekRemain}
+              剩{fmtRemain(weekRemain)}
             </>
           ) : (
             '—'
@@ -276,7 +297,7 @@ export function TideDock(props: TideDockProps) {
           {showValues ? (
             <>
               <span className="kt-quota-bar"><i style={{ width: `${fiveUsedPct}%` }} /></span>
-              剩{fiveRemain}
+              剩{fmtRemain(fiveRemain)}
             </>
           ) : (
             '—'
@@ -304,7 +325,7 @@ export function TideDock(props: TideDockProps) {
             aria-label={quotaDim ? clockTitle : undefined}
           >
             <Icon name="clock" className="kt-ic-clock" />{' '}
-            {quota !== null && quotaRelevant
+            {showValues
               ? `${fmtClock(quota.fetchedAt)}${quota.stale ? ' (过期)' : ''}`
               : '—'}
           </span>

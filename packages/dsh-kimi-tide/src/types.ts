@@ -73,6 +73,11 @@ export interface KimiTidePanelProjection {
    * 缺席 = 旧载荷（历史唯一来源视同 kimi-coding，向后兼容）。
    */
   quotaProvider?: string
+  /**
+   * 多 plan 配额（2026-08-29 用户裁定）：provider → 快照；null = 已知源但本轮
+   * 无数据（拉取失败/置灰）。缺席 = 旧载荷（客户端回落 legacy quota 通道）。
+   */
+  quotas?: Record<string, QuotaSnapshot | null>
   /** 0.4.x 二态接入指示（spec §3.5/验收 5）：路由已注册 + key 可解析。 */
   kimi: KimiAccessStatus
   /** 0.5.0 路由视图：预设选择 / 预设名 / 默认目标 / 规则数（面板展示）。 */

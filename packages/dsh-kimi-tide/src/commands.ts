@@ -31,7 +31,7 @@ import type { RouterConfigV4, RouterConfigV5 } from './config.js'
 import { coerceRouterConfigV4, coerceRouterConfigV5 } from './migrate.js'
 import type { RouterConfigAny } from './router.js'
 import type { RouterSidecarStore } from './sidecar.js'
-import type { UsageMonitor } from './usage.js'
+import type { SettingsNamespacePort } from './card-store.js'
 
 export type KimiTideCommand =
   | { kind: 'preset'; preset: string | null }
@@ -55,7 +55,8 @@ export interface KimiTideCommandDeps {
   sidecar: RouterSidecarStore
   /** Primary settings namespace; absent/null → fall back to sidecar read/write. */
   settings?: SettingsNamespacePort | null
-  monitor: UsageMonitor
+  /** 配额轮询源（多 plan 2026-08-29：refresh 需覆盖全部已配源，结构化最小面）。 */
+  monitor: { refresh(): Promise<void> }
   current: () => RouterConfigAny
   /** Called after a successful save: rebuild the router + push projection. */
   onSaved: (config: RouterConfigAny) => void
@@ -110,7 +111,7 @@ const HELP_TEXT = [
   '/kimi-tide set activePreset <id|off> — update the active preset',
   '/kimi-tide export-config — print the sidecar YAML',
   '/kimi-tide import-config <path|inline YAML> — load a YAML file OR inline YAML text (panel save channel)',
-  '/kimi-tide refresh — re-poll Kimi quota now',
+  '/kimi-tide refresh — re-poll code plan quotas (kimi/zai) now',
 ].join('\n')
 
 export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideCommandDeps): Promise<string> {

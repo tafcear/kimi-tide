@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { TideDock } from '../src/client/TideDock.js'
+import { fmtRemain, TideDock } from '../src/client/TideDock.js'
 import type { KimiTidePanelProjection } from '../src/types.js'
 
 function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePanelProjection {
@@ -101,7 +101,7 @@ describe('TideDock a11y 批次3（评审 P2-9/10）', () => {
   it('P2-10 额度槽置灰时把「不适用」原因进 aria-label（不再是无语义「—」）', () => {
     const html = render(makePanel()) // decision=null → 非 kimi 目标 → 槽位置灰
     // Fails if: 置灰槽退回裸「—」无 aria-label（读屏听到零语义破折号）
-    expect(html).toContain('aria-label="周配额仅 kimi 目标适用（当前目标 deepseek-official）"')
+    expect(html).toContain('aria-label="周配额不适用于当前目标（deepseek-official）"')
   })
 })
 
@@ -250,5 +250,54 @@ describe('TideDock 图像上下文槽（0.6.x池#1 承继 + 新文案）', () =>
 
   it('imageContext 缺席（无图会话）→ 不渲染图像槽', () => {
     expect(render(makePanel({}))).not.toContain('述')
+  })
+})
+
+describe('多 plan 配额（2026-08-29 用户裁定：跟随目标自动切 + 中文短格式）', () => {
+  const zaiSnap = {
+    weekly: { used: 500000000, limit: 2000000000, resetTime: '2026-02-16T00:00:00.000Z' },
+    fiveHour: { used: 127694464, limit: 800000000, resetTime: '2026-02-09T20:06:42.389Z' },
+    membershipLevel: '',
+    fetchedAt: 1,
+    stale: false,
+  }
+
+  it('fmtRemain 中文短格式：亿/万/原数', () => {
+    // Fails if: 短格式未实现（亿级 token 原样撑爆 dock 行）
+    expect(fmtRemain(672305536)).toBe('6.7亿')
+    expect(fmtRemain(123456)).toBe('12.3万')
+    expect(fmtRemain(999)).toBe('999')
+  })
+
+  it('跟随当前命中目标：zai 决策 → 槽位切到 zai 快照（亿级短格式，不置灰）', () => {
+    const html = visible(render(makePanel({
+      quota: null,
+      quotas: { 'kimi-coding': null, 'zai-coding-cn': zaiSnap },
+      decision: { chosen: { provider: 'zai-coding-cn', model: 'glm-5.3-flash' }, reason: '默认目标' },
+    })))
+    // Fails if: 槽位不随目标切到 quotas[targetProvider]（恒显示 kimi 或恒置灰）
+    expect(html).toContain('剩15.0亿')
+    expect(html).toContain('剩6.7亿')
+    expect(html).not.toContain('kt-dim')
+  })
+
+  it('命中目标无配额源（deepseek）→ 槽位置灰「—」', () => {
+    const html = visible(render(makePanel({
+      quotas: { 'kimi-coding': null, 'zai-coding-cn': zaiSnap },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, reason: '默认目标' },
+    })))
+    // Fails if: 无源 provider 的槽误点亮（读到别的 provider 数据）
+    expect(html).toContain('kt-dim')
+    expect(html).not.toContain('剩6.7亿')
+  })
+
+  it('向后兼容：无 quotas 字段 → 沿用 legacy quota+quotaProvider（⑨ 原语义）', () => {
+    const html = visible(render(makePanel({
+      quota: { weekly: { used: 10, limit: 100, resetTime: 'w' }, fiveHour: { used: 80, limit: 100, resetTime: 'f' }, membershipLevel: 'L1', fetchedAt: 1, stale: false },
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
+    })))
+    expect(html).toContain('剩90')
+    expect(html).not.toContain('kt-dim')
   })
 })
