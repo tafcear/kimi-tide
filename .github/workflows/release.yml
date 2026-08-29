@@ -49,14 +49,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/dsh-kimi-tide
         run: |
-          # --notes-from-tag：附注 tag 消息即 Release 更新说明（发版约定 =
-          # git tag -a，消息写更新要点）。2026-08-23 前为固定模板句——Release
-          # 页长期只有「构建/测试通过」一行的根因。
-          # 2026-08-29 v1.0.0 发版实测两连败：①新版 gh 禁止 --notes-from-tag
-          # 与 --repo 组合——去掉 --repo（repo 从 checkout origin 推断）；
-          # ②checkout 在 tag push 时已随行提供 tag 对象——切勿再 git fetch
-          # 同名 tag（would clobber existing tag 秒败）。
+          # 更新说明 = 附注 tag 消息（发版约定 = git tag -a，消息写更新要点；
+          # 2026-08-23 前为固定模板句——Release 页长期只有「构建/测试通过」
+          # 一行的根因）。v1.0.0 发版实测三坑存档：
+          # ① 新版 gh 禁止 --notes-from-tag 与 --repo 组合——不要带 --repo；
+          # ② actions/checkout 把 tag push 的同名 tag 落成「指向提交的轻量
+          #    tag」（不取附注对象），gh --notes-from-tag 从本地读到的是
+          #    提交消息而非附注——v1.0.0 Release 正文变成 CI 提交消息的根因；
+          # ③ 本地已有同名 tag 后再 git fetch 同名 tag 会报 would clobber
+          #    （对象不同被拒）——所以要拿附注必须 --force 重取 tag 对象。
+          # 因此：--force 取回附注 → 导出附注为 notes 文件 → --notes-file
+          #（不依赖 gh 对本地 tag 状态的任何假设）。
+          git fetch origin tag "$GITHUB_REF_NAME" --force
+          git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > release-notes.md
           gh release create "$GITHUB_REF_NAME" \
             --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
-            --notes-from-tag \
+            --notes-file release-notes.md \
             dsh-kimi-tide-*.tgz
