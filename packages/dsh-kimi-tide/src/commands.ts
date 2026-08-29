@@ -31,7 +31,6 @@ import type { RouterConfigV4, RouterConfigV5 } from './config.js'
 import { coerceRouterConfigV4, coerceRouterConfigV5 } from './migrate.js'
 import type { RouterConfigAny } from './router.js'
 import type { RouterSidecarStore } from './sidecar.js'
-import type { SettingsNamespacePort } from './card-store.js'
 
 export type KimiTideCommand =
   | { kind: 'preset'; preset: string | null }
