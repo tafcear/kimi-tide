@@ -762,24 +762,27 @@ export function SettingsCard(props: SettingsCardProps) {
                       )}
                     </select>
                     {rule.when.kind === 'keywords' && (
-                      <input
-                        aria-label="最少命中词数"
-                        title="≥N 个词同时命中才触发"
-                        className="kt-minhits"
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={rule.when.minHits ?? 1}
-                        disabled={!writable}
-                        onChange={(e) => {
-                          const raw = e.target.value
-                          if (raw === '') return // 清空中间态不写盘（受控值随下次渲染回显）
-                          const n = Math.round(Number(raw))
-                          if (!Number.isInteger(n)) return
-                          // 0.6.x池#c：下限钳制到 1（原界外静默忽略致显示与落盘分叉）。
-                          editActiveRule(index, { when: { ...rule.when, minHits: Math.max(1, n) } })
-                        }}
-                      />
+                      <>
+                        <input
+                          aria-label="最少命中词数"
+                          title="最少命中词数：≥N 个词同时命中才触发"
+                          className="kt-minhits"
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={rule.when.minHits ?? 1}
+                          disabled={!writable}
+                          onChange={(e) => {
+                            const raw = e.target.value
+                            if (raw === '') return // 清空中间态不写盘（受控值随下次渲染回显）
+                            const n = Math.round(Number(raw))
+                            if (!Number.isInteger(n)) return
+                            // 0.6.x池#c：下限钳制到 1（原界外静默忽略致显示与落盘分叉）。
+                            editActiveRule(index, { when: { ...rule.when, minHits: Math.max(1, n) } })
+                          }}
+                        />
+                        <span className="kt-hint" aria-hidden="true">词</span>
+                      </>
                     )}
                   </span>
                   <span className="kt-cell">
