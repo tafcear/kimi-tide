@@ -62,7 +62,11 @@ jobs:
           #（不依赖 gh 对本地 tag 状态的任何假设）。
           git fetch origin tag "$GITHUB_REF_NAME" --force
           git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > release-notes.md
+          # 额外产出稳定名资产（dsh-kimi-tide.tgz）：awesome-dsh-plugin 收录
+          # 条目的 tarball 字段指向 releases/latest/download/ 稳定名链接，
+          # 版本号文件名会在下个发布后 404。
+          cp dsh-kimi-tide-*.tgz dsh-kimi-tide.tgz
           gh release create "$GITHUB_REF_NAME" \
             --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
             --notes-file release-notes.md \
-            dsh-kimi-tide-*.tgz
+            dsh-kimi-tide-*.tgz dsh-kimi-tide.tgz
