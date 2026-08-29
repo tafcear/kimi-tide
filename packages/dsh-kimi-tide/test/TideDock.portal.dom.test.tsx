@@ -165,6 +165,15 @@ describe('TideDock 决策面板 portal 悬浮层', () => {
     expect(pop.textContent).not.toContain('sidecar 文件')
   })
 
+  it('视觉升级：决策开关展开态带 kt-armed（品牌紫强调钩子）', async () => {
+    await mount(makePanel())
+    const toggle = container.querySelector('.kt-decision-toggle')!
+    expect(toggle.classList.contains('kt-armed')).toBe(false)
+    await open()
+    // Fails if: 展开态无 kt-armed 钩子（武装态无法品牌紫化）
+    expect(toggle.classList.contains('kt-armed')).toBe(true)
+  })
+
   it('E-12 命令失败 notice 为 role=status 活动区（读屏播报，非静默插入）', async () => {
     const { tideDockBridge } = await import('../src/client/TideDock.js')
     const original = tideDockBridge.execute

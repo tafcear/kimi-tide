@@ -787,7 +787,7 @@ export function SettingsCard(props: SettingsCardProps) {
               const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
               const conflicted = dupSet.has(rule.id)
               return (
-                <div key={rule.id} className={`kt-rule-grid kt-rule-row${conflicted ? ' kt-conflict' : ''}`}>
+                <div key={rule.id} className={`kt-rule-grid kt-rule-row${conflicted ? ' kt-conflict' : ''}${rule.when.kind === 'image' ? ' kt-row-image' : ''}`}>
                   <span className="kt-rule-no">{index + 1}</span>
                   <span className="kt-cond">
                     <select
@@ -903,7 +903,7 @@ export function SettingsCard(props: SettingsCardProps) {
             {ruleConflict !== null && (
               <span className="kt-warn kt-rule-conflict-msg" role="alert">{ruleConflict}</span>
             )}
-            <button type="button" disabled={!writable} onClick={addRule}>新增规则</button>
+            <button type="button" className="kt-btn-primary" disabled={!writable} onClick={addRule}>新增规则</button>
           </div>
 
           {/* 带图兜底三态（0.6.0，仅 v5）：锁存/盲答/懒转述 + 一句话后果提示；

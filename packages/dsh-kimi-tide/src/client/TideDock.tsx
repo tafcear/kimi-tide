@@ -236,7 +236,7 @@ export function TideDock(props: TideDockProps) {
           <button
             type="button"
             ref={toggleRef}
-            className="kt-decision-chip kt-decision-toggle"
+            className={`kt-decision-chip kt-decision-toggle${expanded ? ' kt-armed' : ''}`}
             title={panel.decision === null
               ? `${expanded ? '收起' : '展开'}决策可观测（本步无决策）`
               : `${expanded ? '收起' : '展开'}决策可观测：${panel.decision.reason}`}

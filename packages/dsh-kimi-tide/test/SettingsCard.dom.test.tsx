@@ -377,6 +377,14 @@ describe('SettingsCard a11y 批次3（2026-08-29 评审 P2-6/7/8）', () => {
     // Fails if: 措辞退回「与前列相同」（列？排名？歧义）
     expect(container.textContent).not.toContain('与前列')
   })
+
+  it('视觉升级 DOM 钩子：新增规则主按钮 kt-btn-primary；带图规则行 kt-row-image', async () => {
+    await mountReady()
+    // Fails if: 新增规则退回幽灵按钮 / 带图行无强调类
+    expect(container.querySelector('button.kt-btn-primary')?.textContent).toBe('新增规则')
+    expect(container.querySelector('.kt-rule-row.kt-row-image')).not.toBeNull()
+    expect(container.querySelectorAll('.kt-rule-row.kt-row-image').length).toBe(1)
+  })
 })
 
 describe('SettingsCard 协作流（v5）DOM lifecycle + 交互落盘（Task 11 Step 1）', () => {

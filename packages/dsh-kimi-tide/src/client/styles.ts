@@ -4,6 +4,15 @@
  * 决策面板 portal 挂 body，布局关键属性必须留在裸选择器上（评审 P1-1）。
  */
 export const CLIENT_CSS = `
+    /* ---- 月汐品牌主题化（2026-08-29 用户裁定）：单一紫 + 透明度派生，
+       alpha 混合天然适配明暗双主题（宿主无主题分支代码，沿用 token 哲学）。
+       注意：决策面板 portal 挂 body——.kt-dock-pop 自带同名变量副本（P1-1 教训）---- */
+    .kimi-tide-dock, .kimi-tide-settings, .kt-dock-pop {
+      --kt-accent: #8b6ff4;
+      --kt-accent-soft: rgb(139 111 244 / 0.14);
+      --kt-accent-line: rgb(139 111 244 / 0.45);
+      --kt-accent-strong: #7c5cf0;
+    }
     /* ---- dock（只读仪表）---- */
     .kimi-tide-dock { display: flex; align-items: center; gap: 10px; font-size: 12px;
       color: var(--dsw-alias-label-tertiary, #8b93a7); flex-wrap: wrap; }
@@ -12,7 +21,10 @@ export const CLIENT_CSS = `
     .kimi-tide-dock .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     .kimi-tide-dock .kt-stale { opacity: 0.55; }
     .kimi-tide-dock button { font-size: 12px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
-      background: transparent; color: inherit; border-radius: 6px; padding: 1px 8px; }
+      background: transparent; color: inherit; border-radius: 6px; padding: 1px 8px;
+      transition: background 0.12s ease, border-color 0.12s ease; }
+    .kimi-tide-dock button:hover:not(:disabled) { background: var(--kt-accent-soft); border-color: var(--kt-accent-line); }
+    .kimi-tide-dock button:focus-visible { outline: 2px solid var(--kt-accent-line); outline-offset: 1px; }
     .kimi-tide-dock .kt-h { font-size: 11px; opacity: 0.65; margin-top: 2px; }
     .kimi-tide-dock .kt-meta { opacity: 0.85; }
     .kimi-tide-dock .kt-hint { opacity: 0.6; }
@@ -21,8 +33,11 @@ export const CLIENT_CSS = `
     .kt-reason { display: flex; flex-direction: column; gap: 4px; }
     .kimi-tide-dock .kt-reason { padding: 4px 0;
       border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
-    .kimi-tide-dock .kt-decision-chip { color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-dock .kt-decision-chip { color: var(--kt-accent); }
     .kimi-tide-dock .kt-decision-toggle { border: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
+    /* 决策开关展开态（P2-12 常驻后）：品牌紫强调。 */
+    .kimi-tide-dock .kt-decision-toggle.kt-armed { border-style: solid;
+      background: var(--kt-accent-soft); border-color: var(--kt-accent-line); }
 
     /* ---- settings card（设置页「月汐」，0.5.0 预设管理器；⑥-B 打磨三 2026-08-29
          卡片化 + 8px 节奏 + 字号分级 11/12/12.5）---- */
@@ -33,18 +48,26 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-hint { opacity: 0.6; }
     .kimi-tide-settings .kt-field-label { width: 108px; flex: none; opacity: 0.85; }
     .kimi-tide-settings .kt-row { display: flex; align-items: center; gap: 6px; }
-    /* 区块卡片化：规则/带图兜底/试一句/关键词组/协作流 */
+    /* 区块卡片化：规则/带图兜底/试一句/关键词组/协作流；
+       视觉升级：细描边+双层柔影浮起，圆角 12px */
     .kimi-tide-settings .kt-card { border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
-      border-radius: 10px; padding: 8px 10px; }
+      border-radius: 12px; padding: 8px 10px;
+      box-shadow: 0 1px 2px rgb(20 24 40 / 0.04), 0 4px 12px rgb(20 24 40 / 0.05); }
+    /* 主卡（规则表）微品牌底色渐变——层级主角 */
+    .kimi-tide-settings .kt-card.kt-rules {
+      background: linear-gradient(180deg, var(--kt-accent-soft), transparent 30%); }
     .kimi-tide-settings .kt-card-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
     .kimi-tide-settings .kt-card-title { font-size: 12.5px; font-weight: 600; margin: 0;
       color: var(--dsw-alias-label-primary, #2b3245); }
-    /* 预设选择行（关闭/各预设单选按钮组） */
+    /* 预设选择行（关闭/各预设单选按钮组）；激活态=品牌紫描边+淡紫底+加粗 */
     .kimi-tide-settings .kt-preset-row { display: flex; gap: 6px; flex-wrap: wrap; }
     .kimi-tide-settings .kt-preset { font-size: 12px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
-      background: transparent; color: inherit; border-radius: 6px; padding: 2px 10px; }
-    .kimi-tide-settings .kt-preset.kt-active { background: var(--dsw-alias-interactive-bg-hover-accent, rgba(77,107,254,0.12));
-      color: var(--dsw-alias-brand-primary, #4d6bfe); border-color: currentColor; }
+      background: transparent; color: inherit; border-radius: 6px; padding: 2px 10px;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
+    .kimi-tide-settings .kt-preset:hover:not(:disabled):not(.kt-active) {
+      background: var(--kt-accent-soft); }
+    .kimi-tide-settings .kt-preset.kt-active { background: var(--kt-accent-soft);
+      color: var(--kt-accent-strong); border-color: var(--kt-accent-line); font-weight: 600; }
     /* 当前预设编辑器 + 规则表（紧凑表格：序/条件/目标/档位/操作，所见即优先级）；
        单一表格容器共享列轨 + 行 subgrid——表头与数据列对齐（⑥-B 打磨三修订） */
     .kimi-tide-settings .kt-editor { display: flex; flex-direction: column; gap: 8px; }
@@ -66,7 +89,9 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-cell { display: inline-flex; align-items: center; min-width: 0; }
     .kimi-tide-settings .kt-cell .kt-target-wrap { width: 100%; }
     .kimi-tide-settings .kt-ops { display: inline-flex; gap: 4px; }
-    /* 条件互斥：存量重复行标警示 + 顶部警示条 + 阻止提示 */
+    /* 条件互斥：存量重复行标警示 + 顶部警示条 + 阻止提示；
+       带图规则行品牌紫微底（呼应「带图恒第一」） */
+    .kimi-tide-settings .kt-rule-row.kt-row-image { background: var(--kt-accent-soft); border-radius: 6px; }
     .kimi-tide-settings .kt-rule-row.kt-conflict { background: rgba(217, 119, 6, 0.07); border-radius: 6px; }
     .kimi-tide-settings .kt-conflict-hint { grid-column: 1 / -1; font-size: 11px;
       color: var(--dsw-alias-warning-strong, #d97706); }
@@ -81,8 +106,24 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-preset-ops button, .kimi-tide-settings .kt-rule-row button,
     .kimi-tide-settings .kt-rules > button, .kimi-tide-settings .kt-groups button {
       font-size: 12px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
-      background: transparent; color: inherit; border-radius: 6px; padding: 1px 8px; }
+      background: transparent; color: inherit; border-radius: 6px; padding: 1px 8px;
+      transition: background 0.12s ease, border-color 0.12s ease; }
+    .kimi-tide-settings .kt-preset-ops button:hover:not(:disabled),
+    .kimi-tide-settings .kt-rule-row button:hover:not(:disabled),
+    .kimi-tide-settings .kt-rules > button:hover:not(:disabled),
+    .kimi-tide-settings .kt-groups button:hover:not(:disabled) {
+      background: var(--kt-accent-soft); border-color: var(--kt-accent-line); }
+    /* 主按钮（新增规则）：品牌紫实心（generic 按钮规则在前，此处更高优先级覆盖） */
+    .kimi-tide-settings .kt-rules > button.kt-btn-primary,
+    .kimi-tide-settings .kt-btn-primary { background: var(--kt-accent); color: #fff;
+      border-color: transparent; font-weight: 600; }
+    .kimi-tide-settings .kt-btn-primary:hover:not(:disabled) { background: var(--kt-accent-strong) !important;
+      border-color: transparent !important; }
     .kimi-tide-settings button:disabled { opacity: 0.5; cursor: default; }
+    /* 焦点紫色外环（此前焦点零视觉反馈） */
+    .kimi-tide-settings input:focus-visible, .kimi-tide-settings select:focus-visible,
+    .kimi-tide-settings textarea:focus-visible, .kimi-tide-settings button:focus-visible {
+      outline: 2px solid var(--kt-accent-line); outline-offset: 1px; }
     /* 关键词组管理区 */
     .kimi-tide-settings .kt-groups { display: flex; flex-direction: column; gap: 6px; }
     .kimi-tide-settings .kt-group-row { display: flex; align-items: flex-start; gap: 6px; }
@@ -110,13 +151,13 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-tabs { display: flex; gap: 4px; }
     .kimi-tide-settings .kt-tab { font-size: 12px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
       background: transparent; color: var(--dsw-alias-label-secondary, #8b93a7); border-radius: 8px; padding: 3px 14px; }
-    .kimi-tide-settings .kt-tab-on { background: var(--dsw-alias-interactive-bg-hover-accent, rgba(77,107,254,.12));
-      color: var(--dsw-alias-brand-primary, #4d6bfe); border-color: currentColor; font-weight: 600; }
+    .kimi-tide-settings .kt-tab-on { background: var(--kt-accent-soft);
+      color: var(--kt-accent-strong); border-color: var(--kt-accent-line); font-weight: 600; }
     .kimi-tide-settings[data-tab='route'] > .kt-trial, .kimi-tide-settings[data-tab='route'] > .kt-flows,
     /* 评审 P2-5：错误横幅任何页签可见（此前被 flows 页签的 :not 链藏住） */
     .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs):not(.kt-error),
     .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs) { display: none; }
-    .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--dsw-alias-brand-primary, #4d6bfe); }
+    .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--kt-accent-strong); }
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     /* ---- ⑥-B dock 两行（2026-08-29 打磨：骨架恒定）---- */
     .kimi-tide-dock.kt-dock-b { flex-direction: column; align-items: stretch; row-gap: 4px; }
@@ -135,7 +176,7 @@ export const CLIENT_CSS = `
     .kimi-tide-dock .kt-ellip { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .kimi-tide-dock .kt-dim { opacity: 0.45; }
     .kimi-tide-dock .kt-route-arrow { color: var(--dsw-alias-label-tertiary, #8b93a7); flex: none; }
-    .kimi-tide-dock .kt-route-target { color: var(--dsw-alias-brand-primary, #4d6bfe); font-weight: 600; }
+    .kimi-tide-dock .kt-route-target { color: var(--kt-accent-strong); font-weight: 600; }
     /* 图标语义色（⑥-B 打磨二轮 2026-08-29）：色彩即语义，明暗主题双适配；
        额度槽告警/危险态（≥80%/90%）下图标回归 chip 色——「越用越红」不被覆盖 */
     .kimi-tide-dock .kt-ic-moon { color: #a78bfa; }
@@ -150,12 +191,16 @@ export const CLIENT_CSS = `
     .kimi-tide-dock .kt-quota-bar { display: inline-block; width: 46px; height: 4px; flex: none;
       border-radius: 4px; background: var(--dsw-alias-border-l1, #e4e7ee); margin: 0 2px; overflow: hidden; }
     .kimi-tide-dock .kt-quota-bar i { display: block; height: 100%;
-      background: var(--dsw-alias-brand-primary, #4d6bfe); border-radius: 4px; }
-    /* 决策面板 portal 悬浮层（挂 body，选择器不嵌 .kimi-tide-dock） */
+      background: var(--kt-accent); border-radius: 4px; }
+    /* 决策面板 portal 悬浮层（挂 body，选择器不嵌 .kimi-tide-dock）；
+       视觉升级：月汐紫渐变顶条 + 阴影加深 */
     .kt-dock-pop { position: fixed; z-index: 10000; width: min(430px, calc(100vw - 16px));
       max-height: min(320px, 60vh); overflow: auto; padding: 8px 10px; font-size: 12px;
       background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base, #fff));
       border: 1px solid var(--dsw-alias-border-l2, #d4d9e3); border-radius: 10px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); color: var(--dsw-alias-label-primary, #2b3245); }
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.10);
+      color: var(--dsw-alias-label-primary, #2b3245); }
+    .kt-dock-pop::before { content: ''; display: block; height: 2px; border-radius: 2px;
+      margin: -2px -4px 6px; background: linear-gradient(90deg, var(--kt-accent), rgb(139 111 244 / 0.12)); }
     .kt-dock-pop .kt-reason { border-top: none; padding: 0; gap: 5px; }
   `

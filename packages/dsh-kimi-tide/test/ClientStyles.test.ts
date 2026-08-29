@@ -49,3 +49,41 @@ describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
     expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock \.kt-dock-r2 \{[^}]*overflow: hidden/)
   })
 })
+
+describe('client CSS 结构钉：月汐品牌主题化视觉升级（2026-08-29 用户裁定）', () => {
+  it('双上下文根定义 --kt-accent 品牌主色及其 soft/line 透明度派生（alpha 混合适配双主题）', () => {
+    // Fails if: accent 变量被删或退回硬编码散落（改主色需逐处找）
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-(?:dock|settings)[^}]*--kt-accent:/)
+    expect(CLIENT_CSS).toMatch(/--kt-accent-soft:/)
+    expect(CLIENT_CSS).toMatch(/--kt-accent-line:/)
+  })
+
+  it('控件焦点有紫色外环（此前焦点零视觉反馈）', () => {
+    // Fails if: :focus-visible 环被删
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-settings [^{]*:focus-visible[^}]*outline/)
+    expect(CLIENT_CSS).toMatch(/:focus-visible[^}]*--kt-accent/)
+  })
+
+  it('区块卡片浮起：kt-card 带双层柔影（层次不再只靠细描边）', () => {
+    // Fails if: 卡片退回纯描边（无 box-shadow）
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-settings \.kt-card \{[^}]*box-shadow/)
+  })
+
+  it('激活预设与页签强调走品牌紫', () => {
+    // Fails if: 激活态退回宿主中性灰蓝
+    expect(CLIENT_CSS).toMatch(/\.kt-preset\.kt-active[^}]*--kt-accent/)
+    expect(CLIENT_CSS).toMatch(/\.kt-tab-on[^}]*--kt-accent/)
+  })
+
+  it('dock 悬浮态淡紫底；决策面板带月汐紫渐变顶条', () => {
+    // Fails if: dock hover 无品牌色 / 面板 ::before 渐变条被删
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock button:hover[^}]*--kt-accent-soft/)
+    expect(CLIENT_CSS).toMatch(/\.kt-dock-pop::before[^}]*--kt-accent/)
+  })
+
+  it('主按钮与带图规则行有品牌样式钩子', () => {
+    // Fails if: .kt-btn-primary / .kt-row-image 样式被删
+    expect(CLIENT_CSS).toMatch(/\.kt-btn-primary[^}]*--kt-accent/)
+    expect(CLIENT_CSS).toMatch(/\.kt-row-image[^}]*--kt-accent-soft/)
+  })
+})
