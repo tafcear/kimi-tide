@@ -10,15 +10,19 @@
   <a href="https://github.com/tafcear/kimi-tide/blob/main/LICENSE"><img src="https://img.shields.io/github/license/tafcear/kimi-tide" alt="License"></a>
 </p>
 
-DSH 里一个会话从头到尾只用一个模型。可你挂载的模型各有各的长板与价格：**多模态**的看得懂截图，**文本模型**便宜、快，**编码特化**的擅长改 bug——写代码到一半想贴张截图，得手动切模型；切完又忘了切回来。**月汐是 DSH 的逐步模型路由器**：候选池就是你宿主里已挂载的**全部**模型（全量枚举，无白名单），路由依据是你自己写的预设与规则——带图走多模态、代码走编码模型、闲聊走便宜模型，`@` 一下还能显式点将；选谁、为什么选，全都摆在面板上。Kimi 与 DeepSeek 只是开箱示例——**任何接入的模型，都能按你的想法来路由**。
+DSH 里一个会话从头到尾只用一个模型。可你挂载的模型各有各的长板与价格：**多模态**的看得懂截图，**文本模型**便宜、快，**编码特化**的擅长改 bug——写代码到一半想贴张截图，得手动切模型；切完又忘了切回来。
+
+**月汐是 DSH 的逐步模型路由器**：候选池就是你宿主里已挂载的**全部**模型（全量枚举，无白名单），路由依据是你自己写的预设与规则——带图走多模态、代码走编码模型、闲聊走便宜模型，`@` 一下还能显式点将。
+
+选谁、为什么选，全都摆在面板上。Kimi 与 DeepSeek 只是开箱示例——**任何接入的模型，都能按你的想法来路由**。
 
 ---
 
 ## 架构
 
-[![kimi-tide 0.6.0 架构图（协作编排）](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
+[![kimi-tide 架构图（协作编排，绘于 0.6.0）](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
-> 点击查看大图；`docs/assets/readme/kimi-tide-architecture.html` 下载后用浏览器打开，是可平移缩放/搜索/导出的**交互式架构图**（含明暗双主题；节点证据链指向源码锚点）。
+> 点击查看大图；`docs/assets/readme/kimi-tide-architecture.html` 下载后用浏览器打开，是可平移缩放/搜索/导出的**交互式架构图**（含明暗双主题；节点证据链指向源码锚点）。图绘于 0.6.0，核心结构至今有效——0.7.0–1.0.0 的增量（effort 档位、auxTargets 辅助改道、多 plan 配额）见下文「特性一览」与「路由器详解」。
 
 一次请求的决策流：
 
@@ -54,7 +58,7 @@ flowchart LR
 - 🎨 **月汐品牌视觉（1.0.0）**：月汐紫主题贯穿明暗双主题——设置导航月牙图标、卡片柔影浮起、focus 紫色外环、主按钮实心紫、规则表主卡渐变底；控件层次与重点一眼可辨。
 - ⚙️ **官方设置卡片**：路由配置就在 DSH「设置 → 月汐」里编辑，原生分层持久化，重启保持；规则行带条件摘要（「命中 code 组 ≥1 词」）、目标可配 `effort` 档位下拉，折叠区「试一句」测试器实时预演一句话命中哪条规则、路由到哪个模型（0.8.0）。
 - 🌙 **Kimi 专用增强**（0.4.x）：Kimi 模型经 pi-ai 原生 `kimi-coding` 路由接入，**一把 Console API Key 即可**；dock 面板轮询 Kimi Code 官方用量接口，周配额 / 5h 窗口一目了然。（路由本身不限 Kimi——这两项是 Kimi Code 订阅用户的加餐。）
-- ⌨️ **`/kimi-tide` 命令族**：`preset` / `show` / `set` / `export-config` / `import-config` / `refresh`，配置可导出备份、可导入恢复。
+- ⌨️ **`/kimi-tide` 命令族**：`preset` / `show` / `set` / `export-config` / `import-config` / `refresh` / `help`，配置可导出备份、可导入恢复。
 
 ---
 
@@ -86,7 +90,8 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 - **设置 → 月汐**：在预设行选「省钱」或「能力」，路由器即刻上岗；
 - 消息里 **`@kimi`** 显式点将，或靠内置关键词组（如「代码」）自动改道；
-- dock 面板的 chip 实时显示每一步选了谁、为什么。
+- dock 面板的 chip 实时显示每一步选了谁、为什么；
+- ✅ **30 秒验收**：发一句「帮我写个函数」——dock chip 应显示命中 code 规则并改道代码模型（看不到理由条 = 路由器未上岗，回「设置 → 月汐」确认已选预设）。
 
 > **发布规范（重要）**：DSH 插件必须声明 `dsh.bundle.patch`（指向 `cordis.patch.yml`）才能作为 profile 层加载。本插件已按官方规范声明，升级版本时请勿移除该字段。
 
@@ -106,6 +111,9 @@ timeline
     0.5.0 规则 : 预设 + 规则驱动，评分引擎退役（好配、好懂）
     0.5.x+ 转述 : 图像转述模式（读图付费、正文省钱，rc.8 改设计）
     0.6.0 协作 : 协作编排——转述流 + 按图三态 + 智能投影（图像转述落地）
+    0.7.0 匹配 : 关键词匹配准确性——词边界 / 特异度排序 / minHits（不再误路由）
+    0.8.0 体系 : 规则覆盖面 7 组 + effort 推理档位 + 决策词数可观测（规则体系补全）
+    1.0.0 大版本 : 0.7+0.8 合流 + 月汐品牌主题化 + 多 plan 配额（首个大版本）
 ```
 
 - **第一段（自研接入）**：当初 DSH 没有 Kimi 通道，我们自研了 OAuth 适配器把订阅接进来。
@@ -201,6 +209,7 @@ timeline
 | `presets.<id>.rules[].when.minHits` | 缺省 `1` | 命中关键词种数下限（≥1 整数；0.7.0）——「做个方案」不想触发就配 2 |
 | `…effort`（三处可选：`presets.<id>.default.effort` / `rules[].target.effort` / `flows.<id>.visionModel.effort`） | 缺省不携带 | 推理程度档位（非空 string，如 `low`/`high`/`max`；0.8.0）。运行期按模型档位支持集判定：支持 → 携带，不支持/能力未知 → 剥离并记日志（不做写入期档位校验，模型目录演进免迁移）；图像护栏改道与显式 `@` 不携带规则 effort；review 流 `reviewer` 无此字段 |
 | `presets.<id>.imageFallback` | 缺省 `latch` | 预设级带图兜底：latch 锁存 / blind 当无图 / transcribe-lazy 懒转述 |
+| `presets.<id>.imageFallbackFlow` | 缺省 `transcribe` | 懒转述兜底引用的协作流 id（`imageFallback=transcribe-lazy` 时生效，0.6.0 起随 `flows` 注册表） |
 | `flows` | 预置 transcribe/review | 协作流注册表（规则目标可引用）；预置流注册但不绑定 |
 | `keywordGroups` | 内置 7 组（0.8.0） | 命名关键词组词表（用户可增删改） |
 | `auxTargets` | 缺省 `{}`（不改道） | 辅助请求改道表：envelope `purpose` → 模型目标，如 `"session-title": {"provider": "deepseek-official", "model": "deepseek-v4-flash"}`（0.8.x⑧）。宿主非 agent-loop 辅助调用（会话标题等）按表覆写 provider/model，effort 按支持集剥离——根治「标题请求跟随主路由打思考模型撞超时断连」（池⑦主根因的插件侧修复）；无该键 / 目标目录不可用 → 原样放行 |
@@ -260,7 +269,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 | 0.5.0 规则驱动路由 | ✅ 已发布（2026-08-21） | tag `v0.5.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0)，209/209 绿 |
 | 0.6.0 协作编排 | ✅ 已发布（2026-08-23） | tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)，337/337 绿 + typecheck 0 + build 过；实机验收 10 项全过（含 T4 门）；验收修复 `e2d3c68`（rc.2 宿主 model-selection 覆盖） |
 | 0.6.1 评审修复波 | ✅ 已发布（2026-08-23） | tag `v0.6.1`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1)，354/354 绿 + typecheck 0 + build 过；转述并发 / 轮询有界 / 面板去重 / LRU 对账 / 空转述裁决 / 决策按会话隔离（`13ede6e`）+ CI 版本窗修正（`f4fde04`） |
-| 0.7.0 关键词匹配准确性 | 🟢 已实施 + **实机验收清单全绿**（2026-08-26，分支 `feat/0.7.0-keyword-matching`；发版 = 用户裁定 tag + 合并 main） | 词边界 + 特异度排序 + minHits（`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`），359/359 绿 + typecheck 0 + build 过；**A1–A10 全过**：六探针 request/header 解码实锤（A2 阴性→deepseek-v4-pro / A3 阳性→glm-5.2 / A4 特异度→glm-5.2 / A8 @kimi→k3 / A5 阴性→deepseek-v4-pro、阳性→qwen3.8-max-preview）+ A6/A9 用户实机目检与带图转述链路实走 + A7 存量兼容（清单见 [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md) 末节） |
+| 0.7.0 关键词匹配准确性 | ✅ 已实施 + 实机验收清单全绿（2026-08-26）+ **已随 v1.0.0 发布**（无独立 tag，并入大版本；分支 `feat/0.7.0-keyword-matching`） | 词边界 + 特异度排序 + minHits（`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`），359/359 绿 + typecheck 0 + build 过；**A1–A10 全过**：六探针 request/header 解码实锤（A2 阴性→deepseek-v4-pro / A3 阳性→glm-5.2 / A4 特异度→glm-5.2 / A8 @kimi→k3 / A5 阴性→deepseek-v4-pro、阳性→qwen3.8-max-preview）+ A6/A9 用户实机目检与带图转述链路实走 + A7 存量兼容（清单见 [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md) 末节） |
 | 0.8.0 规则覆盖面 + 可解释性 + effort | ✅ 已实施 + **实机验收 B1–B8 全绿**（2026-08-27）+ **已随 v1.0.0 发布**（分支 `feat/0.8.0-routing-coverage`） | 关键词组 2→7 组 + 预设接组 + effort 三入口 + 条件摘要/试一句/决策词数（`515218c`/`eed3cb2`/`f18cdbf` 等 6 任务）；验收清单 B1–B8 见 [`superpowers/plans/2026-08-27-routing-coverage-effort.md`](docs/superpowers/plans/2026-08-27-routing-coverage-effort.md) 末节（全绿回填） |
 | **v1.0.0 大版本** | ✅ **已发布（2026-08-29）** | tag `v1.0.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.0.0)，497/497 绿 + typecheck 0 + build 过；内含 0.8.x 池全清（499 根治/限额跟随/布局重构）+ 打磨三连 + UI 交叉评审批次 + 月汐品牌主题化 + 设置导航月牙图标 + 多 plan 配额（kimi/GLM 跟随命中目标，CREDIT_LIMIT 积分制适配） |
 
@@ -272,8 +281,9 @@ npm run build       # tsc 宿主 + esbuild 浏览器 half
 - **0.6.0**：**协作编排**——规则目标泛化为「模型 | 协作流」，预置图像转述流（vision-exp，eager/lazy）与评审流（P2 触发）注册但不绑定；按图三态状态表退役布尔锁存；预设级 `imageFallback` 三态（锁存/盲答/懒转述）；`llm/stream` 智能投影（已转述图块 → 转述文字）；面板 v6 图像上下文行 + 流事件；v4 存量配置自动迁移留档 `.pre-v5`（[设计稿](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md)，发布版 337/337 绿 + typecheck 0 + build 过；实机验收 10 项全过含 T4 门，验收中修复 rc.2 宿主 model-selection 覆盖路由缺陷 `e2d3c68`）。
 - **0.6.1**：**评审修复波**——eager/lazy 转述 `Promise.all` 并发（多图延迟不再按图数叠加）；配额轮询 fetch 有界超时 + in-flight 去重（端点挂起不再泄漏 socket）；面板推送语义签名去重（会话日志不再按分钟膨胀）；转述 LRU 逐出对账降级回 native 重转述；空白转述视同失败进失败集；决策/流事件观测按会话隔离（不再串台）；`@指令` 前导锚定（邮箱不误判）；settings v1 写入面冻结；新增 CI（push/PR 触发，Node 22/24 双腿）。354/354 绿 + typecheck 0 + build 过。
 - **0.7.0**：**关键词匹配准确性升级**——三类误路由对症修复：①纯 ASCII 关键词词边界匹配（`decode`/`unicode`/`barcode` 不再误中 `code`，中文保持子串）；②命中特异度排序（命中词数多者优先、平手按列表序、带图恒优先），内置能力预设调序 code→chitchat、code 词表 8→17 词；③规则条件可选 `minHits` 最少命中词数（≥1 整数，缺省 1；设置卡片带输入）。v5 形状不变、新字段全可选，存量配置逐字节兼容。359/359 绿 + typecheck 0 + build 过。
-- **0.8.0**：**规则体系补全 + 可解释性 + 推理程度配置**——内置关键词组 2→7 组（新增 review/writing/translate/longdoc/math，chitchat 瘦身为纯寒暄，「翻译」「总结」迁入专组），能力预设序 带图→审查→代码→数学→长文→写作→翻译→闲聊（审查意图优先于泛 code 词）、省钱预设加翻译规则；`effort` 可选推理档位（规则目标/预设默认/转述流视觉模型三入口；运行期按模型档位支持集判定——支持携带、不支持剥离记日志，不做写入期档位校验；护栏改道与显式 `@` 不带规则 effort，review 流 reviewer 无此字段）；设置卡片规则行条件摘要（「命中 code 组 ≥1 词」）+ 目标 effort 档位下拉 + 「试一句」测试器（实时预演命中规则与最终目标）；dock 决策原因带命中词数（`规则「code」命中 2 词（特异度最高）`）。385/385 绿 + typecheck 0 + build 过；发版待实机验收 B1–B8。
-- **规划中**：review 流命令式触发（P2，`/kimi-tide review`）、子代理转述机制（P3，S2 契约 GO）；0.6.x 跟进池——面板图像上下文行客户端渲染、M-3 校验加固、lazy 失败直测、建流 UI 等 18 条。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
+- **0.8.0**：**规则体系补全 + 可解释性 + 推理程度配置**——内置关键词组 2→7 组（新增 review/writing/translate/longdoc/math，chitchat 瘦身为纯寒暄，「翻译」「总结」迁入专组），能力预设序 带图→审查→代码→数学→长文→写作→翻译→闲聊（审查意图优先于泛 code 词）、省钱预设加翻译规则；`effort` 可选推理档位（规则目标/预设默认/转述流视觉模型三入口；运行期按模型档位支持集判定——支持携带、不支持剥离记日志，不做写入期档位校验；护栏改道与显式 `@` 不带规则 effort，review 流 reviewer 无此字段）；设置卡片规则行条件摘要（「命中 code 组 ≥1 词」）+ 目标 effort 档位下拉 + 「试一句」测试器（实时预演命中规则与最终目标）；dock 决策原因带命中词数（`规则「code」命中 2 词（特异度最高）`）。385/385 绿 + typecheck 0 + build 过；**已随 v1.0.0 发布**（实机验收 B1–B8 全绿）。
+- **v1.0.0**：**大版本合流**——0.7.0 关键词匹配 + 0.8.0 规则体系/effort/决策可观测 + 0.8.x 池全清（499 根治/auxTargets 辅助改道/限额跟随/布局重构两行+三页签）+ 打磨三连 + UI 交叉评审批次 + 月汐品牌主题化 + 设置导航月牙图标 + 多 plan 配额（kimi/GLM 跟随命中目标自动切源，GLM CREDIT_LIMIT 积分制适配）。497/497 绿 + typecheck 0 + build 过；Release 流水线两连败后 run#8 成功（gh 新版两坑已写入 workflow 注释）。
+- **规划中**：review 流命令式触发（P2，`/kimi-tide review`）、子代理转述机制（P3，S2 契约 GO）——远期；发版后跟进：池⑩（随发布后收录）、池⑪（转述治本：整页截图逐字转述撞 30s 有界超时的治本候选）、0.8.5「强化与包装」八任务（已立项，见 [`docs/superpowers/plans/2026-08-27-hardening-and-packaging.md`](docs/superpowers/plans/2026-08-27-hardening-and-packaging.md)）。~~0.6.x 跟进池~~（12/12 已全清：面板图像上下文行客户端渲染、M-3 校验加固、lazy 失败直测、建流 UI 等 18 条全部落地）。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
 
 ---
 
@@ -311,7 +321,7 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
 ## 许可证与合规提示
 
 - **kimi-tide 本体**：[MIT](LICENSE)（Copyright 2026 kimi-tide contributors）
-- **第三方组件**：`@earendil-works/pi-ai`（MIT）、`@deepseek-ai/dsh-llm-pi-ai`（MIT, DeepSeek）、`schemastery`（MIT）、`yaml`（MIT）、`dsh-kimi-bridge`（MIT，历史致谢，已归档）
+- **第三方组件**：`@earendil-works/pi-ai`（MIT）、`@deepseek-ai/dsh-llm-pi-ai`（MIT, DeepSeek）、`schemastery`（MIT）、`zod`（MIT）、`yaml`（MIT）、`dsh-kimi-bridge`（MIT，历史致谢，已归档）
 - **合规**：0.4.x 起默认走 **Console API Key 官方路径**，个人使用安心；Kimi Code 订阅条款仍以官方表述为准，请勿高频批量调用或共享密钥。
 - 本仓库**不含任何凭据**；请勿将 `~/.dsh/.credentials.yaml`、环境变量中的密钥提交到仓库。
 
@@ -329,15 +339,19 @@ A：DSH 设置命名空间 `kimi-tide-router`（设置 → 月汐编辑）；无
   <a href="https://github.com/tafcear/kimi-tide/blob/main/LICENSE"><img src="https://img.shields.io/github/license/tafcear/kimi-tide" alt="License"></a>
 </p>
 
-In DSH, a session sticks to one model from start to finish. Yet the models you've mounted each have their own strengths and price tags: **multimodal** ones can read screenshots, **text models** are cheap and fast, **coding-tuned** ones fix bugs best. Mid-task you want to paste a screenshot — switch models by hand; then you forget to switch back. **kimi-tide is the per-step model router for DSH**: the candidate pool is **every model mounted in your host** (live enumeration, no whitelist), and the routing rules are presets and keyword groups you write yourself — images go to multimodal, code to the coding model, chitchat to the cheap one, and an `@mention` picks explicitly. Who was picked and why is always on the panel. Kimi and DeepSeek are just the ready-made examples — **any model you connect can be routed your way**.
+In DSH, a session sticks to one model from start to finish. Yet the models you've mounted each have their own strengths and price tags: **multimodal** ones can read screenshots, **text models** are cheap and fast, **coding-tuned** ones fix bugs best. Mid-task you want to paste a screenshot — switch models by hand; then you forget to switch back.
+
+**kimi-tide is the per-step model router for DSH**: the candidate pool is **every model mounted in your host** (live enumeration, no whitelist), and the routing rules are presets and keyword groups you write yourself — images go to multimodal, code to the coding model, chitchat to the cheap one, and an `@mention` picks explicitly.
+
+Who was picked and why is always on the panel. Kimi and DeepSeek are just the ready-made examples — **any model you connect can be routed your way**.
 
 ---
 
 ## Architecture
 
-[![kimi-tide 0.6.0 architecture (collaboration flows)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
+[![kimi-tide architecture (collaboration flows, drawn at 0.6.0)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
-> Click for the full-size image; open `docs/assets/readme/kimi-tide-architecture.html` in a browser for the **interactive diagram** (pan/zoom/search/export, light & dark themes; node evidence links point at source anchors).
+> Click for the full-size image; open `docs/assets/readme/kimi-tide-architecture.html` in a browser for the **interactive diagram** (pan/zoom/search/export, light & dark themes; node evidence links point at source anchors). Drawn at 0.6.0 — the core structure still holds; the 0.7.0–1.0.0 additions (effort tiers, auxTargets rerouting, multi-plan quota) are covered in "Features" and "Router in Detail" below.
 
 The decision flow of one request:
 
@@ -369,9 +383,11 @@ flowchart LR
 - 🌊 **Collaboration flows** (0.6.0): rule targets may point at a **collaboration flow** — the built-in image-transcribe flow (vision-exp reads images into text, eager/lazy timing, cache + timeout + no-retry-on-failure) and a review flow (registered, P2 command trigger); per-preset image fallback (latch/blind/transcribe-lazy); `llm/stream` smart projection lets text models pick up image context from the transcription.
 - 🖼️ **Image guard**: image-bearing steps reroute to multimodal candidates automatically; the per-image three-state table (native/transcribed/blind) prevents text-model crashes (`UNSUPPORTED_CONTENT`) once images enter history.
 - 👁️ **Observable decisions**: the dock panel shows "who was picked and why" for every step (reasons carry the hit-word count, 0.8.0), isolated per session, with session-log traceability — no black box.
+- 💰 **Multi-plan quota (1.0.0)**: the dock quota slot **follows the currently hit target automatically** — a Kimi rule hit shows the Kimi Code weekly quota / 5h window, a route landing on GLM shows the GLM Coding Plan's 5h token window / 7-day weekly window (Chinese short format, e.g. 剩 6.7亿); whichever plan you subscribe to is what shows, and targets without a plan (DeepSeek etc.) grey out automatically.
+- 🎨 **MoonTide brand visuals (1.0.0)**: the MoonTide purple theme spans light & dark — a crescent icon in the settings nav, soft raised cards, a purple focus ring, solid primary buttons, and a gradient hero rule-table card; control hierarchy and emphasis are visible at a glance.
 - ⚙️ **Official settings card**: router config lives in DSH "Settings → 月汐", natively persisted with layered overrides and restart-safe storage; each rule row carries an auto condition summary ("hits code group ≥1 words"), targets take an `effort` tier dropdown, and the "try a sentence" tester previews live which rule a sentence hits and where it routes (0.8.0).
 - 🌙 **Kimi-specific extras** (0.4.x): Kimi models arrive via the pi-ai native `kimi-coding` route — **one Console API key is all you need** — and the dock polls the official Kimi Code usage endpoint for weekly quota and 5h window at a glance. (Routing itself is not Kimi-bound; these two are extras for Kimi Code subscribers.)
-- ⌨️ **`/kimi-tide` command family**: `preset` / `show` / `set` / `export-config` / `import-config` / `refresh` — export, back up, and restore your config.
+- ⌨️ **`/kimi-tide` command family**: `preset` / `show` / `set` / `export-config` / `import-config` / `refresh` / `help` — export, back up, and restore your config.
 
 ---
 
@@ -403,7 +419,8 @@ Restart `dsh web`:
 
 - **Settings → 月汐**: pick the "saving" or "capability" preset — the router is on duty;
 - Type **`@kimi`** in a message for an explicit pick, or let the built-in keyword groups (e.g. "code") reroute automatically;
-- The dock chip shows who was picked and why, for every step.
+- The dock chip shows who was picked and why, for every step;
+- ✅ **30-second smoke check**: send "write a function for me" — the dock chip should show the code rule firing and rerouting to the coding model (no reason chip = the router is not on duty; go back to "Settings → 月汐" and confirm a preset is selected).
 
 > **Release rule (important)**: a DSH plugin must declare `dsh.bundle.patch` (pointing at `cordis.patch.yml`) to load as a profile layer. This plugin follows the official spec — do not remove the field when bumping versions.
 
@@ -423,6 +440,9 @@ timeline
     0.5.0 Rules : Rule-driven routing — named presets + keyword groups; scoring engine retired (simple to configure)
     0.5.x+ Transcription : Image transcription mode (pay for vision, not the body; redesigned for rc.8)
     0.6.0 Collaboration : Collaboration flows — transcribe flow + per-image states + smart projection (transcription ships)
+    0.7.0 Matching : Keyword-matching accuracy — word boundaries / specificity ranking / minHits (no more misroutes)
+    0.8.0 System : Rule coverage to 7 groups + effort tiers + hit-count observability (rule system completed)
+    1.0.0 Major : 0.7+0.8 confluence + MoonTide brand theming + multi-plan quota (first major release)
 ```
 
 - **Phase 1 (self-built access)**: DSH had no Kimi channel, so we built an OAuth adapter to bring the subscription in.
@@ -518,6 +538,7 @@ Built-in preset wiring: capability = image → review → code → math → long
 | `presets.<id>.rules[].when.minHits` | `1` | minimum distinct keyword hits (integer ≥1; 0.7.0) — set 2 so "make a plan" alone doesn't fire |
 | `…effort` (three optional spots: `presets.<id>.default.effort` / `rules[].target.effort` / `flows.<id>.visionModel.effort`) | absent by default | reasoning-effort tier (non-empty string, e.g. `low`/`high`/`max`; 0.8.0). Checked at runtime against the model's supported-tier list: supported → carried, unsupported/unknown capability → stripped with a log line (no write-time tier validation, so catalog evolution needs no config migration); image-guard reroutes and explicit `@` never carry a rule's effort; the review flow's `reviewer` has no such field |
 | `presets.<id>.imageFallback` | `latch` by default | per-preset image fallback: latch / blind / transcribe-lazy |
+| `presets.<id>.imageFallbackFlow` | `transcribe` by default | the collaboration-flow id used by the lazy-transcribe fallback (takes effect when `imageFallback=transcribe-lazy`; references the `flows` registry since 0.6.0) |
 | `flows` | built-in transcribe/review | collaboration-flow registry (referenced by rule targets); built-ins ship registered but unbound |
 | `keywordGroups` | 7 built-in groups (0.8.0) | named keyword-group word lists (user-editable) |
 | `auxTargets` | `{}` by default (no rerouting) | auxiliary-request reroute table: envelope `purpose` → model target, e.g. `"session-title": {"provider": "deepseek-official", "model": "deepseek-v4-flash"}` (0.8.x⑧). Host non-agent-loop auxiliary calls (session titles etc.) get provider/model overridden and effort stripped per support set — cures "title requests follow the main route into a thinking model and die on the timeout" (plugin-side fix for the pool ⑦ root cause); missing key / target absent from the catalog → passed through untouched |
@@ -554,7 +575,7 @@ Built-in preset wiring: capability = image → review → code → math → long
 cd packages/dsh-kimi-tide
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (currently 385/385 passing across 24 test files)
+npm test            # vitest (currently 497/497 passing across 31 test files)
 npm run build       # tsc host build + esbuild browser bundle
 ```
 
@@ -566,7 +587,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 
 ## Roadmap
 
-> Current version: **v0.8.0 (2026-08-27)** — rule-coverage completion + explainability + reasoning-effort config. [Releases](https://github.com/tafcear/kimi-tide/releases) · [Actions pipeline](https://github.com/tafcear/kimi-tide/actions) (tag-triggered, fully automated) · **Release gate: live-acceptance checklist green + user-approved tag (see "Development & Testing")**
+> Current version: **v1.0.0 (2026-08-29)** — major release: 0.7.0 keyword matching + 0.8.0 rule system / effort / decision observability + brand theming + multi-plan quota. [Releases](https://github.com/tafcear/kimi-tide/releases) · [Actions pipeline](https://github.com/tafcear/kimi-tide/actions) (tag-triggered, fully automated) · **Release gate: live-acceptance checklist green + user-approved tag (see "Development & Testing")**
 
 | Line | Status | Evidence |
 |---|---|---|
@@ -577,8 +598,9 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 | 0.5.0 rule-driven routing | ✅ Released (2026-08-21) | tag `v0.5.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.5.0), 209/209 green |
 | 0.6.0 collaboration flows | ✅ Released (2026-08-23) | tag `v0.6.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0), 337/337 green + typecheck 0 + build ok; 10-item live acceptance all passed (incl. T4 gate); acceptance fix `e2d3c68` (rc.2 host model-selection override) |
 | 0.6.1 review fix wave | ✅ Released (2026-08-23) | tag `v0.6.1`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.1), 354/354 green + typecheck 0 + build ok; parallel transcription / bounded quota polling / panel dedup / LRU reconciliation / empty-transcription adjudication / per-session decision observability (`13ede6e`) + CI window fix (`f4fde04`) |
-| 0.7.0 keyword-matching accuracy | 🟢 Implemented + **live-acceptance checklist all green** (2026-08-26, branch `feat/0.7.0-keyword-matching`; release = user-approved tag + merge to main) | word boundaries + specificity ranking + minHits (`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`), 359/359 green + typecheck 0 + build ok; **A1–A10 all passed**: six probes decoded from request/header (A2 negative→deepseek-v4-pro, A3 positive→glm-5.2, A4 specificity→glm-5.2, A8 @kimi→k3, A5 negative→deepseek-v4-pro & positive→qwen3.8-max-preview) + A6/A9 user-verified UI and live image-transcribe chain + A7 legacy compatibility (checklist at the end of [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md)) |
-| 0.8.0 rule coverage + explainability + effort | 🟢 Implemented, **pending live acceptance B1–B8** (2026-08-27, branch `feat/0.8.0-routing-coverage`; release = checklist green + user-approved tag + merge to main) | keyword groups 2→7 + preset wiring + three effort entry points + condition summaries / try-a-sentence / hit-word-count reasons (`515218c`/`eed3cb2`/`f18cdbf` across 6 tasks), 385/385 green + typecheck 0 + build ok; acceptance checklist B1–B8 at the end of [`superpowers/plans/2026-08-27-routing-coverage-effort.md`](docs/superpowers/plans/2026-08-27-routing-coverage-effort.md) (to be filled in from the live host) |
+| 0.7.0 keyword-matching accuracy | ✅ Implemented + live-acceptance checklist all green (2026-08-26) + **shipped with v1.0.0** (no separate tag; folded into the major release; branch `feat/0.7.0-keyword-matching`) | word boundaries + specificity ranking + minHits (`ec90a37`/`6f014a8`/`f76bbd0`/`45ab5dc`/`4765a19`), 359/359 green + typecheck 0 + build ok; **A1–A10 all passed**: six probes decoded from request/header (A2 negative→deepseek-v4-pro, A3 positive→glm-5.2, A4 specificity→glm-5.2, A8 @kimi→k3, A5 negative→deepseek-v4-pro & positive→qwen3.8-max-preview) + A6/A9 user-verified UI and live image-transcribe chain + A7 legacy compatibility (checklist at the end of [`superpowers/plans/2026-08-25-keyword-matching-accuracy.md`](docs/superpowers/plans/2026-08-25-keyword-matching-accuracy.md)) |
+| 0.8.0 rule coverage + explainability + effort | ✅ Implemented + **live acceptance B1–B8 all green** (2026-08-27) + **shipped with v1.0.0** (branch `feat/0.8.0-routing-coverage`) | keyword groups 2→7 + preset wiring + three effort entry points + condition summaries / try-a-sentence / hit-word-count reasons (`515218c`/`eed3cb2`/`f18cdbf` across 6 tasks); acceptance checklist B1–B8 at the end of [`superpowers/plans/2026-08-27-routing-coverage-effort.md`](docs/superpowers/plans/2026-08-27-routing-coverage-effort.md) (all green) |
+| **v1.0.0 major release** | ✅ **Released (2026-08-29)** | tag `v1.0.0`, [Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.0.0), 497/497 green + typecheck 0 + build ok; includes the cleared 0.8.x pool (499 root fix / auxTargets / quota-following / layout rebuild) + polish trio + UI cross-review batches + MoonTide brand theming + settings-nav crescent icon + multi-plan quota (kimi/GLM follow the hit target, CREDIT_LIMIT credit-system adaptation) |
 
 - **0.1.x**: native DSH Kimi provider, v0.1.3 (credential gating + OAuth hardening).
 - **0.2.x**: dual-model router + dock panel + usage display; failure-fix loop closed and M5 live verification ✅.
@@ -588,8 +610,9 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 - **0.6.0**: **collaboration flows** — rule targets generalize to "model | collaboration flow"; the built-in image-transcribe flow (vision-exp, eager/lazy) and review flow (P2 trigger) ship registered but unbound; the per-image three-state table retires the boolean latch; per-preset `imageFallback` (latch/blind/transcribe-lazy); `llm/stream` smart projection (transcribed blocks → transcription text); panel v6 gains the image-context line + flow events; v4 stored configs auto-migrate with a `.pre-v5` backup ([design spec](docs/superpowers/specs/2026-08-22-collaboration-flows-design.md); release version: 337/337 green + typecheck 0 + build ok; 10-item live acceptance all passed incl. the T4 gate; fixed the rc.2 host model-selection override during acceptance — `e2d3c68`).
 - **0.6.1**: **review fix wave** — eager/lazy transcription now runs via `Promise.all` (multi-image latency no longer stacks per image); quota-polling fetches are time-bounded with in-flight dedup (a hung endpoint no longer leaks sockets); panel pushes carry a semantic signature (session logs no longer grow every minute); evicted transcription-LRU entries are demoted back to native and re-transcribed; blank transcriptions count as failures (failure set, no empty-string projection); decision/flow observability is per-session (no more cross-session bleed); the `@directive` gains a predecessor anchor (emails no longer misfire); the settings v1 write surface is frozen; new CI on push/PR (Node 22/24 legs). 354/354 green + typecheck 0 + build ok.
 - **0.7.0**: **keyword-matching accuracy upgrade** — fixes three classes of misroutes: ① pure-ASCII keywords match on word boundaries (`decode`/`unicode`/`barcode` no longer trip `code`; Chinese keywords keep substring matching); ② matched rules rank by hit specificity (more distinct hits first, ties keep list order, image rules always first), with the built-in capability preset reordered code→chitchat and the code word list grown 8→17; ③ an optional `minHits` threshold on keyword conditions (integer ≥1, default 1; editable in the settings card). The v5 shape is unchanged and new fields are all optional — existing configs stay byte-compatible. 359/359 green + typecheck 0 + build ok.
-- **0.8.0**: **rule-coverage completion + explainability + reasoning-effort config** — built-in keyword groups grow 2→7 (new review/writing/translate/longdoc/math; chitchat slimmed to pure small talk with "翻译"/"总结" moving to their own groups); the capability preset orders image→review→code→math→longdoc→writing→translate→chitchat (review intent outranks generic code words) and the saving preset gains a translate rule; an optional `effort` reasoning tier on three entry points (rule targets / preset defaults / transcribe-flow vision models; runtime checked against each model's supported tiers — carried when supported, stripped with a log line otherwise, no write-time tier validation; guard reroutes and explicit `@` never carry a rule's effort; the review flow's reviewer has no such field); settings-card rule rows gain condition summaries ("hits code group ≥1 words"), targets take an `effort` tier dropdown, and a "try a sentence" tester previews live which rule fires and where it routes; dock decision reasons carry the hit-word count. 385/385 green + typecheck 0 + build ok; release pending live acceptance B1–B8.
-- **Planned**: review-flow command trigger (P2, `/kimi-tide review`), subagent transcription (P3, S2 contract GO); the 0.6.x pool — panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and 14 more items. ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
+- **0.8.0**: **rule-coverage completion + explainability + reasoning-effort config** — built-in keyword groups grow 2→7 (new review/writing/translate/longdoc/math; chitchat slimmed to pure small talk with "翻译"/"总结" moving to their own groups); the capability preset orders image→review→code→math→longdoc→writing→translate→chitchat (review intent outranks generic code words) and the saving preset gains a translate rule; an optional `effort` reasoning tier on three entry points (rule targets / preset defaults / transcribe-flow vision models; runtime checked against each model's supported tiers — carried when supported, stripped with a log line otherwise, no write-time tier validation; guard reroutes and explicit `@` never carry a rule's effort; the review flow's reviewer has no such field); settings-card rule rows gain condition summaries ("hits code group ≥1 words"), targets take an `effort` tier dropdown, and a "try a sentence" tester previews live which rule fires and where it routes; dock decision reasons carry the hit-word count. 385/385 green + typecheck 0 + build ok; **shipped with v1.0.0** (live acceptance B1–B8 all green).
+- **v1.0.0**: **major-release confluence** — 0.7.0 keyword matching + 0.8.0 rule system / effort / decision observability + the 0.8.x pool cleared (499 root fix / auxTargets rerouting / quota-following / two-row three-tab layout rebuild) + polish trio + UI cross-review batches + MoonTide brand theming + settings-nav crescent icon + multi-plan quota (kimi/GLM auto-follow the hit target, GLM CREDIT_LIMIT credit-system adaptation). 497/497 green + typecheck 0 + build ok; after two pipeline failures the release landed on run #8 (both new-gh pitfalls are documented in the workflow comments).
+- **Planned**: review-flow command trigger (P2, `/kimi-tide review`) and subagent transcription (P3, S2 contract GO) — long-term; post-release follow-ups: pool ⑩ (to be recorded after release), pool ⑪ (transcription root fixes: whole-page screenshots hit the 30s bounded timeout), and the 0.8.5 "hardening & packaging" eight-task plan (scoped in [`docs/superpowers/plans/2026-08-27-hardening-and-packaging.md`](docs/superpowers/plans/2026-08-27-hardening-and-packaging.md)). ~~The 0.6.x pool~~ (12/12 cleared: panel image-context client rendering, M-3 validation hardening, lazy-failure direct tests, flow-creation UI, and the rest of the 18 items all shipped). ~~Mode presets~~ (the existing settings card suffices — not planned), ~~subagent image outsourcing~~ (official subagents are text-only — dropped), ~~kimi subagent backend~~ (achieved via routing — closed).
 
 ---
 
@@ -627,7 +650,7 @@ A: In the DSH settings namespace `kimi-tide-router` (edited via Settings → 月
 ## License & Compliance
 
 - **kimi-tide itself**: [MIT](LICENSE) (Copyright 2026 kimi-tide contributors)
-- **Third-party components**: `@earendil-works/pi-ai` (MIT), `@deepseek-ai/dsh-llm-pi-ai` (MIT, DeepSeek), `schemastery` (MIT), `yaml` (MIT), `dsh-kimi-bridge` (MIT, historical credit — archived)
+- **Third-party components**: `@earendil-works/pi-ai` (MIT), `@deepseek-ai/dsh-llm-pi-ai` (MIT, DeepSeek), `schemastery` (MIT), `zod` (MIT), `yaml` (MIT), `dsh-kimi-bridge` (MIT, historical credit — archived)
 - **Compliance**: since 0.4.x the default path is the **official Console API key**, which is safe for personal use; Kimi Code subscription terms still apply as officially stated — no high-frequency batch calls or key sharing.
 - This repository contains **no credentials**; never commit `~/.dsh/.credentials.yaml` or any key from your environment.
 

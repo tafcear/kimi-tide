@@ -1,8 +1,8 @@
 # dsh-kimi-tide（月汐）
 
-DeepSeek Harness 的**预设 + 规则 + 协作流模型路由插件**（0.8.0）：命名预设（省钱/能力/可自建）
+DeepSeek Harness 的**预设 + 规则 + 协作流模型路由插件**（1.0.0）：命名预设（省钱/能力/可自建）
 + 有序规则（带图 / 关键词组 / **协作流引用**），按任务在 Kimi（`kimi-coding`）与 DeepSeek 之间自动
-选路，未命中走预设默认模型（打底），带图像护栏、图像转述流、官方配额显示与决策可观测。
+选路，未命中走预设默认模型（打底），带图像护栏、图像转述流、多 plan 配额显示（kimi/GLM 跟随命中目标）与决策可观测。
 
 **匹配语义（0.7.0）**：纯 ASCII 关键词按词边界匹配（`decode`/`unicode`/`barcode` 不误中
 `code`），中文关键词保持子串；命中规则按特异度排序（命中词数多者优先、平手按列表序、
@@ -18,10 +18,9 @@ chitchat 瘦身纯寒暄）；能力预设序 带图→审查→代码→数学�
 （设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层
 （约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、协作编排、观测**。
 
-> **当前状态（2026-08-27）**：0.8.0「规则体系补全 + 可解释性 + effort」**已实施、待实机验收
-> B1–B8 门禁**（分支 `feat/0.8.0-routing-coverage`；发版 = 实机验收清单全绿 + 用户裁定 tag，
-> 门禁成文见仓库根 README「开发与测试」节）——7 组词表 + 预设接组 + effort 三入口 + 条件
-> 摘要/试一句/决策词数；385/385 绿 + typecheck 0 + build 过。
+> **当前状态（2026-08-29）**：**v1.0.0 已发布**（tag `v1.0.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.0.0)）——0.7.0
+> 关键词匹配 + 0.8.0 规则体系/effort/决策可观测 + 月汐品牌主题化 + 多 plan 配额（kimi/GLM
+> 跟随命中目标）大版本合流；0.8.0 实机验收 B1–B8 全绿；497/497 绿 + typecheck 0 + build 过（31 个测试文件）。
 > 0.6.0「协作编排」已发布（tag `v0.6.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v0.6.0)）——规则目标泛化为
 > 「模型 | 协作流」，预置图像转述流（vision-exp，eager/lazy）与评审流（P2 触发）注册但不绑定；
 > 按图三态（native/transcribed/blind）退役布尔锁存；预设级 `imageFallback` 三态（锁存/盲答/懒转述）；
@@ -48,7 +47,7 @@ chitchat 瘦身纯寒暄）；能力预设序 带图→审查→代码→数学�
 
 ```bash
 npm install && npm run build && npm pack
-dsh plugin --profile web add ./dsh-kimi-tide-0.8.0.tgz
+dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 ```
 
 然后到 DSH「设置 → Models」添加 provider **`kimi-coding`**，`apiKeyEnv` 填
@@ -88,8 +87,9 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
   卡片（`settings.section`，id `kimi-tide-router`）。
 - **kimi 接入指示**：kimi-coding 路由未注册或 Key 不可解析时显示「⚠️ Kimi 未接入：
   设置 → Models」指引。
-- **官方配额显示**：周配额 / 5 小时窗口（≥80% 黄、≥90% 红），`upd HH:MM` 为上次
-  刷新时间，凭据失效时灰化显示「过期」。
+- **多 plan 配额显示（1.0.0）**：额度槽跟随当前命中目标自动切换——Kimi Code 周配额 / 5 小时
+  窗口，或 GLM Coding Plan 5h token 窗 / 7 天周窗；`upd HH:MM` 为上次刷新时间，凭据失效时
+  灰化显示「过期」，无套餐目标自动置灰。
 - **决策 chip**：规则命中 / 显式 @ 指令路由时显示实际路由 + 理由（0.8.0 起原因带命中词数，
   如「规则「code」命中 2 词（特异度最高）」；打底与 keep 不上屏）。
 - **刷新配额**：主行只读侧保留「🔄 刷新配额」按钮（`/kimi-tide refresh`，不写配置）。
@@ -101,6 +101,7 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 - `/kimi-tide set activePreset <id|off>`（`set` 键白名单仅此一键）
 - `/kimi-tide export-config`（打印 resolved 配置 YAML）/ `/kimi-tide import-config <path|内联 YAML>`（文件整表替换，或多行内联 YAML 合并补丁）
 - `/kimi-tide refresh`（立即刷新配额）
+- `/kimi-tide help`（命令用法一览）
 
 规则驱动路由架构详见 [docs/router.md](docs/router.md)。
 
@@ -111,7 +112,7 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 | **按图三态**（0.6.0 起替代会话锁存） | 每张图按 `native`（视觉模型原生处理）/ `transcribed`（已转述为文字）/ `blind`（当无图）三态跟踪；文本-only 目标面对 native 历史图时按预设 `imageFallback` 处置：`latch` 改道锁存目标 / `blind` 占位盲答 / `transcribe-lazy` 先补转述再放行 |
 | **图像转述流** | 省钱姿态的根解：`image` 规则改挂 `flow:transcribe` → vision-exp 读图转文字（eager，缓存+30s 超时+失败不重打）→ 文本模型凭转述文字接力作答（T4 门已实测通过）；`failurePolicy=latch-image` 转述失败回退原生视觉 |
 | **⚠️ 死锁场景（0.5.x 遗留，0.6.0 已解）** | 0.5.x 布尔锁存下多模态模型额度/Key 失效后会话无法切文本模型——0.6.0 起按图三态 + 转述流提供盲答/转述两条出路（存量含图会话仍只能新开会话） |
-| **面板图像上下文行** | 投影 v6 已推送 `imageContext` 计数 + `lastFlowEvent`（宿主侧）；**客户端渲染降级 0.6.x 跟进**（dock 暂不显示该行，以决策 chip + 会话日志为准） |
+| **面板图像上下文行** | 投影 v6 推送 `imageContext` 计数 + `lastFlowEvent`；**客户端渲染已落地**（0.6.x 池#1）：dock 第二行显示「图 原N·述N」，盲答图 >0 时告警色 |
 
 ## 许可
 
