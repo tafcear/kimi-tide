@@ -20,9 +20,9 @@ DSH 里一个会话从头到尾只用一个模型。可你挂载的模型各有�
 
 ## 架构
 
-[![kimi-tide 架构图（协作编排，绘于 0.6.0）](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
+[![kimi-tide 1.0.0 架构图（协作编排）](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
-> 点击查看大图；`docs/assets/readme/kimi-tide-architecture.html` 下载后用浏览器打开，是可平移缩放/搜索/导出的**交互式架构图**（含明暗双主题；节点证据链指向源码锚点）。图绘于 0.6.0，核心结构至今有效——0.7.0–1.0.0 的增量（effort 档位、auxTargets 辅助改道、多 plan 配额）见下文「特性一览」与「路由器详解」。
+> 点击查看大图；`docs/assets/readme/kimi-tide-architecture.html` 下载后用浏览器打开，是可平移缩放/搜索/导出的**交互式架构图**（含明暗双主题；节点证据链指向源码锚点）。图为 1.0.0 版，含 0.7.0–1.0.0 增量（effort 档位、auxTargets 辅助改道、多 plan 配额）；交互式版可切换「1.0.0 增量」引导视图。
 
 一次请求的决策流：
 
@@ -349,9 +349,9 @@ Who was picked and why is always on the panel. Kimi and DeepSeek are just the re
 
 ## Architecture
 
-[![kimi-tide architecture (collaboration flows, drawn at 0.6.0)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
+[![kimi-tide 1.0.0 architecture (collaboration flows)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
-> Click for the full-size image; open `docs/assets/readme/kimi-tide-architecture.html` in a browser for the **interactive diagram** (pan/zoom/search/export, light & dark themes; node evidence links point at source anchors). Drawn at 0.6.0 — the core structure still holds; the 0.7.0–1.0.0 additions (effort tiers, auxTargets rerouting, multi-plan quota) are covered in "Features" and "Router in Detail" below.
+> Click for the full-size image; open `docs/assets/readme/kimi-tide-architecture.html` in a browser for the **interactive diagram** (pan/zoom/search/export, light & dark themes; node evidence links point at source anchors). Updated for 1.0.0 — includes the 0.7.0–1.0.0 additions (effort tiers, auxTargets rerouting, multi-plan quota); the interactive version ships a guided "1.0.0 additions" view.
 
 The decision flow of one request:
 

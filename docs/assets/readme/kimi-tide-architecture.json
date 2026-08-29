@@ -2,27 +2,28 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "kimi-tide（月汐）0.6.0 架构：协作编排——转述流 · 按图三态 · 智能投影",
+    "title": "kimi-tide（月汐）1.0.0 架构：协作编排——转述流 · 按图三态 · 智能投影",
     "output": "kimi-tide-architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/tafcear/kimi-tide",
-      "revision": "df35e1909a32f1a0eb895abdeade6fda8665a412"
+      "revision": "4b183c2f974c4c21c490bd8cea859a8c6368538f"
     },
     "viewBox": [1360, 734],
     "views": [
       { "id": "main-request", "label": "主请求路径", "focus": ["user", "events", "router", "registry", "piai", "kimiapi"], "note": "一条消息从进入宿主到命中模型的完整链路：事件缝 → 路由器决策 → 官方接入层。" },
       { "id": "flow-branch", "label": "协作流分支", "focus": ["router", "flows", "visionexp", "piai", "dsapi"], "note": "规则目标指向转述流时：vision-exp 读图转文字，文本模型凭转述接力（0.6.0）。" },
-      { "id": "observe-and-config", "label": "观测与配置", "focus": ["dock", "card", "router"], "note": "决策观测走 dock 投影，路由配置落在官方设置页——读写同源。" }
+      { "id": "observe-and-config", "label": "观测与配置", "focus": ["dock", "card", "router"], "note": "决策观测走 dock 投影，路由配置落在官方设置页——读写同源。" },
+      { "id": "v10-additions", "label": "1.0.0 增量", "focus": ["router", "dock", "registry", "piai"], "note": "辅助请求按 auxTargets 改道（0.8.x⑧）；额度槽跟随命中目标自动切源 kimi/GLM（1.0.0）；决策原因带命中词数（0.8.0）。" }
     ]
   },
   "components": [
-    { "id": "dock", "type": "frontend", "label": "月汐 dock 面板", "sublabel": "配额 · 决策 chip · 图像上下文行", "pos": [450, 60], "size": [170, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/client/TideDock.tsx", "line": 1, "label": "面板 UI" }] },
-    { "id": "card", "type": "frontend", "label": "设置卡片「月汐」", "sublabel": "预设 · 规则 · 流注册表 · imageFallback", "pos": [760, 60], "size": [180, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/client/SettingsCard.tsx", "line": 1, "label": "设置 UI" }] },
+    { "id": "dock", "type": "frontend", "label": "月汐 dock 面板", "sublabel": "多 plan 配额 · 决策 chip · 图像上下文行", "pos": [450, 60], "size": [170, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/client/TideDock.tsx", "line": 1, "label": "面板 UI" }, { "path": "packages/dsh-kimi-tide/src/zai-usage.ts", "line": 1, "label": "GLM 配额源" }] },
+    { "id": "card", "type": "frontend", "label": "设置卡片「月汐」", "sublabel": "预设 · 规则 · effort · 试一句 · 流注册表", "pos": [760, 60], "size": [180, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/client/SettingsCard.tsx", "line": 1, "label": "设置 UI" }] },
     { "id": "user", "type": "external", "label": "用户消息", "sublabel": "文本 / 图片", "pos": [40, 330], "size": [130, 60] },
-    { "id": "events", "type": "messagebus", "label": "Agent 事件缝", "sublabel": "pre-step · request · stream · admission", "pos": [240, 330], "size": [190, 60], "sources": [{ "path": "packages/dsh-kimi-tide/src/router.ts", "line": 472, "label": "监听器 prepend 恒外层" }] },
-    { "id": "router", "type": "backend", "label": "KimiRouter 路由器", "sublabel": "预设 + 规则 + 按图三态 + 护栏", "pos": [480, 330], "size": [180, 60], "tag": "kimi-tide 独占", "sources": [{ "path": "packages/dsh-kimi-tide/src/router.ts", "line": 225, "label": "decide 决策链" }, { "path": "packages/dsh-kimi-tide/src/image-state.ts", "line": 5, "label": "native/transcribed/blind" }] },
-    { "id": "flows", "type": "backend", "label": "协作流编排", "sublabel": "transcribe eager/lazy · review(P2) · LRU · 30s", "pos": [560, 470], "size": [190, 64], "tag": "0.6.0", "sources": [{ "path": "packages/dsh-kimi-tide/src/config.ts", "line": 120, "label": "预置 transcribe/review 流" }, { "path": "packages/dsh-kimi-tide/src/transcribe.ts", "line": 67, "label": "转述核心引擎" }] },
+    { "id": "events", "type": "messagebus", "label": "Agent 事件缝", "sublabel": "pre-step · request · stream · admission", "pos": [240, 330], "size": [190, 60], "sources": [{ "path": "packages/dsh-kimi-tide/src/router.ts", "line": 552, "label": "监听器 prepend 恒外层" }] },
+    { "id": "router", "type": "backend", "label": "KimiRouter 路由器", "sublabel": "预设 + 规则 + 特异度 + effort + 三态护栏", "pos": [480, 330], "size": [180, 60], "tag": "kimi-tide 独占", "sources": [{ "path": "packages/dsh-kimi-tide/src/router.ts", "line": 229, "label": "decide 决策链" }, { "path": "packages/dsh-kimi-tide/src/image-state.ts", "line": 5, "label": "native/transcribed/blind" }] },
+    { "id": "flows", "type": "backend", "label": "协作流编排", "sublabel": "transcribe eager/lazy · review(P2) · LRU · 30s", "pos": [560, 470], "size": [190, 64], "tag": "0.6.0", "sources": [{ "path": "packages/dsh-kimi-tide/src/config.ts", "line": 145, "label": "预置 transcribe/review 流" }, { "path": "packages/dsh-kimi-tide/src/transcribe.ts", "line": 67, "label": "转述核心引擎" }] },
     { "id": "registry", "type": "backend", "label": "ctx.llm 注册表", "sublabel": "provider 路由 + 模态元数据", "pos": [700, 330], "size": [160, 60] },
     { "id": "piai", "type": "backend", "label": "官方 dsh-llm-pi-ai", "sublabel": "kimi-coding · deepseek-official 路由", "pos": [930, 330], "size": [180, 60], "tag": "官方接入层" },
     { "id": "kimiapi", "type": "cloud", "label": "api.kimi.com/coding", "sublabel": "k3 系列 · 多模态 · 1M 长窗", "pos": [840, 560], "size": [170, 64] },
@@ -39,7 +40,7 @@
     { "id": "events-to-router", "from": "events", "to": "router", "label": "每轮首步" },
     { "id": "router-to-flows", "from": "router", "to": "flows", "label": "规则目标=流", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
     { "id": "flows-to-visionexp", "from": "flows", "to": "visionexp", "label": "转述读图", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [500, 545] },
-    { "id": "router-to-registry", "from": "router", "to": "registry", "label": "改道 LlmCallConfig", "labelDy": 54 },
+    { "id": "router-to-registry", "from": "router", "to": "registry", "label": "改道 LlmCallConfig（含 effort）", "labelDy": 54 },
     { "id": "registry-to-piai", "from": "registry", "to": "piai", "label": "prepareCall" },
     { "id": "piai-to-kimi", "from": "piai", "to": "kimiapi", "label": "anthropic-messages · Bearer key", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [880, 445] },
     { "id": "piai-to-deepseek", "from": "piai", "to": "dsapi", "label": "openai-completions", "fromSide": "bottom", "toSide": "top" },
@@ -48,7 +49,7 @@
   ],
   "cards": [
     { "dot": "cyan", "title": "官方承接（不重复造轮）", "items": ["接入层 = pi-ai 原生 kimi-coding 路由（API key 直连）", "凭据 = apiKeyEnv 引用按请求解析，密钥不落插件配置"] },
-    { "dot": "violet", "title": "kimi-tide 独占价值", "items": ["规则驱动路由：显式 @ → 规则链首命中 → 预设打底", "按图三态 + 图像护栏，决策可观测（dock chip + 投影 v6）"] },
-    { "dot": "emerald", "title": "0.6.0 协作编排", "items": ["transcribe 流：vision-exp 读图，eager/lazy · LRU · 30s · 失败不重打", "imageFallback 三态 + llm/stream 智能投影"] }
+    { "dot": "violet", "title": "kimi-tide 独占价值", "items": ["规则驱动路由：显式 @ → 特异度首命中 → 预设打底（0.7.0 词边界 / 0.8.0 effort）", "按图三态 + 图像护栏 + auxTargets 辅助改道，决策可观测"] },
+    { "dot": "emerald", "title": "0.6.0 协作编排 · 1.0.0 大版本", "items": ["transcribe 流：vision-exp 读图，eager/lazy · LRU · 30s · 失败不重打", "多 plan 配额跟随命中目标（kimi/GLM）+ 月汐品牌主题化"] }
   ]
 }
