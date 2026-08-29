@@ -147,8 +147,9 @@ export function apply(ctx: Context): void {
     .kimi-tide-settings .kt-rule-no { font-size: 11px; opacity: 0.6;
       font-variant-numeric: tabular-nums; text-align: center; }
     .kimi-tide-settings .kt-cond { display: inline-flex; align-items: center; gap: 4px;
-      min-width: 0; flex-wrap: wrap; }
-    .kimi-tide-settings .kt-cond .kt-minhits { width: 46px; }
+      min-width: 0; flex-wrap: nowrap; }
+    .kimi-tide-settings .kt-cond select { min-width: 0; flex: 1 1 60px; }
+    .kimi-tide-settings .kt-cond .kt-minhits { width: 44px; flex: none; }
     .kimi-tide-settings .kt-cell { display: inline-flex; align-items: center; min-width: 0; }
     .kimi-tide-settings .kt-cell .kt-target-wrap { width: 100%; }
     .kimi-tide-settings .kt-ops { display: inline-flex; gap: 4px; }
