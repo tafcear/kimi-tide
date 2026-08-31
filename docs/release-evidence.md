@@ -1,6 +1,6 @@
 # 发布证据链（release evidence）
 
-> **用途**：发布门禁 convention 的证据锚点——任何版本发版（打 tag / 触发 Actions Release）前，该版本实机验收清单必须全绿 + 用户裁定 tag；**执行记录回写本文件锚点**。用户视角的版本史见仓库根 [CHANGELOG](../../CHANGELOG.md)。
+> **用途**：发布门禁 convention 的证据锚点——任何版本发版（打 tag / 触发 Actions Release）前，该版本实机验收清单必须全绿 + 用户裁定 tag；**执行记录回写本文件锚点**。用户视角的版本史见仓库根 [CHANGELOG](../CHANGELOG.md)。
 > **来源**：2026-08-31 自 README「路线图」节**原样迁移**（结构方案 C，见 [`docs/superpowers/specs/2026-08-31-zero-basis-docs-design.md`](superpowers/specs/2026-08-31-zero-basis-docs-design.md) §4.5）；除相对链接路径按新位置调整外，条目零删改。
 
 > 当前版本：**v1.0.0（2026-08-29）**——大版本：0.7.0 关键词匹配 + 0.8.0 规则体系/effort/决策可观测 + 品牌主题化 + 多 plan 配额。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
@@ -28,4 +28,4 @@
 - **0.7.0**：**关键词匹配准确性升级**——三类误路由对症修复：①纯 ASCII 关键词词边界匹配（`decode`/`unicode`/`barcode` 不再误中 `code`，中文保持子串）；②命中特异度排序（命中词数多者优先、平手按列表序、带图恒优先），内置能力预设调序 code→chitchat、code 词表 8→17 词；③规则条件可选 `minHits` 最少命中词数（≥1 整数，缺省 1；设置卡片带输入）。v5 形状不变、新字段全可选，存量配置逐字节兼容。359/359 绿 + typecheck 0 + build 过。
 - **0.8.0**：**规则体系补全 + 可解释性 + 推理程度配置**——内置关键词组 2→7 组（新增 review/writing/translate/longdoc/math，chitchat 瘦身为纯寒暄，「翻译」「总结」迁入专组），能力预设序 带图→审查→代码→数学→长文→写作→翻译→闲聊（审查意图优先于泛 code 词）、省钱预设加翻译规则；`effort` 可选推理档位（规则目标/预设默认/转述流视觉模型三入口；运行期按模型档位支持集判定——支持携带、不支持剥离记日志，不做写入期档位校验；护栏改道与显式 `@` 不带规则 effort，review 流 reviewer 无此字段）；设置卡片规则行条件摘要（「命中 code 组 ≥1 词」）+ 目标 effort 档位下拉 + 「试一句」测试器（实时预演命中规则与最终目标）；dock 决策原因带命中词数（`规则「code」命中 2 词（特异度最高）`）。385/385 绿 + typecheck 0 + build 过；**已随 v1.0.0 发布**（实机验收 B1–B8 全绿）。
 - **v1.0.0**：**大版本合流**——0.7.0 关键词匹配 + 0.8.0 规则体系/effort/决策可观测 + 0.8.x 池全清（499 根治/auxTargets 辅助改道/限额跟随/布局重构两行+三页签）+ 打磨三连 + UI 交叉评审批次 + 月汐品牌主题化 + 设置导航月牙图标 + 多 plan 配额（kimi/GLM 跟随命中目标自动切源，GLM CREDIT_LIMIT 积分制适配）。497/497 绿 + typecheck 0 + build 过；Release 流水线两连败后 run#8 成功（gh 新版两坑已写入 workflow 注释）。
-- **规划中**：review 流命令式触发（P2，`/kimi-tide review`）、子代理转述机制（P3，S2 契约 GO）——远期；发版后跟进：池⑩（随发布后收录）、池⑪（转述治本：整页截图逐字转述撞 30s 有界超时的治本候选）、0.8.5「强化与包装」八任务（已立项，见 [`superpowers/plans/2026-08-27-hardening-and-packaging.md`](superpowers/plans/2026-08-27-hardening-and-packaging.md)）。~~0.6.x 跟进池~~（12/12 已全清：面板图像上下文行客户端渲染、M-3 校验加固、lazy 失败直测、建流 UI 等 18 条全部落地）。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。
+- **规划中**：review 流命令式触发（P2，`/kimi-tide review`）、子代理转述机制（P3，S2 契约 GO）——远期；发版后跟进：池⑩（随发布后收录）、池⑪（转述治本：整页截图逐字转述撞 30s 有界超时的治本候选）、0.8.5「强化与包装」八任务（已立项，计划文件 `docs/superpowers/plans/2026-08-27-hardening-and-packaging.md` 在 `docs/085-planning` 分支，未并入 main）。~~0.6.x 跟进池~~（12/12 已全清：面板图像上下文行客户端渲染、M-3 校验加固、lazy 失败直测、建流 UI 等 18 条全部落地）。~~模式预设~~（现有设置卡片已满足，不立项）、~~子代理图片外包~~（官方子代理仅文本，裁撤）、~~kimi 子代理后端~~（经路由已实现，关闭）。

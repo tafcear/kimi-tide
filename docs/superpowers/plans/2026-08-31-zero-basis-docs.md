@@ -44,7 +44,7 @@
 - Consumes: 现 README「项目思路」节（演进史素材）、路线图版本 bullets（中文区 L276-286，用户视角素材）
 - Produces: `## vX.Y.Z（YYYY-MM-DD）` 标题格式（Task 8 脚本依赖）；Task 4 README §版本与路线 的链接目标
 
-- [ ] **Step 1: 写前言**——一段话项目是什么（电梯陈述同款）+ 三段演进史（自研接入→路由与评分→收敛聚焦，承接现 README「项目思路」三段，各 2-3 句）+ 边界声明行：「本文件是版本历史的唯一事实源（用户视角）；维护者证据链（commit 锚点/验收记录）见 [docs/release-evidence.md](docs/release-evidence.md)。」
+- [ ] **Step 1: 写前言**——一段话项目是什么（电梯陈述同款）+ 三段演进史（自研接入→路由与评分→收敛聚焦，承接现 README「项目思路」三段，各 2-3 句）+ 边界声明行：「本文件是版本历史的唯一事实源（用户视角）；维护者证据链（commit 锚点/验收记录）见 `docs/release-evidence.md`。」
 - [ ] **Step 2: 逐版本条目（倒序）**——`## v1.0.0（2026-08-29）` / `## v0.6.1（2026-08-23）` / `## v0.6.0（2026-08-23）` / `## v0.5.0（2026-08-21）` / `## v0.4.0（2026-08-20）` / `## v0.1.3`；0.2.x/0.3.0 并入 v0.4.0 条目一句话（「此前 0.2-0.3 的路由与评分能力随本版首次发版」）。每条：2-5 行「用户得到了什么」（业务语言，从现路线图 bullets 改写），末行附 `[Release vX.Y.Z](https://github.com/tafcear/kimi-tide/releases/tag/vX.Y.Z)`。v1.0.0 条目为最详（合流了什么、新用户视角六大点：关键词匹配更准/规则覆盖 7 组/effort 档位/试一句/多 plan 配额/月汐主题）。
 - [ ] **Step 3: 自查**——无 commit hash、无验收编号、无测试数混入；`git tag -l` 对照版本清单无遗漏。
 - [ ] **Step 4: Commit**
@@ -101,15 +101,16 @@ git commit -m "docs(router): 承接 README 下沉内容——v5 配置键补差�
 - Produces: `> 当前版本：**v1.0.0（2026-08-29）**` 字面行（Task 8 脚本依赖）；Task 5 英文版的结构母本
 
 - [ ] **Step 1: 核实 DSH 一句话**——`npm view @deepseek-ai/dsh description homepage`（或 web 官方 README），以官方表述为基准定稿首屏 DSH 注释句； Global Constraints 注释表措辞随之校正。把核实到的官方原文记入本计划本步骤下方（实施时回填）。
+  - **回填（2026-08-31 实施时核实）**：GitHub 仓库官方 tagline = **"DeepSeek Harness: Everything is a Plugin."**（`github.com/deepseek-ai/deepseek-harness` 页面标题原文）；npm `@deepseek-ai/dsh` 为 MIT 许可、readmeFilename=`README.zh.md`（包内 README 仅述 CLI 启动器，不承载产品定位）。定稿措辞：「DSH（DeepSeek Harness）是 DeepSeek 官方开源的 AI 编程智能体框架——在网页里跟 AI 助手对话干活，模型、工具、界面都以插件形式装卸（官方口号：Everything is a Plugin）。」
 - [ ] **Step 2: 按新骨架重写**（spec §4.1 八节 + 首屏；每节的硬性内容要求）：
-  1. **顶部**：hero.gif + 徽章（原样保留）+ 语言行「简体中文 ｜ [English](README.en.md)」。
+  1. **顶部**：hero.gif + 徽章（原样保留）+ 语言行「简体中文 ｜ `README.en.md` 链接（English）」。
   2. **首屏电梯陈述**（4-6 行，spec S1 草样为基）：一句「是什么」→ 两句 DSH 白话注释 + 「DSH 默认一会话一模型」的痛点 → 一句「装后得到什么」（三个自动切）→ 一句「决策可见、规则你写」→ 一行**适合谁/不适合谁**。
   3. **三个真实场景**：贴图切模型 / 切完忘切回 / 额度焦虑——每场景两行「以前 vs 装上月汐后」。
   4. **30 秒看懂路由逻辑**：4 行白话决策链（显式@ → 规则链首条命中 → 预设打底 → 带图护栏）+ 现决策流 mermaid 原样保留 + 架构图缩为两行（图 + 交互版链接一句）。
   5. **快速开始**：现四步内容白话化保留（前置/接模型/安装/30 秒验收；命令原文不动；术语按注释表加注）；「发布规范（dsh.bundle.patch）」注**移出**访客动线，挪至「开发与测试」节。
   6. **预设与规则**：现内置预设表 + 7 关键词组表迁移保留；`minHits`/`effort` 各一句白话 + 深入链接 router.md；一句「候选池=Models 页全量，见 router.md」。
   7. **常见问题**：现 5 问保留白话化；迁移史答（Q5）缩为两句 + router.md §迁移链链接。
-  8. **版本与路线**（≤5 行）：`> 当前版本：**v1.0.0（2026-08-29）**` + [CHANGELOG](CHANGELOG.md) + 证据链 docs/release-evidence.md + 规划中三条一句话（评审流自动触发 / 子代理转述 / 0.8.5 强化与包装）。
+  8. **版本与路线**（≤5 行）：`> 当前版本：**v1.0.0（2026-08-29）**` + `CHANGELOG.md` 链接 + 证据链 `docs/release-evidence.md` + 规划中三条一句话（评审流自动触发 / 子代理转述 / 0.8.5 强化与包装）。
   9. **文档索引**（按读者分层）：我想用（快速开始/FAQ）/ 我想深挖（router.md、架构图交互版、host-platform-map、协作闭环方法论、kimi-tide-research）/ 我想参与（Discussions、贡献者）；节首一行引语「三原则：官方优先 · 规则透明 · 决策可观测」。
   10. **开发与测试**：现内容压缩（三命令 + 质量基线一句 + 发布门禁一段，门禁措辞「执行记录回写**docs/release-evidence.md** 锚点」）+ 自 README 快速开始移入的 dsh.bundle.patch 注。
   11. **贡献者 / 许可证与合规**：原文保留，微调措辞。
@@ -133,7 +134,7 @@ git commit -m "docs(readme): 零基础化重写中文主文档——电梯陈述
 - Consumes: Task 4 中文版（结构母本与全部事实）
 - Produces: 英文独立入口；Task 9 双语对齐检查对象
 
-- [ ] **Step 1: 全文翻译重写**——与中文版同结构同深度（十二节一一对应）；顶部语言行「[简体中文](README.md) ｜ English」；现 README 英文区的成熟表述优先沿用（痛点段/决策链等），零基础化改写同步 applying。
+- [ ] **Step 1: 全文翻译重写**——与中文版同结构同深度（十二节一一对应）；顶部语言行「`README.md` 链接（简体中文） ｜ English」；现 README 英文区的成熟表述优先沿用（痛点段/决策链等），零基础化改写同步 applying。
 - [ ] **Step 2: 数字与事实逐条对齐**——对照中文版过一遍：v1.0.0、497/497、31、`0.1.1-rc.2`、Node 22、7 组、effort 三入口、安装命令、模型表数值（沿 08-30 双语评审 D1-D12 检查法）。
 - [ ] **Step 3: 体量自查**——≤ 14KB；无维护者语言混入。
 - [ ] **Step 4: Commit**
@@ -152,7 +153,7 @@ git commit -m "docs(readme): 新建独立英文版 README.en.md——与中文�
 - Consumes: Task 3 router.md（配置落点）、Task 1 CHANGELOG、Task 4 根 README（电梯陈述同款口径）
 - Produces: npm 页/收录条目看到的插件面文档
 
-- [ ] **Step 1: 按骨架重写**——①首段：插件视角电梯陈述（同款口径，点到「装上即用的路由+护栏+面板」）+ 状态两行（v1.0.0 已发布 + 497/497）；②前置条件/安装四步/模型表（kimi 4 模型）原样保留；③dock 面板速览 + 命令族保留白话化；④插件级配置表（cordis.patch.yml 四键）保留；⑤带图行为与已知限制表保留；⑥删版本史状态长块（0.6.0/0.8.0 段），替换一行「版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)」；⑦路由配置不再展开，一句「见 [docs/router.md](docs/router.md) 配置参考」。
+- [ ] **Step 1: 按骨架重写**——①首段：插件视角电梯陈述（同款口径，点到「装上即用的路由+护栏+面板」）+ 状态两行（v1.0.0 已发布 + 497/497）；②前置条件/安装四步/模型表（kimi 4 模型）原样保留；③dock 面板速览 + 命令族保留白话化；④插件级配置表（cordis.patch.yml 四键）保留；⑤带图行为与已知限制表保留；⑥删版本史状态长块（0.6.0/0.8.0 段），替换一行「版本历史见仓库根 `CHANGELOG`」；⑦路由配置不再展开，一句「见 `docs/router.md` 配置参考」。
 - [ ] **Step 2: 自查**——与根 README 事实同口径无冲突；链接（`../../CHANGELOG.md`、`docs/router.md`）可达。
 - [ ] **Step 3: Commit**
 
