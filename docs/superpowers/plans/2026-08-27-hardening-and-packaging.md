@@ -52,6 +52,8 @@
 
 ## T4 README 拆分与包装（调研报告 §4）
 
+> ✅ **核销注记（2026-08-31）**：本任务四项已由 `docs/1.0.1-zero-basis` 分支提前完成并随 **v1.0.1 文档版发布**（已合并 main，spec `docs/superpowers/specs/2026-08-31-zero-basis-docs-design.md`、计划 `docs/superpowers/plans/2026-08-31-zero-basis-docs.md`、评审存档 `docs/audit/2026-08-31-zero-basis-docs-review-round1.md`）。逐项对照：4.1 拆分 ✅（README 零基础化重写 657→100 行 + 独立 README.en.md；体量锁主文档 ≤20KB 达标、英文 ≤14.5KB 留注放宽）｜4.2 ✅（首屏一句话定位 + DSH 白话注释，官方口号 "Everything is a Plugin." 已核实；版本表以 CHANGELOG/Release 呈现替代组件表）｜4.3 ✅（三场景痛点叙事：贴图切模型/切完忘切回/额度焦虑）｜4.4 ✅（超原计划：`scripts/check-doc-links.mjs` 机器化 73 md 0 断链 + `check-changelog.mjs` 版本一致性，双门禁进 CI）。开工时验证即可，**不重复实施**。
+
 - [ ] 4.1 拆分：`README.md` 瘦身为中文主文档；`README.en.md` 独立英文互链（替代现中英全量对照，目标主文档 ≤ 20KB）
 - [ ] 4.2 顶部新增：一句话定位类比 + 组件/依赖版本表（DSH 版本窗、peerDeps、安装方式速查）
 - [ ] 4.3 痛点叙事段重写（贴图切模型 / 切完忘切回 / 配额焦虑——先讲场景再讲功能）
