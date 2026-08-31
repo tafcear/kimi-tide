@@ -25,6 +25,7 @@ jobs:
         # boundedSignal/usage 超时的降级分支承担，与本矩阵无涉。
         node-version: [22, 24]
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
