@@ -18,7 +18,7 @@ DSH (DeepSeek Harness) is DeepSeek's official open-source AI coding agent framew
 With kimi-tide installed: **paste a screenshot and it goes to a model that can see it; write code and it goes to the coding model; small talk and translation go to the cheap one** — and the "🌙 MoonTide" panel below the input box always shows who was picked and why. The rules are yours to write and edit. Kimi and DeepSeek are just the ready-made examples — **any model you connect can be routed your way**.
 
 **For you if**: you use DSH with more than one model connected.
-**Not for you if**: you use a single model, or haven't set up DSH yet (start there, come back for this).
+**Not for you if**: you use a single model, or haven't set up DSH yet (set up DSH first, then come back).
 
 ---
 
@@ -74,7 +74,7 @@ flowchart LR
 
 [![kimi-tide 1.0.0 architecture (collaboration flows)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
-*Click for full size. `docs/assets/readme/kimi-tide-architecture.html` can be opened in a browser after download for the interactive diagram (pan/zoom/search, light & dark themes, source-anchored nodes).*
+*Click for full size; the linked HTML opens as an interactive diagram (pan/zoom/search, light & dark themes).*
 
 ---
 
@@ -143,13 +143,13 @@ Matching details (word boundaries, specificity ranking, degradation), image beha
 ## FAQ
 
 **Q: Where did the old OAuth access go?**
-A: Retired. The official DSH ecosystem natively supports Kimi now, so the self-built layer was removed wholesale. One Console API key + the official Models page is all it takes. Archive: [`docs/legacy-setup.md`](docs/legacy-setup.md).
+A: Retired. The official DSH ecosystem natively supports Kimi now, so the self-built layer was removed wholesale. Archive: [`docs/legacy-setup.md`](docs/legacy-setup.md).
 
 **Q: Do I still need the Kimi CLI and `kimi login`?**
 A: No. One Console API key + the official Models page.
 
 **Q: Any limitations with image sessions?**
-A: With the default "latch" behavior, a session that has seen an image stays locked to the vision-capable model — if its quota/key fails, that session can't fall back to a text model; open a new one. To avoid this: set the preset's image fallback to "lazy transcribe" (images become text, the text model takes over) or "blind" (treat images as absent). Transcriptions are cached and never retried on failure. For important image work, keep the model's quota healthy.
+A: With the default "latch" behavior, a session that has seen an image stays locked to the vision-capable model — if its quota/key fails, that session can't fall back to a text model; open a new one. To avoid this: set the preset's image fallback to "lazy transcribe" (images become text, the text model takes over) or "blind" (treat images as absent). Transcriptions are cached and never retried on failure.
 
 **Q: I heard about a "capability scoring engine"?**
 A: Retired. Scoring by machine was a black box; routing now follows rules you can read and edit — a hit routes, a miss falls to the baseline. Old scoring configs migrate into presets automatically on upgrade.
@@ -165,7 +165,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
-- Planned: automatic review-flow triggering, subagent transcription, the 0.8.5 "hardening & packaging" release — see the "planned" entry in the [evidence doc](docs/release-evidence.md).
+- Planned: automatic review-flow triggering, subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
 
 ---
 
@@ -189,8 +189,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 **I want to contribute**
 
-- Say hi in [Discussions](https://github.com/tafcear/kimi-tide/discussions)
-- Report issues, send fixes — contributions of any form are welcome (see Contributors below)
+- Report issues, send fixes, or say hi in [Discussions](https://github.com/tafcear/kimi-tide/discussions)
 
 ---
 
@@ -215,7 +214,7 @@ Quality bar: full test suite green + zero typecheck errors + successful build be
 ## Contributors
 
 - Thanks to [@dracpet](https://github.com/dracpet) for live-verified diagnosis and community contributions: [PR #1](https://github.com/tafcear/kimi-tide/pull/1) (OAuth expiry refresh), [PR #2](https://github.com/tafcear/kimi-tide/pull/2) (`commands/execute` across host contract versions), [PR #3](https://github.com/tafcear/kimi-tide/pull/3) (YAML-null config normalization), and [Issue #4](https://github.com/tafcear/kimi-tide/issues/4) (rc.2 projection wire-contract diagnosis) — your feedback hardened the 0.5.x–0.6.0 releases.
-- Thanks to [@pandashere](https://github.com/pandashere) for [dsh-kimi-bridge](https://github.com/pandashere/dsh-kimi-bridge) (MIT): it bootstrapped the early Kimi CLI bridging, and its review rounds and dual-face plugin/projection mechanics validated the path kimi-tide's panel later took; the component has since been retired and archived (history preserved in git) as the official integration matured — thank you.
+- Thanks to [@pandashere](https://github.com/pandashere) for [dsh-kimi-bridge](https://github.com/pandashere/dsh-kimi-bridge) (MIT): it bootstrapped the early Kimi CLI bridging and validated the panel path kimi-tide later took; retired and archived (history preserved in git) as the official integration matured — thank you.
 - Contributions of any form are welcome: report issues, send fixes, or share how you use it in [Discussions](https://github.com/tafcear/kimi-tide/discussions).
 
 ---
