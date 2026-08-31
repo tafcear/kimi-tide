@@ -2,6 +2,8 @@
 
 # DSH 宿主平台契约调研（host-platform-map）
 
+> 📌 这是内部/存档文档，面向维护者与研究者。新读者请从仓库根 [README](../README.md) 开始。
+
 - 调研日期：2026-08-20
 - 复核日期：2026-08-22（rc.2 事实锚点更新）
 - 调研对象：本地 DSH 安装 `C:\Users\tafce\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh`（下称 `$DSH`，各包根为 `$DSH/node_modules/@deepseek-ai/<pkg>`，只有 `lib/` 编译产物 .js/.d.ts）；GitHub 仓库 `deepseek-ai/deepseek-harness`（master）用于补查本地没有源码的内容。

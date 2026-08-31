@@ -1,5 +1,7 @@
 # 旧配置方案（备选）：settings.yaml + 外部刷新脚本
 
+> 📌 这是内部/存档文档，面向维护者与研究者。新读者请从仓库根 [README](../README.md) 开始。
+
 > ⚠️ **已被 0.4.x 取代**：v0.4.0 起 kimi-tide 走 pi-ai 原生 `kimi-coding` 路由 + Console API Key（见 README 快速开始），本文档的定时任务/OAuth 方案仅作历史存档，不再适用。
 > 文中所引的 `scripts/` 工具（`kimi-token-refresh.ps1` / `validate-kimi-settings.mjs` / `e2e-kimi.mjs` 等 8 件）已于 **2026-08-23 随 dsh-kimi-bridge 归档一并退役删除**（git 历史保留，commit `ba9bfc3` 之后）。
 
