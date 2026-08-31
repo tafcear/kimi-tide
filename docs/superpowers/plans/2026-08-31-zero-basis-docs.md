@@ -28,7 +28,7 @@
 - **新增事实断言白名单**：仅 DSH 一句话介绍（Task 4 核实）；其余一律沿用存量事实。
 - **不动清单**：任何 `src/`/`test/` 代码；`docs/assets/readme/` 全部视觉资产；`docs/superpowers/` specs/plans 历史档案；`packages/dsh-kimi-tide/docs/router.md` 的语义表述（Task 3 仅补字段事实）；中英以外不新增语言。
 - **格式锁**：README「版本与路线」节首行必须是 `> 当前版本：**vX.Y.Z（YYYY-MM-DD）**` 字面格式；CHANGELOG 版本标题必须是 `## vX.Y.Z（YYYY-MM-DD）`——两者被 `scripts/check-changelog.mjs` 正则依赖（Task 8）。
-- **体量锁**：`README.md` ≤ 20KB；`README.en.md` ≤ 14KB。
+- **体量锁**：`README.md` ≤ 20KB；`README.en.md` ≤ 14KB（**实施修正 2026-08-31：EN 放宽至 ≤ 14.5KB——Kimi 评审 Round1 修复波净增 207B 后 14507B 超原锁 171B，复检 Round2 给出「瘦身或放宽锁并留注」两选项；取放宽：零基础可懂优先于 0.5KB 体量差**）。
 - **维护者语言禁区**：commit hash、验收清单编号（A1-A10/B1-B8/C1-C6）、测试数、分支名、池⑩⑪等内部编号**不得出现**在 README/CHANGELOG 正文（release-evidence.md 与 docs/ 内部文档不受限）。
 - 分支 `docs/1.0.1-zero-basis`；一文件一 commit；**绝不跑 `pnpm install`**；全量验证命令在 `packages/dsh-kimi-tide` 下：`npx vitest run --pool=threads` + `npm run typecheck` + `npm run build`。
 - Kimi 评审额度窗口规则：若在 08-31 15:13 UTC 前派发失败（429/配额），评审**挂起待窗口**，不换评审人、不跳过。

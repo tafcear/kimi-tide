@@ -1,7 +1,7 @@
 # 发布证据链（release evidence）
 
 > **用途**：发布门禁 convention 的证据锚点——任何版本发版（打 tag / 触发 Actions Release）前，该版本实机验收清单必须全绿 + 用户裁定 tag；**执行记录回写本文件锚点**。用户视角的版本史见仓库根 [CHANGELOG](../CHANGELOG.md)。
-> **来源**：2026-08-31 自 README「路线图」节**原样迁移**（结构方案 C，见 [`docs/superpowers/specs/2026-08-31-zero-basis-docs-design.md`](superpowers/specs/2026-08-31-zero-basis-docs-design.md) §4.5）；除相对链接路径调整、头部门禁句并入用途横幅、0.8.5 计划悬空链去链接化（补注分支位置）外，条目零删改。
+> **来源**：2026-08-31 自 README「路线图」节**原样迁移**（结构方案 C，见 [`docs/superpowers/specs/2026-08-31-zero-basis-docs-design.md`](superpowers/specs/2026-08-31-zero-basis-docs-design.md) §4.5）；除相对链接路径调整、头部门禁句并入用途横幅、0.8.5 计划悬空链去链接化（补注分支位置）、v1.0.0 表行补「auxTargets/」（同步本文件末行 bullet 与英文表行，清偿旧 README 自身口径不一）外，条目零删改。
 
 > 当前版本：**v1.0.0（2026-08-29）**——大版本：0.7.0 关键词匹配 + 0.8.0 规则体系/effort/决策可观测 + 品牌主题化 + 多 plan 配额。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
 
