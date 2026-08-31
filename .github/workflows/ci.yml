@@ -25,14 +25,15 @@ jobs:
         # boundedSignal/usage 超时的降级分支承担，与本矩阵无涉。
         node-version: [22, 24]
     steps:
-      - uses: actions/checkout@v4
-      - name: Docs consistency (changelog/README/package version)
-        run: node scripts/check-changelog.mjs
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: packages/dsh-kimi-tide/package-lock.json
+      - name: Docs consistency (changelog/README/package version + doc links)
+        run: |
+          node scripts/check-changelog.mjs
+          node scripts/check-doc-links.mjs
       - run: npm ci
         working-directory: packages/dsh-kimi-tide
       - name: Typecheck

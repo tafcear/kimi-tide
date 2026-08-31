@@ -10,7 +10,7 @@ DeepSeek Harness（DSH）的「每一步自动选模型」插件：命名预设 
 
 | 模型 | 说明 | 上下文 |
 |------|------|--------|
-| `kimi-for-coding` | Kimi K2.7 Code（默认候选） | 256K |
+| `kimi-for-coding` | Kimi K2.7 Code（编码任务主力） | 256K |
 | `kimi-for-coding-highspeed` | K2.7 Code 高速版 | 256K |
 | `k3` | Kimi K3 旗舰 | 1M |
 | `k3-256k` | Kimi K3 256K 版 | 256K |
@@ -46,7 +46,7 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 > `kimi-tide-router`），配置形状为 v5（`activePreset` / `presets`（默认模型 +
 > 有序规则 + `imageFallback` 三态）/ `keywordGroups`（内置 7 组）/ `flows`
 > （协作流注册表）/ `auxTargets` 辅助请求改道表）；存量配置经迁移链自动桥接并留档。
-> 全字段与迁移链详见 [docs/router.md](docs/router.md) 的「配置参考」与「迁移链」节。
+> 配置全字段见 [docs/router.md](docs/router.md) 的「配置参考」与「0.6.0 协作编排扩展」（v5 增量速览）两节；迁移链见「迁移链」节。
 
 ## 月汐 dock 面板（只读仪表）
 

@@ -37,7 +37,7 @@ With kimi-tide installed: **paste a screenshot and it goes to a model that can s
 **Scenario 3: your quota burns faster than expected**
 
 - Before: every message — including "hello" and "translate this" — runs on the most expensive model.
-- After: pick the "saving" preset — small talk, translation, and daily chores go to the cheap model; only code and images touch the expensive ones. The panel shows your remaining quota in real time.
+- After: pick the "saving" preset (a ready-made bundle of default model + rules) — small talk, translation, and daily chores go to the cheap model; only code and images touch the expensive ones. The panel shows your plan's remaining quota in real time (Kimi/GLM plans; models without a plan stay greyed out).
 
 ---
 
@@ -68,13 +68,13 @@ flowchart LR
     K --> J
 ```
 
-> A "flow" is a small automation pipeline (e.g.: images are turned into text first, then a cheap text model takes over); "vision" means a model that can read images.
+> A "flow" is a small automation pipeline (e.g.: images are turned into text first, then a cheap text model takes over); "vision" means a model that can read images; the "dock panel" is the "🌙 MoonTide" panel below the input box.
 
 ## What it looks like
 
 [![kimi-tide 1.0.0 architecture (collaboration flows)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
-*Click for full size; the linked HTML opens as an interactive diagram (pan/zoom/search, light & dark themes).*
+*Click for full size; download the linked HTML and open it in a browser for the interactive diagram (pan/zoom/search, light & dark themes).*
 
 ---
 
