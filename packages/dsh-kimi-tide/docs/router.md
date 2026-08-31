@@ -167,6 +167,25 @@ interface CandidateMeta extends RouteTarget {
   事件触发重新枚举。
 - 配置目标不在实时目录中时保留为 `available: false`（路由跳过、面板标灰）。
 
+### 开箱示例（非路由边界）
+
+下表只列**内置预设与预置流直接引用的模型**（开箱示例）——候选池本身 = 宿主
+Models 页全量目录，任何 provider 的任何模型都可作预设默认、规则目标或 `@指令`
+对象。
+
+| 来源 | 模型 ID | 模态 | 上下文 | 角色 |
+|---|---|---|---|---|
+| `kimi-coding` | `k3` | 多模态 | 1M | 能力预设打底 / 带图规则目标 |
+| `kimi-coding` | `k3-256k` | 多模态 | 256K | 候选 |
+| `kimi-coding` | `kimi-for-coding` | 多模态 | 256K | 代码规则目标 |
+| `kimi-coding` | `kimi-for-coding-highspeed` | 多模态 | 256K | 候选 |
+| `deepseek-official` | `deepseek-v4-flash` | 文本-only | 1M | 省钱预设打底 / 闲聊规则目标 |
+| `deepseek-official` | `deepseek-v4-pro` | 文本-only | 1M | 候选 |
+| `deepseek-official` | `deepseek-v4-flash-vision-exp` | 多模态 | 1M | 预置转述流 vision 目标（0.6.0） |
+
+> 模态与上下文窗均实读自 pi-ai / dsh-llm-deepseek 模型目录（`inputModalities` +
+> `contextWindow`）——多模态正是路由器要补偿的核心缺口。
+
 ## 不变量（保留的正确性轨）
 
 - **图像护栏**（`applyImageGuard`）：决策/改道后目标仍 text-only 且带图 →
@@ -349,6 +368,14 @@ export interface RouterConfigV5 {
   存量配置迁移前后路由行为逐字节一致，设置文档留档 `.pre-v5`。
 - **流决策降级**：规则目标为 `{flow}` 时，flow 存在 + transcribe 型 +
   visionModel 在候选池可用，任一不满足按规则降级语义跳过该规则。
+
+v5 相对 v4 的新增配置键速览（行为详见下文各节）：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `presets.<id>.imageFallback` | `latch` | 预设级带图兜底三态：`latch` 锁存 / `blind` 当无图 / `transcribe-lazy` 懒转述（见「imageFallback 三态」节） |
+| `presets.<id>.imageFallbackFlow` | `transcribe` | 懒转述兜底引用的协作流 id（`imageFallback=transcribe-lazy` 时生效，随 `flows` 注册表） |
+| `flows` | 预置 transcribe/review | 协作流注册表（规则目标可引用）；预置流注册但不绑定 |
 
 ### 按图三态状态表（`src/image-state.ts`）
 
