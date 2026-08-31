@@ -351,7 +351,7 @@ git push origin docs/1.0.1-zero-basis
 ## 验收记录（2026-08-31 回填，全部任务完成）
 
 - **机器验收五项全绿**：①链接全绿（`check-doc-links` 72 md 0 断链）②双语对齐（版本/日期/命令/词表 7 组/FAQ 5 问逐 token 全中）③事实对账（hash/测试数/验收编号禁区扫描 0 命中，零漂移）④《面向人的文档写法规范》自查过⑤三绿（typecheck 0 + vitest 497/497/31 文件 + build）+ `check-changelog` OK v1.0.0。
-- **Kimi 评审闭环（用户裁定）**：Round 1（严重 0/中等 3/轻微 6，成熟度可用级）→ 修复波 `a913896` → Round 2 复检（**闭环通过** + N1-N3 轻微残余）→ 清偿 `5cc5102` → 存档 [`docs/audit/2026-08-31-zero-basis-docs-review-round1.md`](../../docs/audit/2026-08-31-zero-basis-docs-review-round1.md)。**终态：生产级候选**（V1 实机目录、V4 网页渲染两项用户目检回填后完全关闭）。
+- **Kimi 评审闭环（用户裁定）**：Round 1（严重 0/中等 3/轻微 6，成熟度可用级）→ 修复波 `a913896` → Round 2 复检（**闭环通过** + N1-N3 轻微残余）→ 清偿 `5cc5102` → 存档 [`docs/audit/2026-08-31-zero-basis-docs-review-round1.md`](../../audit/2026-08-31-zero-basis-docs-review-round1.md)。**终态：生产级候选**（V1 实机目录、V4 网页渲染两项用户目检回填后完全关闭）。
 - **commit 链**：`a96e1bd` spec → `a429aac` plan → `aa58e09` T1 → `99f99aa` T2 → `b8312c6` T3 → `2b83d20` T4 → `2273d75`+`977cb2e` T5 → `a0e3351` T6 → `8182277` T7 → `238ea41` T8 → `a913896` 修复波 → `5cc5102` 残余清偿 → `693927d` 评审存档+spec 状态 → 本条 T11。
 - **计划偏差（4 项，均已留注）**：①执行顺序按依赖调整（落点先行）②EN 体量锁放宽 ≤14.5KB（Global Constraints 留注，Kimi 复检选项 B）③T3 现场决策：配置单一落点 = router.md（auxTargets 已在位；实补候选池示例表 + v5 键速览表）④T8 随修两处存量链接问题（release-evidence 相对链接、0.8.5 计划悬空链去链接化）。
 - **移交用户裁定/目检**：①合并 main 时点与版本号（独立 1.0.1 文档版 vs 随 0.8.5）②tag 裁定（文档轮无 B/A 实机清单，门禁=本文五项+评审闭环）③V1：DSH Models 页挂 `kimi-coding` 目检 4 模型自动出现④V4：分支 push 后 GitHub 网页看 mermaid/版式渲染⑤0.8.5-T4 核销注记随合并回写⑥分库台账发布顺延挂账（走四库发布流程，先例 08-30）。
