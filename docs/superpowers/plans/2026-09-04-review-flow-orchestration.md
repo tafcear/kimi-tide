@@ -192,7 +192,7 @@ describe('previewRoute review-flow outcome', () => {
     expect(preview.hits.some((h) => h.rule.when.kind === 'keywords' && h.rule.when.group === 'review')).toBe(false)
   })
   it('可用性盲区：组认领 + reviewer 不可用 → 仍 review-flow 且 label 标注不可用', () => {
-    const preview = previewRoute(v5Claimed(), '帮我评审这段代码', { ...deps, availability: new Map([['kimi-coding/k3', false]]) } as never)
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', { ...deps, availability: { 'kimi-coding/k3': false } } as never)
     expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
     expect((preview.outcome as { label: string }).label).toContain('不可用')
   })
