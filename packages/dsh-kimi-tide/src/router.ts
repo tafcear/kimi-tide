@@ -701,9 +701,13 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // off 时 installRouter 整体未挂载，天然关闭。
       const turnText = latestUserText(payload.messages)
       const hit = reviewTriggerHit(router.config, turnText, reviewerAvailable)
+      // fix round 1 F1（R10）：feed 常挂（每 agent 一次，首个 step-1 即登记）——
+      // lastTurn 滚动维护「不依赖 armed」（spec §5.2），trigger=manual（预置
+      // 默认态）用户的手动命令才有上一轮可评；武装命中只决定 turn-stopping
+      // 侧本轮是否评审，不决定 feed 挂载。
+      wireSessionFeed(agent)
       if (hit !== null) {
         armed.set(agent, { turn: payload.turn, flowId: hit.flowId, flow: hit.flow, userText: turnText })
-        wireSessionFeed(agent)
       } else {
         armed.delete(agent)
       }
@@ -834,7 +838,13 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
             // M4 兜底：目标 session 已销毁等 append 失败不向上抛，落 warn。
             ctx.logger?.warn?.(`kimi-router: review append failed: ${(error as Error).message}`)
           }
-          deps.onReviewEvent?.(agent, event)
+          // fix round 1 F4：评审本体已成功——onReviewEvent 观测回调抛错单独归因
+          // 落 warn，不得炸进下方 catch 被「review failed」误归因。
+          try {
+            deps.onReviewEvent?.(agent, event)
+          } catch (error) {
+            ctx.logger?.warn?.(`kimi-router: onReviewEvent callback failed: ${(error as Error).message}`)
+          }
         })
         .catch((error: unknown) => {
           ctx.logger?.warn?.(`kimi-router: review failed: ${(error as Error).message}`)
@@ -894,20 +904,20 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         }
         const out = outputs.get(agent)
         if (out !== undefined && out.turn === (turn ?? -1) && out.text.trim() !== '') {
-          // lastTurn 滚动维护（spec §5.2 不依赖 armed）：产出非空即更新；userText
-          // 优先取本轮 armed（已被人类输入刷新），无 armed 时沿用滚动人类值。
-          const armedEntry = armed.get(agent)
+          // lastTurn 滚动维护（spec §5.2「不依赖 armed」，fix round 1 F1/R10）：
+          // assistant（非 interrupted）轮产出非空即更新；userText 取最近人类输入
+          // 的滚动值（user/message 人类枝维护，L3 判定不变）。armed 匹配性只影响
+          // turn-stopping 侧「本轮是否评审」，不影响 lastTurn 维护。
           const rolling = lastTurns.get(agent)
-          lastTurns.set(agent, {
-            userText: armedEntry !== undefined && armedEntry.turn === turn ? armedEntry.userText : rolling?.userText ?? '',
-            output: out.text,
-          })
+          lastTurns.set(agent, { userText: rolling?.userText ?? '', output: out.text })
         }
       })
     }
 
     // turn-stopping：serial 派发且被 loop await（agent-loop :570）——handler 必须
-    // 同步返回（评审异步跑，轮零阻塞，spec §2 派生事实）。
+    // 同步返回（评审异步跑，轮零阻塞，spec §2 派生事实）。{prepend:true} 与
+    // 其余四监听器注册形态对齐（fix round 1 F3，:560-569 惯例）；serial 监听
+    // 无返回值竞争，顺序无行为差异——纯惯例一致。
     const disposeStop = ctx.on('agent/turn-stopping', (raw: unknown) => {
       const payload = raw as { agent?: Agent; turn?: number }
       const agent = payload.agent
@@ -918,7 +928,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const out = outputs.get(agent)
       if (out === undefined || out.turn !== payload.turn || out.text.trim() === '') return
       finishReview(agent, { flowId: entry.flowId, flow: entry.flow, turn: entry.turn, userText: entry.userText, output: out.text })
-    })
+    }, { prepend: true })
 
     // 手动评审实现（spec §8）：取 lastTurn 缓存；无缓存返回可呈现文案。
     deps.onManualReview?.(async (agent: Agent) => {

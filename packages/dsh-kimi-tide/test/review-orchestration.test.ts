@@ -436,3 +436,93 @@ describe('review 编排：armed→累计→turn-stopping（spec §5）', () => {
     expect(agentFixture.append).not.toHaveBeenCalled()
   })
 })
+
+describe('review 编排 fix round 1（F1：lastTurn 不依赖 armed / F2：feedsLive 重挂载闸 / F4：回调归因）', () => {
+  /** 预置默认态（F1）：review 流 trigger=manual → 无认领 → reviewTriggerHit 恒 null（永不武装）。 */
+  const v5Manual = () => {
+    const config = DEFAULT_CONFIG_V5()
+    config.activePreset = 'capability'
+    return config
+  }
+
+  type ManualFn = (agent: unknown) => Promise<{ ok: boolean; message: string }>
+  const manualFnAt = (onManualReview: ReturnType<typeof makeDeps>['onManualReview'], call: number): ManualFn =>
+    onManualReview.mock.calls[call][0] as ManualFn
+
+  it('14) F1：从未武装的 agent（trigger=manual 纯普通轮）经一轮对话后 fn(agent) 正常发起评审（spec §5.2「不依赖 armed」锁定）', async () => {
+    const fx = makeHarness()
+    const agentFixture = makeAgent()
+    const { deps, onManualReview } = makeDeps()
+    installRouter(fx.ctx as never, new KimiRouter(v5Manual(), metas(), { info: () => {} }), deps)
+    const manualFn = manualFnAt(onManualReview, 0)
+
+    // 一轮纯普通对话：无评审词、无认领配置 → 永不 armed
+    await fx.preStep(agentFixture.agent, 3, text('帮我写一个排序函数'))
+    fx.sessionEvent(agentFixture, userEvent('帮我写一个排序函数'))
+    fx.sessionEvent(agentFixture, assistantEvent(3, 'def sort(items): return sorted(items)'))
+    fx.turnStopping(agentFixture.agent, 3) // 从未 armed → 不自动评审
+    await flush()
+    expect(fx.streamCalls).toHaveLength(0)
+
+    // 手动命令不依赖 armed：lastTurn 已滚动维护 → 正常发起评审
+    const outcome = await manualFn(agentFixture.agent)
+    expect(outcome).toEqual({ ok: true, message: '评审已发起' })
+    await flush()
+    expect(fx.streamCalls).toHaveLength(1)
+    const input = reviewInput(fx.streamCalls)
+    expect(input).toContain('帮我写一个排序函数')
+    expect(input).toContain('def sort(items): return sorted(items)')
+    expect(agentFixture.append).toHaveBeenCalledTimes(1)
+    expect(agentFixture.append.mock.calls[0][1]).toMatchObject({ flowId: 'review', turn: -1 })
+  })
+
+  it('15) F2：feedsLive 重挂载闸——dispose → 重新 install 后旧闭包 feed 停摆（陈旧 fn 无缓存可评），新闭包重新累计评审可用', async () => {
+    const fx = makeHarness()
+    const agentFixture = makeAgent()
+    const { deps, onManualReview } = makeDeps()
+    const router = (): KimiRouter => new KimiRouter(v5Claimed(), metas(), { info: () => {} })
+
+    const dispose1 = installRouter(fx.ctx as never, router(), deps)
+    const staleFn = manualFnAt(onManualReview, 0)
+    await fx.preStep(agentFixture.agent, 7, text('帮我评审一下这个方案')) // feed1 挂上（agent.ctx）
+    dispose1() // feedsLive=false（旧 feed 惰性停摆）+ onManualReview(null)
+
+    installRouter(fx.ctx as never, router(), deps) // 新闭包：feedsLive/sessionWired/槽位全新
+    const freshFn = manualFnAt(onManualReview, 2)
+    await fx.preStep(agentFixture.agent, 8, text('第二轮需求，帮我评审'))
+    fx.sessionEvent(agentFixture, userEvent('第二轮需求，帮我评审'))
+    fx.sessionEvent(agentFixture, assistantEvent(8, '重挂载后的新产出'))
+    // agent.ctx 此时有两条 session/event 监听：旧 feed 未随 dispose 注销（不强持
+    // agent），靠 feedsLive 闸停摆；事件只应进新闭包的累计。
+
+    // 旧闭包停摆：陈旧 fn 读不到 dispose 后的任何事件（零缓存、零评审调用）
+    await expect(staleFn(agentFixture.agent)).resolves.toEqual({ ok: false, message: '无可评审的上一轮' })
+    expect(fx.streamCalls).toHaveLength(0)
+
+    // 新闭包可用：fresh fn 评审重挂载后累计的 lastTurn
+    const outcome = await freshFn(agentFixture.agent)
+    expect(outcome).toEqual({ ok: true, message: '评审已发起' })
+    await flush()
+    expect(fx.streamCalls).toHaveLength(1)
+    expect(reviewInput(fx.streamCalls)).toContain('重挂载后的新产出')
+    expect(agentFixture.append).toHaveBeenCalledTimes(1)
+    expect(agentFixture.append.mock.calls[0][1]).toMatchObject({ turn: -1 })
+  })
+
+  it('16) F4：onReviewEvent 回调抛错与评审本体失败分类归因——评审照常 append，warn 落 onReviewEvent 类别而非「review failed」', async () => {
+    const fx = makeHarness()
+    const agentFixture = makeAgent()
+    const { deps } = makeDeps()
+    deps.onReviewEvent = () => { throw new Error('dock boom') }
+    installRouter(fx.ctx as never, new KimiRouter(v5Claimed(), metas(), { info: () => {} }), deps)
+
+    await armedTurn(fx, agentFixture, 7, '帮我评审一下这个方案', ['产出'])
+    fx.turnStopping(agentFixture.agent, 7)
+    await flush() // 不抛出即通过（回调异常不得炸穿评审链路）
+
+    expect(fx.streamCalls).toHaveLength(1) // 评审本体成功
+    expect(agentFixture.append).toHaveBeenCalledTimes(1) // 评审事件照常上屏
+    expect(fx.warns.some((message) => message.includes('onReviewEvent callback failed') && message.includes('dock boom'))).toBe(true)
+    expect(fx.warns.some((message) => message.includes('review failed'))).toBe(false) // 不误归因
+  })
+})
