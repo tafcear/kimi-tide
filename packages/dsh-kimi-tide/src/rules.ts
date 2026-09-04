@@ -7,7 +7,7 @@
  * 中文/混合/短语关键词为大小写不敏感子串匹配。
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { KIMI_PROVIDER, isFlowTarget, type CollaborationFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
+import { KIMI_PROVIDER, isFlowTarget, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
 import type { RouterConfigAny } from './router.js'
 
 export function explicitProvider(text: string): string | null {
@@ -79,6 +79,20 @@ function compileKeyword(keyword: string): KeywordMatcher {
   return { matches: (text) => text.includes(lowered) }
 }
 
+/**
+ * 单组词命中计数（matchingScored 的词匹配内循环助手；1.1.0 §5 起导出供
+ * reviewTriggerHit 复用——词边界/子串语义与 matchingScored 完全一致，单一
+ * 实现不复制）：文本内部 toLowerCase（ASCII 词大小写不敏感），空词不计。
+ */
+export function countGroupHits(words: readonly string[], text: string): number {
+  const lower = text.toLowerCase()
+  let matched = 0
+  for (const k of words) {
+    if (k.length > 0 && compileKeyword(k).matches(lower)) matched += 1
+  }
+  return matched
+}
+
 /** 单条命中：规则 + 命中词数（image 规则 = +∞）。 */
 export interface RuleMatch { rule: RouterRule; score: number }
 
@@ -91,7 +105,6 @@ export function matchingScored(config: RuleMatchConfig, text: string, hasImage: 
   if (config.activePreset === null) return []
   const preset = config.presets[config.activePreset]
   if (preset === undefined) return []
-  const lower = text.toLowerCase()
   const hits: RuleMatch[] = []
   for (const rule of preset.rules) {
     if (rule.when.kind === 'image') {
@@ -101,10 +114,7 @@ export function matchingScored(config: RuleMatchConfig, text: string, hasImage: 
     }
     const words = config.keywordGroups[rule.when.group]
     if (words === undefined) continue
-    let matched = 0
-    for (const k of words) {
-      if (k.length > 0 && compileKeyword(k).matches(lower)) matched += 1
-    }
+    const matched = countGroupHits(words, text)
     const minHits = rule.when.minHits ?? 1
     if (matched >= minHits) hits.push({ rule, score: matched })
   }
@@ -167,6 +177,32 @@ export function claimedReviewGroups(config: RouterConfigAny): Set<string> {
   return claimed
 }
 
+/** 评审流触发判定（1.1.0 §5）：flows 注册表序首个「文本命中认领组（≥1 词）
+ *  且 reviewer 可用」的 review 流。显式 @（含未知 provider，rules.ts:20 对
+ *  未知 @ 返回非空）一律返 null——评审武装对一切显式 @ 关闭。
+ *  isReviewerAvailable 缺省恒真（纯函数默认路径）；decide 侧传 metas 判定、
+ *  previewRoute 传 availability 判定（spec §4 盲区语义：此处 false 只影响
+ *  武装，不影响抑制）。 */
+export function reviewTriggerHit(
+  config: RouterConfigAny,
+  text: string,
+  isReviewerAvailable: (target: RouteTarget) => boolean = () => true,
+): { flowId: string; flow: ReviewFlow } | null {
+  if (explicitProvider(text) !== null) return null
+  if (config.version !== 5) return null
+  for (const [flowId, flow] of Object.entries(config.flows)) {
+    if (flow.type !== 'review' || flow.trigger !== 'keywords' || !flow.keywordGroup) continue
+    const words = config.keywordGroups[flow.keywordGroup] ?? []
+    if (words.length === 0) continue
+    // 复用 matchingScored 同一款词匹配助手（countGroupHits——词边界/子串
+    // 语义一致，单一实现不复制）。
+    if (countGroupHits(words, text) < 1) continue
+    if (!isReviewerAvailable(flow.reviewer)) continue
+    return { flowId, flow }
+  }
+  return null
+}
+
 /** 试一句测试器依赖（0.8.0 D2）：候选目录与已配置目标可用性（浏览器侧无 modalities）。 */
 export interface RoutePreviewDeps {
   catalog: Array<{ provider: string; models: string[] }> | null
@@ -182,6 +218,16 @@ export interface RoutePreview {
     | { kind: 'explicit'; provider: string; target: RouteTarget | null; reason: string }
     | { kind: 'rule'; ruleId: string; label: string; score: number; target: RuleTarget | null; reason: string }
     | { kind: 'default'; target: RouteTarget; reason: string }
+    /** 1.1.0 §4（M1 裁定）：routed 为「本轮路由到 X」的类型化载体（UI 不从
+     *  hits 反推）——被认领组命中过滤后的实际路由（规则链首条，无命中即预设
+     *  默认）。组认领但 reviewer 不可用时 outcome 仍为本枝，label 标注盲区。 */
+    | {
+        kind: 'review-flow'
+        flowId: string
+        label: string
+        score: number
+        routed: { kind: 'rule'; ruleId: string; label: string } | { kind: 'default'; target: RouteTarget }
+      }
 }
 
 /**
@@ -189,8 +235,13 @@ export interface RoutePreview {
  * 规则链（首个目标可用者；availability===false 即不可用，null 全可用；
  * flow 目标须存在且 transcribe 型且 visionModel 可用，否则跳过）→ 默认打底。
  * 不模拟图像护栏/flow 降级路径（无 modalities，带图偏差声明在卡片）。
+ * 1.1.0 §4：规则链与返回 hits 均剔除被认领组（decide 同款静态抑制）；评审
+ * 流触发（先于过滤、基于全量命中）时 outcome 改为 review-flow 枝，routed
+ * 携带过滤后路由；reviewer 不可用仍出本枝并经 label 标注（盲区可见性）。
+ * 参数自 RuleMatchConfig 放宽为 RouterConfigAny：需读 version/flows 做
+ * 认领与触发判定（v4 无 flows → 空集，行为保持）。
  */
-export function previewRoute(config: RuleMatchConfig, text: string, deps: RoutePreviewDeps): RoutePreview {
+export function previewRoute(config: RouterConfigAny, text: string, deps: RoutePreviewDeps): RoutePreview {
   const availability = deps.availability
   const available = (target: RouteTarget): boolean =>
     availability === null || availability[`${target.provider}/${target.model}`] !== false
@@ -213,28 +264,57 @@ export function previewRoute(config: RuleMatchConfig, text: string, deps: RouteP
     }
   }
   const flows = deps.flows ?? {}
-  for (const { rule, score } of hits) {
+  // 1.1.0 §4 静态抑制：被认领组规则不入路由链（decide 同款过滤）；返回 hits
+  // 同步剔除（与路由链一致，UI 不从 hits 看到被抑制规则）。
+  const claimed = claimedReviewGroups(config)
+  const routable = claimed.size === 0
+    ? hits
+    : hits.filter(({ rule }) => !(rule.when.kind === 'keywords' && claimed.has(rule.when.group)))
+  // 过滤后路由链（首条目标可用者）：既产 review-flow 的 routed 载体（首条命中
+  // {kind:'rule'}，无命中即预设默认 {kind:'default'}），也保留无评审触发时
+  // 的规则 outcome。
+  let routedSummary: { kind: 'rule'; ruleId: string; label: string } | { kind: 'default'; target: RouteTarget } | undefined
+  let ruleOutcome: { kind: 'rule'; ruleId: string; label: string; score: number; target: RuleTarget | null; reason: string } | undefined
+  for (const { rule, score } of routable) {
     if (isFlowTarget(rule.target)) {
       const flow = flows[rule.target.flow]
       if (flow === undefined || flow.type !== 'transcribe') continue
       if (!available(flow.visionModel)) continue
-      return {
-        hits,
-        outcome: {
-          kind: 'rule', ruleId: rule.id, label: ruleLabel(rule), score,
-          target: { flow: rule.target.flow },
-          reason: `规则「${ruleLabel(rule)}」命中 ${score} 词（协作流 ${rule.target.flow}）`,
-        },
+      routedSummary = { kind: 'rule', ruleId: rule.id, label: ruleLabel(rule) }
+      ruleOutcome = {
+        kind: 'rule', ruleId: rule.id, label: ruleLabel(rule), score,
+        target: { flow: rule.target.flow },
+        reason: `规则「${ruleLabel(rule)}」命中 ${score} 词（协作流 ${rule.target.flow}）`,
       }
+      break
     }
     if (!available(rule.target)) continue
+    routedSummary = { kind: 'rule', ruleId: rule.id, label: ruleLabel(rule) }
+    ruleOutcome = {
+      kind: 'rule', ruleId: rule.id, label: ruleLabel(rule), score, target: { ...rule.target },
+      reason: `规则「${ruleLabel(rule)}」命中 ${score} 词`,
+    }
+    break
+  }
+  if (routedSummary === undefined) routedSummary = { kind: 'default', target: { ...preset.default } }
+  // 1.1.0 §4/§5：评审流触发判定先于过滤、基于全量命中（reviewTriggerHit 独立
+  // 于路由链）。主判定传 availability（与 decide 侧武装语义一致）；组认领但
+  // reviewer 不可用时回查不传——outcome 仍须为 review-flow 并经 label 显式
+  // 标注盲区（spec §4：此处 false 只影响武装，不影响抑制）。
+  const armed = reviewTriggerHit(config, text, (t) => available(t)) ?? reviewTriggerHit(config, text)
+  if (armed !== null) {
+    const reviewerOk = available(armed.flow.reviewer)
     return {
-      hits,
+      hits: routable,
       outcome: {
-        kind: 'rule', ruleId: rule.id, label: ruleLabel(rule), score, target: { ...rule.target },
-        reason: `规则「${ruleLabel(rule)}」命中 ${score} 词`,
+        kind: 'review-flow',
+        flowId: armed.flowId,
+        label: reviewerOk ? `轮末触发评审流 ${armed.flowId}` : `评审流已认领但评审模型不可用`,
+        score: 0,
+        routed: routedSummary,
       },
     }
   }
-  return { hits, outcome: { kind: 'default', target: { ...preset.default }, reason: `预设「${preset.name}」默认` } }
+  if (ruleOutcome !== undefined) return { hits: routable, outcome: ruleOutcome }
+  return { hits: routable, outcome: { kind: 'default', target: { ...preset.default }, reason: `预设「${preset.name}」默认` } }
 }

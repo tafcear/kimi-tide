@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, KIMI_PROVIDER } from '../src/config.js'
-import { claimedReviewGroups } from '../src/rules.js'
+import { claimedReviewGroups, previewRoute, reviewTriggerHit } from '../src/rules.js'
 import { KimiRouter } from '../src/router.js'
 
 const text = (t: string): UserMessage =>
@@ -69,5 +69,37 @@ describe('decide 静态抑制', () => {
     expect(decision).toMatchObject({ via: 'rule', target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } })
     if (decision.kind !== 'route') throw new Error(`expected route decision, got ${decision.kind}`)
     expect(decision.reason).toBe('规则「code」命中 1 词')
+  })
+})
+
+describe('reviewTriggerHit', () => {
+  it('命中取 flows 注册表序首个', () => {
+    const config = v5Claimed()
+    config.flows.review2 = { ...config.flows.review, keywordGroup: 'review' }
+    const hit = reviewTriggerHit(config, '帮我评审一下', () => true)
+    expect(hit?.flowId).toBe('review')
+  })
+  it('reviewer 不可用返 null；未命中返 null', () => {
+    expect(reviewTriggerHit(v5Claimed(), '帮我评审一下', () => false)).toBeNull()
+    expect(reviewTriggerHit(v5Claimed(), '今天天气不错', () => true)).toBeNull()
+  })
+  it('显式 @ 抑制：已知与未知 provider 都返 null', () => {
+    expect(reviewTriggerHit(v5Claimed(), '@kimi 帮我评审', () => true)).toBeNull()
+    expect(reviewTriggerHit(v5Claimed(), '@unknown-provider 帮我评审', () => true)).toBeNull()
+  })
+})
+
+describe('previewRoute review-flow outcome', () => {
+  const deps = { catalog: undefined, availability: null as Record<string, boolean> | null }
+  it('命中认领组 → review-flow outcome，routed 携带过滤后路由，hits 剔除被认领组', () => {
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', deps as never)
+    expect(preview.outcome).toMatchObject({ kind: 'review-flow', flowId: 'review' })
+    expect((preview.outcome as { routed: { kind: string } }).routed.kind).toBe('default')
+    expect(preview.hits.some((h) => h.rule.when.kind === 'keywords' && h.rule.when.group === 'review')).toBe(false)
+  })
+  it('可用性盲区：组认领 + reviewer 不可用 → 仍 review-flow 且 label 标注不可用', () => {
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', { ...deps, availability: { 'kimi-coding/k3': false } } as never)
+    expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
+    expect((preview.outcome as { label: string }).label).toContain('不可用')
   })
 })
