@@ -24,14 +24,21 @@ export interface EffortDescribeFace {
 export type EffortsConnection = { api: EffortDescribeFace } | null
 
 /**
- * 经 settings.describe 读取档位表。连接缺失/describe 失败/命名空间缺席时抛错，
- * 交由 card-store.loadEfforts 的 catch 统一降级——本函数不做静默兜底。
+ * 经 settings.describe 读取档位表与真实挂载表（1.1.0 A8：mounted 随同节
+ * 发布）。连接缺失/describe 失败/命名空间缺席时抛错，交由 card-store.loadEfforts
+ * 的 catch 统一降级——本函数不做静默兜底。mounted 缺键（旧宿主遗留节）→ 空表，
+ * 判定端以 null/缺省区分「退化三态」与「确认挂载」。
  */
-export async function fetchEffortsViaDescribe(connection: EffortsConnection): Promise<Record<string, string[]>> {
+export interface CatalogMeta {
+  efforts: Record<string, string[]>
+  mounted: string[]
+}
+
+export async function fetchEffortsViaDescribe(connection: EffortsConnection): Promise<CatalogMeta> {
   if (connection === null) throw new Error('effort 档位表：connection 通道不可用')
   const r = await connection.api.settings.describe({})
   if (!r.result.ok) throw new Error(`effort 档位表 describe 失败：${r.result.error.message}`)
   const view = r.result.value.namespaces.find((n) => n.ns === EFFORT_CATALOG_NAMESPACE)
-  const efforts = (view?.value as { efforts?: Record<string, string[]> } | undefined)?.efforts
-  return efforts ?? {}
+  const section = (view?.value as { efforts?: Record<string, string[]>; mounted?: string[] } | undefined) ?? {}
+  return { efforts: section.efforts ?? {}, mounted: section.mounted ?? [] }
 }

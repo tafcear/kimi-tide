@@ -1012,6 +1012,7 @@ export function SettingsCard(props: SettingsCardProps) {
             catalog: snapshot.catalog,
             availability: snapshot.availability,
             flows: isV5 ? config.flows : undefined,
+            mounted: snapshot.mounted,
           })
           return (
             <div className="kt-trial-result">

@@ -8,8 +8,12 @@ const D5 = DEFAULT_CONFIG_V5()
 // 0.8.0 B5 换道（2026-08-27）：kimi-tide-catalog 命名空间节形状——宿主把
 // effort 档位表写进这个自有命名空间，客户端经 settings.describe 读取。
 // 松散形状即可：值由宿主 buildEffortCatalog 构造，读取端已做缺省降级。
+// 1.1.0 A8（2026-09-04）：新增可选 mounted（路由器真实挂载表，'provider/model'
+// 键列表，buildMountedModels 产物）——试一句 reviewer 不可用判定的真相源；
+// 缺键（旧宿主遗留节）= 判定退化为三态，行为不变。
 export const EFFORT_CATALOG_SECTION_SCHEMA = Schema.object({
   efforts: Schema.dict(Schema.array(Schema.string())),
+  mounted: Schema.array(Schema.string()),
 })
 
 const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string(), effort: Schema.string() })

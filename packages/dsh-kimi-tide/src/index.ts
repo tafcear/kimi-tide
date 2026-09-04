@@ -44,7 +44,7 @@ import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import { ZAI_QUOTA_URL, parseZaiQuota } from './zai-usage.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
-import { buildEffortCatalog, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
+import { buildEffortCatalog, buildMountedModels, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -410,6 +410,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // syncCatalogNamespace），原 typert remote 手工 contribution 客户端半链实机
   // 证伪（vendored kernel $mount 静默挂起），宿主 provide/typert 注册已随之移除。
   let effortCatalog: Record<string, string[]> = buildEffortCatalog(candidateMetas)
+  // 1.1.0 A8（2026-09-04）：真实挂载表随同节发布（mounted 键）——试一句
+  // reviewer 不可用判定的唯一真相源（availability 三态对自挂 provider 盲）。
+  let mountedModels: string[] = buildMountedModels(candidateMetas)
   let enumerationSeq = 0
   // settings attach 后由 inject 块赋值；枚举刷新与 attach 双向都会触发一次同步
   // （写前脏检查，settings.yaml 的 kimi-tide-catalog 节仅随模型清单变化才重写）。
@@ -421,6 +424,7 @@ export function apply(ctx: Context, config: Config = {}) {
         if (seq !== enumerationSeq) return
         candidateMetas = metas
         effortCatalog = buildEffortCatalog(metas)
+        mountedModels = buildMountedModels(metas)
         syncCatalogNamespace?.()
         mountRouter()
         pushPanelToAllSessions()
@@ -703,13 +707,13 @@ export function apply(ctx: Context, config: Config = {}) {
     // 实机证伪）。写入带脏检查——settings.yaml 的该节仅随模型清单变化才重写；
     // 注册即首推（枚举可能先于 settings attach 完成），attach 后枚举刷新再推。
     let catalogScope: {
-      get(): { efforts?: Record<string, string[]> }
+      get(): { efforts?: Record<string, string[]>; mounted?: string[] }
       replace(section: object): Promise<void>
     } | null = null
     let lastSyncedCatalog = ''
     syncCatalogNamespace = () => {
       if (catalogScope === null) return
-      const section = { efforts: effortCatalog }
+      const section = { efforts: effortCatalog, mounted: mountedModels }
       const serialized = JSON.stringify(section)
       if (serialized === lastSyncedCatalog) return
       try {

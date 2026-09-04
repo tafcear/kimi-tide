@@ -7,7 +7,7 @@
  * 中文/混合/短语关键词为大小写不敏感子串匹配。
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { KIMI_PROVIDER, isFlowTarget, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
+import { KIMI_PROVIDER, configKey, isFlowTarget, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
 import type { RouterConfigAny } from './router.js'
 
 export function explicitProvider(text: string): string | null {
@@ -208,6 +208,15 @@ export interface RoutePreviewDeps {
   catalog: Array<{ provider: string; models: string[] }> | null
   availability: Record<string, boolean> | null
   flows?: Record<string, CollaborationFlow>
+  /**
+   * 1.1.0 A8（2026-09-04 实机缺陷）：路由器真实挂载表（'provider/model' 键，
+   * 由 kimi-tide-catalog 命名空间发布，decide 侧 reviewerAvailable 同源同语义）。
+   * availability 三态对「provider 整个不在目录」永不落键（08-29 裁定：自挂
+   * provider 视同可用）——reviewer 误配成幽灵 provider 时三态判不出，评审盲区
+   * 静默。mounted 提供时 reviewer 须在表内才算可用；null/undefined（旧宿主/
+   * 未取到）退化为三态，行为不变。
+   */
+  mounted?: ReadonlyArray<string> | null
 }
 
 /** 试一句预测结果（纯文本语义；带图偏差见 SettingsCard 固定声明）。 */
@@ -303,7 +312,11 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
   // 标注盲区（spec §4：此处 false 只影响武装，不影响抑制）。
   const armed = reviewTriggerHit(config, text, (t) => available(t)) ?? reviewTriggerHit(config, text)
   if (armed !== null) {
-    const reviewerOk = available(armed.flow.reviewer)
+    // 1.1.0 A8：reviewer 可用性 = availability 三态 ∧ 挂载表（mounted 提供
+    // 时与 decide 侧 reviewerAvailable 同语义——ghost provider 目录/挂载表
+    // 双盲，挂载表是唯一真相）。mounted 未提供时保持旧三态行为。
+    const mountedOk = deps.mounted == null || deps.mounted.includes(configKey(armed.flow.reviewer))
+    const reviewerOk = available(armed.flow.reviewer) && mountedOk
     return {
       hits: routable,
       outcome: {

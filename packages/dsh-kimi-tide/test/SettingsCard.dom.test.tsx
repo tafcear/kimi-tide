@@ -581,6 +581,44 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
     expect(container.textContent).toContain('按当前激活预设')
     expect(container.textContent).toContain('仅文本探针')
   })
+
+  it('A8 盲区可见性（1.1.0）：组认领 + reviewer 不在挂载表 → 试一句标注「评审模型不可用」', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    // 评审流 keywords 触发 + 认领 review 组（review-flow.test v5Claimed 同款形状）；
+    // mounted 表缺 reviewer（kimi-coding/k3）——复刻实机 ghost-reviewer 形态
+    // （availability 对自挂 provider 不落键，三态判定判不出不可用）。
+    const snapshot = readyV5Snapshot({ mounted: ['kimi-coding/kimi-for-coding'] })
+    const config = snapshot.config as RouterConfigV4 & { version: number; flows: Record<string, { trigger: string; keywordGroup?: string }> }
+    config.flows = { ...config.flows, review: { ...config.flows.review, trigger: 'keywords', keywordGroup: 'review' } }
+    await act(async () => { publish(snapshot) })
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="试一句"]')
+    expect(input).not.toBeNull()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, '帮我评审一下这个方案')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    // Fails if: review-flow outcome 照常显示但盲区无标注（2026-09-04 实机缺陷）
+    expect(container.textContent).toContain('评审流已认领但评审模型不可用')
+  })
+
+  it('A8 对照：reviewer 在挂载表 → 试一句不误标「不可用」', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    const snapshot = readyV5Snapshot({ mounted: ['kimi-coding/k3'] })
+    const config = snapshot.config as RouterConfigV4 & { version: number; flows: Record<string, { trigger: string; keywordGroup?: string }> }
+    config.flows = { ...config.flows, review: { ...config.flows.review, trigger: 'keywords', keywordGroup: 'review' } }
+    await act(async () => { publish(snapshot) })
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="试一句"]')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, '帮我评审一下这个方案')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(container.textContent).toContain('轮末触发评审流')
+    expect(container.textContent).not.toContain('不可用')
+  })
 })
 
 describe('SettingsCard 0.8.x④⑤ effort 显示如实 + catalogScope 刷新', () => {

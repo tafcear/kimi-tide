@@ -57,6 +57,12 @@ export interface CardSnapshot {
    * 与 availability 同款：不占 error 通道。
    */
   efforts: Record<string, string[]> | null
+  /**
+   * 路由器真实挂载表（'provider/model' 键列表，1.1.0 A8 自有通道随 efforts
+   * 同节发布）。null/缺省 = 未取或旧宿主无此键——试一句 reviewer 判定退化为
+   * 三态（不误伤、也不标注挂载盲区）。
+   */
+  mounted?: string[] | null
 }
 
 /** settings.mutate 的一枚 path op（set / unset）。 */
@@ -142,8 +148,8 @@ export interface CardStore {
   deleteFlow(id: string): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
-  /** 取 per-model 推理档位表（0.8.0 自有通道）；失败/未提供 → efforts=null。 */
-  loadEfforts(fetch: () => Promise<Record<string, string[]>>): Promise<void>
+  /** 取 per-model 推理档位表与真实挂载表（0.8.0/1.1.0 A8 自有通道）；失败/未提供 → 双 null。 */
+  loadEfforts(fetch: () => Promise<{ efforts?: Record<string, string[]>; mounted?: string[] }>): Promise<void>
   getSnapshot(): CardSnapshot
   subscribe(listener: () => void): () => void
 }
@@ -167,6 +173,7 @@ export function createCardStore(
     error: null,
     catalog: null,
     availability: null,
+    mounted: null,
     efforts: null,
   }
   // connection/mutate 路径的乐观并发栅栏：最近一次 describe 读到的命名空间
@@ -210,14 +217,14 @@ export function createCardStore(
     const llm = connection?.api.llm
     if (config === null || llm === undefined) {
       if (snapshot.availability !== null || snapshot.catalog !== null) {
-        publish({ ...snapshot, catalog: null, availability: null })
+        publish({ ...snapshot, catalog: null, availability: null, mounted: null })
       }
       return
     }
     try {
       const r = await llm.models({})
       if (!r.result.ok) {
-        publish({ ...snapshot, catalog: null, availability: null })
+        publish({ ...snapshot, catalog: null, availability: null, mounted: null })
         return
       }
       const catalog = r.result.value.groups.map((group) => ({
@@ -256,7 +263,7 @@ export function createCardStore(
       }
       publish({ ...snapshot, catalog, availability })
     } catch {
-      publish({ ...snapshot, catalog: null, availability: null })
+      publish({ ...snapshot, catalog: null, availability: null, mounted: null })
     }
   }
 
@@ -445,9 +452,10 @@ export function createCardStore(
     resetField,
     loadEfforts: async (fetch) => {
       try {
-        publish({ ...snapshot, efforts: await fetch() })
+        const meta = await fetch()
+        publish({ ...snapshot, efforts: meta.efforts ?? null, mounted: meta.mounted ?? null })
       } catch {
-        publish({ ...snapshot, efforts: null })
+        publish({ ...snapshot, efforts: null, mounted: null })
       }
     },
     getSnapshot: () => snapshot,

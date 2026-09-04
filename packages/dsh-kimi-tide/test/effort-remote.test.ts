@@ -39,17 +39,27 @@ describe('fetchEffortsViaDescribe（B5 换道：settings.describe 通道）', ()
       { ns: 'kimi-tide-router', value: {} },
       { ns: EFFORT_CATALOG_NAMESPACE, value: { efforts: table } },
     ])
-    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual(table)
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({ efforts: table, mounted: [] })
   })
 
   it('命名空间缺席 → 空表（degrade 语义，不抛）', async () => {
     const connection = okDescribe([{ ns: 'kimi-tide-router', value: {} }])
-    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({})
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({ efforts: {}, mounted: [] })
   })
 
   it('节内缺 efforts 字段 → 空表', async () => {
     const connection = okDescribe([{ ns: EFFORT_CATALOG_NAMESPACE, value: {} }])
-    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({})
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({ efforts: {}, mounted: [] })
+  })
+
+  it('A8（1.1.0）：节内 mounted 挂载表 → 原样返回（与 efforts 并列）', async () => {
+    const connection = okDescribe([
+      { ns: EFFORT_CATALOG_NAMESPACE, value: { efforts: {}, mounted: ['kimi-coding/k3'] } },
+    ])
+    await expect(fetchEffortsViaDescribe(connection as never)).resolves.toEqual({
+      efforts: {},
+      mounted: ['kimi-coding/k3'],
+    })
   })
 
   it('命名空间常量钉桩为 kimi-tide-catalog', () => {

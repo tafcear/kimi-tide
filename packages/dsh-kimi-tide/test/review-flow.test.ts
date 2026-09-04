@@ -111,6 +111,30 @@ describe('previewRoute review-flow outcome', () => {
     expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
     expect((preview.outcome as { label: string }).label).toContain('不可用')
   })
+  it('A8 盲区（真实挂载表口径）：availability 不落键 + mounted 缺 reviewer → label 标注不可用', () => {
+    // 实机形态（2026-09-04 A8）：kimi-coding 系自挂 provider，llm.models 目录
+    // 列不出 → availability 对 reviewer 目标永不落键，availability===false 分支
+    // 实机死路。mounted（kimi-tide-catalog 命名空间发布的路由器真实挂载表）
+    // 缺 reviewer 键 = decide 侧 metas 判定不可用 → 必须标注，不做静默。
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', {
+      ...deps, availability: null, mounted: ['deepseek-official/deepseek-v4-flash'],
+    } as never)
+    expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
+    expect((preview.outcome as { label: string }).label).toContain('不可用')
+  })
+  it('A8 非盲区：mounted 含 reviewer → 普通 label（自挂 provider 不误伤）', () => {
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', {
+      ...deps, availability: null, mounted: ['kimi-coding/k3', 'kimi-coding/kimi-for-coding'],
+    } as never)
+    expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
+    expect((preview.outcome as { label: string }).label).toContain('轮末触发评审流')
+    expect((preview.outcome as { label: string }).label).not.toContain('不可用')
+  })
+  it('mounted 未提供（旧宿主）→ 行为不变（退化为三态，不回归）', () => {
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', { ...deps } as never)
+    expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
+    expect((preview.outcome as { label: string }).label).toContain('轮末触发评审流')
+  })
 })
 
 describe('buildReviewInput / truncate', () => {

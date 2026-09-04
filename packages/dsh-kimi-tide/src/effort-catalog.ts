@@ -24,3 +24,19 @@ export function buildEffortCatalog(metas: readonly CandidateMeta[]): EffortCatal
   }
   return out
 }
+
+/**
+ * 从候选池建真实挂载表（1.1.0 A8，纯函数）：'provider/model' 键列表，收
+ * available 条目（decide 侧 reviewerAvailable 同语义：m.available 真值）。
+ * 与 efforts 的区别：本表不要求带档位——无档位模型（不在 efforts 表）也是
+ * 真实挂载，reviewer 可用性判定不得误伤。发布进 kimi-tide-catalog 命名空间
+ * 的 mounted 键，试一句 reviewer 判定的唯一真相源。
+ */
+export function buildMountedModels(metas: readonly CandidateMeta[]): string[] {
+  const out: string[] = []
+  for (const meta of metas) {
+    if (!meta.available) continue
+    out.push(`${meta.provider}/${meta.model}`)
+  }
+  return out
+}
