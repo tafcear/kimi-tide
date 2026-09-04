@@ -5,6 +5,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, KIMI_PROVIDER } from '../src/config.js'
 import { claimedReviewGroups, previewRoute, reviewTriggerHit } from '../src/rules.js'
 import { KimiRouter } from '../src/router.js'
+import { buildReviewInput, createReviewRunner, REVIEW_INPUT_LIMIT, truncate } from '../src/review.js'
 
 const text = (t: string): UserMessage =>
   ({ role: 'user', content: [{ type: 'text', text: t }] }) as unknown as UserMessage
@@ -101,5 +102,33 @@ describe('previewRoute review-flow outcome', () => {
     const preview = previewRoute(v5Claimed(), '帮我评审一下', { ...deps, availability: { 'kimi-coding/k3': false } } as never)
     expect(preview.outcome).toMatchObject({ kind: 'review-flow' })
     expect((preview.outcome as { label: string }).label).toContain('不可用')
+  })
+})
+
+describe('buildReviewInput / truncate', () => {
+  it('三段模板齐备', () => {
+    const input = buildReviewInput({ flowId: 'review', flow: DEFAULT_FLOWS().review as never, turn: 3, userText: '需求X', output: '产出Y' })
+    expect(input).toContain('资深技术评审')
+    expect(input).toContain('[本轮用户需求]')
+    expect(input).toContain('需求X')
+    expect(input).toContain('[主模型本轮产出]')
+    expect(input).toContain('产出Y')
+  })
+  it(`双段截断：${REVIEW_INPUT_LIMIT + 1} 字符触发标注`, () => {
+    const input = buildReviewInput({ flowId: 'r', flow: DEFAULT_FLOWS().review as never, turn: 1, userText: 'a'.repeat(REVIEW_INPUT_LIMIT + 1), output: 'ok' })
+    expect(input).toContain('…（已截断）')
+    expect(truncate('abc')).toBe('abc')
+  })
+})
+
+describe('createReviewRunner', () => {
+  it('流成功 → ok:true 载荷；流失败 → ok:false + error，均不抛出', async () => {
+    const okChunk = [{ type: 'text-delta', text: '意见' }, { type: 'finish', reason: { kind: 'stop' } }]
+    const failChunk = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'X' } } }]
+    const mkCtx = (chunks: unknown[]) => ({ llm: { stream: async function* () { for (const c of chunks) yield c } } }) as never
+    const req = { flowId: 'review', flow: DEFAULT_FLOWS().review as never, turn: 1, userText: 'u', output: 'o' }
+    expect(await createReviewRunner(mkCtx(okChunk))(req)).toMatchObject({ ok: true, reviewText: '意见', turn: 1 })
+    expect(await createReviewRunner(mkCtx(failChunk))(req)).toMatchObject({ ok: false })
+    expect((await createReviewRunner(mkCtx([]))(req)).ok).toBe(false) // 空输出=失败
   })
 })
