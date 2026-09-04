@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, KIMI_PROVIDER } from '../src/config.js'
-import { claimedReviewGroups, matchingScored } from '../src/rules.js'
+import { claimedReviewGroups } from '../src/rules.js'
 import { KimiRouter } from '../src/router.js'
 
 const text = (t: string): UserMessage =>
@@ -60,5 +60,14 @@ describe('decide 静态抑制', () => {
     const router = new KimiRouter(v5Claimed(), metas(), { info: () => {} })
     const decision = router.decide([text('看看这张图')], 1, true)
     expect(decision).toMatchObject({ via: 'rule' })
+  })
+  it('R6：高特异度命中被认领抑制、次命中保留 → 保留规则 reason 不带（特异度最高）', () => {
+    const router = new KimiRouter(v5Claimed(), metas(), { info: () => {} })
+    // review 组 2 词（审查+评审）为特异度最高命中，但整条被认领抑制；code 组
+    // 1 词保留——过滤后 routable 仅剩一条，保留命中不得继承首命中标注。
+    const decision = router.decide([text('帮我审查评审这段代码')], 1)
+    expect(decision).toMatchObject({ via: 'rule', target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } })
+    if (decision.kind !== 'route') throw new Error(`expected route decision, got ${decision.kind}`)
+    expect(decision.reason).toBe('规则「code」命中 1 词')
   })
 })
