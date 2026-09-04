@@ -28,12 +28,14 @@ import type {
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {
-  CandidateMeta, CollaborationFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
+  CandidateMeta, CollaborationFlow, ReviewFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
 } from './config.js'
 import { isFlowTarget } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
+import { KIMI_TIDE_REVIEW_EVENT } from './projection.js'
+import { createReviewRunner, REVIEW_INPUT_LIMIT, type ReviewEventPayload, type ReviewRequest } from './review.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
-import { claimedReviewGroups, explicitProvider, latestUserText, matchingScored, messagesContainImage, ruleLabel } from './rules.js'
+import { claimedReviewGroups, explicitProvider, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -340,6 +342,10 @@ export interface RouterOrchestrationDeps {
   resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
   onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string; flowDigest?: string }) => void
   transcribeTimeoutMs?: number
+  /** 1.1.0 §7：评审完成回调（dock 流事件行 + 面板刷新由 index.ts 实现）。 */
+  onReviewEvent?: (agent: Agent, event: ReviewEventPayload) => void
+  /** 1.1.0 §8：手动评审实现登记（install 传 fn / dispose 传 null）。 */
+  onManualReview?: (fn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null) => void
 }
 
 /** 转述调用默认有界超时（I-2）。 */
@@ -688,6 +694,19 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           // blind → 不动（rc.2 原生占位投影兜底）
         }
       }
+      // 6.5 评审流武装（1.1.0 §5.1，gated 形式——R7 裁定：运行期武装尊重
+      // reviewer 可用性，无谓词 fallback 仅属 previewRoute）：显式 @ 由
+      // reviewTriggerHit 内部抑制（含未知 @，L6）；armed 每轮 step-1 重置/覆盖
+      // （L2：无 turn-stopping 的关闭路径残留至下一轮覆盖，静默跳过）。router
+      // off 时 installRouter 整体未挂载，天然关闭。
+      const turnText = latestUserText(payload.messages)
+      const hit = reviewTriggerHit(router.config, turnText, reviewerAvailable)
+      if (hit !== null) {
+        armed.set(agent, { turn: payload.turn, flowId: hit.flowId, flow: hit.flow, userText: turnText })
+        wireSessionFeed(agent)
+      } else {
+        armed.delete(agent)
+      }
       // 7. 槽位 + 观测回调
       slots.set(agent, { decision, hasImage })
       onDecision?.(agent, decision, flowId === undefined
@@ -771,11 +790,157 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       ctx.logger?.info?.('kimi-router: claimed image admission (premium multimodal)')
       return true
     }, { prepend: true })
+    // ---- Review flow 1.1.0 编排（spec §5；armed/累计/turn-stopping 异步评审/手动钩子）----
+    // 槽位全部 Weak 键控：条目随 agent GC 回收；installRouter 重挂载=effect 闭包
+    // 整体重建（armed/lastTurn/outputs 随之重建，丢最近一轮缓存可接受，spec §10）。
+    //   armed——本轮武装（pre-step step-1 命中写、turn-stopping 消费删、每轮覆盖）；
+    //   outputs——按轮累计的 assistant 文本（REVIEW_INPUT_LIMIT 停收 + 截断标注）；
+    //   lastTurns——每 agent 最近一轮 {userText, output} 滚动缓存（手动命令消费，
+    //   spec §5.2「不依赖 armed」——任何产出非空的轮都更新）；
+    //   sessionWired——session/event feed 的按 agent 去重。
+    const armed = new WeakMap<Agent, { turn: number; flowId: string; flow: ReviewFlow; userText: string }>()
+    const outputs = new WeakMap<Agent, { turn: number; text: string }>()
+    const lastTurns = new WeakMap<Agent, { userText: string; output: string }>()
+    const sessionWired = new WeakSet<Agent>()
+    const runReview = createReviewRunner(ctx)
+    // 重挂载惰性闸：agent.ctx 上的 feed 无法逐个注销（不强持 agent 引用），dispose
+    // 置 false 使旧闭包的 feed 立即停摆（spec §5.2「重挂载 dispose 全部监听」）；
+    // 注册本体随 agent dispose 由 Agent.ctx 作用域自动卸载（runtime-types :72）。
+    let feedsLive = true
+
+    const reviewerAvailable = (target: RouteTarget): boolean =>
+      router.metas.some((m) => m.provider === target.provider && m.model === target.model && m.available)
+
+    // 累计侧截断标注（与 review.ts truncate 标注逐字一致）。预算按标记长度补偿：
+    // cap = LIMIT - 标注长（6）→ 截断后总长恰为 REVIEW_INPUT_LIMIT，buildReviewInput
+    // 的兜底 truncate 视其 ≤ 上限原样放行，标注得以保留在最终评审输入（L5 二选一
+    // 取「预算补偿」枝）。
+    const REVIEW_TRUNCATION_MARKER = '…（已截断）'
+    const appendCapped = (existing: string, incoming: string): string => {
+      if (existing.length >= REVIEW_INPUT_LIMIT) return existing // 已封顶：停收
+      const cap = REVIEW_INPUT_LIMIT - REVIEW_TRUNCATION_MARKER.length
+      const merged = existing + incoming
+      return merged.length <= cap ? merged : merged.slice(0, cap) + REVIEW_TRUNCATION_MARKER
+    }
+    const textBlocksOf = (blocks: ReadonlyArray<{ type?: string; text?: unknown }>): string =>
+      blocks.filter((b) => b.type === 'text').map((b) => String(b.text ?? '')).join('')
+
+    const finishReview = (agent: Agent, req: ReviewRequest): void => {
+      void runReview(req)
+        .then((event) => {
+          try {
+            agent.session.append(KIMI_TIDE_REVIEW_EVENT, event)
+          } catch (error) {
+            // M4 兜底：目标 session 已销毁等 append 失败不向上抛，落 warn。
+            ctx.logger?.warn?.(`kimi-router: review append failed: ${(error as Error).message}`)
+          }
+          deps.onReviewEvent?.(agent, event)
+        })
+        .catch((error: unknown) => {
+          ctx.logger?.warn?.(`kimi-router: review failed: ${(error as Error).message}`)
+        })
+    }
+
+    // session/event 监听：注册在 agent.ctx（agent 作用域——插件级 ctx 收全量会话
+    // 且载荷 (session, event) 无 agent 反查，无法键入 armed；spec §5.2 注册机制
+    // 评审修复 M2，dsh-scope 作用域过滤=只收该 agent 进入的会话）。首次 pre-step
+    // 拿到 agent 时登记一次，随 agent dispose 卸载。事件序锚定（dsh-agent-loop
+    // lib/index.js）：pre-step(:506) 先于本轮 user/message 追加(:559)，assistant/
+    // message(:639/:680) 其后，turn-stopping(:570) 收尾——armed 先立、人类输入后
+    // 到、产出对齐 armed.turn 累计。
+    const wireSessionFeed = (agent: Agent): void => {
+      if (sessionWired.has(agent)) return
+      const agentCtx = (agent as { ctx?: { on?: (name: string, listener: (session: unknown, event: unknown) => void) => () => void } }).ctx
+      if (agentCtx?.on === undefined) return
+      sessionWired.add(agent)
+      agentCtx.on('session/event', (_session: unknown, raw: unknown) => {
+        if (!feedsLive) return
+        const event = raw as {
+          type?: string
+          data?: {
+            turn?: number
+            interrupted?: boolean
+            message?: { content?: ReadonlyArray<{ type?: string; text?: unknown }> }
+            content?: ReadonlyArray<{ type?: string; text?: unknown }>
+            source?: { kind?: string }
+          }
+        }
+        if (event.type === 'user/message') {
+          // L3（source 实读锚定）：user/message 载荷 = UserMessage，`source` 区分
+          // 人类输入 / synthetic agent.inject() 注入 / goal 续轮（dsh-session
+          // lib/types/types.d.ts:255-262 文档契约；dsh-llm lib/types/message.d.ts
+          // :94-104 MessageSourceMap 唯一人类枝 kind==='user'，注入/goal 走 plugin
+          // 枝——dsh-agent-loop RuntimeContextProjection isOwned 同款判定实证）。
+          // 仅人类输入刷新 lastTurn.userText；顺带刷新 armed.userText（本轮人类
+          // 文本覆盖 pre-step latestUserText 可能取到的注入文本，评审需求恒人类）。
+          if (event.data?.source?.kind !== 'user') return
+          const humanText = appendCapped('', textBlocksOf(event.data.content ?? []))
+          if (humanText.trim() === '') return
+          const armedEntry = armed.get(agent)
+          if (armedEntry !== undefined) armedEntry.userText = humanText
+          const prev = lastTurns.get(agent)
+          lastTurns.set(agent, { userText: humanText, output: prev?.output ?? '' })
+          return
+        }
+        if (event.type !== 'assistant/message') return // 防环：kimi-tide/review 等其余类型直接忽略
+        if (event.data?.interrupted === true) return // 中断前缀不计入产出
+        const turn = event.data?.turn
+        const turnText = textBlocksOf(event.data?.message?.content ?? [])
+        const tracked = outputs.get(agent)
+        if (tracked === undefined || tracked.turn !== turn) {
+          outputs.set(agent, { turn: turn ?? -1, text: appendCapped('', turnText) })
+        } else {
+          tracked.text = appendCapped(tracked.text, turnText)
+        }
+        const out = outputs.get(agent)
+        if (out !== undefined && out.turn === (turn ?? -1) && out.text.trim() !== '') {
+          // lastTurn 滚动维护（spec §5.2 不依赖 armed）：产出非空即更新；userText
+          // 优先取本轮 armed（已被人类输入刷新），无 armed 时沿用滚动人类值。
+          const armedEntry = armed.get(agent)
+          const rolling = lastTurns.get(agent)
+          lastTurns.set(agent, {
+            userText: armedEntry !== undefined && armedEntry.turn === turn ? armedEntry.userText : rolling?.userText ?? '',
+            output: out.text,
+          })
+        }
+      })
+    }
+
+    // turn-stopping：serial 派发且被 loop await（agent-loop :570）——handler 必须
+    // 同步返回（评审异步跑，轮零阻塞，spec §2 派生事实）。
+    const disposeStop = ctx.on('agent/turn-stopping', (raw: unknown) => {
+      const payload = raw as { agent?: Agent; turn?: number }
+      const agent = payload.agent
+      if (agent === undefined) return
+      const entry = armed.get(agent)
+      if (entry === undefined || entry.turn !== payload.turn) return
+      armed.delete(agent)
+      const out = outputs.get(agent)
+      if (out === undefined || out.turn !== payload.turn || out.text.trim() === '') return
+      finishReview(agent, { flowId: entry.flowId, flow: entry.flow, turn: entry.turn, userText: entry.userText, output: out.text })
+    })
+
+    // 手动评审实现（spec §8）：取 lastTurn 缓存；无缓存返回可呈现文案。
+    deps.onManualReview?.(async (agent: Agent) => {
+      const last = lastTurns.get(agent)
+      if (last === undefined || (last.userText === '' && last.output === '')) {
+        return { ok: false, message: '无可评审的上一轮' }
+      }
+      const flows = router.config.version === 5 ? router.config.flows : {}
+      const manual = Object.entries(flows).find(([, f]) => f.type === 'review' && reviewerAvailable(f.reviewer))
+      if (manual === undefined) return { ok: false, message: '没有可用的评审流（reviewer 不可用）' }
+      finishReview(agent, { flowId: manual[0], flow: manual[1] as ReviewFlow, turn: -1, userText: last.userText, output: last.output })
+      return { ok: true, message: '评审已发起' }
+    })
+
     return () => {
       disposePre()
       disposeRequest()
       disposeStream()
       disposeAdmission()
+      disposeStop()
+      feedsLive = false
+      deps.onManualReview?.(null)
     }
   })
 }

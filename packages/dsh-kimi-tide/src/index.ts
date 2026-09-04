@@ -24,7 +24,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
-import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiTideProjectionDefinition } from './projection.js'
+import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
   extractResolvedImages,
@@ -440,6 +440,9 @@ export function apply(ctx: Context, config: Config = {}) {
     caller: createStreamVisionCaller(ctx, resolveEfforts),
     log: (message) => { ctx.logger.info(message) },
   })
+  // 1.1.0 §8：手动评审实现登记（installRouter install 传 fn / dispose 传 null；
+  // apply 作用域存最新 fn，Task 6 的 /kimi-tide review 命令消费）。
+  let manualReviewFn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null = null
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
@@ -449,6 +452,13 @@ export function apply(ctx: Context, config: Config = {}) {
         transcriber,
         resolveImages: extractResolvedImages,
         onDecision,
+        onReviewEvent: (agent, event) => {
+          // spec §7 dock 行：评审执行完成记一条流事件（lastFlowEvent 同款通道，
+          // ≤120 截断与 onDecision 惯例一致）。
+          latestFlowEvents.set(agent, `review:${event.flowId} ${event.ok ? 'ok' : '失败'} · ${event.reviewer.model}`.slice(0, 120))
+          pushPanel(agent)
+        },
+        onManualReview: (fn) => { manualReviewFn = fn },
       })
     }
   }
@@ -534,6 +544,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // Projection: register the unit, then push the current snapshot into every
   // session as it appears (panel data is process-global, not per-session).
   ctx.sessionProjections.register(kimiTideProjectionDefinition)
+  // R9（1.1.0 §7）：评审投影 unit 独立注册（与 panel 并列——L4 裁定不并入
+  // panel；fold 每会话保留最近 20 条评审记录）。
+  ctx.sessionProjections.register(kimiReviewProjectionDefinition)
   // Dropdown model catalogs: both enumerated async from the llm service
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
