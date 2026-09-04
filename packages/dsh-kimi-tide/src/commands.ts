@@ -10,7 +10,13 @@
  *   /kimi-tide export-config         (print the sidecar YAML text)
  *   /kimi-tide import-config <path|inline YAML>  (load a file OR inline YAML text)
  *   /kimi-tide refresh               (re-poll the usages endpoint now)
+ *   /kimi-tide review                (1.1.0 §8：手动评审该 agent 最近完成轮——armed 语义外唯一入口)
  *
+ * Agent targeting: the dsh-commands runtime dispatches each invocation to the
+ * exact receiving agent (CommandInvocation.agent), and registerKimiTideCommands'
+ * handler passes that agent into applyKimiTideCommand — the ONLY session/agent
+ * carrier this module has (every other branch is agent-agnostic; review is the
+ * first branch that must know which agent's last turn to review).
  * import-config 双形态（沿用 0.4.x 裁定）：参数是已存在文件路径 → 整表替换；
  * 参数是可解析的内联 YAML 文本 → 合并补丁语义（深度合并进当前配置，仅覆盖
  * 文本中出现的字段，其余保持不动）。其余 → 报错。0.6.0（v5）：文件导入支持
@@ -25,6 +31,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
 import type { RouterConfigV4, RouterConfigV5 } from './config.js'
@@ -39,8 +46,12 @@ export type KimiTideCommand =
   | { kind: 'export-config' }
   | { kind: 'import-config'; path: string }
   | { kind: 'refresh' }
+  | { kind: 'review' }
   | { kind: 'help' }
   | { kind: 'error'; message: string }
+
+/** 手动评审未接线/路由关闭时的命令回显文案（index.ts 兜底共用，单源防漂移）。 */
+export const REVIEW_UNMOUNTED_MESSAGE = '评审流未挂载（路由关闭中）'
 
 /** Settings namespace port: primary read/write channel for the router config. */
 export interface SettingsNamespacePort {
@@ -59,6 +70,10 @@ export interface KimiTideCommandDeps {
   current: () => RouterConfigAny
   /** Called after a successful save: rebuild the router + push projection. */
   onSaved: (config: RouterConfigAny) => void
+  /** 1.1.0 §8：手动评审（spec §8——取该 agent 的 lastTurn 缓存同款异步评审）。 */
+  manualReview?: (agent: Agent) => Promise<{ ok: boolean; message: string }>
+  /** show 认领行数据：claimedReviewGroups 的实时结果（非空 → 输出追加一行）。 */
+  claimedGroups?: Set<string>
 }
 
 /** Keys settable via `/kimi-tide set` — paths into RouterConfigAny（v4/v5 共有的顶层键）。 */
@@ -99,6 +114,8 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
     }
     case 'refresh':
       return { kind: 'refresh' }
+    case 'review':
+      return { kind: 'review' }
     default:
       return { kind: 'error', message: `unknown subcommand "${parts[0]}" — try /kimi-tide help` }
   }
@@ -106,14 +123,15 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
 
 const HELP_TEXT = [
   '/kimi-tide preset <id|off> — switch active preset (off = 路由关闭)',
-  '/kimi-tide show — print the current preset / default / rule count（v5 另输出 flows 注册表与每预设 imageFallback）',
+  '/kimi-tide show — print the current preset / default / rule count（v5 另输出 flows 注册表与每预设 imageFallback；有认领组时追加认领行）',
   '/kimi-tide set activePreset <id|off> — update the active preset',
   '/kimi-tide export-config — print the sidecar YAML',
   '/kimi-tide import-config <path|inline YAML> — load a YAML file OR inline YAML text (panel save channel)',
   '/kimi-tide refresh — re-poll code plan quotas (kimi/zai) now',
+  '/kimi-tide review — 手动评审最近完成的一轮（无需 armed 命中；无缓存或路由关闭会得到对应提示）',
 ].join('\n')
 
-export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideCommandDeps): Promise<string> {
+export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideCommandDeps, agent?: Agent): Promise<string> {
   switch (cmd.kind) {
     case 'help':
       return HELP_TEXT
@@ -122,6 +140,16 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
     case 'refresh':
       await deps.monitor.refresh()
       return 'kimi-tide: quota refreshed'
+    case 'review': {
+      // 1.1.0 §8：手动评审（spec §8）——armed 语义外唯一入口；命令幂等（连发两次
+      // 各评审一次，用户显式行为不去重，runner 侧无缓存即返回「无可评审的上一轮」）。
+      // agent 缺失只可能出现在漏传 agent 的调用处（dsh-commands handler 恒传
+      // invocation.agent）；与 manualReview 未接线同语义降级为未挂载文案。
+      const r = deps.manualReview === undefined || agent === undefined
+        ? { ok: false, message: REVIEW_UNMOUNTED_MESSAGE }
+        : await deps.manualReview(agent)
+      return r.ok ? r.message : `kimi-tide: ${r.message}`
+    }
     case 'preset': {
       if (cmd.preset !== null && deps.current().presets[cmd.preset] === undefined) {
         return `kimi-tide: 预设 '${cmd.preset}' 不存在（现有：${Object.keys(deps.current().presets).join(', ') || '无'}）`
@@ -142,6 +170,10 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       }
       // 每预设 imageFallback 行：缺省 = latch（维持 0.5.x 行为）；transcribe-lazy 级联显示目标流。
       lines.push(`imageFallback: ${formatImageFallbacks(c)}`)
+      // 1.1.0 §8：show 认领行——认领中的关键词组非空时追加（spec §8）。
+      if (deps.claimedGroups !== undefined && deps.claimedGroups.size > 0) {
+        lines.push(`评审流认领组：${[...deps.claimedGroups].join('、')}（命中词不再整轮切模型，轮末自动评审）`)
+      }
       return lines.join('\n')
     }
     case 'set': {
@@ -332,11 +364,13 @@ export function registerKimiTideCommands(ctx: Context, deps: KimiTideCommandDeps
   ctx.effect(() => {
     return ctx.commands.register({
       name: 'kimi-tide',
-      description: '月汐 panel: route preset / settings / config export-import / quota refresh',
-      input: { hint: 'preset <id|off> · set activePreset <id|off> · show · export-config · import-config <path|inline YAML> · refresh' },
+      description: '月汐 panel: route preset / settings / config export-import / quota refresh / manual review',
+      input: { hint: 'preset <id|off> · set activePreset <id|off> · show · export-config · import-config <path|inline YAML> · refresh · review' },
       handler: async (invocation: CommandInvocation): Promise<CommandResult> => {
         const cmd = parseKimiTideCommand(invocation.rawInput)
-        const text = await applyKimiTideCommand(cmd, deps)
+        // invocation.agent = 发起命令的接收 agent（dsh-commands 契约）；review 分支
+        // 据此评审该 agent 的 lastTurn。其余分支不消费 agent。
+        const text = await applyKimiTideCommand(cmd, deps, invocation.agent)
         return cmd.kind === 'error' ? { kind: 'error', text } : { kind: 'success', text }
       },
     })

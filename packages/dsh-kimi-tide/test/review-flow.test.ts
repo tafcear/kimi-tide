@@ -1,10 +1,15 @@
 // test/review-flow.test.ts（1.1.0 review flow 专属；Task 2 起在同文件追加 describe）
 // 消息夹具的 text() helper 写法沿用 test/integration.test.ts。
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
+import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps } from '../src/commands.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, KIMI_PROVIDER } from '../src/config.js'
 import { claimedReviewGroups, previewRoute, reviewTriggerHit } from '../src/rules.js'
 import { KimiRouter } from '../src/router.js'
+import { RouterSidecarStore } from '../src/sidecar.js'
 import { buildReviewInput, createReviewRunner, REVIEW_INPUT_LIMIT, truncate } from '../src/review.js'
 import { kimiReviewProjectionDefinition, KIMI_TIDE_REVIEW_EVENT } from '../src/projection.js'
 import type { ReviewEventPayload } from '../src/review.js'
@@ -158,5 +163,66 @@ describe('kimi-tide/review 投影', () => {
     const bad = { flowId: 'r', reviewer: { provider: 'p', model: 'm' }, turn: 1, userText: 'x'.repeat(201), reviewText: 'r', ok: true, durationMs: 1, at: 't' }
     expect(() => (kimiReviewProjectionDefinition as unknown as { stateSchema: { parse: (v: unknown) => unknown } }).stateSchema.parse({ records: [bad] })).toThrow()
     expect(() => (kimiReviewProjectionDefinition as unknown as { stateSchema: { parse: (v: unknown) => unknown } }).stateSchema.parse({ records: [record(1)] })).not.toThrow()
+  })
+})
+
+// Task 6（2026-09-04）：/kimi-tide review 手动命令 + show 认领行（spec §8）——命令层
+// 用例；deps 夹具必填键以 integration.test.ts:150 的 applyKimiTideCommand 用例为基
+// （sidecar/monitor/current/onSaved），新键 manualReview/claimedGroups 按需给出。
+// 命令 union 的新 apply 分支需要接收 agent（dsh-commands handler 的 invocation.agent
+// 是唯一 agent 载体——commands.ts 无其他会话/agent 惯例可循），故 apply 第三参为
+// agent；review 用例传占位 agent（夹具 manualReview 不消费它）。
+const rfDir = mkdtempSync(join(tmpdir(), 'kt-rf-cmd-'))
+afterAll(() => rmSync(rfDir, { recursive: true, force: true }))
+
+function commandDeps(overrides: {
+  claimedGroups?: Set<string>
+  manualReview?: (agent: unknown) => Promise<{ ok: boolean; message: string }>
+} = {}): KimiTideCommandDeps {
+  const cfg = { ...DEFAULT_CONFIG_V5(), activePreset: 'saving' }
+  const sidecar = new RouterSidecarStore({ file: join(rfDir, `sidecar-${Math.random().toString(36).slice(2)}.yml`), onError: () => {} })
+  const deps: KimiTideCommandDeps = {
+    sidecar,
+    settings: null,
+    monitor: { refresh: async () => {} } as never,
+    current: () => cfg,
+    onSaved: () => {},
+  }
+  if (overrides.claimedGroups !== undefined) deps.claimedGroups = overrides.claimedGroups
+  if (overrides.manualReview !== undefined) deps.manualReview = overrides.manualReview
+  return deps
+}
+
+const NO_AGENT_YET = {} as never
+
+describe('/kimi-tide review 命令', () => {
+  it('parse：review 子命令', () => {
+    expect(parseKimiTideCommand('review')).toMatchObject({ kind: 'review' })
+    expect(parseKimiTideCommand('show')).not.toMatchObject({ kind: 'review' })
+  })
+  it('apply：deps.manualReview 收到命令的 agent、返回值透传为回显', async () => {
+    const seen: unknown[] = []
+    const agent = { label: 'agent-x' }
+    const result = await applyKimiTideCommand({ kind: 'review' } as never, commandDeps({
+      manualReview: async (a) => { seen.push(a); return { ok: true, message: '评审已发起' } },
+    }), agent as never)
+    expect(seen).toEqual([agent])
+    expect(result).toContain('评审已发起')
+  })
+  it('apply：manualReview 缺省（宿主未接线/路由关闭）→ 未挂载文案回显', async () => {
+    const result = await applyKimiTideCommand({ kind: 'review' } as never, commandDeps(), NO_AGENT_YET)
+    expect(result).toContain('评审流未挂载（路由关闭中）')
+  })
+})
+
+describe('/kimi-tide show 认领行', () => {
+  it('claimedGroups 非空 → 输出含认领组名', async () => {
+    const result = await applyKimiTideCommand({ kind: 'show' } as never, commandDeps({ claimedGroups: new Set(['review']) }))
+    expect(result).toContain('review')
+    expect(result).toContain('认领')
+  })
+  it('claimedGroups 空 → 不出现认领行', async () => {
+    const result = await applyKimiTideCommand({ kind: 'show' } as never, commandDeps({ claimedGroups: new Set() }))
+    expect(result).not.toContain('认领')
   })
 })

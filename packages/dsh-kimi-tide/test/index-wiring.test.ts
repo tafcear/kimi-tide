@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SettingsProvider, { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import YAML from 'yaml'
 import { apply, defaultPatchFile } from '../src/index.js'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
 
 function v4cfg(activePreset: string | null): RouterConfigV4 {
   return { ...DEFAULT_CONFIG_V4(), activePreset }
@@ -76,7 +76,7 @@ function makeCtx(agents: FakeAgent[], settings?: SettingsProvider) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   const settingsCleanups: Array<() => void> = []
   const listModelsCalls: string[] = []
-  let commandDef: { name: string; handler: (invocation: { rawInput: string }) => Promise<unknown> } | undefined
+  let commandDef: { name: string; handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined
   const effect = (execute: () => unknown) => {
     const cleanup = execute()
     return () => { void cleanup }
@@ -441,5 +441,75 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(snapshot.imageContext).toEqual({ native: 0, transcribed: 1, blind: 0 })
     expect(snapshot.lastFlowEvent).toContain('flow:transcribe')
     expect(snapshot.lastFlowEvent).toContain('deepseek-official/deepseek-v4-flash')
+  })
+})
+
+describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => {
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-rf-wire-'))
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  /** v5 认领形态：review 流 trigger=keywords 且 keywordGroup='review'（Task 1 夹具同款）。 */
+  const claimedCfg = (): RouterConfigV5 => {
+    const flows = DEFAULT_FLOWS()
+    flows.review = { ...flows.review, trigger: 'keywords', keywordGroup: 'review' }
+    const cfg = v5cfg('capability')
+    cfg.flows = flows
+    return cfg
+  }
+
+  it('review 命令：路由开 → invocation.agent 直达 manualReviewFn；路由关 → 未挂载文案', async () => {
+    const settings = await bootSettings()
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, getCommand } = makeCtx([agent], settings)
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await tick()
+    const command = getCommand()!
+    // handler 返回 CommandResult {kind, text}——取 text 断言回显。
+    const echo = async (rawInput: string) => {
+      const r = await command.handler({ rawInput, agent }) as { kind: string; text?: string }
+      return r.text ?? ''
+    }
+
+    // 路由关（activePreset=null → installRouter 未挂载 → manualReviewFn=null）：
+    // index 兜底文案，非抛错。
+    const off = await echo('review')
+    expect(off).toContain('评审流未挂载（路由关闭中）')
+
+    // 路由开：manualReviewFn 挂载；该 agent 无 lastTurn 缓存 → Task 5 runner 语义
+    // 返回「无可评审的上一轮」（命令回显透传，证明 agent 参数抵达了 per-agent fn）。
+    await command.handler({ rawInput: 'preset capability' })
+    await tick()
+    const on = await echo('review')
+    expect(on).toContain('无可评审的上一轮')
+  })
+
+  it('show 认领行读实时配置（getter）——解认领后行消失，非注册时快照', async () => {
+    const settings = await bootSettings({ [NS]: claimedCfg() })
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, getCommand } = makeCtx([agent], settings)
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await tick()
+    const command = getCommand()!
+    const show = async () => {
+      const r = await command.handler({ rawInput: 'show' }) as { kind: string; text?: string }
+      return r.text ?? ''
+    }
+
+    const claimed = await show()
+    expect(claimed).toContain('评审流认领组：review')
+    expect(claimed).toContain('命中词不再整轮切模型，轮末自动评审')
+
+    // 实时性：内联合并补丁把 review 流改回 trigger=manual → 无认领 → 行消失。
+    await command.handler({ rawInput: 'import-config flows:\n  review:\n    trigger: manual' })
+    await tick()
+    expect(await show()).not.toContain('认领')
   })
 })

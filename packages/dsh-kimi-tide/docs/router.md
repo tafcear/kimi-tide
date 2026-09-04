@@ -272,11 +272,12 @@ Models 页全量目录，任何 provider 的任何模型都可作预设默认、
 | 子命令 | 行为 |
 |--------|------|
 | `preset <id\|off>` | 全局切换激活预设（写 `activePreset`；id 须存在于 presets） |
-| `show` | 打印 v4 摘要：当前预设 / 默认目标 / 规则数 / 关键词组数 |
+| `show` | 打印 v4 摘要：当前预设 / 默认目标 / 规则数 / 关键词组数（v5 另输出 flows 注册表与每预设 `imageFallback` 行；**1.1.0：认领组非空时追加「评审流认领组」行**） |
 | `set activePreset <id\|off>` | 同 `preset`（`set` 键白名单仅此一键；细粒度编辑由设置卡片承担） |
 | `export-config` | 打印当前配置 YAML（settings 命名空间优先，无则 sidecar） |
 | `import-config <path\|inline YAML>` | 双形态（见下） |
 | `refresh` | 立即轮询配额 |
+| `review` | **1.1.0 §8 手动评审**：取该 agent `lastTurn` 缓存 → 同款异步评审（armed 语义外唯一入口）；无缓存 →「无可评审的上一轮」；路由关闭（评审流未挂载）→ 未挂载文案。命令幂等：连发两次各产生一条评审事件 |
 | `mode …` | **已退役**：报错并提示改用 `preset` |
 
 **import-config 双形态**（沿用 0.3.0 裁定）：

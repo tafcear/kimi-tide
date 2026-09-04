@@ -22,7 +22,8 @@ import { copyFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
+import { REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
+import { claimedReviewGroups } from './rules.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
 import {
@@ -539,6 +540,13 @@ export function apply(ctx: Context, config: Config = {}) {
     // the sidecar silently.
     get settings() { return settingsScope },
     onSaved: (next) => applyConfig(next),
+    // 1.1.0 §8：手动评审 = Task 5 挂载的 manualReviewFn（installRouter 随路由
+    // 挂载/卸载，onManualReview 登记/置 null）。路由关闭（activePreset=null →
+    // installRouter 未挂载）或宿主无评审流时 fn=null → 单源兜底文案。
+    manualReview: (agent) => manualReviewFn?.(agent) ?? Promise.resolve({ ok: false, message: REVIEW_UNMOUNTED_MESSAGE }),
+    // show 认领行数据：getter——routerConfig 在 applyConfig 处整体替换（let 重绑），
+    // getter 保证每次命令执行读实时配置而非注册时快照（与上方 settings getter 同款）。
+    get claimedGroups() { return claimedReviewGroups(routerConfig) },
   })
 
   // Projection: register the unit, then push the current snapshot into every
