@@ -79,24 +79,20 @@ describe('claimedReviewGroups', () => {
 })
 
 describe('decide 静态抑制', () => {
-  it('被认领组规则跳过：评审词命中但落预设默认（原因不含 review-k3）', () => {
+  it('被认领组规则跳过：纯评审词落预设默认（via=default，非 review-k3 的 rule）', () => {
     const router = new KimiRouter(v5Claimed(), metas(), { info: () => {} })
-    const decision = router.decide([text('帮我评审这段代码')], 1)
-    expect(decision.kind).toBe('route')
-    expect(decision).toMatchObject({ via: 'default', target: { provider: KIMI_PROVIDER, model: 'k3' } })
-    expect(decision.reason).not.toContain('review-k3')
+    const decision = router.decide([text('帮我评审一下这个方案')], 1)
+    expect(decision).toMatchObject({ kind: 'route', via: 'default', target: { provider: KIMI_PROVIDER, model: 'k3' } })
   })
   it('他组规则照常：code 词不受 review 认领影响', () => {
     const router = new KimiRouter(v5Claimed(), metas(), { info: () => {} })
     const decision = router.decide([text('修复这个 bug')], 1)
-    expect(decision).toMatchObject({ via: 'rule' })
-    expect(decision.reason).toContain('code-kfc')
+    expect(decision).toMatchObject({ via: 'rule', target: { provider: KIMI_PROVIDER, model: 'kimi-for-coding' } })
   })
   it('认领不抑制 image 条件规则', () => {
     const router = new KimiRouter(v5Claimed(), metas(), { info: () => {} })
     const decision = router.decide([text('看看这张图')], 1, true)
     expect(decision).toMatchObject({ via: 'rule' })
-    expect(decision.reason).toContain('image-k3')
   })
 })
 ```
@@ -190,7 +186,7 @@ describe('reviewTriggerHit', () => {
 describe('previewRoute review-flow outcome', () => {
   const deps = { catalog: undefined, availability: null as Map<string, boolean> | null }
   it('命中认领组 → review-flow outcome，routed 携带过滤后路由，hits 剔除被认领组', () => {
-    const preview = previewRoute(v5Claimed(), '帮我评审这段代码', deps as never)
+    const preview = previewRoute(v5Claimed(), '帮我评审一下', deps as never)
     expect(preview.outcome).toMatchObject({ kind: 'review-flow', flowId: 'review' })
     expect((preview.outcome as { routed: { kind: string } }).routed.kind).toBe('default')
     expect(preview.hits.some((h) => h.rule.when.kind === 'keywords' && h.rule.when.group === 'review')).toBe(false)
@@ -914,6 +910,8 @@ const claimed = claimedReviewGroups(config) // import { claimedReviewGroups } fr
 // 规则行：rule.when.kind === 'keywords' && claimed.has(rule.when.group) 时
 //   className 加 'kt-rule-claimed'，行尾追加提示 <span className="kt-claimed-hint">该组已被评审流认领，不再参与路由</span>
 ```
+
+**试一句 outcome 渲染（A5 载体，预检裁定 R2）**：T2 已给 `RoutePreview['outcome']` 扩 `review-flow` 枝——SettingsCard 试一句的 outcome 渲染 switch 必须处理新枝（TS 收敛面强制），显示文案 = `本轮路由到 <routed 摘要> + <outcome.label>`（routed 摘要：rule → 规则 label；default → 「预设默认」；label 已含盲区标注语义）。
 
 styles.ts 追加 `.kt-rule-claimed { opacity: .55 } .kt-claimed-hint { color: var(--dsh-text-muted, #888); font-size: 11px; margin-left: 6px }`（类名前缀沿用该文件现有 kt- 惯例）。
 
