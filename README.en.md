@@ -161,11 +161,11 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v1.0.1 (2026-08-31)**
+> Current version: **v1.1.0 (2026-09-04)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
-- Planned: automatic review-flow triggering, subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
+- Planned: subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
 
 ---
 

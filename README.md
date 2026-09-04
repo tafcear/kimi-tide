@@ -161,11 +161,11 @@ A：存在 DSH 设置里（「设置 → 月汐」编辑，重启保持）。跨
 
 ## 版本与路线
 
-> 当前版本：**v1.0.1（2026-08-31）**
+> 当前版本：**v1.1.0（2026-09-04）**
 
 - 每个版本你得到了什么：[CHANGELOG.md](CHANGELOG.md)
 - 维护者证据链（commit 锚点 / 验收记录）：[docs/release-evidence.md](docs/release-evidence.md)
-- 规划中：评审流自动触发、子代理转述、0.8.5「强化与包装」小版本——详见[证据链文档](docs/release-evidence.md)「规划中」条。
+- 规划中：子代理转述、0.8.5「强化与包装」小版本——详见[证据链文档](docs/release-evidence.md)「规划中」条。
 
 ---
 

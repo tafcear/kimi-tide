@@ -1,4 +1,4 @@
-# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0 → 匹配语义升级 0.7.0 → 覆盖面补全 + effort 0.8.0）
+# kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0 → 匹配语义升级 0.7.0 → 覆盖面补全 + effort 0.8.0 → 评审流认领 1.1.0）
 
 本文以 `src/` 现行实现为准：0.5.0 起**规则驱动路由**架构（预设 = 默认模型 +
 有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到预设
@@ -6,7 +6,9 @@
 「0.6.0 协作编排扩展」节）；**0.7.0 起关键词匹配语义升级**（ASCII 词边界 +
 命中特异度排序 + 可选 minHits 阈值，见文末「0.7.0 匹配语义升级」节）；
 **0.8.0 起规则体系补全 + 可解释性 + 推理程度配置**（内置关键词组 2→7 组、
-`effort` 可选字段、条件摘要/试一句/决策原因词数，见文末「0.8.0」节）。
+`effort` 可选字段、条件摘要/试一句/决策原因词数，见文末「0.8.0」节）；
+**1.1.0 起评审流认领关键词组**（`trigger: 'keywords'` 的 review 流认领其
+keywordGroup——命中词不再整轮切模型、轮末自动评审，见文末「1.1.0 评审流认领」节）。
 0.3.x/0.4.x 的能力评分引擎（classify → 六维评分 →
 selectCandidate，配 lambda/routeThreshold/预算窗口）已整体退役；v1/v2/v3 存量
 配置经迁移链自动桥接到 v4（见下文「迁移链」）。设计定稿见
@@ -538,3 +540,59 @@ Typert remote src-json 通道下发 `provider/model → reasoningEfforts`）；�
 
 正则关键词、AND 组合条件、消息长度阈值、LLM 语义分类、`@effort` 行内指令
 语法、reviewer effort——均为非目标，不在本版交付面内。
+
+## 1.1.0 评审流认领（2026-09-04）
+
+**为什么**：「这个做完做交叉评审」这类**延后语境**评审意图，此前会被 `review`
+组关键词路由规则整轮劫持——本轮（实为执行任务）被切到评审模型。1.1.0 起语义
+改为：keywords 型 review 流**认领**其 keywordGroup，命中词**不再切走整轮模型**，
+本轮照常执行，轮末由评审模型自动异步评审（设计稿
+`docs/superpowers/specs/2026-09-02-review-flow-design.md`；ReviewFlow 配置形状
+见上文「0.6.0 协作编排扩展」节的 v5 配置）。
+
+### 认领语义（`src/rules.ts` / `src/router.ts`）
+
+- **认领 = 配置即事实**：v5 配置 `flows.<id>` 为 review 流且
+  `trigger: 'keywords'` + `keywordGroup`（非空）即认领该组；
+  `claimedReviewGroups(config)` 收集全部被认领组（v4 无 flows → 空集，
+  行为逐字节保持）。预置 review 流默认 `trigger: 'manual'`——**存量行为零突变**，
+  用户经设置页把触发方式切到 keywords 并选组后才启用认领。
+- **静态抑制**：`decide`（router.ts）与试一句 `previewRoute` 在命中计算后
+  统一过滤 `when.kind === 'keywords'` 且组被认领的规则——被认领组的路由规则
+  （含内置 capability 预设的 `review-k3`）**无需手删即失效**；抑制无条件
+  （与「本轮是否命中」「评审模型是否可用」均无关，语义可预测）。其余规则与
+  打底照常；显式 @ 指令恒最优先：不被抑制、也不武装评审。
+- **轮末自动评审**：每轮首个模型步（step 1）用 `reviewTriggerHit` 判定——
+  flows 注册表序首个「文本命中认领组 ≥1 词且 reviewer 在候选池可用」的 review
+  流（命中词复用 matchingScored 同款词匹配语义；本轮文本取 latestUserText）。
+  命中 → 写 armed 槽（每轮重置）；轮末 turn-stopping 消费：本轮累计产出非空即
+  **异步**发起评审（listener 立即返回，不阻塞本轮、不受轮末中止影响），完成/
+  失败以 `kimi-tide/review` 事件卡上屏。评审调用 = `ctx.llm.stream` 直调
+  reviewer（**60s 有界** AbortSignal.timeout；纯文本无图块、不经 decide、
+  不带 effort——M7）；评审输入 = 本轮用户需求 + 本轮产出双段（各 ≤12000
+  字符，超出截断并标注）。防环：评审事件非 user/message，永不回流武装，
+  armed 每轮至多评审一次。
+- **已知限制（关闭路径容忍）**：无 turn-stopping 的轮（pre-step reject /
+  延续排空等）不评审，armed 槽留至下一轮覆盖（静默跳过，spec §5 评审修复 L2）。
+
+### 盲区可见性（组认领 + 评审模型不可用）
+
+抑制无条件，但 `reviewTriggerHit` 要求 reviewer 可用才武装——**该轮不自动评审**，
+被抑制的旧路由行为也不回退。盲区不静默：试一句 outcome 仍为 review-flow 枝并
+显式标注「评审流已认领但评审模型不可用」，routed 照常携带过滤后的实际路由。
+
+### 手动命令与设置页
+
+- **`/kimi-tide review`**（命令表见上）：取该 agent 最近一轮缓存（lastTurn，
+  滚动维护不依赖 armed）走同款异步评审——armed 语义外的唯一入口；无缓存 →
+  「无可评审的上一轮」；路由关闭（评审流未挂载）→「评审流未挂载（路由关闭
+  中）」。命令幂等：每发一次评一次（用户显式行为不去重）。
+- **`/kimi-tide show`**：认领组非空时追加一行
+  `评审流认领组：<组>…（命中词不再整轮切模型，轮末自动评审）`。
+- **设置页**（SettingsCard）：review 流编辑器把触发方式切成 keywords 并选组
+  即完成认领；路由规则行的 `when.group` 被认领时该行**置灰**并提示「该组已被
+  评审流认领，不再参与路由」——共存允许保存（抑制是自然结果，非非法态）；
+  「试一句」命中认领组时 outcome 显示「轮末触发评审流 <flowId>」+ 过滤后路由
+  （routed），不再显示切模型。
+- **校验加固**：`validateRouterConfig` review 流分支拒绝 `reviewer.effort`
+  （评审调用恒不带推理等级，spec L7）。
