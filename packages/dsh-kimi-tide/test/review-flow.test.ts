@@ -6,6 +6,8 @@ import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, KIMI_PROVIDER } fr
 import { claimedReviewGroups, previewRoute, reviewTriggerHit } from '../src/rules.js'
 import { KimiRouter } from '../src/router.js'
 import { buildReviewInput, createReviewRunner, REVIEW_INPUT_LIMIT, truncate } from '../src/review.js'
+import { kimiReviewProjectionDefinition, KIMI_TIDE_REVIEW_EVENT } from '../src/projection.js'
+import type { ReviewEventPayload } from '../src/review.js'
 
 const text = (t: string): UserMessage =>
   ({ role: 'user', content: [{ type: 'text', text: t }] }) as unknown as UserMessage
@@ -130,5 +132,31 @@ describe('createReviewRunner', () => {
     expect(await createReviewRunner(mkCtx(okChunk))(req)).toMatchObject({ ok: true, reviewText: '意见', turn: 1 })
     expect(await createReviewRunner(mkCtx(failChunk))(req)).toMatchObject({ ok: false })
     expect((await createReviewRunner(mkCtx([]))(req)).ok).toBe(false) // 空输出=失败
+  })
+})
+
+// Task 4（2026-09-04）：kimi-tide/review 投影 unit（spec §7）——fold 保留最近 20 条
+// （新到旧）+ stateSchema 形状守门。brief 测试逐字。
+const record = (turn: number): ReviewEventPayload => ({
+  flowId: 'review', reviewer: { provider: 'kimi-coding', model: 'k3' }, turn,
+  userText: 'u', reviewText: `r${turn}`, ok: true, durationMs: 1, at: '2026-09-04T00:00:00Z',
+})
+
+describe('kimi-tide/review 投影', () => {
+  it('fold：新到旧、保留最近 20 条、忽略其他事件', () => {
+    let state = kimiReviewProjectionDefinition.init()
+    for (let turn = 1; turn <= 25; turn++) {
+      state = kimiReviewProjectionDefinition.apply(state, { type: KIMI_TIDE_REVIEW_EVENT, data: record(turn) } as never)
+    }
+    state = kimiReviewProjectionDefinition.apply(state, { type: 'other/event', data: {} } as never)
+    const records = (state as { records: Array<{ turn: number }> }).records
+    expect(records).toHaveLength(20)
+    expect(records[0].turn).toBe(25)
+    expect(records[19].turn).toBe(6)
+  })
+  it('reviewRecordSchema 形状守门：拒绝缺字段与超长 userText（T3 评审移交的加固）', () => {
+    const bad = { flowId: 'r', reviewer: { provider: 'p', model: 'm' }, turn: 1, userText: 'x'.repeat(201), reviewText: 'r', ok: true, durationMs: 1, at: 't' }
+    expect(() => (kimiReviewProjectionDefinition as unknown as { stateSchema: { parse: (v: unknown) => unknown } }).stateSchema.parse({ records: [bad] })).toThrow()
+    expect(() => (kimiReviewProjectionDefinition as unknown as { stateSchema: { parse: (v: unknown) => unknown } }).stateSchema.parse({ records: [record(1)] })).not.toThrow()
   })
 })

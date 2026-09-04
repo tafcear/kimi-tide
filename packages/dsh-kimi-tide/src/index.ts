@@ -24,7 +24,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
-import { KIMI_TIDE_PANEL_EVENT, kimiTideProjectionDefinition } from './projection.js'
+import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
   extractResolvedImages,
@@ -235,18 +235,19 @@ function fallbackCandidateMetas(config: RouterConfigAny): CandidateMeta[] {
 }
 
 /**
- * Register the panel event type on the INSTALLATION's KNOWN_SESSION_EVENT_TYPES
- * Set. The strict session-log reader (dsh-session-persistence) refuses event
- * types outside the catalog unless the envelope marks them ignorable, and
- * `Session.append` cannot set that marker — extending the catalog is the only
- * door for a custom projection event. The catalog is a live mutable Set on
- * the dsh-session module instance the harness itself uses; a `link:`-installed
- * plugin's bare import resolves its workspace node_modules copy instead (a
- * different Set), so we anchor a require in the flat profile module fallback
- * (`$DSH_HOME/profiles/node_modules` — one junction per package in the dsh
- * app's dependency closure, maintained by `healProfilesModuleFallback`).
- * Resolution from there lands on the SAME real module the harness checks, so
- * the mutation makes stored `kimi-tide/panel` events readable again after a
+ * Register the panel + review event types on the INSTALLATION's
+ * KNOWN_SESSION_EVENT_TYPES Set. The strict session-log reader
+ * (dsh-session-persistence) refuses event types outside the catalog unless
+ * the envelope marks them ignorable, and `Session.append` cannot set that
+ * marker — extending the catalog is the only door for a custom projection
+ * event. The catalog is a live mutable Set on the dsh-session module instance
+ * the harness itself uses; a `link:`-installed plugin's bare import resolves
+ * its workspace node_modules copy instead (a different Set), so we anchor a
+ * require in the flat profile module fallback (`$DSH_HOME/profiles/
+ * node_modules` — one junction per package in the dsh app's dependency
+ * closure, maintained by `healProfilesModuleFallback`). Resolution from there
+ * lands on the SAME real module the harness checks, so the mutation makes
+ * stored `kimi-tide/panel` / `kimi-tide/review` events readable again after a
  * restart. Falls back to the directly imported copy when no installation
  * fallback exists (e.g. unit tests).
  * @returns true when the host (installation) catalog was reached; false when
@@ -268,6 +269,7 @@ function registerPanelEventType(): boolean {
     // mutating the directly imported copy is the best effort available.
   }
   known.add(KIMI_TIDE_PANEL_EVENT)
+  known.add(KIMI_TIDE_REVIEW_EVENT)
   return hostReached
 }
 
@@ -284,11 +286,11 @@ export function apply(ctx: Context, config: Config = {}) {
 
   // The strict persistence reader refuses logs with unknown event types.
   // The catalog Set lives on the INSTALLATION's dsh-session module instance;
-  // register the panel type there (see registerPanelEventType).
+  // register the panel + review types there (see registerPanelEventType).
   if (registerPanelEventType()) {
-    ctx.logger.info('dsh-kimi-tide: panel event type registered on the installation session catalog')
+    ctx.logger.info('dsh-kimi-tide: panel/review event types registered on the installation session catalog')
   } else {
-    ctx.logger.warn('dsh-kimi-tide: panel event type registered on a local dsh-session copy; stored kimi-tide/panel events may refuse to load')
+    ctx.logger.warn('dsh-kimi-tide: panel/review event types registered on a local dsh-session copy; stored kimi-tide/panel and kimi-tide/review events may refuse to load')
   }
 
   // 0.4.x：零接入层——Kimi 模型经 settings.yaml 的 llm-pi-ai.providers.kimi-coding

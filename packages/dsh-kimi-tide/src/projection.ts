@@ -12,7 +12,7 @@
  */
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type { KimiTidePanelProjection } from './types.js'
+import type { KimiReviewProjection, KimiTidePanelProjection, ReviewRecord } from './types.js'
 
 export const KIMI_TIDE_PANEL_KEY = 'kimi-tide/panel' as const
 /** Session event type carrying the whole panel payload (log + fold input). */
@@ -114,6 +114,85 @@ export const kimiTideProjectionDefinition:
   },
   wire: {
     viewSchema: bridgedViewSchema,
+    view: (state) => state,
+  },
+}
+
+/**
+ * kimi-tide: review projection — key 'kimi-tide/review' (1.1.0 spec §7).
+ * 独立 unit，不并入 panel（2026-09-04 评审修复 L4 裁定：panel 快照签名被 60s
+ * 配额轮询驱动、语义去重面向整值快照，评审记录混入会污染签名并膨胀事件流）。
+ * 每条评审事件 = 一条 ReviewRecord（Task 5 逐条 append）；fold 每会话保留
+ * 最近 REVIEW_KEEP 条（新到旧）。stateVersion 1；wire 必带（register 重载 1
+ * 注解与 panel 同款——掉 wire=host-only 的静默错误在编译期报）。
+ */
+export const KIMI_TIDE_REVIEW_KEY = 'kimi-tide/review' as const
+/** Session event type carrying one review record (log + fold input). */
+export const KIMI_TIDE_REVIEW_EVENT = 'kimi-tide/review' as const
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /** 一条评审记录载荷（spec §7）——fold 侧逐条前置进 records。 */
+    'kimi-tide/review': ReviewRecord
+  }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    'kimi-tide/review': KimiReviewProjection | null
+  }
+  interface SessionProjectionStateMap {
+    'kimi-tide/review': KimiReviewProjection | null
+  }
+}
+
+/**
+ * 记录形状守门（spec §7 载荷字段；userText ≤200 摘要上限入 schema，wire 面
+ * 拒绝超长——review.ts 推送侧同款截断，双端防御）。error 可选（失败载荷）。
+ */
+const reviewRecordSchema = z.object({
+  flowId: z.string(),
+  reviewer: z.object({ provider: z.string(), model: z.string() }),
+  turn: z.number().int(),
+  userText: z.string().max(200),
+  reviewText: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+  durationMs: z.number(),
+  at: z.string(),
+})
+/** Fold 状态 = 最近 ≤20 条记录（新到旧）或 null（空日志，init 惯例）。 */
+const reviewProjectionSchema = z.object({ records: z.array(reviewRecordSchema).max(20) }).nullable()
+
+/** This unit's definition shape (rc.2 contract) — shared by the bridges and the export annotation. */
+type ReviewProjectionDefinition = ProjectionDefinition<typeof KIMI_TIDE_REVIEW_KEY, KimiReviewProjection | null>
+
+// zod v3→v4 bridge 惯例与 panel :87-93 一致（dsh-session-projection 依赖 zod v4，
+// 本包用 zod v3——运行时结构兼容，类型经 unknown 桥接）。
+const bridgedReviewStateSchema = reviewProjectionSchema as unknown as ReviewProjectionDefinition['stateSchema']
+
+const bridgedReviewViewSchema = reviewProjectionSchema as unknown as
+  NonNullable<ReviewProjectionDefinition['wire']>['viewSchema']
+
+// 同 panel :95-98 注解——掉 `wire` 在此变成编译错误而非静默 host-only unit。
+/** fold 保留条数（spec §7：每会话最近 20 条）。 */
+const REVIEW_KEEP = 20
+export const kimiReviewProjectionDefinition:
+  Omit<ReviewProjectionDefinition, 'wire'> & { wire: NonNullable<ReviewProjectionDefinition['wire']> } = {
+  key: KIMI_TIDE_REVIEW_KEY,
+  stateSchema: bridgedReviewStateSchema,
+  stateVersion: 1,
+  init: () => null,
+  apply: (state, event) => {
+    // Custom event types are not in the SessionEvent discriminated union;
+    // compare via widened string check. 无关事件返回同一引用（零下游工作）。
+    if ((event as { type: string }).type !== KIMI_TIDE_REVIEW_EVENT) return state
+    const incoming = (event as { data: ReviewRecord }).data
+    const previous = state?.records ?? []
+    return { records: [incoming, ...previous].slice(0, REVIEW_KEEP) }
+  },
+  wire: {
+    viewSchema: bridgedReviewViewSchema,
     view: (state) => state,
   },
 }
