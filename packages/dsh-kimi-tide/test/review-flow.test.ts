@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, KIMI_PROVIDER } fr
 import { claimedReviewGroups, previewRoute, reviewTriggerHit } from '../src/rules.js'
 import { KimiRouter } from '../src/router.js'
 import { RouterSidecarStore } from '../src/sidecar.js'
+import { validateRouterConfig } from '../src/settings-schema.js'
 import { buildReviewInput, createReviewRunner, REVIEW_INPUT_LIMIT, truncate } from '../src/review.js'
 import { kimiReviewProjectionDefinition, KIMI_TIDE_REVIEW_EVENT } from '../src/projection.js'
 import type { ReviewEventPayload } from '../src/review.js'
@@ -224,5 +225,20 @@ describe('/kimi-tide show 认领行', () => {
   it('claimedGroups 空 → 不出现认领行', async () => {
     const result = await applyKimiTideCommand({ kind: 'show' } as never, commandDeps({ claimedGroups: new Set() }))
     expect(result).not.toContain('认领')
+  })
+})
+
+// Task 7（2026-09-04）：validateRouterConfig review 流分支拒 reviewer.effort（L7）。
+// 断言式与 settings-schema.test.ts 既有惯例一致——validateRouterConfig 收集错误为
+// 返回串不抛错（宿主 set 前查 message、card-store C1 模拟宿主 !== undefined），
+// brief 的 toThrow 形按此实读收编为 toContain/toBeUndefined。
+describe('validateRouterConfig reviewer.effort（评审修复 L7）', () => {
+  it('review 流 reviewer 带 effort → 拒绝', () => {
+    const config = v5Claimed()
+    ;(config.flows.review as { reviewer: { effort?: string } }).reviewer.effort = 'high'
+    expect(validateRouterConfig(config as never)).toContain('effort')
+  })
+  it('无 effort → 通过', () => {
+    expect(validateRouterConfig(v5Claimed() as never)).toBeUndefined()
   })
 })

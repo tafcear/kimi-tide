@@ -24,12 +24,17 @@
  * + minHits 可见标签 + 行级自动条件摘要 +「试一句」纯文本路由预测器（标注
  * 「按当前激活预设」与「仅文本探针」偏差声明）；目标旁 EffortSelect 下拉
  * （选项 = 宿主档位表 snapshot.efforts，未声明档位 → 禁用「跟随默认」）。
+ *
+ * 1.1.0 认领提示 + review-flow outcome（spec §4）：review 流 trigger=keywords 认领
+ * 其 keywordGroup → 认领组规则行灰态 + 行尾一句提示（认领与规则共存合法，只提示
+ * 不拦保存）；「试一句」outcome 增 review-flow 枝（文案 = 本轮路由到 <routed
+ * 摘要> + <label>，label 已含「评审模型不可用」盲区语义）。
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import { Icon } from './icons.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
+import { claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -491,6 +496,10 @@ export function SettingsCard(props: SettingsCardProps) {
   // ⑥-B 打磨三：存量重复条件（首条保留，其后被遮蔽）——警示条与行标记的数据源。
   const dupIds = active !== null ? duplicateRuleIds(active.rules) : []
   const dupSet = new Set(dupIds)
+  // 1.1.0 §4 认领（review 流 trigger=keywords 的非空 keywordGroup → 该组被流认领）：
+  // 认领组规则的命中被路由层静态抑制（spec §4）——规则行灰态 + 行尾提示。认领与
+  // 规则共存是合法态，抑制是自然结果——只提示不拦保存；v4 无 flows → 空集。
+  const claimedGroups = claimedReviewGroups(config)
   const catalog = snapshot.catalog ?? []
   // 下拉只列可用模型（用户裁定 2026-08-21）：availability 明确 false（未挂载/目录未列出）即剔除；
   // availability 为 null（无连接通道）时不设灰态，全目录入选项。
@@ -786,8 +795,9 @@ export function SettingsCard(props: SettingsCardProps) {
               const targetKey = ruleTargetValue(rule.target)
               const missingGroup = rule.when.kind === 'keywords' && !Object.hasOwn(config.keywordGroups, rule.when.group)
               const conflicted = dupSet.has(rule.id)
+              const claimed = rule.when.kind === 'keywords' && claimedGroups.has(rule.when.group)
               return (
-                <div key={rule.id} className={`kt-rule-grid kt-rule-row${conflicted ? ' kt-conflict' : ''}${rule.when.kind === 'image' ? ' kt-row-image' : ''}`}>
+                <div key={rule.id} className={`kt-rule-grid kt-rule-row${conflicted ? ' kt-conflict' : ''}${rule.when.kind === 'image' ? ' kt-row-image' : ''}${claimed ? ' kt-rule-claimed' : ''}`}>
                   <span className="kt-rule-no">{index + 1}</span>
                   <span className="kt-cond">
                     <select
@@ -893,6 +903,9 @@ export function SettingsCard(props: SettingsCardProps) {
                       删除
                     </button>
                   </span>
+                  {claimed && (
+                    <span className="kt-claimed-hint">该组已被评审流认领，不再参与路由</span>
+                  )}
                   {conflicted && (
                     <span className="kt-conflict-hint">条件重复：与上方某条规则条件相同，永不优先命中</span>
                   )}
@@ -1011,7 +1024,13 @@ export function SettingsCard(props: SettingsCardProps) {
                 </div>
               ))}
               <div className="kt-trial-outcome">
-                最终路由：{preview.outcome.kind === 'off' ? preview.outcome.reason
+                {/* 1.1.0 §4 review-flow outcome（A5 载体）：文案 = 本轮路由到 <routed
+                    摘要> + <label>——routed 规则 → 该规则 label，default → 「预设默认」；
+                    label 已含「轮末触发评审流 <id>/评审模型不可用」盲区语义，不重复处理。 */}
+                最终路由：
+                {preview.outcome.kind === 'review-flow' ? (
+                  <span>本轮路由到 {preview.outcome.routed.kind === 'rule' ? preview.outcome.routed.label : '预设默认'} + {preview.outcome.label}</span>
+                ) : preview.outcome.kind === 'off' ? preview.outcome.reason
                   : preview.outcome.kind === 'explicit' ? preview.outcome.reason
                   : preview.outcome.kind === 'rule'
                     ? `${preview.outcome.reason} → ${preview.outcome.target === null ? '（不可判）' : isFlowTarget(preview.outcome.target) ? `协作流 ${preview.outcome.target.flow}` : configKey(preview.outcome.target)}`

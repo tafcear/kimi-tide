@@ -96,6 +96,7 @@ export const routerConfigSchema = Schema.object({
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
  *  级联（transcribe-lazy 的 imageFallbackFlow 缺省解析到预置 transcribe，显式引用须
  *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup /
+ *  review 流 reviewer 不收 effort（M7——1.1.0 L7 收编，评审调用恒不带推理等级）/
  *  effort 形状检查（default/规则 target/visionModel 三处，非空 string——M4）。
  *  legacy version（≤4）直通返回 undefined（迁移兜底，注册期不做语义校验）。 */
 export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
@@ -162,6 +163,11 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
       }
     }
     if (flow.type !== 'review') continue
+    // 1.1.0（L7 收编，M7 运行期一致性）：评审 reviewer 恒不带 effort——config 类型
+    // 含可选 effort 而运行期不消费的既有缝，注册期显式拒绝（M7 文案沿用 0.8.0）。
+    if (flow.reviewer.effort !== undefined) {
+      return '评审流 reviewer 不支持 effort（M7）：评审调用恒不带推理等级'
+    }
     if (!Number.isInteger(flow.rounds) || flow.rounds < 1 || flow.rounds > 3) {
       return `评审流 '${fid}' 的 rounds 越界（须为 1..3 的整数）`
     }

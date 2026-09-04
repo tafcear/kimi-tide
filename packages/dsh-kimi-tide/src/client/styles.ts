@@ -95,6 +95,11 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-rule-row.kt-conflict { background: rgba(217, 119, 6, 0.07); border-radius: 6px; }
     .kimi-tide-settings .kt-conflict-hint { grid-column: 1 / -1; font-size: 11px;
       color: var(--dsw-alias-warning-strong, #d97706); }
+    /* 1.1.0 §4 认领提示（A4 载体）：组被 review 流认领 → 规则行灰态 + 行尾一句
+       提示；认领与规则共存合法（抑制是自然结果）——纯视觉，不拦保存 */
+    .kimi-tide-settings .kt-rule-claimed { opacity: 0.55; }
+    .kimi-tide-settings .kt-claimed-hint { grid-column: 1 / -1; font-size: 11px;
+      color: var(--dsh-text-muted, #888); margin-left: 6px; }
     .kimi-tide-settings .kt-conflict-banner { display: flex; align-items: center;
       justify-content: space-between; gap: 8px; font-size: 11.5px;
       border: 1px solid rgba(217, 119, 6, 0.4); background: rgba(217, 119, 6, 0.08);
