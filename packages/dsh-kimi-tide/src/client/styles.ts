@@ -216,4 +216,33 @@ export const CLIENT_CSS = `
     .kt-dock-pop::before { content: ''; display: block; height: 2px; border-radius: 2px;
       margin: -2px -4px 6px; background: linear-gradient(90deg, var(--kt-accent), rgb(139 111 244 / 0.12)); }
     .kt-dock-pop .kt-reason { border-top: none; padding: 0; gap: 5px; }
+
+    /* ---- 评审卡（1.1.0 §7 会话流渲染；kt-review-* 自有命名不嵌宿主类——
+          卡片挂在宿主 chat 行容器内，accent 变量不在 .kimi-tide-dock/.kimi-tide-settings
+          作用域，一律带字面回退（设置导航图标先例））---- */
+    .kt-review-card { display: flex; flex-direction: column; gap: 6px; font-size: 12px;
+      padding: 8px 10px; border-radius: 10px; max-width: 720px;
+      border: 1px solid var(--kt-accent-line, rgb(139 111 244 / 0.45));
+      background: var(--kt-accent-soft, rgb(139 111 244 / 0.14));
+      color: var(--dsw-alias-label-primary, #2b3245);
+      box-shadow: 0 1px 2px rgb(20 24 40 / 0.04), 0 4px 12px rgb(20 24 40 / 0.05); }
+    .kt-review-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+    .kt-review-badge { flex: none; font-size: 11px; font-weight: 600; padding: 0 8px;
+      border-radius: 6px; color: var(--kt-accent-strong, #7c5cf0);
+      border: 1px solid var(--kt-accent-line, rgb(139 111 244 / 0.45)); }
+    .kt-review-flow { font-size: 11px; opacity: 0.75; overflow: hidden;
+      text-overflow: ellipsis; min-width: 0; white-space: nowrap; }
+    .kt-review-time { margin-left: auto; flex: none; font-size: 11px;
+      font-variant-numeric: tabular-nums; opacity: 0.6; }
+    .kt-review-body { margin: 0; font-family: inherit; font-size: 12px; line-height: 1.55;
+      white-space: pre-wrap; overflow-wrap: break-word; overflow-y: auto; max-height: 340px; }
+    /* 失败卡标灰（spec §7）：品牌紫描边/底全部退中性灰，正文换成 error 行 */
+    .kt-review-card.kt-review-card-failed {
+      border-color: var(--dsw-alias-border-l2, #d4d9e3);
+      background: rgb(148 163 184 / 0.10); }
+    .kt-review-card.kt-review-card-failed .kt-review-badge {
+      color: var(--dsw-alias-label-tertiary, #8b93a7);
+      border-color: var(--dsw-alias-border-l2, #d4d9e3); }
+    .kt-review-error { font-size: 12px; line-height: 1.55;
+      color: var(--dsw-alias-danger-strong, #e5484d); }
   `

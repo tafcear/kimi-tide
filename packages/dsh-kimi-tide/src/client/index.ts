@@ -13,6 +13,7 @@ import { SettingsCard } from './SettingsCard.js'
 import { fetchEffortsViaDescribe } from './effort-remote.js'
 import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
+import { REVIEW_NODE_KIND, ReviewCard, reviewNodeDefinition } from './ReviewCard.js'
 
 export const inject = ['slots', 'remote', 'remote.commands']
 
@@ -70,6 +71,27 @@ export function apply(ctx: Context): void {
     order: 10, // after the shipped stats line (order 0)
     label: '月汐',
   }, TideDock))
+
+  // 评审卡（1.1.0 spec §7，A6 载体）两件套：
+  // a) ConversationNodeDefinition——把 kimi-tide/review 会话事件折叠成 chat 节点。
+  //    uiConversation 是宿主 ui-conversation 插件服务（cordis Context 声明面
+  //    dsh-client-ui-conversation lib/types/client/index.d.ts:31），不在本插件
+  //    inject 数组：ctx.get 守卫式读取，缺席不阻塞激活（locale 守卫同惯例；
+  //    events.register 返回幂等 disposer，event-registry.d.ts:11——ctx.effect
+  //    在插件停用/热重载时反向注销）。
+  ctx.effect(() => {
+    const ui = ctx.get('uiConversation') as { events?: { register?: (d: typeof reviewNodeDefinition) => () => void } } | undefined
+    if (ui?.events?.register === undefined) return
+    return ui.events.register(reviewNodeDefinition)
+  })
+  // b) keyed 渲染器——conversation.chat.node 槽按 kind 分发（宿主注册样例
+  //    dsh-client-ui-chat client.js:3621-3625 compaction 同款：name + key）。
+  //    只注册 a) 不注册 b) 时该节点落宿主 JsonBlock 载荷兜底（client.js:1545），
+  //    不隐身；两者独立注册互不依赖。
+  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node',
+    key: REVIEW_NODE_KIND,
+  }, ReviewCard))
 
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
   // inject 内惰性执行（挂载到卡片时才绑定，不因宿主缺服务而阻塞本插件激活）。
