@@ -76,13 +76,26 @@ export function apply(ctx: Context): void {
   // a) ConversationNodeDefinition——把 kimi-tide/review 会话事件折叠成 chat 节点。
   //    uiConversation 是宿主 ui-conversation 插件服务（cordis Context 声明面
   //    dsh-client-ui-conversation lib/types/client/index.d.ts:31），不在本插件
-  //    inject 数组：ctx.get 守卫式读取，缺席不阻塞激活（locale 守卫同惯例；
-  //    events.register 返回幂等 disposer，event-registry.d.ts:11——ctx.effect
-  //    在插件停用/热重载时反向注销）。
-  ctx.effect(() => {
-    const ui = ctx.get('uiConversation') as { events?: { register?: (d: typeof reviewNodeDefinition) => () => void } } | undefined
-    if (ui?.events?.register === undefined) return
+  //    inject 数组；events.register 返回幂等 disposer（event-registry.d.ts:11），
+  //    经 ctx.effect 挂 fiber——插件停用/热重载时反向注销。
+  //    A6 实机缺陷修复（2026-09-04）：bundle 装载时序下该服务晚于本插件 apply，
+  //    一次性守卫读 undefined 即静默放弃 = 评审事件永不折叠成节点（实机：
+  //    host 投影已在 session jsonl、控制台零报错、刷新后仍无卡）。修复：就绪
+  //    立即注册；缺席经 ctx.inject 函数形态延迟驱动补注册（依赖就绪即执行、
+  //    服务变更时卸载重跑、作用域挂当前 fiber——cordis registry.d.ts:111；
+  //    better-sidebar client.js:3830 先例同款）。
+  const registerReviewDefinition = (host: Context): (() => void) | undefined => {
+    const ui = host.get('uiConversation') as { events?: { register?: (d: typeof reviewNodeDefinition) => () => void } } | undefined
+    if (ui?.events?.register === undefined) return undefined
     return ui.events.register(reviewNodeDefinition)
+  }
+  ctx.effect(() => {
+    const disposer = registerReviewDefinition(ctx)
+    if (disposer !== undefined) return disposer
+    if (typeof ctx.inject !== 'function') return
+    ctx.inject(['uiConversation'], (late) => {
+      late.effect(() => registerReviewDefinition(late) ?? (() => {}))
+    })
   })
   // b) keyed 渲染器——conversation.chat.node 槽按 kind 分发（宿主注册样例
   //    dsh-client-ui-chat client.js:3621-3625 compaction 同款：name + key）。
