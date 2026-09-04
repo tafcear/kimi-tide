@@ -8,6 +8,7 @@
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { KIMI_PROVIDER, isFlowTarget, type CollaborationFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
+import type { RouterConfigAny } from './router.js'
 
 export function explicitProvider(text: string): string | null {
   // 前导锚定（评审修复 2026-08-23）：@ 前紧邻词字符（\w 或 @）则不是指令——
@@ -151,6 +152,19 @@ export function duplicateRuleIds(rules: readonly RouterRule[]): string[] {
     else seen.add(key)
   }
   return shadowed
+}
+
+/** 认领中的关键词组（1.1.0 §4）：review 流 trigger=keywords 且 keywordGroup
+ *  非空 → 该组被流认领。v4 无 flows → 空集（行为逐字节保持）。 */
+export function claimedReviewGroups(config: RouterConfigAny): Set<string> {
+  const claimed = new Set<string>()
+  if (config.version !== 5) return claimed
+  for (const flow of Object.values(config.flows)) {
+    if (flow.type === 'review' && flow.trigger === 'keywords' && flow.keywordGroup) {
+      claimed.add(flow.keywordGroup)
+    }
+  }
+  return claimed
 }
 
 /** 试一句测试器依赖（0.8.0 D2）：候选目录与已配置目标可用性（浏览器侧无 modalities）。 */

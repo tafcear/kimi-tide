@@ -33,7 +33,7 @@ import type {
 import { isFlowTarget } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
-import { explicitProvider, latestUserText, matchingScored, messagesContainImage, ruleLabel } from './rules.js'
+import { claimedReviewGroups, explicitProvider, latestUserText, matchingScored, messagesContainImage, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -247,7 +247,13 @@ export class KimiRouter {
     }
     const flows = flowsOf(this.config)
     const hits = matchingScored(this.config, text, hasImage)
-    for (const [index, { rule, score }] of hits.entries()) {
+    // 1.1.0 §4 静态抑制：被认领组的规则整条跳过（与本轮是否命中无关，语义可
+    // 预测）；命中词不再计入路由链。显式 @ 分支在其上方，天然先于抑制。
+    const claimed = claimedReviewGroups(this.config)
+    const routable = claimed.size === 0
+      ? hits
+      : hits.filter(({ rule }) => !(rule.when.kind === 'keywords' && claimed.has(rule.when.group)))
+    for (const [index, { rule, score }] of routable.entries()) {
       const target = rule.target
       // 0.8.0 原因升级：携带命中词数；多命中且为排序后首命中时加（特异度最高）
       // 标注（image=∞ 不带）。0.8.x①：标注只属于首命中——首命中目标不可用
@@ -277,6 +283,7 @@ export class KimiRouter {
       return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
     }
     // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
+    // 被认领组命中不入链——全部命中被抑制时同样落此打底（1.1.0 §4）。
     return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
   }
 
