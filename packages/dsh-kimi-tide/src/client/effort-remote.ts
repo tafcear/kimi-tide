@@ -42,3 +42,33 @@ export async function fetchEffortsViaDescribe(connection: EffortsConnection): Pr
   const section = (view?.value as { efforts?: Record<string, string[]>; mounted?: string[] } | undefined) ?? {}
   return { efforts: section.efforts ?? {}, mounted: section.mounted ?? [] }
 }
+
+/**
+ * 1.1.0 A8 复测（2026-09-05）：rc.1 的 loopback typed remote `settings.describe`
+ * 为零参数直接调用（TYPERT 描述符 parameters: []——带参调用触发严格 arity 拒绝，
+ * 与 commands.execute 教训同款）。本函数消费该零参调用，宽容解析两种返回形态：
+ * RPC envelope（{ok, value|error}）或裸 value。失败即抛，交由调用方降级。
+ */
+export async function fetchCatalogMetaViaRemoteDescribe(
+  describe: () => Promise<unknown>,
+): Promise<CatalogMeta> {
+  const raw = await describe()
+  type DescribeEnvelope = {
+    ok?: boolean
+    value?: { namespaces?: ReadonlyArray<{ ns: string; value?: unknown }> }
+    error?: { message?: string }
+  }
+  const envelope: DescribeEnvelope =
+    raw !== null && typeof raw === 'object' && 'ok' in (raw as Record<string, unknown>)
+      ? (raw as DescribeEnvelope)
+      : { ok: true, value: raw as { namespaces?: ReadonlyArray<{ ns: string; value?: unknown }> } }
+  if (envelope.ok !== true) {
+    throw new Error(`describe 失败：${envelope.error?.message ?? 'unknown'}`)
+  }
+  const namespaces = envelope.value?.namespaces ?? []
+  const section = (namespaces.find((n) => n.ns === EFFORT_CATALOG_NAMESPACE)?.value ?? {}) as {
+    efforts?: Record<string, string[]>
+    mounted?: string[]
+  }
+  return { efforts: section.efforts ?? {}, mounted: section.mounted ?? [] }
+}

@@ -10,13 +10,16 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { TideDock, tideDockBridge } from './TideDock.js'
 import { SettingsCard } from './SettingsCard.js'
-import { fetchEffortsViaDescribe } from './effort-remote.js'
+import { fetchCatalogMetaViaRemoteDescribe, fetchEffortsViaDescribe } from './effort-remote.js'
 import type { ConnectionLike } from './card-store.js'
 import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
 import { REVIEW_NODE_KIND, ReviewCard, reviewNodeDefinition } from './ReviewCard.js'
 
-export const inject = ['slots', 'remote', 'remote.commands']
+// 'remote.settings' / 'remote.llm'（1.1.0 A8 复测新增）：设置卡 describe /
+// llm.models 走 loopback typed remote，cordis 要求嵌套路径逐级声明（同款：
+// 'remote.commands'）；缺声明即抛 cannot get property without inject。
+export const inject = ['slots', 'remote', 'remote.commands', 'remote.settings', 'remote.llm']
 
 /**
  * 1.1.0 A8 复测发现（2026-09-05）：dsh 0.1.2-rc.1 起 connection 把 `api.*`
@@ -38,17 +41,33 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
   }
   const legacy = (ctx.get('connection') as ConnectionLike | undefined) ?? null
   const remote = (ctx as unknown as { remote?: LoopbackRemote }).remote
-  const describe = remote?.settings?.describe
-  const mutate = remote?.settings?.mutate
-  const models = remote?.llm?.models
-  if (describe === undefined || mutate === undefined || models === undefined) return legacy
+  if (legacy === null && remote === undefined) return null
+  // 每次调用时惰性解析：rc.1 上部分命名空间（如 llm）随适配器就绪懒挂载，
+  // 挂载先后不定；任一方法缺席时抛错，由调用方既有 catch 降级（不占 error 通道）。
+  const describe = () => remote?.settings?.describe ?? legacy?.api.settings.describe
+  const mutate = () => remote?.settings?.mutate ?? legacy?.api.settings.mutate
+  const models = () => remote?.llm?.models ?? legacy?.api.llm?.models
   return {
     api: {
       settings: {
-        describe: async (request) => ({ result: (await describe(request)) as never }),
-        mutate: async (request) => ({ result: (await mutate(request)) as never }),
+        describe: async (request) => {
+          const d = describe()
+          if (d === undefined) throw new Error('settings.describe 通道不可用（connection api 面缺席且 loopback 未挂载）')
+          return { result: (await d(request)) as never }
+        },
+        mutate: async (request) => {
+          const m = mutate()
+          if (m === undefined) throw new Error('settings.mutate 通道不可用（connection api 面缺席且 loopback 未挂载）')
+          return { result: (await m(request)) as never }
+        },
       },
-      llm: { models: async (request) => ({ result: (await models(request)) as never }) },
+      llm: {
+        models: async (request) => {
+          const m = models()
+          if (m === undefined) throw new Error('llm.models 通道不可用（loopback 未挂载 llm 命名空间）')
+          return { result: (await m(request)) as never }
+        },
+      },
     },
   }
 }
@@ -145,9 +164,14 @@ export function apply(ctx: Context): void {
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
   // inject 内惰性执行（挂载到卡片时才绑定，不因宿主缺服务而阻塞本插件激活）。
   // connection 面 = buildConnectionFace（rc.1 loopback 重接，见函数头注）；
-  // 无 loopback 且无 connection 时降级为无灰态。
+  // efforts/mounted 取数优先走 loopback 零参 describe（fetchCatalogMetaVia
+  // RemoteDescribe），loopback 缺席（旧宿主）回退旧 describe 面。
   ctx.slots.inject('settings.section', () => {
     const connectionFace = buildConnectionFace(ctx)
+    const remoteSettings = (ctx as unknown as {
+      remote?: { settings?: { describe?: () => Promise<unknown> } }
+    }).remote?.settings
+    const loopbackDescribe = remoteSettings?.describe?.bind(remoteSettings) ?? null
     return ctx.slots.register({
       name: 'settings.section',
       id: 'kimi-tide-router',
@@ -158,7 +182,9 @@ export function apply(ctx: Context): void {
           ?.bind({ namespace: 'kimi-tide-router' }) ?? null,
         connection: connectionFace,
         fetchEfforts: () =>
-          fetchEffortsViaDescribe(connectionFace as Parameters<typeof fetchEffortsViaDescribe>[0]).catch(() => ({})),
+          loopbackDescribe !== undefined
+            ? fetchCatalogMetaViaRemoteDescribe(loopbackDescribe)
+            : fetchEffortsViaDescribe(connectionFace as Parameters<typeof fetchEffortsViaDescribe>[0]).catch(() => ({})),
         // 0.8.x④：绑 catalog 命名空间 scope 作变更信号（官方 document-updated
         // 推送缝）——宿主 adapters 刷新重写档位表时卡片重取 efforts。
         catalogScope: ((ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
