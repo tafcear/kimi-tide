@@ -1029,11 +1029,11 @@ git push
 - [x] **A5** 「试一句」输入「帮我评审一下这个方案」→ outcome 显示「轮末触发评审流 review」（routed=默认）
 - [x] **A6** 评审卡 Host/Client 双端目检（投影帧 + 会话流卡片渲染；dock 流事件行 `review:review ok · k3`）
 - [x] **A7** `/kimi-tide review` 手动触发 → 评审卡上屏；无缓存会话报「无可评审的上一轮」
-- [ ] **A8** 盲区可见性：配置「组认领 + 评审模型不可用」→ 试一句仍显示 review-flow 并标注「评审模型不可用」 ⚠️ **缺陷已修（`7f42d0f`），实机标注复测被宿主平台回归阻塞（见验收记录）**
+- [x] **A8** 盲区可见性：配置「组认领 + 评审模型不可用」→ 试一句仍显示 review-flow 并标注「评审模型不可用」 ✅ **2026-09-05 实机全绿（修复 `7f42d0f`+`f8d236e`+`e99de4a` 后续）**
 
 ## 验收记录（实机验收后回填）
 
-- **执行时间**：2026-09-04 23:13–23:55（DSH 会话 `2026-09-04-175700`；dsh web 22:53 重启，插件运行码 = `9051b1b` 构建 lib/ 17:21，A6 修复在线）
+- **执行时间**：2026-09-04 23:13–23:55（DSH 会话 `2026-09-04-175700`；dsh web 22:53 重启，插件运行码 = `9051b1b` 构建 lib/ 17:21，A6 修复在线）；A8 修复+复测 2026-09-05 13:0x–15:1x（`7f42d0f`/`f8d236e` 推送，dsh web 15:00 重启装载最终构建）
 - **逐项结果**：
   - **A1 ✅** 探针入站后 dock 芯片 = 省钱 → glm-5.3-flash（预设默认），决策弹窗无 review 组命中；加强对照：「请审查这段代码并给出意见」review 2 词命中仍被抑制、code 1 词胜出——认领组完全不参与路由
   - **A2 ✅** 轮停即触发（`at=23:32:33` 与轮末同刻），k3 评审耗时 28.8s，卡头「评审 · k3」徽标 + 问题清单/改进建议/结论结构（截图 + DOM 双证）
@@ -1042,13 +1042,15 @@ git push
   - **A5 ✅** 试一句「帮我评审一下这个方案」→「未命中任何规则；最终路由：本轮路由到 预设默认 + 轮末触发评审流 review」——认领抑制在预演中同步生效
   - **A6 ✅** Host 投影行 `kimi-tide/review` 记录 + dock 决策弹窗「最近流事件：review:review ok · k3」+ 会话流卡片渲染（深紫卡、markdown 正文），`9051b1b` 修复实测通过
   - **A7 ✅** 有缓存会话：命令响应「评审已发起」→ 新评审卡上屏（对上一轮的新评审）；全新会话两次命令均返回「kimi-tide: 无可评审的上一轮」（会话日志解码实锤，服务端评审缓存会话级隔离）
-  - **A8 ❌→⚠️** reviewer 指向 `ghost-provider/no-such-model`：试一句仍显示 review-flow 但无「评审模型不可用」标注 → **缺陷已修（`7f42d0f`）**：tester reviewer 判定接入路由器真实挂载表（`kimi-tide-catalog.mounted`，与 decide 侧武装判定同源同语义）；555/555 绿 + typecheck 0。**实机标注复测暂被宿主平台回归阻塞**（见下）
+  - **A8 ✅（2026-09-05 15:0x 实机全绿）** ghost reviewer（热加载确认）+ 组认领 → 试一句「**评审流已认领但评审模型不可用**」标注上屏（截图 + DOM 双证）；还原 reviewer k3 → 恢复「轮末触发评审流 review」普通 label——标注条件性与可用性联动正确
 - **缺陷与修复**：
   - A6 评审卡注册晚到 → `9051b1b`（uiConversation 缺席改 ctx.inject 延迟驱动 + 5 测试用例），本次实机验证通过
-  - **A8 缺陷修复 `7f42d0f`（`kimi-tide-catalog.mounted` 真相源 + reviewer 判定对齐 decide）已推 main**；实机标注复测被宿主平台回归阻塞（见下），复测通过前不满足全绿门禁
+  - **A8 缺陷（两层根因，均已修复）**：
+    - ① tester reviewer 判定缺真实挂载表真相源 → `7f42d0f`：`kimi-tide-catalog` 命名空间新增 `mounted` 键（`buildMountedModels`，decide 侧同源），reviewer 判定对齐 decide（`remote.settings` loopback + inject 逐级声明）；555/555 绿
+    - ② 实机复测发现宿主 `0.1.2-rc.1` 摘除 connection `api.*` 便利面（describe/llm.models/mutate 全打 undefined，B5 efforts 功能同证失效）→ `f8d236e`：connection 面经 **loopback typed remote**（`ctx.remote.settings/llm`，inject 逐级声明 `remote.settings`/`remote.llm`）重接 + efforts/mounted 取数改零参 loopback describe（严格 arity 教训同款）；effort 下拉灰态降级为已知限制（llm 命名空间懒挂载）
   - **候选缺陷 F-A4b**：协作流页切换无关字段（触发方式 keywords→manual→keywords）后 `settings.yaml` 的 `autoRevise: true` 被静默写为 `false`，而页内复选框仍显示 on——设置回写疑似丢字段，待复现修复；验收后已手工还原 `true`
-- **宿主平台回归（2026-09-05 01:2x 实测，非 1.1.0 引入）**：dsh 宿主 09-03 21:15 升级 `0.1.2-rc.1` 后，设置卡片经 api-remotes 连接的 `settings.describe` 取数失效——efforts 档位表 / catalog / availability（及 1.1.0 新增 mounted）在客户端全部为 null。实证：全部档位下拉呈「禁用 + 跟随默认 + 存储值回退」形态（含 B5 时代即存在的 kimi-coding/k3 条目）。**B5 时代的 effort 档位下拉功能同证失效**。影响面：试一句盲区标注（A8）、目标灰态判定降级。处置建议：向宿主上游排查 0.1.2-rc.1 的 settings describe RPC；或在 kimi-tide 侧改用面板投影通道交付 mounted（需一轮设计）
+- **宿主平台回归（2026-09-05 01:2x 发现，`f8d236e` 已绕开）**：dsh 宿主 09-03 21:15 升级 `0.1.2-rc.1` 后，插件设置卡经 api-remotes connection 的 `api.settings.describe` / `api.llm.models` 便利面被移除（connection 只剩低层 rpc/generation）。kimi-tide 已改走 loopback typed remote；effort 下拉的灰态/选项在 llm 命名空间懒挂载完成前仍可能降级（已知限制，不阻塞门禁）。上游 face 摘除是否有意，建议随发版后跟进确认
 - **观察项（非阻塞）**：新建会话的 `kimi-tide/review` 投影行出现其他会话的评审记录展示态（服务端评审缓存本身会话级隔离，A7 已证）；发版前核实该展示面口径
 - **环境注**：验收中 bsk 守护进程自动升级 0.1.11→0.2.0 致一次 browser_session start 被中止（瞬时，重试通过）；browser-skill-dsh-plugin 0.1.2→0.2.0（可访问性输出噪音消失）
-- **技术门禁**：555/555 测试绿 + typecheck 0 错（`7f42d0f` 工作树，2026-09-05 01:05）
-- **用户裁定**：待定——宿主平台回归解除并复测 A8 全绿后 tag v1.1.0；或裁定豁免发版
+- **技术门禁**：555/555 测试绿 + typecheck 0 错（`f8d236e` 后探针移除工作树，2026-09-05 15:1x）；实机 A1–A8 全绿
+- **用户裁定**：方案 1 已授权（2026-09-05）——A8 全绿后 tag v1.1.0 发版
