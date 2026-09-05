@@ -2,7 +2,7 @@
 
 DeepSeek Harness（DSH）的「每一步自动选模型」插件：命名预设 + 有序规则 + 协作流——贴图自动走能看图的模型，代码自动走编码模型，闲聊翻译自动走便宜模型；没有规则命中时走预设默认模型（打底）。带图像护栏、图像转述流、多 plan 配额显示，每次选了谁、为什么，面板上看得见。
 
-> **当前状态**：v1.0.0 已发布（[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.0.0)），497/497 测试绿。版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)；项目介绍与快速开始见[根 README](../../README.md)。匹配语义（词边界/特异度排序/最少命中词数）、effort 推理档位与路由配置全字段，见 [docs/router.md](docs/router.md)。
+> **当前状态**：v1.1.0 已发布（[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.1.0)），555/555 测试绿。新增：评审流（认领组静态抑制 + 轮末异步评审 + 评审事件卡 + `/kimi-tide review` 手动命令）。版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)；项目介绍与快速开始见[根 README](../../README.md)。匹配语义（词边界/特异度排序/最少命中词数）、effort 推理档位与路由配置全字段，见 [docs/router.md](docs/router.md)。
 
 0.4.x 起插件**零接入层代码**——Kimi 模型经官方 pi-ai 原生 `kimi-coding` 路由（设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层（约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、协作编排、观测**。
 
