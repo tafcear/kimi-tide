@@ -11,11 +11,47 @@ import type { Context } from '@deepseek-ai/cordis'
 import { TideDock, tideDockBridge } from './TideDock.js'
 import { SettingsCard } from './SettingsCard.js'
 import { fetchEffortsViaDescribe } from './effort-remote.js'
+import type { ConnectionLike } from './card-store.js'
 import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
 import { REVIEW_NODE_KIND, ReviewCard, reviewNodeDefinition } from './ReviewCard.js'
 
 export const inject = ['slots', 'remote', 'remote.commands']
+
+/**
+ * 1.1.0 A8 复测发现（2026-09-05）：dsh 0.1.2-rc.1 起 connection 把 `api.*`
+ * 便利面整个摘除（只剩低层 rpc/generation）——`connection.api.settings.describe`
+ * 与 `connection.api.llm.models` 全部打在 undefined 上（前者被 fetchEfforts 的
+ * catch 静默吞掉 = efforts/mounted/catalog/availability 全 null、试一句盲区标注
+ * 失效；后者即控制台 `reading 'llm'` TypeError）。rc.1 正道 = 插件 ctx 上的
+ * loopback typed remote（api-remotes 挂载；本插件 inject 已声明 remote，先例
+ * = 下方 ctx.remote.commands）。此面把 describe / llm.models / mutate 重接到
+ * loopback；loopback 缺席（旧宿主）回退 ctx.get('connection')，行为不变。
+ */
+function buildConnectionFace(ctx: Context): ConnectionLike | null {
+  type LoopbackRemote = {
+    settings?: {
+      describe?: (request: Record<string, never>) => Promise<unknown>
+      mutate?: (request: { ns: string; ops: unknown[]; expectedRevision?: number }) => Promise<unknown>
+    }
+    llm?: { models?: (request: Record<string, never>) => Promise<unknown> }
+  }
+  const legacy = (ctx.get('connection') as ConnectionLike | undefined) ?? null
+  const remote = (ctx as unknown as { remote?: LoopbackRemote }).remote
+  const describe = remote?.settings?.describe
+  const mutate = remote?.settings?.mutate
+  const models = remote?.llm?.models
+  if (describe === undefined || mutate === undefined || models === undefined) return legacy
+  return {
+    api: {
+      settings: {
+        describe: async (request) => ({ result: (await describe(request)) as never }),
+        mutate: async (request) => ({ result: (await mutate(request)) as never }),
+      },
+      llm: { models: async (request) => ({ result: (await models(request)) as never }) },
+    },
+  }
+}
 
 /** Minimal structural face of the browser locale service (dsh-client-locale). */
 interface LocaleFace {
@@ -108,28 +144,28 @@ export function apply(ctx: Context): void {
 
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
   // inject 内惰性执行（挂载到卡片时才绑定，不因宿主缺服务而阻塞本插件激活）。
-  // 候选「不可用」灰态：settings.section 是 root 作用域 slot，拿不到 session
-  // 级 'kimi-tide/panel' 投影，故由 card-store 经 connection.api.llm.models
-  // （宿主模型目录，session 无关，设置页 Models 官方先例同通道）拉取可用性
-  // （验收⑥修复）；无 connection 通道时降级为无灰态。
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'kimi-tide-router',
-    order: 100,
-    label: navLabel,
-    inject: () => ({
-      scope: (ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
-        ?.bind({ namespace: 'kimi-tide-router' }) ?? null,
-      connection: (ctx.get('connection') as unknown) ?? null,
-      fetchEfforts: () => fetchEffortsViaDescribe(
-        (ctx.get('connection') as Parameters<typeof fetchEffortsViaDescribe>[0]) ?? null,
-      ).catch(() => ({})),
-      // 0.8.x④：绑 catalog 命名空间 scope 作变更信号（官方 document-updated
-      // 推送缝）——宿主 adapters 刷新重写档位表时卡片重取 efforts。
-      catalogScope: ((ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
-        ?.bind({ namespace: 'kimi-tide-catalog' }) ?? null) as { subscribe(listener: () => void): () => void } | null,
-    }),
-  }, SettingsCard))
+  // connection 面 = buildConnectionFace（rc.1 loopback 重接，见函数头注）；
+  // 无 loopback 且无 connection 时降级为无灰态。
+  ctx.slots.inject('settings.section', () => {
+    const connectionFace = buildConnectionFace(ctx)
+    return ctx.slots.register({
+      name: 'settings.section',
+      id: 'kimi-tide-router',
+      order: 100,
+      label: navLabel,
+      inject: () => ({
+        scope: (ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
+          ?.bind({ namespace: 'kimi-tide-router' }) ?? null,
+        connection: connectionFace,
+        fetchEfforts: () =>
+          fetchEffortsViaDescribe(connectionFace as Parameters<typeof fetchEffortsViaDescribe>[0]).catch(() => ({})),
+        // 0.8.x④：绑 catalog 命名空间 scope 作变更信号（官方 document-updated
+        // 推送缝）——宿主 adapters 刷新重写档位表时卡片重取 efforts。
+        catalogScope: ((ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
+          ?.bind({ namespace: 'kimi-tide-catalog' }) ?? null) as { subscribe(listener: () => void): () => void } | null,
+      }),
+    }, SettingsCard)
+  })
 
   // Plugin-scoped styles; the slot/loader lifecycle removes them on unload.
   const style = document.createElement('style')
