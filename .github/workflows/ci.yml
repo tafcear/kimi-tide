@@ -31,10 +31,11 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: packages/dsh-kimi-tide/package-lock.json
-      - name: Docs consistency (changelog/README/package version + doc links)
+      - name: Docs consistency (changelog/README/package version + doc links + README pair)
         run: |
           node scripts/check-changelog.mjs
           node scripts/check-doc-links.mjs
+          node scripts/check-readme-sync.mjs
       - run: npm ci
         working-directory: packages/dsh-kimi-tide
       - name: Typecheck

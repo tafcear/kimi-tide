@@ -44,12 +44,11 @@ jobs:
       - name: Pack
         working-directory: packages/dsh-kimi-tide
         run: npm pack
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Export annotated tag notes
+        shell: bash
         working-directory: packages/dsh-kimi-tide
         run: |
-          # 更新说明 = 附注 tag 消息（发版约定 = git tag -a，消息写更新要点；
+          # 更新说明 = 附注 tag 消息（发版约定 = git tag -a，消息写四段式正文；
           # 2026-08-23 前为固定模板句——Release 页长期只有「构建/测试通过」
           # 一行的根因）。v1.0.0 发版实测三坑存档：
           # ① 新版 gh 禁止 --notes-from-tag 与 --repo 组合——不要带 --repo；
@@ -62,6 +61,20 @@ jobs:
           #（不依赖 gh 对本地 tag 状态的任何假设）。
           git fetch origin tag "$GITHUB_REF_NAME" --force
           git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > release-notes.md
+      - name: Release notes bilingual four-section gate
+        shell: bash
+        working-directory: packages/dsh-kimi-tide
+        run: |
+          # Release 正文「双语 × 四段式」门禁（规则：docs/agents/release-notes.md）：
+          # 中文整块 + English 整块，各自 ① 一句话定位 ② 本次更新/What's new
+          # ③ 安装与升级/Install & upgrade ④ 验证与验收/Verification & acceptance
+          # ——不合规就停在 gh release create 之前，避免发布一个说明不全的版本页。
+          node ../../scripts/check-release-notes.mjs --file release-notes.md --version "${GITHUB_REF_NAME#v}"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: packages/dsh-kimi-tide
+        run: |
           # 额外产出稳定名资产（dsh-kimi-tide.tgz）：awesome-dsh-plugin 收录
           # 条目的 tarball 字段指向 releases/latest/download/ 稳定名链接，
           # 版本号文件名会在下个发布后 404。

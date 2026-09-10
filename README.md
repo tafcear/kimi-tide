@@ -206,6 +206,10 @@ npm run build       # tsc 宿主 + esbuild 浏览器
 
 质量基线：全量测试绿 + typecheck 0 错误 + build 通过方可提交。本仓库实践「实施 → 独立审查 → 修复 → 复检验收」双模型协作闭环（见 [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)）。
 
+**文档门禁**：`npm run check` 跑三条机器门禁——CHANGELOG / README / package 版本三方一致、全库文档链接不断、两个 README 双语对一致（版本行 / 章节骨架 / 徽章 / 本地文档链接集合四项，规则见 [`docs/agents/readme-pair.md`](docs/agents/readme-pair.md)）——任何用户可见改动，中英两份 README 必须同一次提交里一起改。
+
+**Release 双语四段式**：每个新版本的 Release 正文（= 附注 tag 消息）必须是**双语**——中文整块在上、English 整块在下，每种语言内部四段：① 一句话定位 ② `本次更新` / `What's new` ③ `安装与升级` / `Install & upgrade` ④ `验证与验收` / `Verification & acceptance`。打 tag 前用 `node scripts/check-release-notes.mjs --file <正文草稿>` 自检，Actions 在 `gh release create` 前再拦一次（模板与细则见 [`docs/agents/release-notes.md`](docs/agents/release-notes.md)）。
+
 **发布门禁**：任何版本发版（打 tag / 触发 Actions Release）前，必须在真实宿主上跑通该版本的实机验收清单并全绿，且由维护者裁定 tag——「单元测试绿」不等于「宿主里能跑」。各版本验收记录见 [docs/release-evidence.md](docs/release-evidence.md)。
 
 > **发布规范（维护者）**：DSH 插件必须声明 `dsh.bundle.patch`（指向 `cordis.patch.yml`）才能作为 profile 层加载。本插件已按官方规范声明，升级版本时请勿移除该字段。

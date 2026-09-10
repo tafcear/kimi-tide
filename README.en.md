@@ -205,6 +205,10 @@ npm run build       # tsc host build + esbuild browser bundle
 
 Quality bar: full test suite green + zero typecheck errors + successful build before committing. This repository practices an "implement → independent review → fix → re-check" dual-model loop (see [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)).
 
+**Doc gates**: `npm run check` runs three machine gates — CHANGELOG / README / package version consistency, no broken doc links, and README pair parity (version line / section skeleton / badges / local doc-link set; rules: [`docs/agents/readme-pair.md`](docs/agents/readme-pair.md)). Any user-visible change must update both READMEs (Chinese and English) in the same commit.
+
+**Bilingual four-section release page**: every new version's Release body (= the annotated tag message) must be **bilingual** — a 简体中文 block first, an English block below — with four sections inside each language: ① one-line positioning ② `本次更新` / `What's new` ③ `安装与升级` / `Install & upgrade` ④ `验证与验收` / `Verification & acceptance`. Self-check with `node scripts/check-release-notes.mjs --file <draft>` before tagging; Actions enforces it again before `gh release create` (template and rules: [`docs/agents/release-notes.md`](docs/agents/release-notes.md)).
+
 **Release gate**: before any release (tagging / triggering the Actions release), that version's live-acceptance checklist must pass in full on the real host, and the maintainer approves the tag — "unit tests green" is not "runs in the host". Per-version acceptance records: [docs/release-evidence.md](docs/release-evidence.md).
 
 > **Release rule (maintainers)**: a DSH plugin must declare `dsh.bundle.patch` (pointing at `cordis.patch.yml`) to load as a profile layer. This plugin follows the official spec — do not remove the field when bumping versions.
