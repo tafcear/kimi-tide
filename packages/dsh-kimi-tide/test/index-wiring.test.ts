@@ -154,8 +154,21 @@ describe('apply() settings namespace wiring (Task 4)', () => {
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-  const lastSnapshot = (agent: FakeAgent): Record<string, unknown> =>
-    agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+  /**
+   * v1.2.0 会话事件解耦：面板快照不再经
+   * `agent.session.append('kimi-tide/panel', …)` 落会话日志，改由
+   * `/kimi-tide panel --json` 命令通道按需供给（dock 拉模型取数）。
+   * 断言语义不变——读的仍是同一份 `KimiTidePanelProjection`，只是换了出口。
+   */
+  const lastSnapshot = async (
+    getCommand: () => { handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined,
+    agent: FakeAgent,
+  ): Promise<Record<string, unknown>> => {
+    const command = getCommand()
+    expect(command).toBeDefined()
+    const result = await command!.handler({ rawInput: 'panel --json', agent }) as { kind: string; text: string }
+    return JSON.parse(result.text) as Record<string, unknown>
+  }
 
   it('registers the kimi-tide-router namespace and reports configSource "settings"', async () => {
     const settings = await bootSettings()
@@ -168,7 +181,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const descriptor = settings.describe().find((d) => d.ns === NS)
     expect(descriptor).toBeDefined()
     expect(getCommand()!.name).toBe('kimi-tide')
-    expect(lastSnapshot(agent).configSource).toBe('settings')
+    expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
     expect((descriptor!.value as RouterConfigV5).version).toBe(5)
   })
 
@@ -198,8 +211,8 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
     // applyConfig ran: panel refreshed and the capability router was mounted.
-    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
-    expect(lastSnapshot(agent).configSource).toBe('settings')
+    expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
+    expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
     expect((listeners.get('agent/pre-step') ?? []).length).toBeGreaterThan(0)
     // One save = one candidate enumeration pass over the two providers.
     // A save reaches applyConfig twice (the command's onSaved and the
@@ -222,7 +235,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
     const resolved = settings.get(NS) as RouterConfigV4
     expect(resolved.activePreset).toBe('capability')   // second save wins
-    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
+    expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
   })
 
   /** T2 wiring: a legacy sidecar is imported into the namespace exactly once. */
@@ -231,7 +244,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
@@ -239,8 +252,8 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
     expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
-    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
-    expect(lastSnapshot(agent).configSource).toBe('settings')
+    expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
+    expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
   })
 
   it('migrates the sidecar even when the composition entry is a v1 router block', async () => {
@@ -248,7 +261,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, {
       patchFile,
@@ -268,15 +281,15 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(settings.doc[NS]).toBeDefined()
     expect(existsSync(sidecarFile)).toBe(false)
     expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
-    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'capability' })
-    expect(lastSnapshot(agent).configSource).toBe('settings')
+    expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
+    expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
   })
 
   it('keeps a user-edited namespace and leaves the sidecar in place (dirty skip)', async () => {
     writeFileSync(sidecarFile, YAML.stringify(v4cfg('saving')), 'utf8')
     const settings = await bootSettings({ [NS]: { activePreset: 'capability' } })
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
@@ -299,21 +312,21 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     )
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
 
     const resolved = settings.get(NS) as RouterConfigV4
     expect(resolved.activePreset).toBe('saving')   // mode cost → saving preset
-    expect(lastSnapshot(agent).configSource).toBe('settings')
-    expect(lastSnapshot(agent).router).toMatchObject({ activePreset: 'saving' })
+    expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
+    expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'saving' })
   })
 
   it('uses the built-in default presets when there is no composition seed', async () => {
     const settings = await bootSettings()
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
     const resolved = settings.get(NS) as RouterConfigV4
@@ -335,7 +348,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
     expect(existsSync(sidecarFile)).toBe(true)
     expect(settings.doc[NS]).toBeUndefined()
-    expect(lastSnapshot(agent).configSource).toBe('sidecar')
+    expect((await lastSnapshot(getCommand, agent)).configSource).toBe('sidecar')
   })
 
   it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v5，0.6.0 链）', async () => {
@@ -352,7 +365,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     }
     const settings = await bootSettings(seed)
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
@@ -372,7 +385,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
   it('无显式 version 的用户层不触发迁移（随 v5 base 解析，无替换写、无留档）', async () => {
     const settings = await bootSettings({ [NS]: { activePreset: 'saving' } })
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
     const resolved = settings.get(NS) as RouterConfigV5
@@ -388,7 +401,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     writeFileSync(docFile, '# 用户设置文档替身（内存 provider 的 documentPath）\n', 'utf8')
     const settings = await bootSettings({ [NS]: legacy }, docFile)
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent], settings)
+    const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
@@ -413,13 +426,13 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     v5.presets.saving.rules[0] = { id: 'image-transcribe', when: { kind: 'image' }, target: { flow: 'transcribe' } }
     const settings = await bootSettings({ [NS]: v5 })
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    const { ctx, listeners } = makeCtx([agent], settings)
+    const { ctx, listeners, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await tick()
     // 无图会话不写 imageContext 字段（三零计数 ≠ 缺席）
-    expect(lastSnapshot(agent)).not.toHaveProperty('imageContext')
-    expect(lastSnapshot(agent)).not.toHaveProperty('lastFlowEvent')
+    expect(await lastSnapshot(getCommand, agent)).not.toHaveProperty('imageContext')
+    expect(await lastSnapshot(getCommand, agent)).not.toHaveProperty('lastFlowEvent')
 
     // 候选枚举完成后路由器重挂（fake ctx 的 disposer 是空操作，旧监听器仍在
     // map 里）——取末位 = 持全量目录（含 vision-exp）的现行路由器。
@@ -436,7 +449,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
       () => Promise.resolve({ kind: 'enter' }),
     )
 
-    const snapshot = lastSnapshot(agent)
+    const snapshot = await lastSnapshot(getCommand, agent)
     // eager 转述成功：图标 transcribed，终决策落预设默认文本模型
     expect(snapshot.imageContext).toEqual({ native: 0, transcribed: 1, blind: 0 })
     expect(snapshot.lastFlowEvent).toContain('flow:transcribe')

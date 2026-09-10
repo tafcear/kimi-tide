@@ -157,7 +157,7 @@ const assistantEvent = (turn: number, t: string, interrupted = false) => ({
 })
 
 /** installRouter deps 夹具（真实 ImageStateStore/Transcriber，caller 恒成功）。 */
-function makeDeps() {
+function makeDeps(overrides: { reviewEventWritable?: boolean } = {}) {
   const images = new ImageStateStore()
   const transcriber = new Transcriber({ caller: async () => '转述文字' })
   const onReviewEvent = vi.fn()
@@ -170,6 +170,7 @@ function makeDeps() {
       onDecision: () => {},
       onReviewEvent,
       onManualReview,
+      ...overrides,
     },
     onReviewEvent,
     onManualReview,
@@ -228,8 +229,28 @@ describe('review 编排：armed→累计→turn-stopping（spec §5）', () => {
     expect(deps.onReviewEvent).toHaveBeenCalledWith(agentFixture.agent, expect.objectContaining({ ok: true }))
   })
 
-  it('2) 产出为空（无 assistant/message）→ 不发起评审（llm.stream 零调用）', async () => {
+  it('1b) 宿主目录未命中 → 评审事件拒写（fail closed）：不落日志、落 warn、评审正文仍交付', async () => {
+    // v1.2.0 会话事件解耦（2026-09-10）：09-10 的故障模式是「KNOWN_SESSION_
+    // EVENT_TYPES 注入没打中宿主模块实例，却照写不误」——写出一条宿主读不出来
+    // 的 required 事件，整个会话日志从此打不开。闸门：目录未命中即拒写，代价
+    // 降级为「少一条评审记录」，而不是「会话打不开」。
     const fx = makeHarness()
+    const agentFixture = makeAgent()
+    const { deps, onReviewEvent } = makeDeps({ reviewEventWritable: false })
+    installRouter(fx.ctx as never, new KimiRouter(v5Claimed(), metas(), { info: () => {} }), deps)
+
+    await armedTurn(fx, agentFixture, 7, '帮我评审一下这个方案', ['产出内容甲', '产出内容乙'])
+    fx.turnStopping(agentFixture.agent, 7)
+    await flush()
+
+    // 评审本体照常执行（模型调用发生），只是不落会话日志。
+    expect(fx.streamCalls).toHaveLength(1)
+    expect(agentFixture.append).not.toHaveBeenCalled()
+    // 评审正文仍经 onReviewEvent 交付（dock 行/面板取数不受影响）。
+    expect(onReviewEvent).toHaveBeenCalledWith(agentFixture.agent, expect.objectContaining({ ok: true }))
+    expect(fx.warns.some((w) => w.includes('不写入会话日志'))).toBe(true)  })
+
+  it('2) 产出为空（无 assistant/message）→ 不发起评审（llm.stream 零调用）', async () => {    const fx = makeHarness()
     const agentFixture = makeAgent()
     installRouter(fx.ctx as never, new KimiRouter(v5Claimed(), metas(), { info: () => {} }), makeDeps().deps)
 

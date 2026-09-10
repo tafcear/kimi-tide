@@ -68,6 +68,10 @@ describe('parseKimiTideCommand', () => {
   it('parses show', () => {
     expect(parseKimiTideCommand('show')).toEqual({ kind: 'show' })
   })
+  it('parses panel / panel --json（同一载荷，dock 取数通道）', () => {
+    expect(parseKimiTideCommand('panel')).toEqual({ kind: 'panel' })
+    expect(parseKimiTideCommand('panel --json')).toEqual({ kind: 'panel' })
+  })
   it('parses refresh and empty/help', () => {
     expect(parseKimiTideCommand('refresh')).toEqual({ kind: 'refresh' })
     expect(parseKimiTideCommand('')).toEqual({ kind: 'help' })
@@ -110,6 +114,37 @@ describe('applyKimiTideCommand', () => {
     const out = await applyKimiTideCommand(parseKimiTideCommand('preset ghost'), deps)
     expect(out).toContain('不存在')
     expect(saved).toHaveLength(0)
+  })
+
+  /**
+   * 1.2.0 会话事件解耦：面板数据不再写会话日志，改由本命令按需供给 dock。
+   * 契约 = 返回 `KimiTidePanelProjection` 的 JSON 文本；取数不可用（缺 agent /
+   * 未接线 / 快照空）一律抛错——命令层把它收敛成 error 结果，dock 据此回退，
+   * 绝不拿一份无主数据冒充某会话的面板。
+   */
+  it('/kimi-tide panel --json → 返回该 agent 的面板快照 JSON（可被 schema 解析）', async () => {
+    const snapshot = { router: { activePreset: 'saving' }, kimi: { route: true, key: true } }
+    const deps = { ...makeDeps(v4cfg('saving')), panel: () => snapshot }
+    const agent = { id: 'agent-1' }
+    const out = await applyKimiTideCommand(parseKimiTideCommand('panel --json'), deps, agent as never)
+    expect(JSON.parse(out)).toEqual(snapshot)
+  })
+
+  it('/kimi-tide panel → 缺 agent 时拒绝（不返回无主面板）', async () => {
+    const deps = { ...makeDeps(v4cfg('saving')), panel: () => ({ router: {} }) }
+    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps)).rejects.toThrow(/缺 agent|未接线/)
+  })
+
+  it('/kimi-tide panel → 未接线（旧宿主/单测直呼）时拒绝', async () => {
+    const deps = makeDeps(v4cfg('saving'))
+    const agent = { id: 'agent-1' }
+    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps, agent as never)).rejects.toThrow(/未接线/)
+  })
+
+  it('/kimi-tide panel → 快照为空时拒绝（路由关闭且无数据）', async () => {
+    const deps = { ...makeDeps(v4cfg('saving')), panel: () => null }
+    const agent = { id: 'agent-1' }
+    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps, agent as never)).rejects.toThrow(/快照不可用/)
   })
 
   it('/kimi-tide show → 输出当前预设/默认/规则数', async () => {

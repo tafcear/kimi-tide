@@ -94,3 +94,62 @@ describe('TideDock 命令反馈（0.6.x池#d：error-only 形态）', () => {
     expect(container.textContent).not.toContain('命令执行失败')
   })
 })
+
+/**
+ * v1.2.0 会话事件解耦：面板数据改由命令通道按需拉取（`fetchPanel`）。
+ * dock 的取数优先级 = 现算（fetchPanel）> 投影（历史会话）> 空。
+ */
+describe('TideDock 取数（1.2.0：拉模型优先于投影）', () => {
+  let container: HTMLDivElement
+  let root: Root | undefined
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    if (root !== undefined) {
+      await act(async () => { root!.unmount() })
+      root = undefined
+    }
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+    vi.restoreAllMocks()
+  })
+
+  const mountWith = async (props: Parameters<typeof TideDock>[0]): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(TideDock, props))
+    })
+  }
+
+  it('fetchPanel 现算优先：新会话（投影 null）也能渲染出面板', async () => {
+    const fetchPanel = vi.fn(async () => panel)
+    await mountWith({ sessionId: 's', useProjection: () => null, fetchPanel })
+    // Fails if: 仍以投影为唯一数据源——解耦后面板事件不再写日志，新会话恒空。
+    expect(container.textContent).toContain('省钱')
+    expect(container.textContent).toContain('k3')
+    expect(fetchPanel).toHaveBeenCalledWith('s')
+  })
+
+  it('fetchPanel 无数据（路由关闭/通道不可用）→ 回退投影（历史会话照常可读）', async () => {
+    const fetchPanel = vi.fn(async () => null)
+    await mountWith({ sessionId: 's', useProjection: () => panel, fetchPanel })
+    expect(container.textContent).toContain('省钱')
+  })
+
+  it('fetchPanel 抛错 → 静默回退投影（不把通道故障渲染成错误态）', async () => {
+    const fetchPanel = vi.fn(async () => { throw new Error('rpc down') })
+    await mountWith({ sessionId: 's', useProjection: () => panel, fetchPanel })
+    expect(container.textContent).toContain('省钱')
+    expect(container.textContent).not.toContain('rpc down')
+  })
+
+  it('两者都无数据 → 加载中占位（不崩）', async () => {
+    await mountWith({ sessionId: 's', useProjection: () => null, fetchPanel: async () => null })
+    expect(container.textContent).toContain('面板数据加载中')
+  })
+})

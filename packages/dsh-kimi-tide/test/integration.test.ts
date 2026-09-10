@@ -46,6 +46,7 @@ function v4cfg(activePreset: string | null): RouterConfigV4 {
 /** 与 index-apply.test.ts 相同的 fake ctx（llm 枚举面 stub，kimi-tide 多模态）。 */
 function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }> = []) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
+  let commandDef: { name: string; handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined
   return {
     ctx: {
       logger: { info: () => {}, warn: () => {}, error: () => {} },
@@ -64,7 +65,7 @@ function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }
           inputModalities: provider === 'kimi-coding' ? ['text', 'image'] : ['text'],
         }),
       },
-      commands: { register: () => () => {} },
+      commands: { register: (def: never) => { commandDef = def as never; return () => {} } },
       sessionProjections: { register: () => () => {} },
       setInterval: () => () => {},
       // 无 settings 服务的宿主：cordis 不会运行依赖缺失的 inject 回调，
@@ -83,7 +84,24 @@ function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }
       get: (name: string) => (name === 'agents' ? { list: () => agents } : undefined),
     },
     listeners,
+    getCommand: () => commandDef,
   }
+}
+
+/**
+ * v1.2.0 会话事件解耦：面板快照不再经
+ * `agent.session.append('kimi-tide/panel', …)` 落会话日志，改由
+ * `/kimi-tide panel --json` 命令通道按需供给（dock 拉模型取数）。
+ * 断言语义不变——读的仍是同一份 `KimiTidePanelProjection`，只是换了出口。
+ */
+async function readPanel(
+  getCommand: () => { handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined,
+  agent: unknown,
+): Promise<Record<string, unknown>> {
+  const command = getCommand()
+  expect(command).toBeDefined()
+  const result = await command!.handler({ rawInput: 'panel --json', agent }) as { kind: string; text: string }
+  return JSON.parse(result.text) as Record<string, unknown>
 }
 
 describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
@@ -223,7 +241,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     pre.save(v4cfg('capability'))
 
     const agent = { session: { append: vi.fn() } }
-    const { ctx, listeners } = makeCtx([agent])
+    const { ctx, listeners, getCommand } = makeCtx([agent])
     apply(ctx as never, {
       patchFile,
       sidecarFile,
@@ -231,14 +249,14 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     })
     await new Promise((resolve) => setTimeout(resolve, 20))
 
-    const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+    const snapshot = await readPanel(getCommand, agent)
     expect(snapshot.configSource).toBe('sidecar')
     expect(snapshot.router).toMatchObject({ activePreset: 'capability' })
 
     // 端到端判别：显式 @kimi 指令在已挂载的 router 上路由到 kimi-coding。
-    // payload.agent = 面板 roster 的同一实例（生产契约：agentEvents 注入的
-    // 就是会话本体；2026-08-23 评审修复后决策观测按 agent 隔离，匿名 agent
-    // 的决策不再串进本会话快照）。
+    // payload.agent = 取数传入的同一实例（生产契约：agentEvents 注入的就是会话
+    // 本体；2026-08-23 评审修复后决策观测按 agent 隔离，匿名 agent 的决策不再
+    // 串进本会话快照）。
     const listener = listeners.get('agent/pre-step')?.at(-1)
     expect(listener).toBeDefined()
     const payload = {
@@ -252,7 +270,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
       payload,
       () => Promise.resolve({ kind: 'enter' }),
     )
-    const decision = (agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>)
+    const decision = (await readPanel(getCommand, agent))
       .decision as { chosen: { provider: string; model: string } } | null
     expect(decision).not.toBeNull()
     expect(decision!.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
@@ -265,7 +283,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
       'utf8',
     )
     const agent = { session: { append: vi.fn() } }
-    const { ctx } = makeCtx([agent])
+    const { ctx, getCommand } = makeCtx([agent])
     apply(ctx as never, {
       patchFile,
       sidecarFile,
@@ -273,7 +291,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     })
     await new Promise((resolve) => setTimeout(resolve, 20))
 
-    const snapshot = agent.session.append.mock.calls.at(-1)?.[1] as Record<string, unknown>
+    const snapshot = await readPanel(getCommand, agent)
     expect(snapshot.configSource).toBe('patch')
     expect(snapshot.router).toMatchObject({ activePreset: 'saving' })   // mode cost → saving
   })

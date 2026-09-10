@@ -43,6 +43,7 @@ export type KimiTideCommand =
   | { kind: 'preset'; preset: string | null }
   | { kind: 'set'; key: string; value: unknown }
   | { kind: 'show' }
+  | { kind: 'panel' }
   | { kind: 'export-config' }
   | { kind: 'import-config'; path: string }
   | { kind: 'refresh' }
@@ -74,6 +75,12 @@ export interface KimiTideCommandDeps {
   manualReview?: (agent: Agent) => Promise<{ ok: boolean; message: string }>
   /** show 认领行数据：claimedReviewGroups 的实时结果（非空 → 输出追加一行）。 */
   claimedGroups?: Set<string>
+  /**
+   * 1.2.0 面板取数（dock 拉模型，spec：会话事件解耦）。返回该 agent 的实时面板
+   * 快照；undefined agent（调用处漏传）或未接线时返回 null——命令层据此报错，
+   * 绝不返回一份无主数据冒充某会话的面板。
+   */
+  panel?: (agent: Agent | undefined) => unknown | null
 }
 
 /** Keys settable via `/kimi-tide set` — paths into RouterConfigAny（v4/v5 共有的顶层键）。 */
@@ -103,6 +110,10 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
     }
     case 'show':
       return { kind: 'show' }
+    case 'panel':
+      // 1.2.0：dock 取数通道（会话事件解耦）。`panel` 与 `panel --json` 同义——
+      // 输出本体就是 JSON 载荷，没有人类可读变体（dock 是唯一消费者）。
+      return { kind: 'panel' }
     case 'export-config':
       return { kind: 'export-config' }
     case 'import-config': {
@@ -125,6 +136,7 @@ const HELP_TEXT = [
   '/kimi-tide preset <id|off> — switch active preset (off = 路由关闭)',
   '/kimi-tide show — print the current preset / default / rule count（v5 另输出 flows 注册表与每预设 imageFallback；有认领组时追加认领行）',
   '/kimi-tide set activePreset <id|off> — update the active preset',
+  '/kimi-tide panel [--json] — 打印本会话面板快照 JSON（dock 取数通道；会话事件解耦后不再写会话日志）',
   '/kimi-tide export-config — print the sidecar YAML',
   '/kimi-tide import-config <path|inline YAML> — load a YAML file OR inline YAML text (panel save channel)',
   '/kimi-tide refresh — re-poll code plan quotas (kimi/zai) now',
@@ -140,6 +152,21 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
     case 'refresh':
       await deps.monitor.refresh()
       return 'kimi-tide: quota refreshed'
+    case 'panel': {
+      // 1.2.0 面板取数：dock 经 remote.commands.execute 拉本会话快照。
+      // 无 agent（调用处漏传）或未接线 → 明确报错，让 dock 走降级态而不是把
+      // 一份无主面板渲染成某个会话的真实状态。
+      if (deps.panel === undefined || agent === undefined) {
+        throw new Error('面板取数通道不可用（panel 未接线或调用缺 agent）')
+      }
+      const snapshot = deps.panel(agent)
+      if (snapshot === null || snapshot === undefined) {
+        // 路由关闭：数据源已清空且无法从会话日志回放（解耦后不再写面板事件）。
+        // 仍返回「不可用」而非空面板——dock 据此保留上一帧，不清屏。
+        throw new Error('面板快照不可用（路由关闭或取数失败）')
+      }
+      return JSON.stringify(snapshot)
+    }
     case 'review': {
       // 1.1.0 §8：手动评审（spec §8）——armed 语义外唯一入口；命令幂等（连发两次
       // 各评审一次，用户显式行为不去重，runner 侧无缓存即返回「无可评审的上一轮」）。
@@ -365,13 +392,20 @@ export function registerKimiTideCommands(ctx: Context, deps: KimiTideCommandDeps
     return ctx.commands.register({
       name: 'kimi-tide',
       description: '月汐 panel: route preset / settings / config export-import / quota refresh / manual review',
-      input: { hint: 'preset <id|off> · set activePreset <id|off> · show · export-config · import-config <path|inline YAML> · refresh · review' },
+      input: { hint: 'preset <id|off> · set activePreset <id|off> · show · panel [--json] · export-config · import-config <path|inline YAML> · refresh · review' },
       handler: async (invocation: CommandInvocation): Promise<CommandResult> => {
         const cmd = parseKimiTideCommand(invocation.rawInput)
         // invocation.agent = 发起命令的接收 agent（dsh-commands 契约）；review 分支
-        // 据此评审该 agent 的 lastTurn。其余分支不消费 agent。
-        const text = await applyKimiTideCommand(cmd, deps, invocation.agent)
-        return cmd.kind === 'error' ? { kind: 'error', text } : { kind: 'success', text }
+        // 据此评审该 agent 的 lastTurn，panel 分支据此取该会话面板快照。其余分支
+        // 不消费 agent。
+        try {
+          const text = await applyKimiTideCommand(cmd, deps, invocation.agent)
+          return cmd.kind === 'error' ? { kind: 'error', text } : { kind: 'success', text }
+        } catch (error) {
+          // panel 分支以抛错表达「取数不可用」（缺 agent / 未接线 / 快照空）——
+          // 收敛成 error 结果回给调用方（dock 据此走降级），不让异常穿透命令运行时。
+          return { kind: 'error', text: `kimi-tide: ${(error as Error).message}` }
+        }
       },
     })
   })

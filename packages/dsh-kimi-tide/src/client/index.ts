@@ -2,13 +2,15 @@
  * Browser half of dsh-kimi-tide: registers the 月汐 dock panel into the
  * conversation composer dock band (read-only dashboard under the composer
  * card, beside the shipped stats line), and the 月汐 settings card into the
- * official settings panel (settings.section). Panel data rides the
- * 'kimi-tide/panel' session projection; dock actions go back through
- * ctx.remote.commands.execute(sessionId, '/kimi-tide …'), while settings-card
- * writes go through the settings namespace (scope.set / connection.api.settings.mutate).
+ * official settings panel (settings.section). 面板数据走 1.2.0 拉模型
+ * ——dock 经 `/kimi-tide panel --json`（ctx.remote.commands.execute）取本会话
+ * 快照，历史会话仍可经 `kimi-tide/panel` 会话投影读到（本插件自 1.2.0 起
+ * 不再写该事件）；dock 动作同样经 commands.execute；settings-card 写入走
+ * settings 命名空间（scope.set / connection.api.settings.mutate）。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { TideDock, tideDockBridge } from './TideDock.js'
+import { TideDock, tideDockBridge, tideDockPanelSource } from './TideDock.js'
+import type { KimiTidePanelProjection } from '../types.js'
 import { SettingsCard } from './SettingsCard.js'
 import { fetchCatalogMetaViaRemoteDescribe, fetchEffortsViaDescribe } from './effort-remote.js'
 import type { ConnectionLike } from './card-store.js'
@@ -101,6 +103,35 @@ export function apply(ctx: Context): void {
     commands.execute(sessionId, line).catch((cause: unknown) =>
       /expected 3 business argument/.test(String(cause)) ? commands.execute(sessionId, line, []) : Promise.reject(cause))
 
+  /**
+   * 面板取数（1.2.0 会话事件解耦）：dock 经 `/kimi-tide panel --json` 拉本会话
+   * 快照——面板不再写会话日志（全库 120,705 条 / 203.7 MB 的膨胀源），也就不再
+   * 依赖投影回放。命令回包是 `CommandResult` 的多种线形（`{result:{kind,text}}` /
+   * `{ok,result}` / 裸载荷），故按 text 字段尽力解析，取不到一律返回 null 让 dock
+   * 回退投影，绝不把异常表面化成错误提示。
+   */
+  tideDockPanelSource.fetch = async (sessionId: string) => {
+    let payload: unknown
+    try {
+      payload = await commands.execute(sessionId, '/kimi-tide panel --json')
+    } catch {
+      return null
+    }
+    const record = payload as { result?: unknown; text?: unknown; message?: unknown } | undefined
+    const inner = (record?.result ?? record) as { text?: unknown } | undefined
+    const text = typeof inner?.text === 'string'
+      ? inner.text
+      : typeof record?.text === 'string'
+        ? record.text
+        : typeof record?.message === 'string' ? record.message : ''
+    if (text === '' || !text.trimStart().startsWith('{')) return null
+    try {
+      return JSON.parse(text) as KimiTidePanelProjection
+    } catch {
+      return null
+    }
+  }
+
   // Settings-card nav label (spec §3.1): locale-bound `t('nav')` like the
   // official Models section, falling back to the hardcoded copy when the
   // locale service is absent (it is not in this plugin's inject, so its
@@ -120,6 +151,9 @@ export function apply(ctx: Context): void {
   // 自己的导航行，CSS 把宿主默认齿轮换成月汐紫月牙（先例：dsh-better-sidebar）。
   ctx.effect(() => registerSettingsNavIcon(navLabel))
 
+  // 面板取数经全局自注入面（tideDockPanelSource）而非 props：槽渲染器由宿主
+  // 传入 useProjection 等宿主 props，本插件自己的取数面走模块单例更省心，也让
+  // 测试可直接替换（TideDock.test 的 props 缝保留）。
   ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
     name: 'conversation.composer.dock',
     id: 'kimi-tide',

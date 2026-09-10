@@ -9,6 +9,13 @@
  * ——新字段可选，对存量读取端向后兼容。Pure unit functions + the
  * SessionProjectionMap merge that types both ends (host register / client
  * useProjection).
+ *
+ * **v1.2.0 会话事件解耦（2026-09-10）——本 unit 自此只读存量**：插件不再写
+ * `kimi-tide/panel` 事件（全库 120,705 条 / 203.7 MB / 占会话事件体积 27.9%，
+ * 且是 09-10 格式迁移整卷拒载的主因），面板数据改由 `/kimi-tide panel --json`
+ * 命令通道按需供给（dock 拉模型）。注册保留的理由：08-25 之前的历史会话日志
+ * 里仍有这些事件，投影不注册就再也折不出来（旧载荷容忍见下方
+ * `normalizePanelPayload`）。新会话该 key 恒为 null，dock 走命令通道。
  */
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -79,7 +86,49 @@ const panelSchema = z.object({
     blind: z.number().int().nonnegative(),
   }).optional(),
   lastFlowEvent: z.string().max(120).optional(),
-}).nullable()
+})
+
+/**
+ * 旧载荷容忍（2026-09-04 → 09-10 交接单，第一优先项）。
+ *
+ * 0.6.0 之前的面板载荷缺 `kimi`/`configSource`/`candidates`/`decision` 四个后加
+ * 字段，必填 schema 一抛错，宿主投影 fold 即整卷拒载（`failed to project
+ * session`）——09-10 全量统计 176 个会话（含 50 个顶层对话，均 08-25 之前）。
+ * 实测形状两种：pre-0.4 `{quota,local,router,reasoning,models}`；0.4–0.5 只缺
+ * `kimi`（`session-6ca2f899` 53 条、`session-c01dab3c` 616 条同形）。
+ *
+ * 为什么是 preprocess 而不是 `.optional()`（09-10 修法纠偏）：消费端读的是
+ * `panel.decision !== null`（`client/TideDock.tsx:232/237/261`），`.optional()`
+ * 让缺席成为 `undefined`，`undefined !== null` 为真 → 进分支后读
+ * `.chosen.provider` 直接崩。preprocess 在 parse 前补齐默认值，
+ * **输出形状与现行 schema 逐字相同**（客户端零改动，stateVersion 不必递升）。
+ *
+ * 只补 `undefined`（真缺席）；显式 null 或类型不符一律留给 schema 拒绝——
+ * 容忍旧载荷不等于纵容损坏载荷。旧版标记（`router.mode` 或
+ * `local`）缺席且四字段有缺 → 视为现代载荷半损坏，照旧抛错。
+ */
+function normalizePanelPayload(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  const legacyMarker = 'local' in record || (typeof record.router === 'object' && record.router !== null
+    && 'mode' in (record.router as Record<string, unknown>))
+  const missingModern = record.kimi === undefined || record.configSource === undefined
+    || record.candidates === undefined || record.decision === undefined
+  if (!legacyMarker || !missingModern) return value
+  return {
+    // 历史会话早于二态接入指示（0.4.x）：无记录即视为未接入，导出 dock 的
+    // 「未见接入」文案，不臆测当时是否真的接了。
+    kimi: { route: false, key: false },
+    // 早于配置来源可观测（0.4.x）：视同内置默认（SOURCE_LABELS.default='内置默认'）。
+    configSource: 'default',
+    candidates: [],
+    decision: null,
+    ...record,
+  }
+}
+
+/** parse 前补齐旧载荷默认值；输出形状与 {@link panelSchema} 一致。 */
+const panelPayloadSchema = z.preprocess(normalizePanelPayload, panelSchema.nullable())
 
 /** This unit's definition shape (rc.2 contract) — shared by the bridges and the export annotation. */
 type PanelProjectionDefinition = ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY, KimiTidePanelProjection | null>
@@ -87,9 +136,9 @@ type PanelProjectionDefinition = ProjectionDefinition<typeof KIMI_TIDE_PANEL_KEY
 // dsh-session-projection depends on zod v4 while this package uses zod v3;
 // the schema is structurally compatible at runtime (both validate plain JSON),
 // so we bridge the type gap through unknown.
-const bridgedStateSchema = panelSchema as unknown as PanelProjectionDefinition['stateSchema']
+const bridgedStateSchema = panelPayloadSchema as unknown as PanelProjectionDefinition['stateSchema']
 
-const bridgedViewSchema = panelSchema as unknown as
+const bridgedViewSchema = panelPayloadSchema as unknown as
   NonNullable<PanelProjectionDefinition['wire']>['viewSchema']
 
 // Annotated with the registry's wire-required shape (register overload 1:

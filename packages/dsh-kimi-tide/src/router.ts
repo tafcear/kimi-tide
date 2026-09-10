@@ -344,6 +344,15 @@ export interface RouterOrchestrationDeps {
   transcribeTimeoutMs?: number
   /** 1.1.0 §7：评审完成回调（dock 流事件行 + 面板刷新由 index.ts 实现）。 */
   onReviewEvent?: (agent: Agent, event: ReviewEventPayload) => void
+  /**
+   * v1.2.0 会话事件解耦（2026-09-10）：评审事件是否可安全写入会话日志。
+   * 宿主会话目录（KNOWN_SESSION_EVENT_TYPES）未命中时为 false → **拒绝写入**
+   * （fail closed）。理由：`Session.append` 写不了 `ignorable` 标记，宿主读路径
+   * 会整卷拒收它不认识的 required 事件——写一条谁都读不出的日志，比丢一条评审
+   * 记录糟得多（09-10 的故障模式正是「注入没打中却照写」）。评审正文仍在
+   * `onReviewEvent` 里交付，UI 不受影响。缺省 true（单测与旧宿主直通）。
+   */
+  reviewEventWritable?: boolean
   /** 1.1.0 §8：手动评审实现登记（install 传 fn / dispose 传 null）。 */
   onManualReview?: (fn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null) => void
 }
@@ -832,11 +841,18 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     const finishReview = (agent: Agent, req: ReviewRequest): void => {
       void runReview(req)
         .then((event) => {
-          try {
-            agent.session.append(KIMI_TIDE_REVIEW_EVENT, event)
-          } catch (error) {
-            // M4 兜底：目标 session 已销毁等 append 失败不向上抛，落 warn。
-            ctx.logger?.warn?.(`kimi-router: review append failed: ${(error as Error).message}`)
+          // v1.2.0：宿主目录未命中即拒写（fail closed，见 RouterOrchestrationDeps.
+          // reviewEventWritable）。拒写只丢「会话日志里的那条记录」，评审正文仍经
+          // onReviewEvent 交付给 dock；反过来写进去会让整个会话读不出来。
+          if (deps.reviewEventWritable === false) {
+            ctx.logger?.warn?.('kimi-router: 宿主会话目录不含评审事件类型——本次评审不写入会话日志（避免产出宿主读不出的日志）；评审结果仍经面板可见')
+          } else {
+            try {
+              agent.session.append(KIMI_TIDE_REVIEW_EVENT, event)
+            } catch (error) {
+              // M4 兜底：目标 session 已销毁等 append 失败不向上抛，落 warn。
+              ctx.logger?.warn?.(`kimi-router: review append failed: ${(error as Error).message}`)
+            }
           }
           // fix round 1 F4：评审本体已成功——onReviewEvent 观测回调抛错单独归因
           // 落 warn，不得炸进下方 catch 被「review failed」误归因。

@@ -22,10 +22,32 @@ import { Icon } from './icons.js'
 
 export interface TideDockProps {
   sessionId: string
-  useProjection: (key: 'kimi-tide/panel') => KimiTidePanelProjection | null | undefined
+  /**
+   * 旧通道（会话投影）：仍是历史会话的面板数据源，也仍是宿主缺命令通道时的
+   * 回退。v1.2.0 起本插件不再写 `kimi-tide/panel` 会话事件，新会话该投影恒为
+   * null——故它缺席（undefined）时不阻塞激活。
+   */
+  useProjection?: (key: 'kimi-tide/panel') => KimiTidePanelProjection | null | undefined
+  /**
+   * 1.2.0 取数面（dock 拉模型，会话事件解耦）：返回本会话面板快照；路由关闭 /
+   * 通道不可用时返回 null。取到即**优先于**投影（现算数据比日志回放新）。
+   */
+  fetchPanel?: (sessionId: string) => Promise<KimiTidePanelProjection | null>
   /** 测试缝/深链：初始即展开决策可观测面板（默认折叠，点「决策」开）。 */
   defaultExpanded?: boolean
 }
+
+/** client/index.ts apply() 注入的真实取数实现（走 remote commands 通道）。 */
+export const tideDockPanelSource: { fetch: (sessionId: string) => Promise<KimiTidePanelProjection | null> } = {
+  fetch: async () => null,
+}
+
+/**
+ * 面板取数节流（会话事件解耦后 dock 恒为拉模型）：面板数据是进程级的，配额
+ * 轮询 60s 一轮、路由决策按步发生——几秒的轮询延迟不可感知，而每次取数都要过
+ * 一次命令 RPC，故不追随每次渲染。
+ */
+const PANEL_POLL_MS = 8_000
 
 /** Wired in client/index.ts apply(): the dock component calls back into cordis ctx. */
 export interface TideDockBridge {
@@ -61,7 +83,8 @@ function fmtClock(ts: number): string {
 const POP_WIDTH = 430
 
 export function TideDock(props: TideDockProps) {
-  const panel = props.useProjection('kimi-tide/panel')
+  const projected = props.useProjection?.('kimi-tide/panel')
+  const [fetched, setFetched] = useState<KimiTidePanelProjection | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [expanded, setExpanded] = useState(props.defaultExpanded ?? false)
@@ -69,6 +92,31 @@ export function TideDock(props: TideDockProps) {
   const dockRef = useRef<HTMLDivElement | null>(null)
   const popRef = useRef<HTMLDivElement | null>(null)
   const toggleRef = useRef<HTMLButtonElement | null>(null)
+
+  // 面板数据面（v1.2.0）：优先命令通道现算（fetchPanel ?? 全局自注入面），
+  // 挂载即取一次 + 定时轻轮询；取不到（路由关闭 / 通道缺席）→ 投影回退。
+  // 旧宿主无命令通道时 fetched 恒为 null → 行为与解耦前一致。
+  // 失败/空结果保留上一帧（不清屏）：路由关闭时面板数据源为空，清屏会让
+  // 「关了路由」看起来像「面板坏了」。投影回退由 `??` 兜住首帧。
+  const refreshRef = useRef<() => Promise<void>>(async () => {})
+  const fetchPanel = props.fetchPanel ?? tideDockPanelSource.fetch
+  useEffect(() => {
+    let live = true
+    const pull = async () => {
+      try {
+        const next = await fetchPanel(props.sessionId)
+        if (live && next !== null) setFetched(next)
+      } catch {
+        // 通道失败 = 无命令数据：保持已有帧，绝不把故障渲染成错误态。
+      }
+    }
+    refreshRef.current = pull
+    void pull()
+    const timer = setInterval(() => { void pull() }, PANEL_POLL_MS)
+    return () => { live = false; clearInterval(timer) }
+  }, [fetchPanel, props.sessionId])
+
+  const panel = fetched ?? projected ?? null
 
   const run = async (line: string) => {
     setBusy(true)
@@ -90,6 +138,8 @@ export function TideDock(props: TideDockProps) {
       setNotice(`命令执行失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setBusy(false)
+      // 动作已改变路由/配额：立刻重取，不干等下一轮轮询。
+      void refreshRef.current()
     }
   }
 

@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path'
 import { REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { claimedReviewGroups } from './rules.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
-import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
+import { KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
   extractResolvedImages,
@@ -236,25 +236,34 @@ function fallbackCandidateMetas(config: RouterConfigAny): CandidateMeta[] {
 }
 
 /**
- * Register the panel + review event types on the INSTALLATION's
- * KNOWN_SESSION_EVENT_TYPES Set. The strict session-log reader
- * (dsh-session-persistence) refuses event types outside the catalog unless
- * the envelope marks them ignorable, and `Session.append` cannot set that
- * marker — extending the catalog is the only door for a custom projection
- * event. The catalog is a live mutable Set on the dsh-session module instance
- * the harness itself uses; a `link:`-installed plugin's bare import resolves
- * its workspace node_modules copy instead (a different Set), so we anchor a
- * require in the flat profile module fallback (`$DSH_HOME/profiles/
- * node_modules` — one junction per package in the dsh app's dependency
- * closure, maintained by `healProfilesModuleFallback`). Resolution from there
- * lands on the SAME real module the harness checks, so the mutation makes
- * stored `kimi-tide/panel` / `kimi-tide/review` events readable again after a
- * restart. Falls back to the directly imported copy when no installation
- * fallback exists (e.g. unit tests).
+ * Register `kimi-tide/review` on the INSTALLATION's KNOWN_SESSION_EVENT_TYPES
+ * Set — the only door for a custom event type, because the strict session-log
+ * reader (dsh-session-persistence `validateStoredEvents`) refuses types outside
+ * that catalog unless the envelope carries `ignorable: true`, and
+ * `Session.append` cannot set that marker (it forwards only `surfaceOp` /
+ * `sourceEventSeqs`). The catalog is a live mutable Set on the dsh-session
+ * module instance the harness itself uses; a `link:`-installed plugin's bare
+ * import resolves its workspace node_modules copy instead (a different Set), so
+ * we anchor a require in the flat profile module fallback (`$DSH_HOME/profiles/
+ * node_modules`). Resolution from there lands on the SAME real module the
+ * harness checks, so the mutation makes stored `kimi-tide/review` events
+ * readable after a restart. Falls back to the directly imported copy when no
+ * installation fallback exists (e.g. unit tests).
+ *
+ * 2026-09-10（v1.2.0 会话事件解耦）：本函数**只再管评审事件**。面板事件
+ * （`kimi-tide/panel`）已停止写入——全库 120,705 条 / 203.7 MB（占全部会话事件
+ * 体积 27.9%），是 09-10 格式迁移整卷拒载的主因；面板数据改由
+ * `/kimi-tide panel --json` 命令通道按需供给（dock 拉模型取数），不再进会话
+ * 日志。评审事件保留：12 条 / 9 天、承载评审正文，且是评审卡唯一的锚点
+ * 载体（chat 节点必须匹配会话事件）。
+ *
  * @returns true when the host (installation) catalog was reached; false when
- * only the locally resolved copy was mutated.
+ * only the locally resolved copy was mutated — the caller MUST then refuse to
+ * write review events (a log this harness cannot read is worse than a dropped
+ * record; that refusal is the fix for the 09-10 failure mode, where an
+ * unreachable catalog was written to anyway).
  */
-function registerPanelEventType(): boolean {
+function registerReviewEventType(): boolean {
   let known = KNOWN_SESSION_EVENT_TYPES_DIRECT as Set<string>
   let hostReached = false
   try {
@@ -269,7 +278,6 @@ function registerPanelEventType(): boolean {
     // No dsh installation fallback in this environment (e.g. unit tests):
     // mutating the directly imported copy is the best effort available.
   }
-  known.add(KIMI_TIDE_PANEL_EVENT)
   known.add(KIMI_TIDE_REVIEW_EVENT)
   return hostReached
 }
@@ -287,11 +295,14 @@ export function apply(ctx: Context, config: Config = {}) {
 
   // The strict persistence reader refuses logs with unknown event types.
   // The catalog Set lives on the INSTALLATION's dsh-session module instance;
-  // register the panel + review types there (see registerPanelEventType).
-  if (registerPanelEventType()) {
-    ctx.logger.info('dsh-kimi-tide: panel/review event types registered on the installation session catalog')
+  // register the review type there (see registerReviewEventType). Does NOT
+  // reach the catalog → review events are NOT written at all (fail closed):
+  // refusing is strictly better than appending a log this harness cannot read.
+  let reviewEventWritable = registerReviewEventType()
+  if (reviewEventWritable) {
+    ctx.logger.info('dsh-kimi-tide: 评审事件类型已注册到宿主会话目录（面板数据走命令通道，不再写会话事件）')
   } else {
-    ctx.logger.warn('dsh-kimi-tide: panel/review event types registered on a local dsh-session copy; stored kimi-tide/panel and kimi-tide/review events may refuse to load')
+    ctx.logger.warn('dsh-kimi-tide: 宿主会话目录不可达——评审事件将不写入会话日志（拒绝产出宿主读不出的日志）；面板不受影响（命令通道）')
   }
 
   // 0.4.x：零接入层——Kimi 模型经 settings.yaml 的 llm-pi-ai.providers.kimi-coding
@@ -333,10 +344,8 @@ export function apply(ctx: Context, config: Config = {}) {
     } catch { /* llm 不可用：保持 false */ }
     let key = false
     try { key = (await resolveKey()) !== null } catch { /* 同上 */ }
-    if (route !== kimiStatus.route || key !== kimiStatus.key) {
-      kimiStatus = { route, key }
-      pushPanelToAllSessions()
-    }
+    // v1.2.0：二态变化无需推送——面板由命令通道按需现算（见 rememberPanel）。
+    if (route !== kimiStatus.route || key !== kimiStatus.key) kimiStatus = { route, key }
   }
   void refreshKimiStatus()
 
@@ -344,7 +353,6 @@ export function apply(ctx: Context, config: Config = {}) {
   const monitor = new UsageMonitor({
     pollMs: config.usagePollMs ?? 60_000,
     onUpdate: () => {
-      pushPanelToAllSessions()
       void refreshKimiStatus()
     },
     resolveKey,
@@ -352,9 +360,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // 多 plan 第二源：zai-coding-cn（GLM Coding Plan，api.z.ai 内部用量接口）。
   const zaiMonitor = new UsageMonitor({
     pollMs: config.usagePollMs ?? 60_000,
-    onUpdate: () => {
-      pushPanelToAllSessions()
-    },
+    onUpdate: () => { /* 配额快照由面板取数现读，无推送 */ },
     resolveKey: resolveZaiKey,
     url: ZAI_QUOTA_URL,
     parse: parseZaiQuota,
@@ -427,7 +433,6 @@ export function apply(ctx: Context, config: Config = {}) {
         mountedModels = buildMountedModels(metas)
         syncCatalogNamespace?.()
         mountRouter()
-        pushPanelToAllSessions()
       })
       .catch((error) => warn(`dsh-kimi-tide: candidate enumeration failed: ${(error as Error).message}`))
   }
@@ -459,10 +464,11 @@ export function apply(ctx: Context, config: Config = {}) {
         onDecision,
         onReviewEvent: (agent, event) => {
           // spec §7 dock 行：评审执行完成记一条流事件（lastFlowEvent 同款通道，
-          // ≤120 截断与 onDecision 惯例一致）。
+          // ≤120 截断与 onDecision 惯例一致）。v1.2.0：仅存内存，面板按需现读。
           latestFlowEvents.set(agent, `review:${event.flowId} ${event.ok ? 'ok' : '失败'} · ${event.reviewer.model}`.slice(0, 120))
-          pushPanel(agent)
         },
+        // v1.2.0 闸：宿主目录未命中 → 拒绝写评审事件（见 registerReviewEventType）。
+        reviewEventWritable,
         onManualReview: (fn) => { manualReviewFn = fn },
       })
     }
@@ -487,7 +493,6 @@ export function apply(ctx: Context, config: Config = {}) {
       const digest = extra.flowDigest !== undefined ? `（${extra.flowDigest}）` : ''
       latestFlowEvents.set(agent, `flow:${extra.flowId} 执行 → ${target}${digest}`.slice(0, 120))
     }
-    pushPanel(agent)
   }
 
   // 0.8.0 B5 换道（2026-08-27）：原 typert remote 宿主半链（effortService
@@ -514,7 +519,8 @@ export function apply(ctx: Context, config: Config = {}) {
    * Idempotent by value: one save arrives twice on a namespace host (the
    * command's onSaved, then the namespace commit watcher), and an unchanged
    * config must not re-mount the router or re-enumerate candidates. A source
-   * flip alone (sidecar → settings at attach) still re-pushes the panel.
+   * flip alone (sidecar → settings at attach) still swaps the effective source
+   * reported by the panel snapshot.
    */
   const applyConfig = (next: RouterConfigAny) => {
     const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
@@ -528,7 +534,6 @@ export function apply(ctx: Context, config: Config = {}) {
       mountRouter()
       refreshCandidates()
     }
-    pushPanelToAllSessions()
   }
 
   registerKimiTideCommands(ctx, {
@@ -544,6 +549,9 @@ export function apply(ctx: Context, config: Config = {}) {
     // the sidecar silently.
     get settings() { return settingsScope },
     onSaved: (next) => applyConfig(next),
+    // 1.2.0 面板取数（dock 拉模型）：按 agent 现算快照——agent 缺席（漏传）返回
+    // null，命令层据此报错而非给一份无主数据。
+    panel: (agent) => (agent === undefined ? null : rememberPanel(agent)),
     // 1.1.0 §8：手动评审 = Task 5 挂载的 manualReviewFn（installRouter 随路由
     // 挂载/卸载，onManualReview 登记/置 null）。路由关闭（activePreset=null →
     // installRouter 未挂载）或宿主无评审流时 fn=null → 单源兜底文案。
@@ -553,8 +561,10 @@ export function apply(ctx: Context, config: Config = {}) {
     get claimedGroups() { return claimedReviewGroups(routerConfig) },
   })
 
-  // Projection: register the unit, then push the current snapshot into every
-  // session as it appears (panel data is process-global, not per-session).
+  // Projection units stay registered for HISTORICAL sessions only: v1.2.0 起本
+  // 插件不再写自定义会话事件（面板走命令通道），但 08-25 之前的老会话日志里
+  // 仍有 kimi-tide/panel（120k 条）与 kimi-tide/review（12 条）事件——注册
+  // 保留，读路径才能把它们折出来（panelSchema 的旧载荷容忍见 projection.ts）。
   ctx.sessionProjections.register(kimiTideProjectionDefinition)
   // R9（1.1.0 §7）：评审投影 unit 独立注册（与 panel 并列——L4 裁定不并入
   // panel；fold 每会话保留最近 20 条评审记录）。
@@ -599,40 +609,28 @@ export function apply(ctx: Context, config: Config = {}) {
     if (flowEvent !== undefined) snapshot.lastFlowEvent = flowEvent
     return snapshot
   }
-  /** 各 agent 最近一次成功入日志的快照签名（语义去重，见 panelSignature）。 */
-  const lastPushedSignatures = new Map<Agent, string>()
-  const pushPanel = (agent: Agent) => {
-    try {
-      const snapshot = panelSnapshot(agent)
-      // 语义去重（评审修复 2026-08-23）：签名相同 = 无新信息 = 不追加会话日志。
-      // 60s 配额轮询的 fetchedAt 逐次必变，不去重的话每个存活会话的持久化日志
-      // 每分钟必追加一条 kimi-tide/panel 事件，而投影 fold 只取最新——纯膨胀。
-      const signature = panelSignature(snapshot)
-      if (lastPushedSignatures.get(agent) === signature) return
-      agent.session.append(KIMI_TIDE_PANEL_EVENT, snapshot)
-      lastPushedSignatures.set(agent, signature)
-    } catch (error) {
-      ctx.logger?.warn?.(`dsh-kimi-tide: panel push failed: ${(error as Error).message}`)
-    }
-  }
-  const liveAgents = new Set<Agent>()
-  function pushPanelToAllSessions() {
-    for (const agent of liveAgents) pushPanel(agent)
-  }
+  /**
+   * 面板数据的**唯一**出口：按 agent 现算快照（无缓存、无写入）。
+   *
+   * v1.2.0 会话事件解耦（2026-09-10 用户裁定）：面板曾以
+   * `agent.session.append('kimi-tide/panel', …)` 落在会话日志里、由投影回放；
+   * 实测全库 120,705 条 / 203.7 MB（占全部会话事件体积 27.9%，个别会话 100%）
+   * ——纯冗余，且是 09-10 格式迁移整卷拒载的主因。现改为
+   * `/kimi-tide panel --json` 命令通道按需供给：dock 拉取时**现算**，因此拿到
+   * 的是当下路由/配额状态，比回放日志里几分钟前的陈旧快照更准。
+   *
+   * 因不落日志，原先的「语义去重防膨胀」目的随之消失（`panelSignature` 保留为
+   * 纯函数与单测面，不再参与推送节流）。
+   */
+  const rememberPanel = (agent: Agent): KimiTidePanelProjection => panelSnapshot(agent)
   const refreshModelOptions = () => {
     const llm = ctx.llm as { listModels?: (provider: string) => Promise<Array<{ id: string }>> }
     if (typeof llm.listModels !== 'function') return
     void llm.listModels('kimi-coding')
-      .then((models) => {
-        modelOptions = { ...modelOptions, kimi: models.map((m) => m.id) }
-        pushPanelToAllSessions()
-      })
+      .then((models) => { modelOptions = { ...modelOptions, kimi: models.map((m) => m.id) } })
       .catch(() => { /* kimi-coding 路由未注册：下拉回退空列表，面板给接入指引 */ })
     void llm.listModels('deepseek-official')
-      .then((models) => {
-        modelOptions = { ...modelOptions, deepseek: models.map((m) => m.id) }
-        pushPanelToAllSessions()
-      })
+      .then((models) => { modelOptions = { ...modelOptions, deepseek: models.map((m) => m.id) } })
       .catch(() => { /* deepseek adapter absent: dropdown falls back to free text */ })
   }
   refreshModelOptions()
@@ -649,23 +647,15 @@ export function apply(ctx: Context, config: Config = {}) {
     void zaiMonitor.refresh()
   })
   ctx.on('agent/created', (payload: { agent: Agent }) => {
-    liveAgents.add(payload.agent)
-    pushPanel(payload.agent)
+    // 首次取数即建签名基线（命令通道按需现算，此处只为观测基线）。
+    rememberPanel(payload.agent)
   })
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
-    liveAgents.delete(payload.agent)
     latestDecisions.delete(payload.agent)
     latestFlowEvents.delete(payload.agent)
-    lastPushedSignatures.delete(payload.agent)
   })
-  // Seed the roster from the live agent registry: agent/created does NOT
-  // re-fire for agents that already live, so a (re)applied instance must
-  // recover its roster from ctx.agents. ctx.agents is optional (headless).
-  const agentRegistry = ctx.get('agents') as { list?: () => Agent[] } | undefined
-  if (typeof agentRegistry?.list === 'function') {
-    for (const agent of agentRegistry.list()) liveAgents.add(agent)
-    if (liveAgents.size > 0) pushPanelToAllSessions()
-  }
+  // 存活 agent 名册已不再需要：面板数据按需自 agent 现算，无推送目标。
+  // （v1.2.0 会话事件解耦前这里维护 liveAgents 供 pushPanelToAllSessions 遍历。）
 
   // Settings namespace (dsh-settings, rc.7+): register `kimi-tide-router` with
   // the composition seed as its base layer and keep the owner scope so the
