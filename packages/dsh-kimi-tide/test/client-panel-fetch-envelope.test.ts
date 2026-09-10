@@ -1,19 +1,22 @@
 // @vitest-environment jsdom
 /**
- * 面板取数回包剥壳回归锁（2026-09-10 实机故障：dock 永远「面板数据加载中」）。
+ * 面板取数回归锁（2026-09-10 实机故障：dock 永远「面板数据加载中」）。
  *
- * 实机故障：v1.2.0 dock 取数改走 `/kimi-tide panel --json` 命令通道，但解析只认
- * `payload.result.text` / `payload.text` 两种裸形；而 rc.1+ 的 typert 远端信封是
+ * 故障一（信封错位，已修）：v1.2.0 dock 取数走命令通道，但解析只认
+ * `payload.result.text` / `payload.text` 两种裸形；rc.1+ 的 typert 远端信封是
  * `{ ok, value }`（value = CommandExecution = `{ commandId, result: { kind, text } }`
  * ——产品侧同款读法：dsh-api-session-controller client.js `command()` 的
- * result.ok / result.value）。信封里取不到 text → 每次取数落 null → dock 无投影
- * 兜底（新会话不写面板事件）→ 永远「加载中」。
+ * result.ok / result.value）。信封里取不到 text → 每次取数落 null。
+ * 故障二（通道本身，已换道）：命令通道每次执行都被宿主持久化为
+ * command/run + command/done（done 含整份面板 JSON）——8s 一次的轮询把会话流
+ * 刷满 kimi-tide 命令节点、会话日志重新膨胀，打破「停止写面板事件」的初衷。
+ * 现取数走 `/api/kimi-tide/panel` HTTP 只读路由（宿主 connection.fetch 注册，
+ * 自带 browser-trust fence，零持久化）。
  *
- * 契约（unwrapCommandOutcome / tideDockPanelSource.fetch，每个用例标注「会使其
- * 失败的生产改动」）：信封、裸 CommandExecution、legacy 裸形、error-only、
- * 远端拒绝五种线形都要落对；kind='error' 与 ok=false 一律降级为 null。
+ * unwrapCommandOutcome 仍保留：dock 动作（preset/refresh/review）继续走命令
+ * 通道，其回包（含 kind=error）同样要剥壳上浮，不再静默吞掉。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.js'
 import { tideDockPanelSource, unwrapCommandOutcome } from '../src/client/TideDock.js'
 import type { KimiTidePanelProjection } from '../src/types.js'
@@ -81,32 +84,46 @@ describe('unwrapCommandOutcome：命令回包线形剥壳', () => {
   })
 })
 
-describe('tideDockPanelSource.fetch：dock 取数通道（信封剥壳后解析）', () => {
-  it('信封 {ok,value} 里的面板 JSON 被解析成投影对象（实机故障回归锁）', async () => {
-    const execute = vi.fn(async () => ({
-      ok: true,
-      value: { commandId: 'c1', result: { kind: 'success', text: JSON.stringify(panel) } },
-    }))
+describe('tideDockPanelSource.fetch：面板取数 HTTP 路由（/api/kimi-tide/panel）', () => {
+  const originalFetch = globalThis.fetch
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  const applyWith = (): void => {
+    const execute = vi.fn(async () => ({ ok: true, value: undefined }))
     apply(makeCtx(execute))
-    // Fails if: 解析退回只认 payload.result.text / payload.text——信封内取不到 text，
-    // fetch 恒 null → dock 永远「面板数据加载中」（2026-09-10 实机故障本体）。
+  }
+
+  it('HTTP 200 + {ok:true,panel} → 解析出投影对象（取数换道回归锁）', async () => {
+    applyWith()
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, panel }),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    // Fails if: 取数退回命令通道（每 8s 一次 command/run+command/done 持久化，
+    // 会话流被命令节点刷屏、日志重新膨胀——2026-09-10 实机）或解析不出 panel。
     const result = await tideDockPanelSource.fetch('session-1')
     expect(result).not.toBeNull()
     expect(result?.router.activePreset).toBe('saving')
-    expect(execute).toHaveBeenCalledWith('session-1', '/kimi-tide panel --json')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/kimi-tide/panel?sessionId=session-1',
+      expect.objectContaining({ headers: expect.objectContaining({ accept: 'application/json' }) }),
+    )
   })
 
-  it('kind=error / ok=false / execute 抛错 / value 缺失 → 一律 null（dock 保留上一帧）', async () => {
-    const cases: Array<() => Promise<unknown>> = [
-      async () => ({ ok: true, value: { commandId: 'c', result: { kind: 'error', text: '面板快照不可用' } } }),
-      async () => ({ ok: false, error: { message: 'denied' } }),
-      async () => { throw new Error('rpc down') },
-      async () => ({ ok: true, value: undefined }),
-      async () => undefined,
+  it('HTTP 非 200（409 会话未激活）/ body ok!=true / fetch 抛错 → 一律 null', async () => {
+    applyWith()
+    const cases: Array<unknown> = [
+      { ok: false, status: 409 },
+      { ok: true, json: async () => ({ ok: false, error: 'session not live' }) },
     ]
-    for (const executeImpl of cases) {
-      apply(makeCtx(vi.fn(executeImpl)))
+    for (const responseLike of cases) {
+      globalThis.fetch = vi.fn(async () => responseLike) as unknown as typeof fetch
       expect(await tideDockPanelSource.fetch('session-1')).toBeNull()
     }
+    globalThis.fetch = vi.fn(async () => { throw new Error('network down') }) as unknown as typeof fetch
+    expect(await tideDockPanelSource.fetch('session-1')).toBeNull()
   })
 })

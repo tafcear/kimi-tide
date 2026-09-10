@@ -666,6 +666,46 @@ export function apply(ctx: Context, config: Config = {}) {
     latestDecisions.delete(payload.agent)
     latestFlowEvents.delete(payload.agent)
   })
+
+  // 面板取数通道（2026-09-10 换道）：dock 每 8s 轮询一次面板快照。若走命令通道
+  // （remote.commands.execute → commands.execute），宿主会为每次执行持久化
+  // command/run + command/done 两条生命周期事件，done 里还带着整份面板 JSON
+  // （实机：会话流被 kimi-tide 命令节点刷屏、会话日志重新膨胀——「停止写面板
+  // 事件」的解耦目标被取数通道自己打破）。改挂 connection.fetch 的 HTTP 只读
+  // 路由：/api 路径自带宿主 browser-trust fence（loopback/受信 authority +
+  // 同源标记，见 dsh-client-connection isTrustedApiRequest），读取零持久化；
+  // /api/file（session-controller）是同款先例。动作类命令（preset/refresh/
+  // review）仍走命令通道——用户显式行为理应留在时间线里，且频率是人为量级。
+  interface ConnectionFetchFace {
+    fetch?: {
+      register?: (route: {
+        path: string
+        methods: string[]
+        requestBody: string
+        fetch: (request: { url: string }) => Promise<Response>
+      }, name: string) => () => void
+    }
+  }
+  const connection = ctx.get('connection') as ConnectionFetchFace | undefined
+  if (connection?.fetch?.register !== undefined) {
+    const jsonHeaders = { 'content-type': 'application/json; charset=utf-8' }
+    ctx.effect(() => connection.fetch!.register!({
+      path: '/api/kimi-tide/panel',
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        const url = new URL(request.url)
+        const sessionId = url.searchParams.get('sessionId') ?? ''
+        const agent = sessionId === '' ? undefined : ctx.get('agents')?.get(sessionId as never) as Agent | undefined
+        if (agent === undefined) {
+          // 会话未激活（冷会话/刚打开未 resume）：无现场路由状态可算，409 让
+          // dock 走降级文案，不为冷会话编造一份空面板。
+          return new Response(JSON.stringify({ ok: false, error: 'session not live' }), { status: 409, headers: jsonHeaders })
+        }
+        return new Response(JSON.stringify({ ok: true, panel: rememberPanel(agent) }), { headers: jsonHeaders })
+      },
+    }, 'kimi-tide: /api/kimi-tide/panel'))
+  }
   // 存活 agent 名册已不再需要：面板数据按需自 agent 现算，无推送目标。
   // （v1.2.0 会话事件解耦前这里维护 liveAgents 供 pushPanelToAllSessions 遍历。）
 
