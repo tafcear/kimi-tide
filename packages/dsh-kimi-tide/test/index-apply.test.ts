@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
 import { apply, buildDecisionSummary, defaultSidecarFile, defaultPatchFile, panelSignature } from '../src/index.js'
 
 /**
@@ -504,6 +505,48 @@ describe('apply() decision lifecycle (0.5.0 via semantics)', () => {
     await readPanel(getCommand, agent)
     await readPanel(getCommand, agent)
     expect(agent.session.append).not.toHaveBeenCalled()
+  })
+})
+
+describe('apply() 会话事件类型注册（2026-09-10 历史日志拒载回归）', () => {
+  const originalHome = process.env.DSH_HOME
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-catalog-'))
+    // 无 profiles/node_modules 的临时 DSH_HOME：宿主 module fallback 锚不到，
+    // 注册落在直接解析的那份 catalog 上——断言的就是这份。
+    process.env.DSH_HOME = dir
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+  })
+
+  afterEach(() => {
+    if (originalHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = originalHome
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /**
+   * 实机事故（gateway/internal）：注册清单收缩为单类型的那一版一重启，
+   * 所有带历史 `kimi-tide/panel` 事件的会话整卷拒载——
+   * dsh-session-persistence `validateStoredEvents` 对目录外类型 fail closed
+   * （「unknown to this harness and not marked ignorable」），而 envelope 的
+   * `ignorable` 标记 `Session.append` 写不出来。所以：**停了写入，也不能
+   * 停了注册**——注册是历史日志的只读兼容。
+   */
+  it('注册 panel（历史只读兼容）+ review（仍写入）两类型', () => {
+    // 同一文件的既有用例已 apply 过（catalog 是进程级可变 Set），先删掉两个
+    // 类型，让本次 apply 是唯一的注册来源。
+    KNOWN_SESSION_EVENT_TYPES.delete('kimi-tide/panel')
+    KNOWN_SESSION_EVENT_TYPES.delete('kimi-tide/review')
+    const { ctx } = makeCtx([])
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    expect(KNOWN_SESSION_EVENT_TYPES.has('kimi-tide/panel')).toBe(true)
+    expect(KNOWN_SESSION_EVENT_TYPES.has('kimi-tide/review')).toBe(true)
   })
 })
 

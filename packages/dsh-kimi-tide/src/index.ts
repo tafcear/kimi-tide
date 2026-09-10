@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path'
 import { REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { claimedReviewGroups } from './rules.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
-import { KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
+import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
   extractResolvedImages,
@@ -236,34 +236,43 @@ function fallbackCandidateMetas(config: RouterConfigAny): CandidateMeta[] {
 }
 
 /**
- * Register `kimi-tide/review` on the INSTALLATION's KNOWN_SESSION_EVENT_TYPES
- * Set — the only door for a custom event type, because the strict session-log
- * reader (dsh-session-persistence `validateStoredEvents`) refuses types outside
- * that catalog unless the envelope carries `ignorable: true`, and
- * `Session.append` cannot set that marker (it forwards only `surfaceOp` /
- * `sourceEventSeqs`). The catalog is a live mutable Set on the dsh-session
- * module instance the harness itself uses; a `link:`-installed plugin's bare
- * import resolves its workspace node_modules copy instead (a different Set), so
- * we anchor a require in the flat profile module fallback (`$DSH_HOME/profiles/
- * node_modules`). Resolution from there lands on the SAME real module the
- * harness checks, so the mutation makes stored `kimi-tide/review` events
- * readable after a restart. Falls back to the directly imported copy when no
- * installation fallback exists (e.g. unit tests).
+ * Register every session event type this plugin has EVER written on the
+ * INSTALLATION's KNOWN_SESSION_EVENT_TYPES Set — the only door for a custom
+ * event type, because the strict session-log reader (dsh-session-persistence
+ * `validateStoredEvents`) refuses types outside that catalog unless the
+ * envelope carries `ignorable: true`, and `Session.append` cannot set that
+ * marker (it forwards only `surfaceOp` / `sourceEventSeqs`). The catalog is a
+ * live mutable Set on the dsh-session module instance the harness itself uses;
+ * a `link:`-installed plugin's bare import resolves its workspace node_modules
+ * copy instead (a different Set), so we anchor a require in the flat profile
+ * module fallback (`$DSH_HOME/profiles/node_modules`). Resolution from there
+ * lands on the SAME real module the harness checks, so the mutation makes
+ * stored events readable after a restart. Falls back to the directly imported
+ * copy when no installation fallback exists (e.g. unit tests).
  *
- * 2026-09-10（v1.2.0 会话事件解耦）：本函数**只再管评审事件**。面板事件
- * （`kimi-tide/panel`）已停止写入——全库 120,705 条 / 203.7 MB（占全部会话事件
- * 体积 27.9%），是 09-10 格式迁移整卷拒载的主因；面板数据改由
- * `/kimi-tide panel --json` 命令通道按需供给（dock 拉模型取数），不再进会话
- * 日志。评审事件保留：12 条 / 9 天、承载评审正文，且是评审卡唯一的锚点
- * 载体（chat 节点必须匹配会话事件）。
+ * 清单 = 两个类型，且**注册 ≠ 继续写**：
+ * - `kimi-tide/panel`：v1.2.0 起已停止写入（全库 120,705 条 / 203.7 MB，占会话
+ *   事件体积 27.9%，是 09-10 格式迁移整卷拒载的主因；面板数据改由
+ *   `/kimi-tide panel --json` 命令通道按需供给）。但**历史日志仍然带着它**
+ *   （实测单会话 147 条、首条 seq 3），而目录里没有该类型 → 那些会话重启后
+ *   整卷拒载。2026-09-10 实机事故：注册清单收缩为单类型的那一版一重启，所有
+ *   旧会话报「历史加载失败：… unknown to this harness and not marked
+ *   ignorable」（gateway/internal）。注册它是**只读兼容**，与是否继续写事件
+ *   无关；面板投影 fold 也仍然认这个类型（on-demand 取数失败时的回退源）。
+ * - `kimi-tide/review`：仍在写入——12 条 / 9 天、承载评审正文，且是评审卡唯一
+ *   的锚点载体（chat 节点必须匹配会话事件）；注册是它的写入前提。
+ *
+ * 修复依据：`docs/superpowers/specs/2026-09-02-review-flow-design.md` §事件
+ * （注册清单由单类型扩展为 **panel + review 两类型**，评审修复 L4）。
  *
  * @returns true when the host (installation) catalog was reached; false when
  * only the locally resolved copy was mutated — the caller MUST then refuse to
  * write review events (a log this harness cannot read is worse than a dropped
  * record; that refusal is the fix for the 09-10 failure mode, where an
- * unreachable catalog was written to anyway).
+ * unreachable catalog was written to anyway). Legacy `kimi-tide/panel` logs
+ * stay unreadable in that case, which the caller reports as a warning.
  */
-function registerReviewEventType(): boolean {
+function registerSessionEventTypes(): boolean {
   let known = KNOWN_SESSION_EVENT_TYPES_DIRECT as Set<string>
   let hostReached = false
   try {
@@ -278,6 +287,7 @@ function registerReviewEventType(): boolean {
     // No dsh installation fallback in this environment (e.g. unit tests):
     // mutating the directly imported copy is the best effort available.
   }
+  known.add(KIMI_TIDE_PANEL_EVENT)
   known.add(KIMI_TIDE_REVIEW_EVENT)
   return hostReached
 }
@@ -293,16 +303,18 @@ export function apply(ctx: Context, config: Config = {}) {
   const log: RouterLog = { info: (message: string) => { ctx.logger.info(message) } }
   const warn = (message: string) => { ctx.logger?.warn?.(message) }
 
-  // The strict persistence reader refuses logs with unknown event types.
-  // The catalog Set lives on the INSTALLATION's dsh-session module instance;
-  // register the review type there (see registerReviewEventType). Does NOT
-  // reach the catalog → review events are NOT written at all (fail closed):
-  // refusing is strictly better than appending a log this harness cannot read.
-  let reviewEventWritable = registerReviewEventType()
+  // The strict persistence reader refuses logs with unknown event types — for
+  // READING history (legacy `kimi-tide/panel`) as well as for what we append
+  // (`kimi-tide/review`). The catalog Set lives on the INSTALLATION's
+  // dsh-session module instance; register BOTH types there (see
+  // registerSessionEventTypes). The returned flag only gates WRITING review
+  // events: catalog unreachable → no review events at all (fail closed).
+  // Refusing is strictly better than appending a log this harness cannot read.
+  let reviewEventWritable = registerSessionEventTypes()
   if (reviewEventWritable) {
-    ctx.logger.info('dsh-kimi-tide: 评审事件类型已注册到宿主会话目录（面板数据走命令通道，不再写会话事件）')
+    ctx.logger.info('dsh-kimi-tide: panel/review 事件类型已注册到宿主会话目录（面板数据走命令通道；注册保住历史 kimi-tide/panel 日志可读）')
   } else {
-    ctx.logger.warn('dsh-kimi-tide: 宿主会话目录不可达——评审事件将不写入会话日志（拒绝产出宿主读不出的日志）；面板不受影响（命令通道）')
+    ctx.logger.warn('dsh-kimi-tide: 宿主会话目录不可达——评审事件将不写入会话日志（拒绝产出宿主读不出的日志），且带历史 kimi-tide/panel 事件的会话可能拒绝加载；面板不受影响（命令通道）')
   }
 
   // 0.4.x：零接入层——Kimi 模型经 settings.yaml 的 llm-pi-ai.providers.kimi-coding
@@ -467,7 +479,7 @@ export function apply(ctx: Context, config: Config = {}) {
           // ≤120 截断与 onDecision 惯例一致）。v1.2.0：仅存内存，面板按需现读。
           latestFlowEvents.set(agent, `review:${event.flowId} ${event.ok ? 'ok' : '失败'} · ${event.reviewer.model}`.slice(0, 120))
         },
-        // v1.2.0 闸：宿主目录未命中 → 拒绝写评审事件（见 registerReviewEventType）。
+        // v1.2.0 闸：宿主目录未命中 → 拒绝写评审事件（见 registerSessionEventTypes）。
         reviewEventWritable,
         onManualReview: (fn) => { manualReviewFn = fn },
       })
