@@ -55,6 +55,62 @@ export interface TideDockBridge {
 }
 export const tideDockBridge: TideDockBridge = { execute: async () => undefined }
 
+/** 剥壳后的命令结果：ok=false 时 text 是可展示的失败原因。 */
+export interface CommandOutcome {
+  ok: boolean
+  text: string
+}
+
+/**
+ * 把命令回包剥成 `{ ok, text }`，线形按新旧全覆盖（2026-09-10 dock 空转根因）：
+ *
+ * ① rc.1+ typert 远端信封 `{ ok, value }`：value = CommandExecution | undefined
+ *    （`{ commandId, result: { kind: 'success'|'error', text } }`）。产品侧同款
+ *    读法见 dsh-api-session-controller client.js `command()`（result.ok /
+ *    result.value）。**v1.2.0 dock 永远「面板数据加载中」的根因**：旧解析只认
+ *    `payload.result.text` / `payload.text`，而信封里这两个字段都不存在——
+ *    每次取数都被解析成 null，dock 又不再有投影兜底（新会话无面板事件）。
+ * ② 裸 CommandExecution `{ commandId, result }`（宿主直连 / 旧客户端）。
+ * ③ 裸 `{ text }` / `{ result: { text } }`（更旧的直连形态与测试替身）。
+ * ④ error-only `{ error: { message } }`（0.6.x池#d 形态，无 ok 字段）。
+ * ⑤ `{ ok: false, error?: { message } }`（远端拒绝）。
+ *
+ * 解不出任何已知形态返回 null——调用方走各自的降级分支，不为空值编造状态。
+ */
+export function unwrapCommandOutcome(payload: unknown): CommandOutcome | null {
+  if (payload === null || typeof payload !== 'object') return null
+  const envelope = payload as Record<string, unknown>
+  if (envelope.ok === false) {
+    const error = envelope.error
+    const message = typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: unknown }).message)
+      : typeof envelope.message === 'string' ? envelope.message : '命令执行失败'
+    return { ok: false, text: message }
+  }
+  if (Object.hasOwn(envelope, 'error')) {
+    const error = envelope.error
+    const message = typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: unknown }).message)
+      : typeof error === 'string' ? error : '命令执行失败'
+    return { ok: false, text: message }
+  }
+  const execution: unknown = Object.hasOwn(envelope, 'value') ? envelope.value : (envelope.result ?? envelope)
+  if (execution === null || typeof execution !== 'object') {
+    if (typeof envelope.text === 'string') return { ok: true, text: envelope.text }
+    // { ok: true, value: undefined }（命令未匹配）= 被识别的成功、无输出
+    return envelope.ok === true ? { ok: true, text: '' } : null
+  }
+  const record = execution as { result?: unknown; text?: unknown }
+  const outcome = (record.result ?? record) as { kind?: unknown; text?: unknown } | null
+  if (outcome === null || typeof outcome !== 'object') {
+    return typeof record.text === 'string' ? { ok: true, text: record.text } : null
+  }
+  const text = typeof outcome.text === 'string' ? outcome.text : ''
+  if (outcome.kind === 'error') return { ok: false, text: text === '' ? '命令执行失败' : text }
+  if (outcome.kind === 'success') return { ok: true, text }
+  return text === '' ? (envelope.ok === true ? { ok: true, text: '' } : null) : { ok: true, text }
+}
+
 function pct(used: number, limit: number): number {
   return limit > 0 ? Math.round((used / limit) * 100) : 0
 }
@@ -85,6 +141,8 @@ const POP_WIDTH = 430
 export function TideDock(props: TideDockProps) {
   const projected = props.useProjection?.('kimi-tide/panel')
   const [fetched, setFetched] = useState<KimiTidePanelProjection | null | undefined>(undefined)
+  /** 首次取数是否落定（成功或失败）：落定前才是「加载中」，落定后无数据是降级态。 */
+  const [settled, setSettled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [expanded, setExpanded] = useState(props.defaultExpanded ?? false)
@@ -105,9 +163,13 @@ export function TideDock(props: TideDockProps) {
     const pull = async () => {
       try {
         const next = await fetchPanel(props.sessionId)
-        if (live && next !== null) setFetched(next)
+        if (live) {
+          setSettled(true)
+          if (next !== null) setFetched(next)
+        }
       } catch {
         // 通道失败 = 无命令数据：保持已有帧，绝不把故障渲染成错误态。
+        if (live) setSettled(true)
       }
     }
     refreshRef.current = pull
@@ -122,17 +184,12 @@ export function TideDock(props: TideDockProps) {
     setBusy(true)
     setNotice('')
     try {
-      const result = await tideDockBridge.execute(props.sessionId, line) as
-        | { ok?: boolean; message?: string; error?: { message?: string } }
-        | undefined
-      const errMessage = result?.error?.message
-      if (result !== undefined && result.ok === false) {
-        // rc.8 命令 RPC 失败形态：error/result 字段可读时展示原文，否则提示通道。
-        setNotice(`命令执行失败：${errMessage ?? result.message ?? '命令通道不可用（需 dsh-api-remotes）'}`)
-      } else if (errMessage !== undefined) {
-        // 0.6.x池#d：error-only 形态（无 ok 字段带 error）不再按成功静默吞掉。
-        setNotice(`命令执行失败：${errMessage}`)
+      const outcome = unwrapCommandOutcome(await tideDockBridge.execute(props.sessionId, line))
+      if (outcome !== null && !outcome.ok) {
+        // ok=false：远端拒绝（{ok:false,error}）或处理器报错（kind:'error'）——展示原文。
+        setNotice(`命令执行失败：${outcome.text}`)
       }
+      // outcome === null：无法识别的回包（如命令未匹配 value=undefined）——不打扰。
     } catch (error) {
       console.error('kimi-tide dock execute failed:', error)
       setNotice(`命令执行失败：${error instanceof Error ? error.message : String(error)}`)
@@ -202,7 +259,11 @@ export function TideDock(props: TideDockProps) {
     return (
       <div className="kimi-tide-dock">
         <span className="kt-label kt-slot"><Icon name="moon" className="kt-ic-moon" /> 月汐</span>
-        <span className="kt-dim">面板数据加载中…</span>
+        <span className="kt-dim">
+          {settled
+            ? '暂无面板数据（路由关闭或取数通道不可用）'
+            : '面板数据加载中…'}
+        </span>
       </div>
     )
   }

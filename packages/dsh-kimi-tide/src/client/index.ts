@@ -9,7 +9,7 @@
  * settings 命名空间（scope.set / connection.api.settings.mutate）。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { TideDock, tideDockBridge, tideDockPanelSource } from './TideDock.js'
+import { TideDock, tideDockBridge, tideDockPanelSource, unwrapCommandOutcome } from './TideDock.js'
 import type { KimiTidePanelProjection } from '../types.js'
 import { SettingsCard } from './SettingsCard.js'
 import { fetchCatalogMetaViaRemoteDescribe, fetchEffortsViaDescribe } from './effort-remote.js'
@@ -106,24 +106,23 @@ export function apply(ctx: Context): void {
   /**
    * 面板取数（1.2.0 会话事件解耦）：dock 经 `/kimi-tide panel --json` 拉本会话
    * 快照——面板不再写会话日志（全库 120,705 条 / 203.7 MB 的膨胀源），也就不再
-   * 依赖投影回放。命令回包是 `CommandResult` 的多种线形（`{result:{kind,text}}` /
-   * `{ok,result}` / 裸载荷），故按 text 字段尽力解析，取不到一律返回 null 让 dock
-   * 回退投影，绝不把异常表面化成错误提示。
+   * 依赖投影回放。取数走 bridge（自带 2 参→3 参 arity 回退），回包经
+   * unwrapCommandOutcome 剥壳：rc.1+ 的 typert 远端信封是 `{ ok, value }`
+   * （value = CommandExecution），**不是**早期假定的 `{ result: { text } }` 裸形——
+   * 1.2.0 首版解析在信封里取不到 text，每次取数都落 null，dock 永远「加载中」
+   * （2026-09-10 实机）。ok=false / kind='error'（路由关闭、通道不可用）一律
+   * 返回 null 让 dock 保留上一帧/降级，绝不把异常表面化成错误提示。
    */
   tideDockPanelSource.fetch = async (sessionId: string) => {
     let payload: unknown
     try {
-      payload = await commands.execute(sessionId, '/kimi-tide panel --json')
+      payload = await tideDockBridge.execute(sessionId, '/kimi-tide panel --json')
     } catch {
       return null
     }
-    const record = payload as { result?: unknown; text?: unknown; message?: unknown } | undefined
-    const inner = (record?.result ?? record) as { text?: unknown } | undefined
-    const text = typeof inner?.text === 'string'
-      ? inner.text
-      : typeof record?.text === 'string'
-        ? record.text
-        : typeof record?.message === 'string' ? record.message : ''
+    const outcome = unwrapCommandOutcome(payload)
+    if (outcome === null || !outcome.ok) return null
+    const text = outcome.text
     if (text === '' || !text.trimStart().startsWith('{')) return null
     try {
       return JSON.parse(text) as KimiTidePanelProjection

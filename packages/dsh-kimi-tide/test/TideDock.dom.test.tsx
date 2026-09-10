@@ -148,8 +148,17 @@ describe('TideDock 取数（1.2.0：拉模型优先于投影）', () => {
     expect(container.textContent).not.toContain('rpc down')
   })
 
-  it('两者都无数据 → 加载中占位（不崩）', async () => {
+  it('两者都无数据 → 取数落定后给降级文案（不崩、不永远卡「加载中」）', async () => {
+    // Fails if: 取数落定后仍渲染「加载中」——2026-09-10 实机故障形态
+    // （通道解析失败 → fetched 恒 null → 面板数据加载中… 永不消失）。
     await mountWith({ sessionId: 's', useProjection: () => null, fetchPanel: async () => null })
+    expect(container.textContent).toContain('暂无面板数据')
+    expect(container.textContent).not.toContain('面板数据加载中')
+  })
+
+  it('取数未落定（挂起的 promise）→ 保持加载中占位', async () => {
+    await mountWith({ sessionId: 's', useProjection: () => null, fetchPanel: () => new Promise(() => {}) })
     expect(container.textContent).toContain('面板数据加载中')
+    expect(container.textContent).not.toContain('暂无面板数据')
   })
 })
