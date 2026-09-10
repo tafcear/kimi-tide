@@ -3,5 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "kimi-tide（月汐）— preset-and-rule model router for DeepSeek Harness：任意已挂载的模型，都按你的规则选路（含图像转述协作流）"
+  "description": "kimi-tide（月汐）— preset-and-rule model router for DeepSeek Harness：任意已挂载的模型，都按你的规则选路（含图像转述协作流）",
+  "scripts": {
+    "test:e2e": "node scripts/e2e/session-events-boot.mjs --expect ok",
+    "test:e2e:falsify": "node scripts/e2e/session-events-boot.mjs --expect refused --pre-fix"
+  }
 }
