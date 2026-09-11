@@ -23,7 +23,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-1.2.1.tgz
 ### 验证与验收
 
 - 测试：590/590 通过（新增 6 条回归用例：目录通道换道 4 条 + 显示名渲染 2 条，均先红后绿）；typecheck 0；build 通过；CHANGELOG / README 双语门禁过
-- 实机验收：在运行中的 0.1.5-rc.1 宿主上复验设置页「月汐」卡片——模型下拉恢复 DeepSeek 全组（deepseek-flash / v4-flash / v4-pro / vision-exp，2026-09-11 用户目检）；分组与官方友好名显示随打 tag 前的最终复验确认
+- 实机验收：在运行中的 0.1.5-rc.1 宿主上复验设置页「月汐」卡片——模型下拉恢复 DeepSeek 全组（deepseek-flash / v4-flash / v4-pro / vision-exp），并按提供方分组显示官方友好名（DeepSeek 组头用官方显示名，pi-ai 侧 kimi-coding / zai-coding-cn 与官方「模型」页同款原样 id）（2026-09-11，用户目检）
 
 ---
 
@@ -48,4 +48,4 @@ Compatibility: DSH ≥ 0.1.2-rc.1 (verified on 0.1.5-rc.1); the routing config f
 ### Verification & acceptance
 
 - Tests: 590/590 passing (6 new regression cases: 4 for the catalog channel migration, 2 for display-name rendering — each written red first); typecheck clean; build passing; CHANGELOG / README bilingual gates green
-- Live acceptance: re-checked on a running 0.1.5-rc.1 host — the 月汐 settings card's model dropdown shows the full DeepSeek group again (deepseek-flash / v4-flash / v4-pro / vision-exp; user-verified on screen, 2026-09-11); the grouped layout and official friendly names are confirmed in the final pre-tag re-check
+- Live acceptance: re-checked on a running 0.1.5-rc.1 host — the 月汐 settings card's model dropdown shows the full DeepSeek group again (deepseek-flash / v4-flash / v4-pro / vision-exp), grouped by provider with official friendly names (the DeepSeek header uses the official display name; the pi-ai providers kimi-coding / zai-coding-cn keep their raw ids, exactly as the official Models page shows them) — user-verified on screen, 2026-09-11
