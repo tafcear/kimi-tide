@@ -19,7 +19,7 @@ DeepSeek Harness（DSH）的「每一步自动选模型」插件：命名预设 
 
 ## 前置条件
 
-- Node.js ≥ 22、DSH `@deepseek-ai/dsh@0.1.1-rc.2` 及以上（0.6.0 起 peer 依赖；设置卡片依赖 `dsh-settings`）
+- Node.js ≥ 22、DSH `@deepseek-ai/dsh@0.1.2-rc.1` 及以上（本版实机验证于 `0.1.5-rc.1`；0.4.0 起声明 peer 依赖，设置卡片依赖 `dsh-settings`）
 - 一把 **Kimi Code Console API Key**（Kimi 控制台获取）
 
 ## 安装
