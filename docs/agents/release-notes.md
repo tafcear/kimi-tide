@@ -131,11 +131,19 @@ node scripts/check-release-notes.mjs --file draft.md --version 1.2.0
 npm run check
 # 2. 写双语正文并本地校验
 node scripts/check-release-notes.mjs --file <草稿>
-# 3. 打附注 tag（正文粘进去；务必 -a，轻量 tag 没有正文）
-git tag -a v1.2.0 -m "<双语四段式正文>"
-# 4. 推 tag；release.yml 会再校验一次，不合规就停在 gh release create 之前
+# 3. 打附注 tag：务必 -a + --cleanup=verbatim（见下方大坑）
+git tag -a v1.2.0 --cleanup=verbatim -F <草稿>
+# 4. 本地复验 tag 消息（-F 默认会剥 # 开头的注释行，verbatim 才保留）
+node scripts/check-release-notes.mjs --tag v1.2.0
+# 5. 推 tag；release.yml 会再校验一次，不合规就停在 gh release create 之前
 git push origin v1.2.0
 ```
+
+> **大坑（2026-09-10 v1.2.0 首发实踩）**：`git tag -a -F <文件>` 默认把 `#` 开头的行
+> 当作注释**整行剥掉**——四段式的 `## 本次更新` 等标题会全部消失，tag 消息变成
+> 无结构纯文本，CI 门禁报「当前二级标题 = (无)」。必须加 `--cleanup=verbatim`。
+> 同类坑：轻量 tag（不带 -a）没有正文；`gh --notes-from-tag` 在 Actions 里有
+> 三个已知坑（见 `.github/workflows/release.yml` 注释）——所以走 `--notes-file`。
 
 ## 覆盖范围与历史
 
