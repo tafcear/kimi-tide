@@ -686,10 +686,11 @@ export function apply(ctx: Context, config: Config = {}) {
       }, name: string) => () => void
     }
   }
-  const connection = ctx.get('connection') as ConnectionFetchFace | undefined
-  if (connection?.fetch?.register !== undefined) {
+  const registerPanelRoute = (hostCtx: Context): (() => void) | undefined => {
+    const connection = hostCtx.get('connection') as ConnectionFetchFace | undefined
+    if (connection?.fetch?.register === undefined) return undefined
     const jsonHeaders = { 'content-type': 'application/json; charset=utf-8' }
-    ctx.effect(() => connection.fetch!.register!({
+    return connection.fetch.register({
       path: '/api/kimi-tide/panel',
       methods: ['GET'],
       requestBody: 'buffered',
@@ -704,8 +705,26 @@ export function apply(ctx: Context, config: Config = {}) {
         }
         return new Response(JSON.stringify({ ok: true, panel: rememberPanel(agent) }), { headers: jsonHeaders })
       },
-    }, 'kimi-tide: /api/kimi-tide/panel'))
+    }, 'kimi-tide: /api/kimi-tide/panel')
   }
+  ctx.effect(() => {
+    // A6 同款教训（2026-09-10 实机二次验证）：bundle 时序下 connection.fetch
+    // 注册面可能晚于本插件 apply——一次性守卫读 undefined 即静默放弃 = 路由
+    // 永不注册（实机：dock 取数 HTTP 404，551a25e 的诊断文案上线后定位）。
+    // 修复：就绪立即注册；缺席经 ctx.inject(['connection']) 延迟补挂 + warn
+    // 留痕（client/index.ts 评审卡注册同款模式）。
+    const disposer = registerPanelRoute(ctx)
+    if (disposer !== undefined) return disposer
+    warn('connection.fetch 注册面尚未就绪——/api/kimi-tide/panel 面板取数路由经 ctx.inject(["connection"]) 延迟补挂')
+    if (typeof ctx.inject !== 'function') return () => {}
+    ctx.inject(['connection'], (late) => {
+      late.effect(() => {
+        const disposer = registerPanelRoute(late)
+        return disposer ?? (() => {})
+      })
+    })
+    return () => {}
+  })
   // 存活 agent 名册已不再需要：面板数据按需自 agent 现算，无推送目标。
   // （v1.2.0 会话事件解耦前这里维护 liveAgents 供 pushPanelToAllSessions 遍历。）
 
