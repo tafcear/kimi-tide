@@ -63,13 +63,14 @@ jobs:
           git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > release-notes.md
       - name: Release notes bilingual four-section gate
         shell: bash
-        working-directory: packages/dsh-kimi-tide
         run: |
           # Release 正文「双语 × 四段式」门禁（规则：docs/agents/release-notes.md）：
           # 中文整块 + English 整块，各自 ① 一句话定位 ② 本次更新/What's new
           # ③ 安装与升级/Install & upgrade ④ 验证与验收/Verification & acceptance
           # ——不合规就停在 gh release create 之前，避免发布一个说明不全的版本页。
-          node ../../scripts/check-release-notes.mjs --file release-notes.md --version "${GITHUB_REF_NAME#v}"
+          # 注意：正文文件由上一步导出到 packages/dsh-kimi-tide/release-notes.md
+          # （该步的 working-directory），本步从仓库根以相对路径引用。
+          node scripts/check-release-notes.mjs --file packages/dsh-kimi-tide/release-notes.md --version "${GITHUB_REF_NAME#v}"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
