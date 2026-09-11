@@ -85,7 +85,7 @@ flowchart LR
 ### 1. Prerequisites
 
 - Node.js ≥ 22
-- DSH `@deepseek-ai/dsh@0.1.1-rc.2` or newer
+- DSH `@deepseek-ai/dsh@0.1.2-rc.1` or newer (this release is verified on `0.1.5-rc.1`)
 - The models you want to route among are connected in DSH — **any provider works**. To use Kimi, grab a **Kimi Code Console API key** (the quota panel rides the same key)
 
 ### 2. Connect candidate models (DSH "Settings → Models" page)

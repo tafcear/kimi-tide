@@ -85,7 +85,7 @@ flowchart LR
 ### 1. 前置条件
 
 - Node.js ≥ 22
-- DSH `@deepseek-ai/dsh@0.1.1-rc.2` 及以上
+- DSH `@deepseek-ai/dsh@0.1.2-rc.1` 及以上（本版实机验证于 `0.1.5-rc.1`）
 - 你想互相调度的模型已接入 DSH——**不限哪一家**。想用 Kimi，就准备一把 **Kimi Code Console API Key**（在 Kimi 控制台生成的密钥；配额面板也用这把 key）
 
 ### 2. 接入候选模型（DSH「设置 → Models」页）
