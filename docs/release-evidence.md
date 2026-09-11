@@ -3,7 +3,7 @@
 > **用途**：发布门禁 convention 的证据锚点——任何版本发版（打 tag / 触发 Actions Release）前，该版本实机验收清单必须全绿 + 用户裁定 tag；**执行记录回写本文件锚点**。用户视角的版本史见仓库根 [CHANGELOG](../CHANGELOG.md)。
 > **来源**：2026-08-31 自 README「路线图」节**原样迁移**（结构方案 C，见 [`docs/superpowers/specs/2026-08-31-zero-basis-docs-design.md`](superpowers/specs/2026-08-31-zero-basis-docs-design.md) §4.5）；除相对链接路径调整、头部门禁句并入用途横幅、0.8.5 计划悬空链去链接化（补注分支位置）、v1.0.0 表行补「auxTargets/」（同步本文件末行 bullet 与英文表行，清偿旧 README 自身口径不一）外，条目零删改。
 
-> 当前版本：**v1.2.0（2026-09-10）**——会话事件解耦：面板数据退出会话日志 + 历史会话可读修复 + dock 取数换道。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
+> 当前版本：**v1.2.1（2026-09-11）**——设置页模型下拉修复：目录通道迁移到官方模型目录接口 + 显示名与官方一致。[Release](https://github.com/tafcear/kimi-tide/releases) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
@@ -18,6 +18,7 @@
 | 0.8.0 规则覆盖面 + 可解释性 + effort | ✅ 已实施 + **实机验收 B1–B8 全绿**（2026-08-27）+ **已随 v1.0.0 发布**（分支 `feat/0.8.0-routing-coverage`） | 关键词组 2→7 组 + 预设接组 + effort 三入口 + 条件摘要/试一句/决策词数（`515218c`/`eed3cb2`/`f18cdbf` 等 6 任务）；验收清单 B1–B8 见 [`superpowers/plans/2026-08-27-routing-coverage-effort.md`](superpowers/plans/2026-08-27-routing-coverage-effort.md) 末节（全绿回填） |
 | **v1.0.0 大版本** | ✅ **已发布（2026-08-29）** | tag `v1.0.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.0.0)，497/497 绿 + typecheck 0 + build 过；内含 0.8.x 池全清（499 根治/auxTargets/限额跟随/布局重构）+ 打磨三连 + UI 交叉评审批次 + 月汐品牌主题化 + 设置导航月牙图标 + 多 plan 配额（kimi/GLM 跟随命中目标，CREDIT_LIMIT 积分制适配） |
 | **1.1.0 评审流认领语义** | ✅ **已发布（2026-09-05）**——实机验收 A1–A8 全绿（09-04 主体验收 + 09-05 A8 修复复测）；发版注：首 cut 漏带 rc.1 loopback 适配（`f6df0d9`），15 分钟内撤下重切 | tag `v1.1.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.1.0)，555/555 绿 + typecheck 0；认领组静态抑制 / 轮末 turn-stopping 异步评审（零阻塞+防环）/ `kimi-tide/review` 投影+事件卡双端 / `/kimi-tide review` 手动命令 / 设置页认领提示+试一句预测（含盲区标注「评审模型不可用」）/ L7 校验加固（`2d1ebd5`..`f6df0d9`，含 A6/A8 实机缺陷修复）；验收逐项记录见 [`superpowers/plans/2026-09-04-review-flow-orchestration.md`](superpowers/plans/2026-09-04-review-flow-orchestration.md) 末节 |
+| **1.2.1 设置页模型下拉修复** | ⏳ 发版准备就绪（2026-09-11）——实机复验 + 维护者裁定 tag 后发布 | 目录通道换道 `session/modelCatalog`（宿主 0.1.5-rc.1 移除 `remote.llm.models` 致 DeepSeek 整组消失的修复，`384cef9`）+ 显示名与官方 Models 页/模型选择器一致（提供方分组 + 友好名 + 悬停完整键，`4a3b3a8`）；590/590 绿 + typecheck 0 + build 过 + CHANGELOG/README 双语门禁过；实机验收：0.1.5-rc.1 运行宿主设置页下拉恢复 DeepSeek 全组（09-11 用户目检） |
 | **1.2.0 会话事件解耦** | ✅ **已发布（2026-09-11）**——实机验收 V1–V9 全绿（2026-09-10）；发版实录：Release 流水线首跑被双语四段式门禁正确拦下（门禁步骤路径接线错误 `3bfb26c` 修复）+ 附注 tag 踩 `git tag -F` 剥 `#` 注释行大坑（`--cleanup=verbatim` 重打），门禁 fail-closed 两次都按设计工作 | tag `v1.2.0`，[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.2.0)（双语四段式正文），582/582 绿 + typecheck 0 + CI Node 22/24 绿；面板数据退出会话日志（取数换 `/api/kimi-tide/panel` 只读路由，零持久化）/ 历史会话可读（注册修复，实机 3 会话 + 全库 551 目录扫描）/ dock 信封剥壳 + 降级文案带原因 + 动作失败可见（`6a3f476`/`551a25e`/`8896987`）；启动级 E2E（`8fec995`）；验收逐项记录与周期内三缺陷见 [`superpowers/plans/2026-09-10-v120-session-events-acceptance.md`](superpowers/plans/2026-09-10-v120-session-events-acceptance.md) |
 
 - **0.1.x**：DSH 原生 Kimi provider，v0.1.3（凭据门控 + OAuth 加固）。
