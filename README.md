@@ -9,6 +9,7 @@
   <a href="https://github.com/tafcear/kimi-tide/releases"><img src="https://img.shields.io/github/v/release/tafcear/kimi-tide" alt="Release"></a>
   <a href="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml"><img src="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/tafcear/kimi-tide/blob/main/LICENSE"><img src="https://img.shields.io/github/license/tafcear/kimi-tide" alt="License"></a>
+  <a href="https://github.com/tafcear/kimi-tide/graphs/contributors"><img src="https://img.shields.io/github/contributors/tafcear/kimi-tide?color=blue" alt="Contributors"></a>
 </p>
 
 **月汐（kimi-tide）是 DSH 的「每一步自动选模型」插件。**
