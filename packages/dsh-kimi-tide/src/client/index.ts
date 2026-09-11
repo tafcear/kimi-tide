@@ -18,10 +18,12 @@ import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
 import { REVIEW_NODE_KIND, ReviewCard, reviewNodeDefinition } from './ReviewCard.js'
 
-// 'remote.settings' / 'remote.llm'（1.1.0 A8 复测新增）：设置卡 describe /
-// llm.models 走 loopback typed remote，cordis 要求嵌套路径逐级声明（同款：
-// 'remote.commands'）；缺声明即抛 cannot get property without inject。
-export const inject = ['slots', 'remote', 'remote.commands', 'remote.settings', 'remote.llm']
+// 'remote.settings' / 'remote.llm' / 'remote.session'（2026-09-11 增补 session）：
+// 设置卡 describe / 模型目录走 loopback typed remote，cordis 要求嵌套路径逐级
+// 声明（同款：'remote.commands'）；缺声明即抛 cannot get property without
+// inject。session 与 llm/settings/commands 同由 api-remotes apply() 一并挂载，
+// 硬声明不引入新的宿主版本门槛。
+export const inject = ['slots', 'remote', 'remote.commands', 'remote.settings', 'remote.llm', 'remote.session']
 
 /**
  * 1.1.0 A8 复测发现（2026-09-05）：dsh 0.1.2-rc.1 起 connection 把 `api.*`
@@ -30,8 +32,19 @@ export const inject = ['slots', 'remote', 'remote.commands', 'remote.settings', 
  * catch 静默吞掉 = efforts/mounted/catalog/availability 全 null、试一句盲区标注
  * 失效；后者即控制台 `reading 'llm'` TypeError）。rc.1 正道 = 插件 ctx 上的
  * loopback typed remote（api-remotes 挂载；本插件 inject 已声明 remote，先例
- * = 下方 ctx.remote.commands）。此面把 describe / llm.models / mutate 重接到
+ * = 下方 ctx.remote.commands）。此面把 describe / 模型目录 / mutate 重接到
  * loopback；loopback 缺席（旧宿主）回退 ctx.get('connection')，行为不变。
+ *
+ * 2026-09-11 目录通道换道（实机缺陷：设置页下拉无 DeepSeek 模型）：dsh
+ * 0.1.5-rc.1 起 `llm` remote 命名空间只剩 discoverModels / listProviders /
+ * listConfigurableProviders，`remote.llm.models` 不复存在——目录取数抛错、被
+ * card-store 降级成 catalog=null，下拉退化为「仅已配置目标」（DeepSeek 只在
+ * auxTargets 里，不进扫描 → 整组消失）。现行正道 = `remote.session.modelCatalog`
+ * （session/modelCatalog，官方模型选择器同款通道，dsh-client-ui-model-selection
+ * client.js:46 先例），信封同为 `{ ok, value | error }`、groups 形状
+ * `{ id, models: [{ id, … }] }` 与 card-store 消费逐字兼容。取数链：
+ * session.modelCatalog → llm.models（0.1.2-rc.x 过渡形）→ legacy
+ * connection.api.llm.models（自带 {result} 信封，透传不重包）。
  */
 function buildConnectionFace(ctx: Context): ConnectionLike | null {
   type LoopbackRemote = {
@@ -40,6 +53,7 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
       mutate?: (request: { ns: string; ops: unknown[]; expectedRevision?: number }) => Promise<unknown>
     }
     llm?: { models?: (request: Record<string, never>) => Promise<unknown> }
+    session?: { modelCatalog?: () => Promise<unknown> }
   }
   const legacy = (ctx.get('connection') as ConnectionLike | undefined) ?? null
   const remote = (ctx as unknown as { remote?: LoopbackRemote }).remote
@@ -48,7 +62,17 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
   // 挂载先后不定；任一方法缺席时抛错，由调用方既有 catch 降级（不占 error 通道）。
   const describe = () => remote?.settings?.describe ?? legacy?.api.settings.describe
   const mutate = () => remote?.settings?.mutate ?? legacy?.api.settings.mutate
-  const models = () => remote?.llm?.models ?? legacy?.api.llm?.models
+  // 模型目录：三级通道各自产出「已就位的 {result} 信封值」——loopback 两级
+  // （session.modelCatalog / llm.models）回的是裸 {ok,value} 信封，此处包一层；
+  // legacy api.llm.models 自带 {result} 信封，透传（重包会变双信封，卡片读
+  // result.ok 落 undefined —— 2026-09-11 测试暴露的第二个既有缺陷）。
+  const models = (): ((request: Record<string, never>) => Promise<unknown>) | undefined => {
+    const sessionCatalog = remote?.session?.modelCatalog
+    if (sessionCatalog !== undefined) return async () => ({ result: await sessionCatalog() })
+    const loopbackModels = remote?.llm?.models
+    if (loopbackModels !== undefined) return async (request) => ({ result: await loopbackModels(request) })
+    return legacy?.api.llm?.models
+  }
   return {
     api: {
       settings: {
@@ -66,8 +90,8 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
       llm: {
         models: async (request) => {
           const m = models()
-          if (m === undefined) throw new Error('llm.models 通道不可用（loopback 未挂载 llm 命名空间）')
-          return { result: (await m(request)) as never }
+          if (m === undefined) throw new Error('模型目录通道不可用（session/llm loopback 与 connection api 均缺席）')
+          return (await m(request)) as never
         },
       },
     },
