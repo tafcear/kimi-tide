@@ -106,8 +106,25 @@ describe('card-store v4', () => {
     expect(snap.availability?.['kimi-coding/k3']).toBe(true)
     expect(snap.availability?.['kimi-coding/kimi-for-coding']).toBe(false)  // 未挂载 → 标灰
   })
-  it('⑥-B 打磨三修订: provider 整个不在目录 → 不判 false（目录通道无法判定，插件自挂 provider 可经路由可达——实机误报 2026-08-29）', async () => {
-    // Fails if: 目录缺 provider 即给其配置目标标 false（工作中的模型被误标未挂载）
+  it('catalog：目录携带显示名 → modelNames/providerNames 入快照（2026-09-11 与官方一致）', async () => {
+    // Fails if: 目录映射丢弃 name 字段——下拉只能渲染裸 provider/model 键，
+    // 与官方 Models 页/模型选择器的友好名不一致（实机报障本体）。
+    const connection = { api: {
+      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }), mutate: async () => ({}) },
+      llm: { models: async () => ({ result: { ok: true as const, value: { groups: [
+        { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V41-Flash' }] },
+        { id: 'kimi-coding', name: 'Kimi', models: [{ id: 'k3', name: 'Kimi K3' }] },
+      ] } } }) },
+    } }
+    const store = createCardStore(null, connection as never)
+    await store.load()
+    const snap = store.getSnapshot()
+    expect(snap.modelNames?.['deepseek-official/deepseek-flash']).toBe('DeepSeek-V41-Flash')
+    expect(snap.modelNames?.['kimi-coding/k3']).toBe('Kimi K3')
+    expect(snap.providerNames?.['deepseek-official']).toBe('DeepSeek')
+    expect(snap.providerNames?.['kimi-coding']).toBe('Kimi')
+  })
+  it('⑥-B 打磨三修订: provider 整个不在目录 → 不判 false（目录通道无法判定，插件自挂 provider 可经路由可达——实机误报 2026-08-29）', async () => {    // Fails if: 目录缺 provider 即给其配置目标标 false（工作中的模型被误标未挂载）
     const connection = { api: {
       settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }), mutate: async () => ({}) },
       llm: { models: async () => ({ result: { ok: true as const, value: { groups: [

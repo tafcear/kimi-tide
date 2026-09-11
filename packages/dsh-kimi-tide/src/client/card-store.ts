@@ -45,6 +45,14 @@ export interface CardSnapshot {
    */
   catalog: Array<{ provider: string; models: string[] }> | null
   /**
+   * 模型显示名（'provider/model' → 宿主目录显示名，2026-09-11）：官方 Models
+   * 页/模型选择器同源的友好名（如 deepseek-flash → DeepSeek-V41-Flash）。
+   * null/缺键 = 目录未给名或通道未提供 → 下拉回退裸键（渲染与旧行为逐字一致）。
+   */
+  modelNames: Record<string, string> | null
+  /** 提供方显示名（provider id → 显示名，如 deepseek-official → DeepSeek）：下拉分组组头。 */
+  providerNames: Record<string, string> | null
+  /**
    * 候选可用性映射（'provider/model' → available）：目标集 = 所有预设的
    * default + 规则 target 去重；命中目录即为可用（无 allowedProviders
    * 白名单过滤）。null = 无灰态（无 connection 通道 / 目录拉取失败），
@@ -101,7 +109,7 @@ export interface ConnectionLike {
      */
     llm?: {
       models(request: Record<string, never>): Promise<{
-        result: SettingsRpcResult<{ groups: Array<{ id: string; models: Array<{ id: string }> }> }>
+        result: SettingsRpcResult<{ groups: Array<{ id: string; name?: string; models: Array<{ id: string; name?: string }> }> }>
       }>
     }
   }
@@ -172,6 +180,8 @@ export function createCardStore(
     writable: false,
     error: null,
     catalog: null,
+    modelNames: null,
+    providerNames: null,
     availability: null,
     mounted: null,
     efforts: null,
@@ -201,6 +211,8 @@ export function createCardStore(
       writable: s.writable,
       error: null,
       catalog: snapshot.catalog,
+      modelNames: snapshot.modelNames,
+      providerNames: snapshot.providerNames,
       availability: snapshot.availability,
       efforts: snapshot.efforts,
     })
@@ -208,29 +220,39 @@ export function createCardStore(
 
   /**
    * 候选灰态取数：拉宿主模型目录（llm.models）→ catalog 全量入快照（下拉
-   * 数据源）；availability 目标集 = 所有预设 default + 规则模型 target（flow
+   * 数据源），模型/提供方显示名同步入快照（2026-09-11 下拉与官方 Models 页
+   * 名称一致）；availability 目标集 = 所有预设 default + 规则模型 target（flow
    * 引用跳过）+ v5 流的 visionModel/reviewer 去重，命中目录即可用（无
-   * allowedProviders 白名单过滤）。失败/无通道 → catalog/availability 均
-   * null（无灰态），不占用 error 通道。
+   * allowedProviders 白名单过滤）。失败/无通道 → catalog/availability/
+   * modelNames/providerNames 均 null（无灰态、无名称→裸键），不占用 error 通道。
    */
   const loadAvailability = async (config: CardConfig | null): Promise<void> => {
     const llm = connection?.api.llm
     if (config === null || llm === undefined) {
       if (snapshot.availability !== null || snapshot.catalog !== null) {
-        publish({ ...snapshot, catalog: null, availability: null, mounted: null })
+        publish({ ...snapshot, catalog: null, modelNames: null, providerNames: null, availability: null, mounted: null })
       }
       return
     }
     try {
       const r = await llm.models({})
       if (!r.result.ok) {
-        publish({ ...snapshot, catalog: null, availability: null, mounted: null })
+        publish({ ...snapshot, catalog: null, modelNames: null, providerNames: null, availability: null, mounted: null })
         return
       }
       const catalog = r.result.value.groups.map((group) => ({
         provider: group.id,
         models: group.models.map((model) => model.id),
       }))
+      // 显示名映射：目录给了 name 才落键——缺名键由 UI 回退裸键，不编造。
+      const modelNames: Record<string, string> = {}
+      const providerNames: Record<string, string> = {}
+      for (const group of r.result.value.groups) {
+        if (group.name !== undefined) providerNames[group.id] = group.name
+        for (const model of group.models) {
+          if (model.name !== undefined) modelNames[`${group.id}/${model.id}`] = model.name
+        }
+      }
       const served = new Set<string>()
       for (const group of catalog) {
         for (const model of group.models) served.add(`${group.provider}/${model}`)
@@ -261,9 +283,9 @@ export function createCardStore(
         if (served.has(key)) availability[key] = true
         else if (providerServed.has(target.provider)) availability[key] = false
       }
-      publish({ ...snapshot, catalog, availability })
+      publish({ ...snapshot, catalog, modelNames, providerNames, availability })
     } catch {
-      publish({ ...snapshot, catalog: null, availability: null, mounted: null })
+      publish({ ...snapshot, catalog: null, modelNames: null, providerNames: null, availability: null, mounted: null })
     }
   }
 
@@ -274,13 +296,13 @@ export function createCardStore(
       try {
         const r = await connection.api.settings.describe({})
         if (!r.result.ok) {
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null, efforts: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, modelNames: null, providerNames: null, availability: null, efforts: null })
           return
         }
         const view = r.result.value.namespaces.find((n) => n.ns === CARD_NAMESPACE)
         if (view === undefined) {
           revision = undefined
-          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, availability: null, efforts: null })
+          publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, modelNames: null, providerNames: null, availability: null, efforts: null })
           return
         }
         revision = view.revision
@@ -292,6 +314,8 @@ export function createCardStore(
           writable: r.result.value.writable,
           error: null,
           catalog: snapshot.catalog,
+          modelNames: snapshot.modelNames,
+          providerNames: snapshot.providerNames,
           availability: snapshot.availability,
           efforts: snapshot.efforts,
         })

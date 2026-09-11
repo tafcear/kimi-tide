@@ -611,3 +611,42 @@ describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () =
     expect(html).not.toContain('检测到重复条件')
   })
 })
+
+describe('模型显示名（2026-09-11 与官方 Models 页/模型选择器一致）', () => {
+  /** 实机目录形状（session/modelCatalog）：groups 有序，模型/提供方名称在快照映射里。 */
+  const NAMED_CATALOG = [
+    { provider: 'deepseek-official', models: ['deepseek-flash', 'deepseek-v4-flash'] },
+    { provider: 'kimi-coding', models: ['k3'] },
+  ]
+  const NAMED = {
+    modelNames: {
+      'deepseek-official/deepseek-flash': 'DeepSeek-V41-Flash',
+      'deepseek-official/deepseek-v4-flash': 'DeepSeek-V4-Flash',
+      'kimi-coding/k3': 'Kimi K3',
+    },
+    providerNames: { 'deepseek-official': 'DeepSeek', 'kimi-coding': 'Kimi' },
+  }
+  const namedStore = (config: RouterConfigV4 | RouterConfigV5) => () =>
+    makeStore(baseSnapshot(config, { catalog: NAMED_CATALOG, ...NAMED }))
+
+  it('目标下拉按提供方分组（组头=显示名），选项文本=模型友好名，value 仍为 provider/model 键', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: namedStore(v5cfg('saving')) }))
+    // Fails if: 下拉继续渲染裸 provider/model 键（与官方「模型」页显示名不一致——实机报障本体）。
+    expect(html).toContain('<optgroup label="DeepSeek">')
+    expect(html).toContain('<optgroup label="Kimi">')
+    expect(html).toMatch(/<option value="deepseek-official\/deepseek-flash"[^>]*>DeepSeek-V41-Flash<\/option>/)
+    expect(html).toMatch(/<option value="kimi-coding\/k3"[^>]*>Kimi K3<\/option>/)
+    // 未命中显示名的键一律回退裸键（写入路径的值零变化）。
+    expect(html).toMatch(/<option value="kimi-coding\/k3"/)
+  })
+
+  it('目录未列出的并入目标（兜底键）→ 无组尾段 + 裸键显示；目录外 provider 不产生组', () => {
+    // 实机形态：自定义模型目录没收录、但配置里引用的模型（或插件自挂 provider）
+    // 必须保留回显——显示裸键，不编造名称。
+    const cfg = v5cfg('saving')
+    cfg.presets.saving = { ...cfg.presets.saving, default: { provider: 'custom', model: 'm1' } }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: namedStore(cfg) }))
+    expect(html).toMatch(/<option value="custom\/m1"[^>]*>custom\/m1<\/option>/)
+    expect(html).not.toContain('<optgroup label="custom">')
+  })
+})

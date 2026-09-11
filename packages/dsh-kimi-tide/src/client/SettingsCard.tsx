@@ -30,7 +30,7 @@
  * 不拦保存）；「试一句」outcome 增 review-flow 枝（文案 = 本轮路由到 <routed
  * 摘要> + <label>，label 已含「评审模型不可用」盲区语义）。
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createCardStore } from './card-store.js'
 import { Icon } from './icons.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
@@ -139,11 +139,17 @@ const omitKey = (obj: Record<string, string[]>, key: string): Record<string, str
 /** 目标下拉：只列可用（已挂载）模型；当前值未挂载时不作为 option 兜底，改灰字提示
  *  （用户裁定 2026-08-21：未接入的模型不应出现在下拉选择里）。
  *  flowOptions（0.6.0）：规则目标下拉追加「协作流」optgroup（调用方只传
- *  transcribe 流——P1 边界）；不传/空数组 = 无分组（v4 与默认模型下拉行为保持）。 */
+ *  transcribe 流——P1 边界）；不传/空数组 = 无分组（v4 与默认模型下拉行为保持）。
+ *  groups/labels（2026-09-11）：与官方 Models 页/模型选择器一致的显示——目录内
+ *  模型按提供方分组（组头 = 提供方显示名）、选项文本 = 模型友好名（title 悬停
+ *  可见完整 provider/model 键）；groups 缺席 → 按平铺 options 渲染（行为保持），
+ *  labels 缺键 → 回退裸键（写入路径的 value 零变化）。 */
 function TargetSelect(props: {
   label: string
   value: string
   options: string[]
+  groups?: Array<{ label?: string; options: string[] }>
+  labels?: Record<string, string>
   flowOptions?: Array<{ id: string; label: string }>
   unavailable: boolean
   disabled: boolean
@@ -152,6 +158,7 @@ function TargetSelect(props: {
   const flowOptions = props.flowOptions ?? []
   const known = props.options.includes(props.value)
     || flowOptions.some((flow) => flowValue(flow.id) === props.value)
+  const groups = props.groups ?? [{ options: props.options }]
   return (
     <span className="kt-target-wrap">
       {!known && (
@@ -167,9 +174,14 @@ function TargetSelect(props: {
         onChange={(e) => props.onChange(e.target.value)}
       >
         {!known && <option value="" disabled>— 选择目标 —</option>}
-        {props.options.map((option) => (
-          <option key={option} value={option}>{option}</option>
-        ))}
+        {groups.map((group, groupIndex) => {
+          const options = group.options.map((option) => (
+            <option key={option} value={option} title={option}>{props.labels?.[option] ?? option}</option>
+          ))
+          return group.label === undefined
+            ? <Fragment key={groupIndex}>{options}</Fragment>
+            : <optgroup key={groupIndex} label={group.label}>{options}</optgroup>
+        })}
         {flowOptions.length > 0 && (
           <optgroup label="协作流">
             {flowOptions.map((flow) => (
@@ -263,6 +275,9 @@ function FlowRow(props: {
   referenced: boolean
   writable: boolean
   modelOptions: string[]
+  /** 下拉分组/显示名（2026-09-11 与官方一致）：透传给 TargetSelect。 */
+  optionGroups: Array<{ label?: string; options: string[] }>
+  modelNames: Record<string, string>
   availability: Record<string, boolean> | null
   groupNames: string[]
   /** effort 选项取数（0.8.0 D3）：宿主档位表按 configKey 查询。 */
@@ -281,6 +296,8 @@ function FlowRow(props: {
             label={`${props.id} 视觉模型`}
             value={configKey(flow.visionModel)}
             options={props.modelOptions}
+            groups={props.optionGroups}
+            labels={props.modelNames}
             unavailable={props.availability?.[configKey(flow.visionModel)] === false}
             disabled={!props.writable}
             onChange={(value) => props.onSave({ ...flow, visionModel: parseTarget(value) })}
@@ -314,6 +331,8 @@ function FlowRow(props: {
             label={`${props.id} 评审模型`}
             value={configKey(flow.reviewer)}
             options={props.modelOptions}
+            groups={props.optionGroups}
+            labels={props.modelNames}
             unavailable={props.availability?.[configKey(flow.reviewer)] === false}
             disabled={!props.writable}
             onChange={(value) => props.onSave({ ...flow, reviewer: parseTarget(value) })}
@@ -533,6 +552,24 @@ export function SettingsCard(props: SettingsCardProps) {
   // 目标灰态：读快照 availability（数据源 = connection.api.llm.models，
   // 见 card-store.loadAvailability）；null（无通道/拉取失败）时无灰态。
   const availability = snapshot.availability
+  // 模型显示名（2026-09-11 与官方一致）：目录给的友好名（快照映射）；缺键回退裸键。
+  const modelNames = snapshot.modelNames ?? {}
+  const providerNames = snapshot.providerNames ?? {}
+  // 下拉分组：目录内模型按提供方分组（组头 = 提供方显示名，顺序随目录）；
+  // 目录未列出的并入目标（兜底键）+ 目录外 provider（无组可归）归入无组尾段。
+  // modelOptions 与分组渲染分离：已知值判定/去重仍走平铺键列表。
+  const optionGroups: Array<{ label?: string; options: string[] }> = []
+  {
+    const grouped = new Set<string>()
+    for (const group of catalog) {
+      const options = modelOptions.filter((key) => key.startsWith(`${group.provider}/`))
+      if (options.length === 0) continue
+      for (const key of options) grouped.add(key)
+      optionGroups.push({ label: providerNames[group.provider] ?? group.provider, options })
+    }
+    const extras = modelOptions.filter((key) => !grouped.has(key))
+    if (extras.length > 0) optionGroups.push({ options: extras })
+  }
   // effort 选项取数（0.8.0 D3）：宿主档位表（snapshot.efforts，configKey 索引）；
   // null/undefined（无通道/失败/模型未声明）→ 无档位可选（下拉禁用「跟随默认」）。
   const effortsOf = (target: RouteTarget): string[] | undefined =>
@@ -738,6 +775,8 @@ export function SettingsCard(props: SettingsCardProps) {
               label="默认模型"
               value={configKey(active.default)}
               options={modelOptions}
+              groups={optionGroups}
+              labels={modelNames}
               unavailable={availability?.[configKey(active.default)] === false}
               disabled={!writable}
               onChange={saveDefault}
@@ -851,6 +890,8 @@ export function SettingsCard(props: SettingsCardProps) {
                       label={`第 ${index + 1} 条 · 目标`}
                       value={targetKey}
                       options={modelOptions}
+                      groups={optionGroups}
+                      labels={modelNames}
                       flowOptions={transcribeFlowOptions}
                       unavailable={availability?.[targetKey] === false}
                       disabled={!writable}
@@ -1088,6 +1129,8 @@ export function SettingsCard(props: SettingsCardProps) {
               referenced={flowReferenced(flowId)}
               writable={writable}
               modelOptions={modelOptions}
+              optionGroups={optionGroups}
+              modelNames={modelNames}
               availability={availability}
               groupNames={groupNames}
               effortsOf={effortsOf}
