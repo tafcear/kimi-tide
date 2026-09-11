@@ -111,20 +111,24 @@ export function apply(ctx: Context): void {
    * 会话流刷满命令节点、会话日志重新膨胀（实机 2026-09-10），且信封解析
    * （{ok,value}）错位导致 dock 永远「加载中」。HTTP 路由零持久化、同源
    * 直读（/api 自带宿主 browser-trust fence），快照仍是宿主按 agent 现算。
-   * 失败一律返回 null：dock 保留上一帧/降级文案，不表面化成错误提示。
+   * 失败不静默：抛出带原因的 Error（HTTP 状态码 / 路由错误文案），由 dock
+   * 落定后显示在降级文案里——可观测优先于安静。
    */
   tideDockPanelSource.fetch = async (sessionId: string) => {
+    let response: Response
     try {
-      const response = await fetch(`/api/kimi-tide/panel?sessionId=${encodeURIComponent(sessionId)}`, {
+      response = await fetch(`/api/kimi-tide/panel?sessionId=${encodeURIComponent(sessionId)}`, {
         headers: { accept: 'application/json' },
       })
-      if (!response.ok) return null
-      const payload = await response.json() as { ok?: boolean; panel?: KimiTidePanelProjection | null }
-      if (payload?.ok !== true || payload.panel === null || payload.panel === undefined) return null
-      return payload.panel
-    } catch {
-      return null
+    } catch (error) {
+      throw new Error(`网络请求失败：${error instanceof Error ? error.message : String(error)}`)
     }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const payload = await response.json().catch(() => undefined) as { ok?: boolean; error?: string; panel?: KimiTidePanelProjection | null } | undefined
+    if (payload === undefined) throw new Error('响应体不是合法 JSON')
+    if (payload.ok !== true) throw new Error(payload.error ?? '路由返回 ok!=true')
+    if (payload.panel === null || payload.panel === undefined) throw new Error('路由未返回面板数据')
+    return payload.panel
   }
 
   // Settings-card nav label (spec §3.1): locale-bound `t('nav')` like the

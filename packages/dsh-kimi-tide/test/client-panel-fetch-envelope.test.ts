@@ -113,17 +113,13 @@ describe('tideDockPanelSource.fetch：面板取数 HTTP 路由（/api/kimi-tide/
     )
   })
 
-  it('HTTP 非 200（409 会话未激活）/ body ok!=true / fetch 抛错 → 一律 null', async () => {
+  it('HTTP 非 200 / body ok!=true / fetch 抛错 → 抛出带原因的 Error（dock 降级文案显示）', async () => {
     applyWith()
-    const cases: Array<unknown> = [
-      { ok: false, status: 409 },
-      { ok: true, json: async () => ({ ok: false, error: 'session not live' }) },
-    ]
-    for (const responseLike of cases) {
-      globalThis.fetch = vi.fn(async () => responseLike) as unknown as typeof fetch
-      expect(await tideDockPanelSource.fetch('session-1')).toBeNull()
-    }
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 409 })) as unknown as typeof fetch
+    await expect(tideDockPanelSource.fetch('session-1')).rejects.toThrow('HTTP 409')
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ ok: false, error: 'session not live' }) })) as unknown as typeof fetch
+    await expect(tideDockPanelSource.fetch('session-1')).rejects.toThrow('session not live')
     globalThis.fetch = vi.fn(async () => { throw new Error('network down') }) as unknown as typeof fetch
-    expect(await tideDockPanelSource.fetch('session-1')).toBeNull()
+    await expect(tideDockPanelSource.fetch('session-1')).rejects.toThrow('网络请求失败：network down')
   })
 })

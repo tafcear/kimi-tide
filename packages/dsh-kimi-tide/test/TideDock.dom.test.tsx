@@ -156,6 +156,15 @@ describe('TideDock 取数（1.2.0：拉模型优先于投影）', () => {
     expect(container.textContent).not.toContain('面板数据加载中')
   })
 
+  it('取数失败带原因 → 降级文案显示原因（不让人猜）', async () => {
+    await mountWith({
+      sessionId: 's',
+      useProjection: () => null,
+      fetchPanel: async () => { throw new Error('HTTP 401') },
+    })
+    expect(container.textContent).toContain('暂无面板数据（HTTP 401）')
+  })
+
   it('取数未落定（挂起的 promise）→ 保持加载中占位', async () => {
     await mountWith({ sessionId: 's', useProjection: () => null, fetchPanel: () => new Promise(() => {}) })
     expect(container.textContent).toContain('面板数据加载中')

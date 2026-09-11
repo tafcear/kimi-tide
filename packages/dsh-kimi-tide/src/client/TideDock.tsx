@@ -143,6 +143,8 @@ export function TideDock(props: TideDockProps) {
   const [fetched, setFetched] = useState<KimiTidePanelProjection | null | undefined>(undefined)
   /** 首次取数是否落定（成功或失败）：落定前才是「加载中」，落定后无数据是降级态。 */
   const [settled, setSettled] = useState(false)
+  /** 取数失败原因（空 = 未失败，只是无数据）——降级文案带上它，不让人猜。 */
+  const [degraded, setDegraded] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [expanded, setExpanded] = useState(props.defaultExpanded ?? false)
@@ -165,11 +167,15 @@ export function TideDock(props: TideDockProps) {
         const next = await fetchPanel(props.sessionId)
         if (live) {
           setSettled(true)
+          setDegraded('')
           if (next !== null) setFetched(next)
         }
-      } catch {
-        // 通道失败 = 无命令数据：保持已有帧，绝不把故障渲染成错误态。
-        if (live) setSettled(true)
+      } catch (error) {
+        // 通道失败：保留已有帧，但把原因带进降级文案——不让人对着「加载中」猜。
+        if (live) {
+          setSettled(true)
+          setDegraded(error instanceof Error ? error.message : String(error))
+        }
       }
     }
     refreshRef.current = pull
@@ -261,7 +267,7 @@ export function TideDock(props: TideDockProps) {
         <span className="kt-label kt-slot"><Icon name="moon" className="kt-ic-moon" /> 月汐</span>
         <span className="kt-dim">
           {settled
-            ? '暂无面板数据（路由关闭或取数通道不可用）'
+            ? (degraded !== '' ? `暂无面板数据（${degraded}）` : '暂无面板数据（路由关闭或取数通道不可用）')
             : '面板数据加载中…'}
         </span>
       </div>
