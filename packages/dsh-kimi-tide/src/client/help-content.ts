@@ -376,6 +376,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        id: 'usage-monthly',
+        title: '为什么面板显示还有额度，却报「已达上限」',
+        anchors: ['week-quota', 'fivehour-quota'],
+        body: [
+          '面板显示的是服务端返回的**周 / 5h 窗**；账号若另有**月度上限**，它不在这个窗里。',
+          'Kimi 的 403 文案就是 `monthly usage limit for this billing cycle`——周窗没满也可能被月上限挡住。',
+        ],
+      },
+      {
         id: 'usage-refresh',
         title: '刷新节奏',
         anchors: ['refresh'],
