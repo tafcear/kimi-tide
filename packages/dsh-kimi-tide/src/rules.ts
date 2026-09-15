@@ -26,12 +26,54 @@ export function explicitProvider(text: string): string | null {
  * kimi-coding 的便利别名；model 段允许 `[\w.-]`（覆盖 `qwen3.8-max`/`glm-5.3`）。
  */
 export function explicitDirective(text: string): { provider: string; model?: string } | null {
-  const m = /(?:^|[^\w@])@([\w-]{2,20})(?:\/([\w.-]{1,64}))?/.exec(text)
+  const m = DIRECTIVE_RE.exec(text)
   if (m === null) return null
-  const raw = m[1]!
+  return directiveOf(m[1]!, m[2])
+}
+
+/** @ 词法解析的正则（无 /g：exec 无状态，可安全复用）。 */
+const DIRECTIVE_RE = /(?:^|[^\w@])@([\w-]{2,20})(?:\/([\w.-]{1,64}))?/
+
+/** @ 词法解析的公共尾段（provider 别名归一 + model 段可选）——单一实现，勿复制。 */
+function directiveOf(raw: string, model: string | undefined): { provider: string; model?: string } {
   const provider = raw === 'kimi' || raw === 'kimi-tide' ? KIMI_PROVIDER : raw
-  const model = m[2]
   return model === undefined || model === '' ? { provider } : { provider, model }
+}
+
+/**
+ * 显式 @指令的**有效形式**（v1.3.0 Q6）：只有 @ 后面的名字确实是本路由器认识的
+ * provider（或别名）时才算指令；否则视同普通文本，规则链照常求值。
+ *
+ * **为什么需要**：词法层无法区分 `@zai-coding-cn`（真指令）与 `@deepseek-ai`
+ * （scoped 包名）/`@README`（文件引用）/路径片段——它们都是 `@[\w-]+`，**只有
+ * provider 知识能判**。误判的代价不只是"选错模型"：`decide` 在候选池为空时返回
+ * `keep`，**整条规则链被跳过**；同一判定还连累语义确认闸（router.ts 前置短路）与
+ * 评审流武装（reviewTriggerHit），三处一起静默失效。
+ *
+ * `known === null` 退化为纯词法结果（旧行为）——调用方拿不到目录时不误伤真指令。
+ */
+export function effectiveExplicitDirective(
+  text: string,
+  known: ReadonlySet<string> | null,
+): { provider: string; model?: string } | null {
+  if (known === null) return explicitDirective(text)
+  // 取**首个「已知」匹配**：前面的误判（scoped 包名 / @文件 / 路径片段）不得吞掉
+  // 后面的真指令（如「见 @deepseek-ai/x，另 @kimi 帮我看」）。
+  for (const m of text.matchAll(new RegExp(DIRECTIVE_RE.source, 'g'))) {
+    const d = directiveOf(m[1]!, m[2])
+    if (known.has(d.provider)) return d
+  }
+  return null
+}
+
+/** 预设里被点名的 provider（default + 非流转规则目标）——Q6「认识」的口径之一。
+ *  与 `pickExplicitTarget` 的「本预设已配置目标」同源，故两处不会漂移。 */
+export function configuredProviders(preset: RouterPreset): string[] {
+  const names = [preset.default.provider]
+  for (const rule of preset.rules) {
+    if (!isFlowTarget(rule.target)) names.push(rule.target.provider)
+  }
+  return names
 }
 
 /** 从消息批次提取最新一条用户文本。 */
@@ -201,8 +243,12 @@ export function claimedReviewGroups(config: RouterConfigAny): Set<string> {
 }
 
 /** 评审流触发判定（1.1.0 §5）：flows 注册表序首个「文本命中认领组（≥1 词）
- *  且 reviewer 可用」的 review 流。显式 @（含未知 provider，rules.ts:20 对
- *  未知 @ 返回非空）一律返 null——评审武装对一切显式 @ 关闭。
+ *  且 reviewer 可用」的 review 流。
+ *
+ *  **显式 @ 抑制（v1.3.0 Q6 收窄）**：只有**已知 provider** 的显式 @ 才抑制——
+ *  `@kimi` 这类真指令轮不武装评审；而 `@README.md` / `@deepseek-ai/…` 这类误判
+ *  （known 不含该名字）**不再静默关掉评审武装**。`known === null`（调用方拿不到
+ *  目录）退化为旧行为：任何 @ 都抑制。
  *  isReviewerAvailable 缺省恒真（纯函数默认路径）；decide 侧传 metas 判定、
  *  previewRoute 传 availability 判定（spec §4 盲区语义：此处 false 只影响
  *  武装，不影响抑制）。 */
@@ -210,8 +256,9 @@ export function reviewTriggerHit(
   config: RouterConfigAny,
   text: string,
   isReviewerAvailable: (target: RouteTarget) => boolean = () => true,
+  known: ReadonlySet<string> | null = null,
 ): { flowId: string; flow: ReviewFlow } | null {
-  if (explicitProvider(text) !== null) return null
+  if (effectiveExplicitDirective(text, known) !== null) return null
   if (config.version !== 5) return null
   for (const [flowId, flow] of Object.entries(config.flows)) {
     if (flow.type !== 'review' || flow.trigger !== 'keywords' || !flow.keywordGroup) continue
@@ -281,9 +328,13 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
   if (config.activePreset === null) return { hits, outcome: { kind: 'off', reason: '路由已关闭' } }
   const preset = config.presets[config.activePreset]
   if (preset === undefined) return { hits, outcome: { kind: 'off', reason: '激活预设不存在' } }
-  // 显式 @指令：与 decide 同款语义（v1.3.0 Q3）——精确寻址优先；provider 简写
-  // 按「本预设已配置目标 → 目录序」确定化，并把实际选择写进 reason（可解释）。
-  const explicit = explicitDirective(text)
+  // 显式 @指令：与 decide 同款语义（v1.3.0 Q3 精确寻址 + Q6 已知 provider 门控）——
+  // 精确寻址优先；provider 简写按「本预设已配置目标 → 目录序」确定化，并把实际选择
+  // 写进 reason（可解释）。catalog 取不到 ⇒ known=null ⇒ 退化纯词法（不误杀真指令）。
+  const known = deps.catalog == null
+    ? null
+    : new Set<string>([...deps.catalog.map((g) => g.provider), ...configuredProviders(preset), KIMI_PROVIDER])
+  const explicit = effectiveExplicitDirective(text, known)
   if (explicit !== null) {
     const models = deps.catalog?.find((group) => group.provider === explicit.provider)?.models
     const configured: RouteTarget[] = [
@@ -347,7 +398,8 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
   // 于路由链）。主判定传 availability（与 decide 侧武装语义一致）；组认领但
   // reviewer 不可用时回查不传——outcome 仍须为 review-flow 并经 label 显式
   // 标注盲区（spec §4：此处 false 只影响武装，不影响抑制）。
-  const armed = reviewTriggerHit(config, text, (t) => available(t)) ?? reviewTriggerHit(config, text)
+  const armed = reviewTriggerHit(config, text, (t) => available(t), known)
+    ?? reviewTriggerHit(config, text, undefined, known)
   if (armed !== null) {
     // 1.1.0 A8：reviewer 可用性 = availability 三态 ∧ 挂载表（mounted 提供
     // 时与 decide 侧 reviewerAvailable 同语义——ghost provider 目录/挂载表

@@ -115,9 +115,42 @@ describe('KimiRouter v4 decide', () => {
     // Fails if: 静默改道（用户点了名却拿到别的模型且界面不说明）
     expect((d as { reason: string }).reason).toContain('显式 @kimi-coding/not-a-real-model 不可用 → k3')
   })
-  it('显式 @provider 无可用候选 → keep', () => {
+  it('显式 @provider 已知但无可用候选 → keep（Q3 语义不变）', () => {
+    // kimi-coding 被省钱预设的规则点名（configuredProviders）⇒ 候选池里一个都没有也算
+    // 「认识」，保持 Q3 的「点了名就不静默改道」。
+    const metas = METAS.filter((m) => m.provider !== 'kimi-coding')
+    const r = new KimiRouter(cfg('saving'), metas, log)
+    const d = r.decide([textMsg('@kimi 你好')], 1)
+    expect(d).toMatchObject({ kind: 'keep' })
+    expect((d as { reason: string }).reason).toContain('无可用候选')
+  })
+  it('Q6（有意变更）：未识别的 @provider 落打底，不再 keep', () => {
+    // 原断言为 keep（夹具 @anthropic）。词法上 @anthropic 与 @README 完全同形、不可
+    // 区分 ⇒ 二选一：「误判时静默短路整条规则链」（2026-09-15 已造成实机损失）或
+    // 「真指令但 provider 未知时落打底 + 原因串写明被忽略」。选后者：打底可预测，
+    // keep 取决于上一轮是谁；且不是静默。
     const r = new KimiRouter(cfg('saving'), METAS, log)
-    expect(r.decide([textMsg('@anthropic 你好')], 1)).toMatchObject({ kind: 'keep' })
+    const d = r.decide([textMsg('@anthropic 你好')], 1)
+    expect(d).toMatchObject({
+      kind: 'route', via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    expect((d as { reason: string }).reason).toContain('@anthropic')
+  })
+  it('Q6：scoped 包名 / @文件 不再短路规则链（本次事件根因）', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    // Fails if: 词法命中即当指令 ⇒ @deepseek-ai 无候选 → keep，规则链被整条跳过
+    const pkg = r.decide([textMsg('请读 node_modules/@deepseek-ai/dsh-session 的导出，帮我重构这段周报')], 1)
+    expect(pkg).toMatchObject({
+      kind: 'route', via: 'rule', target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+    })
+    expect((pkg as { reason: string }).reason).toContain('已忽略')
+    expect(r.decide([textMsg('见 @README.md 的说明，帮我重构这段周报')], 1)).toMatchObject({ kind: 'route', via: 'rule' })
+  })
+  it('Q6：真指令不受影响（@kimi 仍 explicit、仍 Q3 确定化选择）', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    const d = r.decide([textMsg('@kimi 请读 node_modules/@deepseek-ai/x 的导出')], 1)
+    expect(d).toMatchObject({ kind: 'route', via: 'explicit', target: { provider: 'kimi-coding', model: 'k3' } })
+    expect((d as { reason: string }).reason).not.toContain('已忽略')
   })
   it('显式 @kimi 且带图：池限定多模态候选', () => {
     const metas: CandidateMeta[] = [

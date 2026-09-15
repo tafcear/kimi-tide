@@ -30,13 +30,13 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {
   CandidateMeta, CollaborationFlow, ReviewFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
 } from './config.js'
-import { configKey, isFlowTarget } from './config.js'
+import { configKey, isFlowTarget, KIMI_PROVIDER } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import { KIMI_TIDE_REVIEW_EVENT } from './projection.js'
 import { createReviewRunner, REVIEW_INPUT_LIMIT, type ReviewEventPayload, type ReviewRequest } from './review.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
 import { type HitConfirmGate } from './hit-confirm.js'
-import { explicitDirective, explicitProvider, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
+import { configuredProviders, effectiveExplicitDirective, explicitDirective, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -217,6 +217,25 @@ export class KimiRouter {
   }
 
   /**
+   * 「本路由器认识的 provider」全集（v1.3.0 Q6）——显式 @ 指令的有效性判据。
+   *
+   * = 候选目录全部 provider（**含 available:false 者**）∪ 预设已配置目标 ∪ 内置
+   *   kimi 别名（`KIMI_PROVIDER`）。
+   *
+   * 含不可用者是有意的：`@zai-coding-cn` 在 key 缺失时应保持 Q3 的 `keep`（用户
+   * 点了名就不静默改道），而不是被当成误判丢进规则链。加 `KIMI_PROVIDER` 是因为
+   * `@kimi`/`@kimi-tide` 是插件定义的常量别名，不是目录事实——目录枚举失败导致
+   * metas 为空时别名仍应可用。
+   */
+  knownProviders(): ReadonlySet<string> {
+    const names = new Set<string>(this.metas.map((m) => m.provider))
+    names.add(KIMI_PROVIDER)
+    const preset = this.config.activePreset === null ? undefined : this.config.presets[this.config.activePreset]
+    if (preset !== undefined) for (const provider of configuredProviders(preset)) names.add(provider)
+    return names
+  }
+
+  /**
    * 基于本步消息批次做决策。
    * `step` 为契约占位：每轮只在首个模型步判定的语义由 installRouter
    * （payload.step === 1 门控）完成，decide 本身不使用该参数。
@@ -239,12 +258,19 @@ export class KimiRouter {
     //    b) provider 简写的池内选择**确定化 + 可解释**——优先「本预设已配置过的目标」
     //       （default → 规则序），其次目录枚举序首个；原因串写出实际模型与依据。
     //       （实机教训：`@qwen-token-plan-cn` 曾落到池内首个 MiniMax-M2.5 = 未购买 → 403。）
-    const explicit = explicitDirective(text)
+    const explicit = effectiveExplicitDirective(text, this.knownProviders())
+    // Q6 可解释性：词法上像指令但被判为非指令时，原因串里交代一句（不静默）。
+    const lexExplicit = explicit === null ? explicitDirective(text) : null
+    const noteHead = lexExplicit === null ? '' : `@${lexExplicit.provider} 非本路由器已知 provider（已忽略）· `
     if (explicit !== null) {
       const pool = this.metas.filter(
         (m) => m.provider === explicit.provider && m.available && (!hasImage || m.modalities.includes('image')),
       )
-      if (pool.length === 0) return { kind: 'keep', reason: `explicit @${explicit.provider}: no available candidate` }
+      if (pool.length === 0) {
+        // Q6：走到这里说明 provider **是认识的**（unknown 已被上面挡掉）——保持 Q3
+        // 的「点了名就不静默改道」，只把原因写清楚（原文案中英混杂且不含"为何 keep"）。
+        return { kind: 'keep', reason: `显式 @${explicit.provider} 无可用候选（provider 已知但当前无可路由模型）` }
+      }
       if (explicit.model !== undefined) {
         const exact = pool.find((m) => m.model === explicit.model)
         if (exact !== undefined) {
@@ -316,15 +342,15 @@ export class KimiRouter {
           (m) => m.provider === flow.visionModel.provider && m.model === flow.visionModel.model && m.available,
         )
         if (vision === undefined) continue
-        return { kind: 'flow', flowId, flow, reason: `规则「${ruleLabel(rule)}」命中${note}（协作流 ${flowId}）`, via: 'rule' }
+        return { kind: 'flow', flowId, flow, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}（协作流 ${flowId}）`, via: 'rule' }
       }
       const meta = this.metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
       if (meta === undefined) continue
-      return { kind: 'route', target: { ...target }, reason: `规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
+      return { kind: 'route', target: { ...target }, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
     }
     // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
     // 被认领组命中不入链——全部命中被抑制时同样落此打底（1.1.0 §4）。
-    return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
+    return { kind: 'route', target: { ...preset.default }, reason: `${noteHead}预设「${preset.name}」默认`, via: 'default' }
   }
 
   /**
@@ -678,7 +704,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const gateCfg = gatePreset?.hitConfirm
       if (deps.hitConfirm !== undefined && gatePreset !== undefined && gateCfg?.enabled === true) {
         const turnText = latestUserText(payload.messages)
-        if (explicitProvider(turnText) === null) {
+        // Q6：判据与 decide 同源——`@README.md` / `@deepseek-ai/…` 这类误判不再
+        // 跳过语义闸（原来词法命中即短路，该问判官的一轮不问）。
+        if (effectiveExplicitDirective(turnText, router.knownProviders()) === null) {
           const head = routableHits(router.config, matchingScored(router.config, turnText, hasImage))[0]
           if (head !== undefined && head.rule.when.kind === 'keywords' && !isFlowTarget(head.rule.target)) {
             const verdict = await deps.hitConfirm.review(
@@ -792,11 +820,12 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       }
       // 6.5 评审流武装（1.1.0 §5.1，gated 形式——R7 裁定：运行期武装尊重
       // reviewer 可用性，无谓词 fallback 仅属 previewRoute）：显式 @ 由
-      // reviewTriggerHit 内部抑制（含未知 @，L6）；armed 每轮 step-1 重置/覆盖
+      // reviewTriggerHit 内部抑制（Q6 后只认**已知 provider** 的显式 @——`@README.md`
+      // 这类误判不再静默关掉武装）；armed 每轮 step-1 重置/覆盖
       // （L2：无 turn-stopping 的关闭路径残留至下一轮覆盖，静默跳过）。router
       // off 时 installRouter 整体未挂载，天然关闭。
       const turnText = latestUserText(payload.messages)
-      const hit = reviewTriggerHit(router.config, turnText, reviewerAvailable)
+      const hit = reviewTriggerHit(router.config, turnText, reviewerAvailable, router.knownProviders())
       // fix round 1 F1（R10）：feed 常挂（每 agent 一次，首个 step-1 即登记）——
       // lastTurn 滚动维护「不依赖 armed」（spec §5.2），trigger=manual（预置
       // 默认态）用户的手动命令才有上一轮可评；武装命中只决定 turn-stopping

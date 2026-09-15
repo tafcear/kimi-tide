@@ -181,6 +181,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        id: 'faq-at-ignored',
+        title: '我写了 @xxx，但路由没按它走',
+        body: [
+          '**只有真的 provider 才算指令**：`@` 后面若是工作区路径引用（`@README.md`）或 scoped 包名（`node_modules/@deepseek-ai/…`），不会被当成显式指令——该轮照常走关键词规则。',
+          '决策原因条会写明「`@x` 非本路由器已知 provider（已忽略）」；想点名就用 `@kimi` 或 `@provider/model`。',
+          '另一种情况：provider 认识、但当前没有可用模型（如 key 未配置）——这时**不会**改道，原因是「provider 已知但当前无可路由模型」。',
+        ],
+      },
+      {
         id: 'faq-no-decision',
         title: '面板没有决策原因条',
         body: ['本步是打底或「保持原样」——这两类按设计不上屏。', '规则命中或显式 @ 才会有原因条。'],

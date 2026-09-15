@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterRule } from '../src/config.js'
 import {
+  configuredProviders,
   duplicateRuleIds,
+  effectiveExplicitDirective,
   explicitDirective,
   explicitProvider,
   latestUserText,
@@ -33,6 +35,73 @@ describe('explicitProvider', () => {
     expect(explicitProvider('请 @kimi 审查这段代码')).toBe('kimi-coding')
     expect(explicitProvider('用@kimi-tide 看图')).toBe('kimi-coding') // 中文前导（非 \w）仍是指令
     expect(explicitProvider('@kimi 行首')).toBe('kimi-coding')
+  })
+})
+
+describe('effectiveExplicitDirective（Q6：已知 provider 门控）', () => {
+  const known = new Set(['kimi-coding', 'deepseek-official'])
+
+  it('known 含该 provider ⇒ 返回指令（provider 简写与 @provider/model 两种形态）', () => {
+    expect(effectiveExplicitDirective('@kimi 帮我看这段代码', known)).toEqual({ provider: 'kimi-coding' })
+    expect(effectiveExplicitDirective('@kimi/k3 来', known)).toEqual({ provider: 'kimi-coding', model: 'k3' })
+  })
+
+  it('known 不含 ⇒ null —— scoped 包名 / @文件 / 路径片段不再当指令', () => {
+    // Fails if: 词法命中即当指令 ⇒ @deepseek-ai 无候选即短路规则链（2026-09-15 事件根因）
+    expect(effectiveExplicitDirective('请读 node_modules/@deepseek-ai/dsh-session 的导出', known)).toBeNull()
+    expect(effectiveExplicitDirective('见 @README.md 的说明', known)).toBeNull()
+    expect(effectiveExplicitDirective('npm i @scope/pkg@1.2.3', known)).toBeNull()
+  })
+
+  it('known === null ⇒ 退化为词法结果（取不到目录时不误伤真指令）', () => {
+    expect(effectiveExplicitDirective('@kimi 你好', null)).toEqual({ provider: 'kimi-coding' })
+    // 降级路径行为与 0.5.x 一致：无法判定时宁可从宽
+    expect(effectiveExplicitDirective('@README.md 你好', null)).toEqual({ provider: 'README' })
+  })
+
+  it('无 @ / 邮箱 ⇒ null', () => {
+    expect(effectiveExplicitDirective('今天天气不错', known)).toBeNull()
+    expect(effectiveExplicitDirective('联系 user@example.com', known)).toBeNull()
+  })
+
+  it('取首个「已知」匹配——前面的误判不吞掉后面的真指令', () => {
+    expect(effectiveExplicitDirective('见 @deepseek-ai/x，另 @kimi 帮我看', known)).toEqual({ provider: 'kimi-coding' })
+  })
+})
+
+describe('configuredProviders（Q6：「认识」的口径之一）', () => {
+  it('取 default + 非流转规则目标；流转目标不计入', () => {
+    const c = DEFAULT_CONFIG_V5()
+    c.activePreset = 'saving'
+    c.presets.saving.rules.unshift({ id: 'flow-first', when: { kind: 'image' }, target: { flow: 'transcribe' } })
+    const names = configuredProviders(c.presets.saving)
+    expect(names).toContain('deepseek-official')
+    expect(names).toContain('kimi-coding')
+    expect(names).not.toContain('transcribe')
+  })
+})
+
+describe('previewRoute：@ 误判面（Q6，与 decide 同款语义）', () => {
+  const depsWith = (providers: string[]) => ({
+    catalog: providers.map((p) => ({ provider: p, models: ['kimi-for-coding'] })),
+    availability: null as Record<string, boolean> | null,
+  })
+  const savingV4 = () => { const c = DEFAULT_CONFIG_V4(); c.activePreset = 'saving'; return c }
+
+  it('scoped 包名 / @文件 不再判为显式 @：落规则 outcome', () => {
+    const p = previewRoute(savingV4(), '见 @README.md 的说明，帮我重构这个函数', depsWith(['deepseek-official', 'kimi-coding']) as never)
+    // Fails if: 词法命中即出 explicit 分支 ⇒ 「试一句」显示与 decide 不符
+    expect(p.outcome.kind).toBe('rule')
+  })
+
+  it('真指令不变：@kimi 仍是 explicit', () => {
+    const p = previewRoute(savingV4(), '@kimi 帮我看代码', depsWith(['deepseek-official', 'kimi-coding']) as never)
+    expect(p.outcome.kind).toBe('explicit')
+  })
+
+  it('目录取不到（catalog: null）⇒ 退化为词法结果，不误杀真指令', () => {
+    const p = previewRoute(savingV4(), '@kimi 帮我看代码', { catalog: null, availability: null } as never)
+    expect(p.outcome.kind).toBe('explicit')
   })
 })
 

@@ -92,9 +92,20 @@ describe('reviewTriggerHit', () => {
     expect(reviewTriggerHit(v5Claimed(), '帮我评审一下', () => false)).toBeNull()
     expect(reviewTriggerHit(v5Claimed(), '今天天气不错', () => true)).toBeNull()
   })
-  it('显式 @ 抑制：已知与未知 provider 都返 null', () => {
+  it('known 缺省（null）⇒ 退化为旧行为：任何 @ 都抑制（拿不到目录时不误伤判定）', () => {
     expect(reviewTriggerHit(v5Claimed(), '@kimi 帮我评审', () => true)).toBeNull()
     expect(reviewTriggerHit(v5Claimed(), '@unknown-provider 帮我评审', () => true)).toBeNull()
+  })
+  it('Q6：known 不含该名字 ⇒ 不抑制（scoped 包名/@文件 不再静默关掉评审武装）', () => {
+    const known = new Set(['kimi-coding'])
+    // Fails if: 词法命中即抑制 ⇒ 消息里提一个包名就整轮不评审
+    expect(reviewTriggerHit(v5Claimed(), '@README.md 帮我评审', () => true, known)?.flowId).toBe('review')
+    expect(
+      reviewTriggerHit(v5Claimed(), '请读 node_modules/@deepseek-ai/x 的导出，帮我评审', () => true, known)?.flowId,
+    ).toBe('review')
+  })
+  it('Q6：known 含该 provider ⇒ 仍抑制（Q3 语义不变）', () => {
+    expect(reviewTriggerHit(v5Claimed(), '@kimi 帮我评审', () => true, new Set(['kimi-coding']))).toBeNull()
   })
 })
 
