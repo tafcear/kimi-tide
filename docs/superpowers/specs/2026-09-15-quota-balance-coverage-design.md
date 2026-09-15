@@ -51,6 +51,8 @@
 - 自定义源配置面（用户在设置页自填 url/解析模板）——解析器形状无法用户自定义，配置面易做成半吊子；
 - moonshotai/openrouter/xiaomi-token-plan 等更多内置源（注册表加一行即可，按需后续版）；
 - per-model 用量（订阅与钱包都是 provider 级，无 per-model 数据源）；
+- **用本地观测到的请求量估算账号用量**（`@hk_net/pi-usage-bars` 的明确警告：其它客户端与会话会让该值不完整且误导）——宁可不显示，也不给一个错的数；
+- 持有浏览器会话 cookie 去读控制台配额（凭据面止于 API key 级，§5.2）；
 - 余额低水位告警/自动切预设（余额只是展示，不进路由决策）。
 
 ## 3. 数据模型（`types.ts` / `projection.ts`）
@@ -102,7 +104,7 @@ export function buildQuotaSources(ctx: Context, config: Config): QuotaSourceDesc
 |---|---|---|---|---|---|
 | 1 | `kimi-coding` | usage | `https://api.kimi.com/coding/v1/usages` | `parseQuotaSnapshot`（既有） | `resolveProviderKey('kimi-coding', 'KIMI_API_KEY')`（既有） |
 | 2 | `zai-coding-cn` | usage | `https://api.z.ai/api/monitor/usage/quota/limit` | `parseZaiQuota`（既有） | 既有 |
-| 3 | `qwen-token-plan-cn` | usage | **待钉**（§5.2） | `parseQwenTokenPlanQuota`（**待钉**） | `resolveProviderKey('qwen-token-plan-cn', 'QWEN_TOKEN_PLAN_CN_API_KEY')` |
+| 3 | `qwen-token-plan-cn` | usage | 无 API 面（§5.2 取证结论）——仅带 key 实测推翻后才有 url/parse | `parseQwenTokenPlanQuota`（同上，条件存在） | `resolveProviderKey('qwen-token-plan-cn', 'QWEN_TOKEN_PLAN_CN_API_KEY')` |
 | 4 | `deepseek-official` | balance | `<llm-deepseek.baseURL ?? https://api.deepseek.com>/user/balance` | `parseDeepSeekBalance`（§5.1） | `resolveLlmDeepseekKey()`（§4.1） |
 
 **编排变化**（`index.ts`）：monitor 从两个手工实例改为 `buildQuotaSources()` 遍历建 `UsageMonitor[]`（`UsageMonitor` 零改动——url/parse/resolveKey/pollMs 本就注入式）；`panelSnapshot.quotas` 改为遍历 monitors 组装（`index.ts:594-597` 重写，键 = descriptor.provider）；`/kimi-tide refresh` 的 composite 覆盖全部 monitors（`commands.ts:69-70` 注释语义「refresh 需覆盖全部已配源」落地）。
@@ -141,22 +143,21 @@ const resolveLlmDeepseekKey = (): () => Promise<string | null>
 
 `parseDeepSeekBalance`：`balance_infos` 数组缺失/空 → null；字段宽读（字符串金额原样透出，不 parseFloat——精度与币种符号归 UI）；`is_available` 透传快照（UI 可显示停用态）。
 
-### 5.2 qwen-token-plan-cn 用量（无官方文档，实施期钉契约）
+### 5.2 qwen-token-plan-cn 用量（**取证结论：无可用 API 面，如实降级**）
 
-**取证参考**（生态实现先例，本会话网络被 Clash fake-ip 全拦未能抓全文——实施期补）：
+**取证已做（2026-09-15，绕代理取证：Clash fake-ip 拦截期的 `curl -x http://127.0.0.1:7897` 通道）**：
 
-- CodexBar `docs/alibaba-coding-plan.md`（steipete/CodexBar）
-- OmniRoute：`getQwenTokenPlanUsage`（commit `abd4df6`）+「point bailian-coding-plan at the Token Plan endpoint」（commit `f22cf2e`）
-- oh-my-pi `docs/provider-quirks.md` + issue #8509（**北京区** token plan 配额上报有坑——宿主恰是 cn-beijing）
-- `@hk_net/pi-usage-bars` docs/provider-research.md
+1. **社区先例（结论级）**：`@hk_net/pi-usage-bars`（专做用量条的项目）docs/provider-research.md 明确把 Qwen Token Plan 标为 **"Status: Blocked — no account-usage surface found as of 2026-08-13"**：国际站 `token-plan.ap-southeast-1.maas.aliyuncs.com` 上**独立探测 8 条疑似用量路径全部 404**，且成功推理响应**不含任何配额/限流头**。同文警告：**不得用本地观测到的请求量去估算账号配额**（其它客户端与会话会让该值不完整且误导）——本设计采纳为明确非目标。
+2. **CodexBar `docs/alibaba-coding-plan.md`**：给出的是**阿里 Coding Plan**（`bailian.console.aliyun.com` 控制台）的 RPC 契约——`POST /data/api.json?action=zeldaEasy.broadscope-bailian.codingPlan.queryCodingPlanInstanceInfoV2&product=broadscope-bailian`，字段 `per5HourUsedQuota/TotalQuota/NextRefreshTime`、`perWeek*`、`perBillMonth*`。但：① 这是**与 Token Plan 不同的产品**；② 走**控制台会话 cookie**（`ALIBABA_CODING_PLAN_COOKIE`）而非 API key；③ 文档自陈国内账号常见 **`ConsoleNeedLogin`**（配了 API key 仍要求控制台登录）——与 oh-my-pi issue #8509「北京区 Token Plan 凭据配额上报不工作」互相印证。
+3. **本机实测探针（本设计新增证据，2026-09-15）**：对宿主实际使用的 `token-plan.cn-beijing.maas.aliyuncs.com` 无鉴权探测 11 条候选路径——`/usage`、`/api/v1/usage`、`/v1/usage`、`/quota`、`/api/v1/quota`、`/user/quota`、`/api/v1/user/quota`、`/api/v1/quota/usage`、`/v1/dashboard/billing/usage`、`/v1/dashboard/billing/subscription` **全部 404**；仅 `/compatible-mode/v1/*` 前缀返回 401。
+   **对照组证伪**：同前缀下探必然不存在的路径（`/compatible-mode/v1/zzz-not-a-real-path-9f3a`）返回**完全相同**的 401 + `{"code":"InvalidApiKey","message":"No API-key provided."}` ⇒ 该前缀是「先鉴权后路由」的兜底，**401 不构成「端点存在」的信号**。（记录此对照的意义：无对照时极易把 401 误读为端点存在。）
 
-**钉契约流程**（实施 Task 0，仓库有先例——zai 端点同为「公开文档未收录，实测钉形状」，`zai-usage.ts:1-9`）：
+**据此的设计（取代原「实施期钉契约」）**：
 
-1. 网络取证：抓上述参考实现源码，列候选端点与请求形状；
-2. 实测探针：用宿主已配 key 打候选端点（验收环境 curl，非生产代码路径）；
-3. 钉形状：`parseQwenTokenPlanQuota` + 测试夹具落盘（zai 同款：窗口字段/单位/ resetTime 语义全记录在源码头注释）。
-
-**失败退化**：契约钉不死（端点不可达/形状对不上）→ 源保持注册、parse 恒 null → 总览面板该行置灰「无数据」，**不阻塞其余三源与本版发布**（拆出跟进 issue）。
+- 该源**默认以「已知但无 API 面」注册**：descriptor 携带 `unavailableReason`（静态、文档化的真话），总览面板显示「该套餐无公开用量 API（需控制台查看）」——**与「取数失败」「key 未配置」是三种不同状态**（§6.2）。
+- 唯一能推翻上述结论的实验是**带 key 的实测**：对 `/compatible-mode/v1/usage` 发一次带 `Authorization: Bearer` 的 GET——200 带数据 = 推翻结论、立刻按实测形状实现解析器；404 = 确认无此 API；401 `InvalidApiKey` = key 侧问题。**该实验需用户凭据，实施期征得同意后执行**（不由本设计擅自取用密钥）。
+- 若实验证伪（大概率）：qwen 源保持登记 + 置灰 + `unavailableReason`，**本版交付面不受影响**（其余三源照常）。
+- 控制台 cookie 路径（CodexBar 的 Coding Plan 走法）**不实现**：让插件持有浏览器会话 cookie 是能力与风险的错配（本插件的凭据面止于 API key 级 per-operation read）。
 
 ## 6. UI（`TideDock.tsx` / `icons.tsx` / `styles.ts`）
 
@@ -180,12 +181,16 @@ const resolveLlmDeepseekKey = (): () => Promise<string | null>
 ```
 kimi-coding         用量  周 62% · 5h 12%        14:32
 zai-coding-cn       用量  周 38% · 5h 4%         14:32
-qwen-token-plan-cn  用量  周 71% · 5h 33%        14:32
+qwen-token-plan-cn  用量  该套餐无公开用量 API（需控制台查看）   —
 deepseek-official   余额  ¥110.00（赠10+充100）   14:30
-<无数据源>           —    无数据（key 未配置或取数失败）
+<无数据源>           —    无数据（key 未配置 / 取数失败）
 ```
 
 - 每行：provider 名 + kind 徽标 + 主值 + 取数时间（`stale` 标「过期」）；usage 行 title 带剩余量与 resetTime，balance 行 title 带分项。
+- **三种「没数」必须可区分**（本设计的诚实性要求，§5.2 是其存在理由）：
+  1. **无 API 面**——descriptor 的静态 `unavailableReason`（如 qwen：「该套餐无公开用量 API（需控制台查看）」）⇒ 显示真话，不暗示故障；
+  2. **无数据（key 未配置）**——有源、无凭据；
+  3. **无数据（取数失败/过期）**——有源、有凭据、这次没拿到（含 `stale`）。
 - 无数据行置灰但**恒渲染**（⑥-B 同语义：结构恒定防跳动，且「注册了但没数据」是可观测状态而非空白）。
 - 面板 role="dialog"/region + 标题「用量总览」；行用列表语义（ul/li）。
 
@@ -232,9 +237,10 @@ deepseek-official   余额  ¥110.00（赠10+充100）   14:30
 
 | # | 项 | 处置 |
 |---|---|---|
-| 1 | qwen 端点契约未钉（本会话外网全拦） | §5.2 Task 0 流程；失败退化不阻塞发布 |
-| 2 | 北京区 token plan 配额上报的已知坑（oh-my-pi #8509） | 取证时专门核对该 issue 描述的形态差异 |
-| 3 | key 未配置 vs 取数失败不可区分（快照同为 null） | v1 总览统一「无数据」+ title 双因；拆分（keyPresent 位）留后续版 |
+| 1 | qwen 无可用用量 API（取证充分：社区 Blocked + 本机 11 路径 404 + 401 对照证伪） | §5.2：默认按「无 API 面」如实标注；带 key 实测是唯一推翻路径，实施期征得同意后执行 |
+| 2 | 北京区账号即便有 API 也可能 `ConsoleNeedLogin`（oh-my-pi #8509 + CodexBar 文档双重印证） | 同上归入「无 API 面」处置；不做 cookie 路径 |
+| 3 | key 未配置 vs 取数失败不可区分（快照同为 null） | 本版总览分三态显示（§6.2：无 API 面/无凭据/取数失败）；拆分靠 descriptor 静态位 + 凭据可解析性，不需要新快照字段 |
 | 4 | 余额低水位不告警 | 非目标（§2）；后续版若做，进决策可观测而非路由 |
 | 5 | 60s 内多次面板取数命中同一快照 | 现状即如此（按需现读 + 2s 节流），不因本版改变 |
 | 6 | 多币种展示 | 正文取首条，tooltip 全列；DeepSeek 实际单币种 CNY，过度设计风险低 |
+| 7 | 无鉴权探测的 401 误读风险（本次差点误判端点存在） | 已写入 §5.2 对照实验记录；后续任何端点探测必须带「必然不存在」的对照组 |
