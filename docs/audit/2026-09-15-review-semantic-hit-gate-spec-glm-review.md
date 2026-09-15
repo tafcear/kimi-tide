@@ -1,6 +1,8 @@
 # 评审档案：语义命中确认闸设计稿（2026-09-15，独立模型评审）
 
-> **评审人**：**qwen3.8-max**（provider `qwen-token-plan-cn`；经 workflow 的显式 provider/model 覆盖派发——`@` 指令只能钉 provider 不能钉模型，`qwen-token-plan-cn` 池内首选未必是它）
+> **评审人**：**glm-5.3**（provider `zai-coding-cn`）
+> **更正记录（2026-09-15 复核）**：本档案原标「评审人 qwen3.8-max」、文件名原为 `…-spec-qwen-review.md`，**经实测证伪**。该轮 workflow 脚本确对三个 agent 同传 `provider: 'qwen-token-plan-cn', model: 'qwen3.8-max'`，但本份评审所在子会话 `4d7e03ba-a280-4979-a1c6-97d22309a92a` 的 `request/header` 与 `request/context` 均记录为 `zai-coding-cn/glm-5.3` ⇒ **本份评审实际由 glm-5.3 完成**（触发机制见 `docs/superpowers/backlog.md` Q6）。
+> **更正影响面**：仅署名——**结论与控制器复核结果不变**；独立性仍成立（glm-5.3 与作者 deepseek-flash 不同族，且本稿非 glm-5.3 所写——glm-5.3 写的是用量/余额稿）。
 > **评审对象**：`docs/superpowers/specs/2026-09-15-semantic-hit-gate-design.md`（305 行，commit `6f0c781`）
 > **评审结论**：**有条件同意**——核心机制锚点全部成立，但 §6 配置 schema 写法与本版核心承诺直接冲突（S1），另有 4 处中等编排缺口
 > **独立性**：评审者与作者（DSH 主 agent，deepseek-flash）**不同族**；本轮的 k3 首轮因 Kimi 月配额 403 中断（抢救记录见 `2026-09-15-review-interrupted-kimi-quota-salvage.md`）

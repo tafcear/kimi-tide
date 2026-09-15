@@ -2,7 +2,7 @@
 
 > **评审人（未完成）**：**kimi-coding/k3**，经三个子代理并行派发（提示词首行 `@kimi`，沿仓库 09-11 惯例用月汐显式 @ 路径路由）
 > **状态**：**三个子代理全部失败**，无最终报告产出——本文件抢救其死前推理轨迹中的可用结论，并记录失败原因与方法论教训
-> **后续**：同批三份 spec 已改派 **qwen3.8-max** 完成独立评审（见本目录另三份 `*-qwen-review.md`）
+> **后续**：同批三份 spec 已改派独立模型评审完成（见本目录另三份档案）——**署名复核更正（2026-09-15）**：三份中**仅用量/余额一份**实由 `qwen3.8-max` 完成，语义闸与说明页签两份实由 `glm-5.3` 完成（见该两份档案头部「更正记录」；机制见 `docs/superpowers/backlog.md` Q6）
 
 ---
 
@@ -45,7 +45,7 @@
 > 「Confirmed: `settings-schema.test.ts:8` asserts `routerConfigSchema(DEFAULT_CONFIG_V5())` toEqual DEFAULT_CONFIG_V5() — if hitConfirm is added to presetSchema as Schema.object, the injection of `hitConfirm: {}` into each preset would break this existing test」
 
 **控制器复核：成立。** 证据：`settings-schema.ts:63-71`（自述「对象/字典/数组型字段：缺失即注入 {}/[]，与是否带 default 无关」；并记载 v3 `default` 正因此**不入 schema**）；`test/settings-schema.test.ts:7-9`（往返相等断言）。
-**后续**：该发现在第二轮 qwen3.8-max 评审中被**独立复现并升级为严重项 S1**（见 `2026-09-15-review-semantic-hit-gate-spec-qwen-review.md` §1 S1）——两轮不同模型独立命中同一条，可信度高。
+**后续**：该发现在第二轮 glm-5.3 评审中被**独立复现并升级为严重项 S1**（见 `2026-09-15-review-semantic-hit-gate-spec-glm-review.md` §1 S1）——两轮不同模型独立命中同一条，可信度高。
 
 ### ② 用量/余额源全覆盖 spec —— 两条独立确认 + 一条新增
 
@@ -63,4 +63,4 @@
 - 三份正式评审报告（无最终结论）；
 - 说明页签 spec 的第一轮独立意见。
 
-**上述缺口已由 qwen3.8-max 第二轮全部补齐**（见同目录三份 `*-qwen-review.md`）。
+**上述缺口已由第二轮独立评审全部补齐**（署名复核后：语义闸与说明页签两份为 glm-5.3、用量余额一份为 qwen3.8-max；见同目录三份档案头部）。

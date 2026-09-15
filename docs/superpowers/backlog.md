@@ -11,7 +11,7 @@
 
 ### Q1 · 三份在途 spec 的 v2 回改（22 项必改）
 
-- **来源**：`docs/audit/2026-09-15-review-{semantic-hit-gate,quota-balance-coverage,panel-help-tab}-spec-qwen-review.md`（控制器逐项复核 22/22 成立、0 误报）
+- **来源**：`docs/audit/2026-09-15-review-semantic-hit-gate-spec-glm-review.md`、`docs/audit/2026-09-15-review-panel-help-tab-spec-glm-review.md`、`docs/audit/2026-09-15-review-quota-balance-coverage-spec-qwen-review.md`（控制器逐项复核 22/22 成立、0 误报；**评审者署名已于 2026-09-15 更正**——前两份实为 glm-5.3 完成，见各档案头部「更正记录」与 Q6）
 - **内容**：语义闸 6 项（含 S1 对象型 schema 注入破坏往返相等、M1 判否集合未穿进 re-decide 三处调用点）／用量余额 7 项（含 S1 三态无通路、M1 `UsageMonitor` 类型契约）／说明页签 9 项（含 M1 route 页签无单一面板节点、M2 `hidden` 语义不自洽）
 - **附带同步**（2026-09-15 配额条改语义后新增）：用量/余额稿 §6.1 与说明页签稿 §3① 的「配额槽」描述须改写为**剩余语义**（条=剩余比例、数字=剩余百分比、警示色含条身、`limit=0` 显示 `—`）；说明页签稿 ⑦ 的「额度槽显示 `—`」病因行需补「该窗无数据」这一因
 - **状态**：**进行中（2026-09-15）**——① 说明页签：spec v2 + **实施完毕**（`eece851`）；② 用量/余额：spec v2 + **实施完毕**（`36ff9ee` 数据层与自适应槽、`bb24af4` 总览面板、`909577d` Q5 结论与文档）——四源注册表、`QuotaLike` 拓宽、余额解析与三段 baseURL 链、`quotaSources` 三态元数据、dock 余额单槽 + 用量总览面板；③ 语义闸：spec v2 + **主体实施完毕**（`ccf82e1`：hit-confirm.ts 判官闸、`preset.hitConfirm` 不入 schema、`decide` 第 4 参与标注解耦、pre-step 前置短路、三处调用同带判否集），**设置页开关已落地（`b2ebecc`）**；余实机验收 A1–A8（用户执行，需先重启宿主）
@@ -59,6 +59,25 @@
 
 ---
 
+### Q6 · `@` 指令误判面过宽：`@scope/pkg`、`@路径` 类文本静默关掉规则路由
+
+- **来源**：用户提问「coding 的时候是谁在 coding，评审的时候为什么又变成了 glm」→ 控制器核查 workflow 三份 spec 评审的实际落点，发现两份落在 glm-5.3 而非请求的 qwen3.8-max；根因追到显式 `@` 分支（连带更正两份 audit 档案署名）
+- **证据链**（2026-09-15，构建产物 `lib/rules.js` 实跑）：
+  - **误判**：`请读 node_modules/@deepseek-ai/dsh-session 的导出` → `{provider:'deepseek-ai', model:'dsh-session'}`；`见 @README.md 的说明` → `{provider:'README'}`；`npm i @scope/pkg@1.2.3` → `{provider:'scope', model:'pkg'}`；`文件在 E:\…\@deepseek-ai\dsh\lib\index.js` → `{provider:'deepseek-ai'}`
+  - **正确项**（不受影响）：`@kimi 帮我看这段代码` → `kimi-coding`；`@qwen-token-plan-cn/qwen3.8-max 你好` → 精确寻址；`联系 user@example.com` → `null`
+  - **短路点** `packages/dsh-kimi-tide/src/router.ts:247`：`if (pool.length === 0) return { kind: 'keep', reason: 'explicit @x: no available candidate' }` ⇒ 未知 provider **不落规则链**，直接保持当前路由
+  - **连带** `packages/dsh-kimi-tide/src/router.ts:681`：`if (explicitProvider(turnText) === null)` ⇒ 同一误判还会**跳过语义确认闸**
+- **影响面**：本 Harness 的系统提示即把 `@` 前缀定义为**工作区路径引用**；本仓提示词又大量出现 `@deepseek-ai/…`、`@earendil-works/pi-ai` 等 scoped 包名 ⇒ **任何提到包名或 `@文件` 的轮次都会静默失去规则路由**（落回打底/派发时请求的目标），且原因串只写 `explicit @x: no available candidate`，用户看不出规则被跳过
+- **实机案例**：workflow 三 agent 同传 `qwen3.8-max`——用量余额那份 prompt 含 `@deepseek-ai` ⇒ 保持 qwen3.8-max；语义闸/说明页签两份无 `@` ⇒ 命中 `code` 组 ⇒ glm-5.3（两处子会话 `request/header` 实锤）
+- **方向**（未定，须先出 spec）：
+  - **A 收紧识别**：要求 `@` 为独立 token（行首或空白后，且其后跟行尾/空白/标点），或对 `/` 后模型段加约束（scoped 包名的斜杠后是包名而非模型）
+  - **B 未知 provider 不短路**：`pool.length === 0` 时**继续走规则链**，`keep` 只留给「router off / activePreset 缺失」这类真·非路由场景，原因串写明「`@x` 非已知 provider，已按规则链决策」
+  - **C 至少可解释**：原因串区分「已知 provider 但无可用候选」与「未知 provider」两类
+  - **建议组合 A + B**（A 减误判面，B 兜住漏网的误判）；注意 `keep` 对未知 provider 是否**有意为之**（Q3 选项 B 曾把它记为「宽容分支」）须在 spec 里先定性
+- **状态**：**排队**（2026-09-15 立）——**未并入 v1.3.0**：改 `decide` 显式分支语义会动到 Q3 刚落地的三项行为与既有 `explicitProvider`/`explicitDirective` 回归测试，须先出 spec 并做兼容性判断
+
+---
+
 ## 处置记录
 
 | 日期 | 条目 | 处置 |
@@ -71,3 +90,5 @@
 | 2026-09-15 | v1.3.0 版本面 | **完成**（`eecd86d`：包 1.3.0 + README 双语 + CHANGELOG + `release-notes-v1.3.0.md` 门禁过 + 验收清单 A1–A8 + router.md 三节） |
 | 2026-09-15 | 代码评审修复波 | **完成**（`b2ebecc`：glm-5.3 对三提交的 3 中等 + 6 轻微全部处置；档案 `docs/audit/2026-09-15-review-implementation-3commits-glm-review.md`） |
 | 2026-09-15 | 语义闸设置页开关 | **完成**（`b2ebecc`，spec §8.1） |
+| 2026-09-15 | 评审者署名更正 | **完成**——语义闸/说明页签两份档案实由 **glm-5.3** 评审（原标 qwen3.8-max）；文件更名 `…-spec-glm-review.md` 并加「更正记录」，用量余额一份署名经核对无误；引用同步 spec ×2、抢救档案 ×3、本文件 ×1 |
+| 2026-09-15 | Q6 `@` 误判面 | **排队**——证据与方向已登记，**未并入 v1.3.0**（改 `decide` 显式分支须先出 spec） |

@@ -1,6 +1,6 @@
 # 语义命中确认闸 v1.3.0 设计（关键词命中 → 打底模型实地确认）
 
-> 状态：**v2（2026-09-15 独立评审处置完成，见 §13）**——评审档案 `docs/audit/2026-09-15-review-semantic-hit-gate-spec-qwen-review.md`（qwen3.8-max 独立评审；控制器逐项复核 9 条成立、0 误报）
+> 状态：**v2（2026-09-15 独立评审处置完成，见 §13）**——评审档案 `docs/audit/2026-09-15-review-semantic-hit-gate-spec-glm-review.md`（glm-5.3 独立评审〔署名更正，见档案头部〕；控制器逐项复核 9 条成立、0 误报）
 > 版本归属：**v1.3.0**（配置形状零变更，但**改变既有配置的运行期语义**，按 1.1.0 先例走 minor）
 > 前置：0.7.0 关键词匹配准确性（`2026-08-25-keyword-matching-accuracy` 计划）、1.1.0 评审流认领（`2026-09-02-review-flow-design.md`）
 > 用户裁定（2026-09-15 本会话）：
@@ -308,7 +308,7 @@ export interface HitConfirm {
 
 ## 13. v2 修订（2026-09-15 独立评审处置）
 
-评审：`docs/audit/2026-09-15-review-semantic-hit-gate-spec-qwen-review.md`（qwen3.8-max；**1 严重 + 4 中等 + 6 轻微**；控制器复核 9 条成立、0 误报）。**本表即实施依据，与上文冲突处以本表为准。**
+评审：`docs/audit/2026-09-15-review-semantic-hit-gate-spec-glm-review.md`（glm-5.3；**1 严重 + 4 中等 + 6 轻微**；控制器复核 9 条成立、0 误报）。**本表即实施依据，与上文冲突处以本表为准。**
 
 ### 13.1 必改项
 

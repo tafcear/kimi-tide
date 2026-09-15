@@ -1,9 +1,11 @@
 # 评审档案：面板「说明」页签设计稿（2026-09-15，独立模型评审）
 
-> **评审人**：**qwen3.8-max**（provider `qwen-token-plan-cn`；经 workflow 显式 provider/model 覆盖派发）
+> **评审人**：**glm-5.3**（provider `zai-coding-cn`）
+> **更正记录（2026-09-15 复核）**：本档案原标「评审人 qwen3.8-max」、文件名原为 `…-spec-qwen-review.md`，**经实测证伪**。该轮 workflow 脚本确对三个 agent 同传 `provider: 'qwen-token-plan-cn', model: 'qwen3.8-max'`，但本份评审所在子会话 `0132a1ee-36bb-4ce8-9913-75935ab5bbfa` 的 `request/header` 与 `request/context` 均记录为 `zai-coding-cn/glm-5.3` ⇒ **本份评审实际由 glm-5.3 完成**（触发机制见 `docs/superpowers/backlog.md` Q6）。
+> **更正影响面**：仅署名——**结论与控制器复核结果不变**；独立性仍成立（与作者 deepseek-flash 不同族）。
 > **评审对象**：`docs/superpowers/specs/2026-09-15-panel-help-tab-design.md`（181 行，commit `1f68b20`）
 > **评审结论**：**有条件同意**——成熟度高（v1 接近可实施，锚点纪律出色，仅 2 处偏差）；无严重项；条件 = M1–M5 落实
-> **独立性**：与作者（deepseek-flash）不同族
+> **独立性**：与作者（deepseek-flash）不同族（评审者 glm-5.3）
 > **证据基础**：spec + `SettingsCard.tsx`/`styles.ts`/`TideDock.tsx`/`ReasonPanel.tsx`/`icons.tsx`/`client/index.ts`/`card-store.ts` + `test/SettingsCard.dom.test.tsx` + 仓库上一级目录的 UI 评审原文
 
 ---

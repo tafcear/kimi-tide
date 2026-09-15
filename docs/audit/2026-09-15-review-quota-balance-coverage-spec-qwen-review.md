@@ -1,6 +1,7 @@
 # 评审档案：用量/余额源全覆盖设计稿（2026-09-15，独立模型评审）
 
 > **评审人**：**qwen3.8-max**（provider `qwen-token-plan-cn`；经 workflow 显式 provider/model 覆盖派发）
+> **批次核对（2026-09-15）**：同批三份 spec 评审中**仅本份**的 `request/header` 确为 `qwen-token-plan-cn/qwen3.8-max`；另两份（语义闸、说明页签）实际落在 `zai-coding-cn/glm-5.3`，已在该两份档案头部加「更正记录」。差异根因见 `docs/superpowers/backlog.md` Q6。
 > **评审对象**：`docs/superpowers/specs/2026-09-15-quota-balance-coverage-design.md`（246 行，commit `c189be5`）
 > **评审结论**：**有条件同意**进入实施；成熟度 **可用级偏成熟**（核心架构判断成立，数据通路与类型契约有实质缺口）
 > **独立性**：与作者（deepseek-flash）不同族；评审被要求「先独立形成结论，再读作者自评，最后给重合/分歧/自评漏项」——**无实质分歧，额外发现 1 条自评漏项**
