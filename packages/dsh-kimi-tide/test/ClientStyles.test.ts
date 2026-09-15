@@ -52,6 +52,17 @@ describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
     expect(CLIENT_CSS).toMatch(/data-tab='flows'\] > :not\(\.kt-flows\):not\(\.kt-tabs\):not\(\.kt-error\)/)
   })
 
+  it("trial 页签隐藏选择器同豁免 .kt-error（2026-09-15 修：原行漏写，测试场页签藏错误横幅）", () => {
+    // Fails if: trial 行退回 :not(.kt-trial):not(.kt-tabs)（测试场页签看不到校验/保存错误）
+    expect(CLIENT_CSS).toMatch(/data-tab='trial'\] > :not\(\.kt-trial\):not\(\.kt-tabs\):not\(\.kt-error\)/)
+  })
+
+  it("隐藏规则不藏 .kt-saved（role=status 被 display:none 后不在无障碍树里，保存静默无播报）", () => {
+    // Fails if: flows/trial 行漏 :not(.kt-saved)——「已保存」在该页签既不显示也不播报
+    expect(CLIENT_CSS).toMatch(/data-tab='flows'\] > [^{]*:not\(\.kt-saved\)/)
+    expect(CLIENT_CSS).toMatch(/data-tab='trial'\] > [^{]*:not\(\.kt-saved\)/)
+  })
+
   it('A9 r2 行带 overflow 管理（窄窗口槽位溢出不顶破容器）', () => {
     // Fails if: .kt-dock-r2 退回无 overflow 控制
     expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock \.kt-dock-r2 \{[^}]*overflow: hidden/)

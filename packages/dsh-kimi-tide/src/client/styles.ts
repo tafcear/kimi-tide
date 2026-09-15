@@ -159,9 +159,11 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-tab-on { background: var(--kt-accent-soft);
       color: var(--kt-accent-strong); border-color: var(--kt-accent-line); font-weight: 600; }
     .kimi-tide-settings[data-tab='route'] > .kt-trial, .kimi-tide-settings[data-tab='route'] > .kt-flows,
-    /* 评审 P2-5：错误横幅任何页签可见（此前被 flows 页签的 :not 链藏住） */
-    .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs):not(.kt-error),
-    .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs) { display: none; }
+    /* 评审 P2-5 + 2026-09-15 修：错误横幅与「已保存」status 在任何页签都可见。
+       此前 flows 行只豁免 kt-error、trial 行两个都藏——被 display:none 的
+       role=status 不在无障碍树里，「已保存」既不显示也不播报（保存静默）。 */
+    .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs):not(.kt-error):not(.kt-saved),
+    .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs):not(.kt-error):not(.kt-saved) { display: none; }
     .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--kt-accent-strong); }
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     /* 设置导航图标标记：契约无 icon 字段——按文案标记自己的行后，

@@ -23,7 +23,7 @@
 - **证据**：`packages/dsh-kimi-tide/src/client/styles.ts:163`（flows 行）含 `:not(.kt-error)`，`:164`（trial 行）**缺失** ⇒ `data-tab='trial'` 时错误横幅被 `display:none` 吞掉
 - **影响**：UI 评审 P2-5 修复不彻底；用户在测试场页签看不到保存/校验错误
 - **方向**：给 trial 行补 `:not(.kt-error)`（另有 `.kt-saved` 同理待核）；新增 help 页签时必须写全
-- **状态**：**排队**（小改动，可随 Q1 说明页签 v2 一起进实施）
+- **状态**：**完成**（2026-09-15）——实测确认 `.kt-saved` 同样被 flows 行藏住，且 `role="status"` 被 `display:none` 后**不在无障碍树里 ⇒ 保存静默不播报**，故一行修两处：flows/trial 两行均补 `:not(.kt-error):not(.kt-saved)`；两条 CSS 结构钉测试（先红后绿）；597/597 绿
 
 ### Q3 · 显式 `@` 指令的模型选择缺陷（三项）
 
@@ -46,7 +46,8 @@
 - **来源**：说明页签评审 M4；控制器复核
 - **证据**：真实语义是**特异度降序、平手按列表序**（`rules.ts:104-123` 稳定排序；`router.ts:244` 遍历的是**排序后**列表）⇒「位置靠后但命中词更多」的规则会赢
 - **影响面**：`README.md` / `README.en.md` / `packages/dsh-kimi-tide/README.md` / `docs/router.md` 同款措辞；说明页签 ② 与 ⑦
-- **状态**：**排队**（随 Q1 文档面一起改；README 双语对需同提交）
+- **状态**：**完成**（2026-09-15）——实测只有 `README.md`（2 处：正文 + mermaid 节点）与 `README.en.md`（2 处同位置）含该措辞，包 README 与 `router.md` 无；历史文档（`plans/`、`specs/`、`audit/`、`.superpowers/`）按「时点记录不改写」原则保留原文。双语同提交，`check-readme-sync` 通过
+- **附带**：说明页签 ② 与 ⑦ 的措辞在 Q1 的 v2 里按同一口径改写（该稿尚未实施）
 
 ### Q5 · Kimi 配额口径待核：monthly 与周/5h 的关系
 
@@ -64,3 +65,5 @@
 |---|---|---|
 | 2026-09-15 | Q3 | 用户裁定「并入既有队列」，不单独开 spec（本文件建立即为此） |
 | 2026-09-15 | 配额条语义 | 用户裁定「逻辑反了」→ **已实施**（条=剩余、数字=剩余百分比、警示色含条身、`limit=0` 显示 `—`；595/595 绿 + typecheck 0 + build 过）；CHANGELOG 未发布节已记；Q1 附带同步项见上 |
+| 2026-09-15 | Q2 | **已完成**（trial 行补 `:not(.kt-error):not(.kt-saved)`，flows 行补 `:not(.kt-saved)`；+2 CSS 结构钉测试；597/597 绿） |
+| 2026-09-15 | Q4 | **已完成**（README 双语 4 处措辞改为特异度降序语义；`check-readme-sync` 通过） |

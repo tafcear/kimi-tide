@@ -48,7 +48,7 @@ With kimi-tide installed: **paste a screenshot and it goes to a model that can s
 When a message arrives, kimi-tide decides in this order:
 
 1. **Explicit pick**: the message says `@kimi` or similar → use it (highest priority).
-2. **Rule hit**: walk the preset's rules in order — has an image? hit a keyword group? → the first rule that fires wins.
+2. **Rule hit**: score the preset's rules — has an image? how many keyword-group words matched? → rules are sorted by **specificity** (more matched words first, image always first, ties keep list order) and the **first rule with an available target** wins (unavailable targets fall through to the next rule).
 3. **Baseline**: nothing fires → use the preset's default model.
 4. **Image guard**: even if a text-only model was picked, an image-bearing message is rerouted to a model that can see — no crashes.
 
@@ -56,7 +56,7 @@ When a message arrives, kimi-tide decides in this order:
 flowchart LR
     A["💬 Your message<br>(new this turn)"] --> B{"Explicit @model?"}
     B -- "@kimi etc." --> H["🎯 Explicit directive<br>highest priority"]
-    B -- no --> C["📏 Preset rule chain<br>image / keyword groups<br>first hit wins"]
+    B -- no --> C["📏 Preset rule chain<br>image / keyword groups<br>sorted by specificity · first available wins"]
     C -- hit --> D["🌙 Rule target: model | flow<br>(skipped if unavailable)"]
     C -- miss --> E["💰 Preset default<br>(baseline)"]
     H --> J
