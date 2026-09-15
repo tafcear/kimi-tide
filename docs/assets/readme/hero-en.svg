@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="1200" height="340" viewBox="0 0 1200 340"
      role="img" aria-labelledby="title desc">
-  <title id="title">kimi-tide — per-step model router for DSH: any mounted model, routed by your rules</title>
-  <desc id="desc">kimi-tide hero: the project name and one-line value on the left; on the right an open fan-out diagram — one message passes a decision point and routes to Kimi, DeepSeek, or any mounted provider/model, with rule chips and a decision-trail marker.</desc>
+  <title id="title">kimi-tide (MoonTide) — a small plugin for DSH that picks the AI for you: cheap for routine work, stronger for what matters</title>
+  <desc id="desc">kimi-tide hero: the project name and one-line value on the left; on the right a fan-out diagram — one message passes an auto-pick point and goes to a cheap AI, a stronger AI, or any other AI you connect, with four chips below: pictures go to a vision AI, coding goes to a smarter AI, daily work goes to the cheap one, and every pick stays visible.</desc>
 
   <rect width="1200" height="340" rx="26" fill="#0B1B2B"/>
 
@@ -15,20 +15,20 @@
   <!-- left: title block (58%) -->
   <g id="title-block" transform="translate(56 66)">
     <text x="0" y="0" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" letter-spacing="3" fill="#5B7A93">DSH · PER-STEP MODEL ROUTER</text>
+          font-size="16" letter-spacing="3" fill="#5B7A93">DSH PLUGIN · PICKS THE AI FOR YOU</text>
     <text x="0" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
           font-size="72" font-weight="700" fill="#E6F3FF">kimi-tide</text>
     <text x="348" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
           font-size="44" font-weight="600" fill="#7DD3FC">月汐</text>
     <text x="0" y="138" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="30" fill="#E6F3FF">Every step routed, every decision explained</text>
+          font-size="30" fill="#E6F3FF">Cheap AI for routine, smart AI for key work</text>
     <text x="0" y="184" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="22" fill="#9CC3E0">Any mounted model, routed by your rules</text>
+          font-size="22" fill="#9CC3E0">Save money, lose nothing — no more manual switching</text>
     <!-- principle microcopy -->
     <g id="principles" transform="translate(0 214)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
        font-size="16" fill="#5B7A93">
-      <text x="0" y="0">presets + rules + @directives</text>
-      <text x="0" y="26">candidate pool = every mounted model · no whitelist</text>
+      <text x="0" y="0">cheap for routine · smart for key · no switching back</text>
+      <text x="0" y="26">the pricey AI is billed by the slice, not the session</text>
     </g>
   </g>
 
@@ -43,7 +43,7 @@
     <rect x="172" y="90" width="48" height="48" rx="6" fill="#211708" stroke="#F59E0B" stroke-width="1.5"
           transform="rotate(45 196 114)"/>
     <text x="196" y="119" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="17" fill="#F59E0B">route</text>
+          font-size="17" fill="#F59E0B">pick</text>
 
     <!-- fan-out lines: two solid (example providers) + one dashed (open pool) -->
     <path d="M 118 114 L 172 114" stroke="#5B7A93" stroke-width="1.5" fill="none"/>
@@ -75,22 +75,22 @@
     <g id="ch-3">
       <rect x="306" y="142" width="176" height="60" rx="12" fill="#0B1B2B" stroke="#9CC3E0" stroke-width="1.5" stroke-dasharray="6 5"/>
       <text x="394" y="168" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-            font-size="20" fill="#9CC3E0">any provider</text>
+            font-size="20" fill="#9CC3E0">your other AI</text>
       <text x="394" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-            font-size="16" fill="#5B7A93">any mounted model</text>
+            font-size="16" fill="#5B7A93">plug in and go</text>
     </g>
 
     <!-- rule chips: the project's core content (presets + rules + @directives) -->
     <g id="rule-chips" transform="translate(-8 224)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
        font-size="16" fill="#E6F3FF">
-      <rect x="0" y="0" width="86" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
-      <text x="43" y="20" text-anchor="middle">@explicit</text>
-      <rect x="96" y="0" width="162" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
-      <text x="177" y="20" text-anchor="middle">image → multimodal</text>
-      <rect x="268" y="0" width="142" height="30" rx="15" fill="#10233A" stroke="#1E5A8A" stroke-width="1.2"/>
-      <text x="339" y="20" text-anchor="middle">keyword → rule</text>
-      <rect x="420" y="0" width="74" height="30" rx="15" fill="none" stroke="#F59E0B" stroke-width="1.2"/>
-      <text x="457" y="20" text-anchor="middle" fill="#F59E0B">trail</text>
+      <rect x="0" y="0" width="116" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
+      <text x="58" y="20" text-anchor="middle">pics → vision</text>
+      <rect x="124" y="0" width="128" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
+      <text x="188" y="20" text-anchor="middle">code → smarter</text>
+      <rect x="260" y="0" width="120" height="30" rx="15" fill="#10233A" stroke="#1E5A8A" stroke-width="1.2"/>
+      <text x="320" y="20" text-anchor="middle">daily → cheap</text>
+      <rect x="388" y="0" width="76" height="30" rx="15" fill="none" stroke="#F59E0B" stroke-width="1.2"/>
+      <text x="426" y="20" text-anchor="middle" fill="#F59E0B">visible</text>
     </g>
   </g>
 </svg>

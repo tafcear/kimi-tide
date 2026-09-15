@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="1200" height="340" viewBox="0 0 1200 340"
      role="img" aria-labelledby="title desc">
-  <title id="title">kimi-tide 月汐 — DSH 逐步模型路由器：任意已接入模型，按你的规则选路</title>
-  <desc id="desc">月汐 hero：左侧项目名与一句话价值，右侧开放分流图——一条消息经决策点分流到 Kimi、DeepSeek 或任何已挂载的 provider/模型，规则芯片与留痕标记说明每一步都可读、可查。</desc>
+  <title id="title">kimi-tide 月汐 — 装在 DSH 上的小插件：自动替你换 AI，日常走便宜的，关键走更强的</title>
+  <desc id="desc">月汐 hero：左侧是项目名与一句话价值；右侧分流图——一条消息经「自动挑」的分流点，走进便宜的 AI、更强的 AI，或你接上的任何其他 AI，底下四个芯片说明「贴图→看图」「写代码→更聪明」「日常活→便宜的」以及决策看得见。</desc>
 
   <rect width="1200" height="340" rx="26" fill="#0B1B2B"/>
 
@@ -15,20 +15,20 @@
   <!-- 左：标题区（58%） -->
   <g id="title-block" transform="translate(56 66)">
     <text x="0" y="0" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" letter-spacing="3" fill="#5B7A93">DSH · PER-STEP MODEL ROUTER</text>
+          font-size="16" letter-spacing="3" fill="#5B7A93">DSH 插件 · 自动换 AI</text>
     <text x="0" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
           font-size="72" font-weight="700" fill="#E6F3FF">kimi-tide</text>
     <text x="368" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
           font-size="44" font-weight="600" fill="#7DD3FC">月汐</text>
     <text x="0" y="138" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="30" fill="#E6F3FF">每步自动选模型，每个决策看得见</text>
+          font-size="30" fill="#E6F3FF">便宜的 AI 干日常，聪明的 AI 干关键</text>
     <text x="0" y="184" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="22" fill="#9CC3E0">任意已接入的模型，都按你的规则选路</text>
+          font-size="22" fill="#9CC3E0">省钱，还不掉链子——不用自己切来切去</text>
     <!-- 三原则微标 -->
     <g id="principles" transform="translate(0 214)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
        font-size="16" fill="#5B7A93">
-      <text x="0" y="0">预设 + 规则 + @指令</text>
-      <text x="0" y="26">候选池 = 宿主全部已挂载模型 · 无白名单</text>
+      <text x="0" y="0">省钱 · 不掉链子 · 不用记着切回来</text>
+      <text x="0" y="26">贵 AI 按「段」用，不按「整场会话」用</text>
     </g>
   </g>
 
@@ -43,7 +43,7 @@
     <rect x="166" y="90" width="48" height="48" rx="6" fill="#211708" stroke="#F59E0B" stroke-width="1.5"
           transform="rotate(45 190 114)"/>
     <text x="190" y="120" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="18" fill="#F59E0B">决策</text>
+          font-size="18" fill="#F59E0B">自动挑</text>
 
     <!-- 分流线：两条实线（示例 provider）+ 一条虚线（开放池） -->
     <path d="M 112 114 L 166 114" stroke="#5B7A93" stroke-width="1.5" fill="none"/>
@@ -75,22 +75,22 @@
     <g id="ch-3">
       <rect x="306" y="142" width="176" height="60" rx="12" fill="#0B1B2B" stroke="#9CC3E0" stroke-width="1.5" stroke-dasharray="6 5"/>
       <text x="394" y="168" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-            font-size="20" fill="#9CC3E0">任意 provider</text>
+            font-size="20" fill="#9CC3E0">你的其他 AI</text>
       <text x="394" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-            font-size="16" fill="#5B7A93">已挂载即可路由</text>
+            font-size="16" fill="#5B7A93">接上就能用</text>
     </g>
 
     <!-- 规则芯片行：项目核心内容（预设 + 规则 + @指令） -->
     <g id="rule-chips" transform="translate(-8 224)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
        font-size="16" fill="#E6F3FF">
       <rect x="0" y="0" width="98" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
-      <text x="49" y="20" text-anchor="middle">@ 显式</text>
+      <text x="49" y="20" text-anchor="middle">贴图 → 看图</text>
       <rect x="108" y="0" width="150" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
-      <text x="183" y="20" text-anchor="middle">带图 → 多模态</text>
+      <text x="183" y="20" text-anchor="middle">写代码 → 更聪明</text>
       <rect x="268" y="0" width="150" height="30" rx="15" fill="#10233A" stroke="#1E5A8A" stroke-width="1.2"/>
-      <text x="343" y="20" text-anchor="middle">关键词 → 规则</text>
+      <text x="343" y="20" text-anchor="middle">日常活 → 便宜的</text>
       <rect x="428" y="0" width="66" height="30" rx="15" fill="none" stroke="#F59E0B" stroke-width="1.2"/>
-      <text x="461" y="20" text-anchor="middle" fill="#F59E0B">留痕</text>
+      <text x="461" y="20" text-anchor="middle" fill="#F59E0B">看得见</text>
     </g>
   </g>
 </svg>
