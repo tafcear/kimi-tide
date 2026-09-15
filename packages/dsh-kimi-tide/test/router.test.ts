@@ -152,6 +152,21 @@ describe('KimiRouter v4 decide', () => {
     expect(d).toMatchObject({ kind: 'route', via: 'explicit', target: { provider: 'kimi-coding', model: 'k3' } })
     expect((d as { reason: string }).reason).not.toContain('已忽略')
   })
+  it('Q6 × 带图轮：未知 @ 不夺图优先，忽略说明仍进原因串', () => {
+    // Q6 评审「未覆盖的失败模式」：image 规则 ∞ 优先与 noteHead 的组合。
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    const d = r.decide([imageMsg(), textMsg('见 @README.md 的说明')], 1)
+    expect(d).toMatchObject({ kind: 'route', via: 'rule', target: { provider: 'kimi-coding', model: 'k3' } })
+    expect((d as { reason: string }).reason).toContain('已忽略')
+  })
+  it('Q6 × 判否集：被否规则不复活，忽略说明仍在原因串里', () => {
+    // Q6 评审「未覆盖的失败模式」：decide 第 4 参（omittedRuleIds）与门控的交错。
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    const d = r.decide([textMsg('见 @README.md 的说明，帮我重构这段周报')], 1, undefined, new Set(['code-kfc']))
+    // code 规则被否 ⇒ 落打底；noteHead 不因走的是打底分支而丢失
+    expect(d).toMatchObject({ kind: 'route', via: 'default' })
+    expect((d as { reason: string }).reason).toContain('已忽略')
+  })
   it('显式 @kimi 且带图：池限定多模态候选', () => {
     const metas: CandidateMeta[] = [
       { provider: 'kimi-coding', model: 'text-only-x', modalities: ['text'], available: true },

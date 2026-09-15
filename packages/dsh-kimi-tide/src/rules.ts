@@ -10,6 +10,13 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { KIMI_PROVIDER, configKey, isFlowTarget, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
 import type { RouterConfigAny } from './router.js'
 
+/** 词法层的 provider 名。
+ *
+ *  **注意（Q6）**：路由判定已改用 `effectiveExplicitDirective`——本函数只回答
+ *  「词法上 `@` 后面是什么」，**不知道这个 provider 是否真的存在**。拿它当
+ *  路由判据就是 Q6 修的那个 bug（`@README.md`/`@deepseek-ai/…` 被当指令 ⇒
+ *  整条规则链被跳过）。保留导出是因为词法边界回归测试与 `router.md` 的
+ *  分层说明仍以它为「词法层」的锚点。 */
 export function explicitProvider(text: string): string | null {
   return explicitDirective(text)?.provider ?? null
 }
@@ -50,13 +57,15 @@ function directiveOf(raw: string, model: string | undefined): { provider: string
  * `keep`，**整条规则链被跳过**；同一判定还连累语义确认闸（router.ts 前置短路）与
  * 评审流武装（reviewTriggerHit），三处一起静默失效。
  *
- * `known === null` 退化为纯词法结果（旧行为）——调用方拿不到目录时不误伤真指令。
+ * `known` 为 `null` / `undefined`（调用方拿不到目录）时退化为纯词法结果（旧行为）
+ * ——不误伤真指令。**宽松判空是有意的**：`undefined` 若漏进来会直接撞 `known.has`
+ * 抛 TypeError，而这条路径的全部意义就是"拿不到数据时别出事"。
  */
 export function effectiveExplicitDirective(
   text: string,
   known: ReadonlySet<string> | null,
 ): { provider: string; model?: string } | null {
-  if (known === null) return explicitDirective(text)
+  if (known == null) return explicitDirective(text)
   // 取**首个「已知」匹配**：前面的误判（scoped 包名 / @文件 / 路径片段）不得吞掉
   // 后面的真指令（如「见 @deepseek-ai/x，另 @kimi 帮我看」）。
   for (const m of text.matchAll(new RegExp(DIRECTIVE_RE.source, 'g'))) {
@@ -247,8 +256,8 @@ export function claimedReviewGroups(config: RouterConfigAny): Set<string> {
  *
  *  **显式 @ 抑制（v1.3.0 Q6 收窄）**：只有**已知 provider** 的显式 @ 才抑制——
  *  `@kimi` 这类真指令轮不武装评审；而 `@README.md` / `@deepseek-ai/…` 这类误判
- *  （known 不含该名字）**不再静默关掉评审武装**。`known === null`（调用方拿不到
- *  目录）退化为旧行为：任何 @ 都抑制。
+ *  （known 不含该名字）**不再静默关掉评审武装**。`known` 为 null/undefined（调用方
+ *  拿不到目录）退化为旧行为：任何 @ 都抑制。
  *  isReviewerAvailable 缺省恒真（纯函数默认路径）；decide 侧传 metas 判定、
  *  previewRoute 传 availability 判定（spec §4 盲区语义：此处 false 只影响
  *  武装，不影响抑制）。 */

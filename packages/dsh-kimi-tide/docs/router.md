@@ -120,18 +120,23 @@ decide(messages, step, hasImageOverride?):
   if activePreset === null → keep('router off')                       // 逃生舱
   text = latestUserText(messages)
   hasImage = hasImageOverride ?? messagesContainImage(messages)       // 锁存并入
-  1. 显式 @指令（最高优先级）：
-     explicit = explicitProvider(text)                                // @kimi/@kimi-tide → kimi-coding
+  1. 显式 @指令（最高优先级；v1.3.0 Q3 精确寻址 + Q6 已知 provider 门控）：
+     explicit = effectiveExplicitDirective(text, knownProviders())     // 只有**已知 provider** 才算指令；取首个「已知」匹配
+                                                                       // @README.md / @deepseek-ai/… 不算指令（Q6）
      if explicit:
        pool = metas.filter(provider === explicit && available && (!hasImage || 模态含 image))
-       pool 空 → keep('explicit @x: no available candidate')
-       否则 route(pool 首个候选, '显式 @x 指令', via: 'explicit')      // 只锁 provider 层；模型=枚举序首个可用
+       pool 空 → keep('显式 @x 无可用候选（provider 已知但当前无可路由模型）')   // 仅**已知** provider 可达此枝
+       explicit.model 命中 pool → route(该模型, '显式 @x/y 指令', via: 'explicit')          // Q3 精确寻址
+       explicit.model 未命中 → route(pickExplicitTarget(pool), '显式 @x/y 不可用 → z（依据）')
+       否则 → route(pickExplicitTarget(pool), '显式 @x 指令 → z（依据）')  // 确定化：预设已配置目标 → 目录序
+     else if 词法命中但 provider 未知 → 记 noteHead，前缀进后续各枝原因串：
+                                                                       // '@x 非本路由器已知 provider（已忽略）· '
   2. 预设规则链（首条目标可用者生效）：
      preset = presets[activePreset]；缺失 → keep('active preset not found') + warn
      for rule of matchingRules(config, text, hasImage):               // 按序返回全部命中
        if 目标不在枚举池或 available:false → 跳过该规则（降级，继续）    // 见「降级语义」
-       else → route(rule.target, `规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；（特异度最高）仅标注排序后首命中（0.8.x①：降级命中不误标）；image 规则无词数
-  3. 打底：route(preset.default, `预设「<name>」默认`, via: 'default')
+       else → route(rule.target, `<noteHead>规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；（特异度最高）仅标注排序后首命中（0.8.x①：降级命中不误标）；image 规则无词数
+  3. 打底：route(preset.default, `<noteHead>预设「<name>」默认`, via: 'default')
 ```
 
 - `RouteDecision`：`{ kind: 'route'; target; reason; via: 'explicit'|'rule'|'default' } | { kind: 'keep'; reason }`；0.3.x 的 `scoreDelta` 已退役。
@@ -674,3 +679,9 @@ fail-open（按原关键词结果走）。
 - **可解释**：词法命中但被判非指令时，原因串前缀 `@x 非本路由器已知 provider（已忽略）· `。
 - **有意变更**：未识别的 `@provider`（如 `@anthropic`）由 `keep` 改为落打底 + 说明；
   已知 provider 无可用候选仍 `keep`（原因串改为中文并写明"为何 keep"）。
+- **noteHead 只交代词法首个未知 @**（Q6 评审轻#4，**按设计保留**）：一句话里出现多个未知 `@` 时不逐一罗列——
+  提示词里成串的 scoped 包名会让原因串变成噪声。显式指令命中时其余未知 `@` 不提示（真指令已生效，无需解释）。
+- **preview/decide 的 known 集来自两次独立拉取**（Q6 评审轻#5）：宿主走 `enumerateCandidates`、
+  浏览器走 `llm.models({})`，公式同构但 adapter 更新与卡片刷新之间可**瞬时分叉**——「试一句 = 决策」
+  因此在分类层成立，极端瞬态下可能与实际决策的目标不同（A9 验收时对照试一句与实际决策）。
+  两侧降级也不对称：客户端 `catalog == null` 退化纯词法，宿主几乎恒有 metas 恒门控。

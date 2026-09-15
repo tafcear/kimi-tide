@@ -16,6 +16,7 @@ import {
   KimiRouter,
   type RouteDecision,
 } from '../src/router.js'
+import { HitConfirmGate } from '../src/hit-confirm.js'
 import { Transcriber, type ResolvedImage, type VisionCaller } from '../src/transcribe.js'
 
 /**
@@ -305,6 +306,54 @@ describe('installRouter step contract (regression: step===0 gate idled the route
     const second = await dispatch.request({ agent, turn: 1, step: 2, signal: signal() }, baseConfig)
 
     expect(second).toEqual(baseConfig)
+  })
+})
+
+describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1：spec §5 承诺项补交）', () => {
+  // Q6 把「显式 @ 轮」的定义从「词法命中」收窄为「已知 provider」。语义闸的前置
+  // 短路（router.ts 用同一判据）随之受益：`@README.md` 这类误判轮**现在会问判官**，
+  // 而不是被当成显式轮白跳过。本组用例钉住这条接线——回退成词法判定即红。
+  const gateConfig = (): RouterConfigV4 => {
+    const c = CONFIG()
+    c.presets.saving.hitConfirm = { enabled: true }
+    return c
+  }
+  const makeGate = (calls: string[]): HitConfirmGate =>
+    new HitConfirmGate({
+      call: async (req) => {
+        calls.push(req.input)
+        return '{"verdict":"hit","rule":"code-kfc","why":"真意图"}'
+      },
+    })
+
+  it('@README.md（非指令）⇒ 闸运行，判官被调用一次', async () => {
+    const calls: string[] = []
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      hitConfirm: makeGate(calls),
+    })
+
+    // Fails if: 前置短路仍用词法判定（explicitProvider）⇒ 误判轮被当成显式轮，判官零调用
+    await dispatch.preStep({
+      agent, messages: [textMessage('见 @README.md 的说明，帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('code-kfc')
+  })
+
+  it('@kimi（真指令）⇒ 闸短路，判官零调用', async () => {
+    const calls: string[] = []
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      hitConfirm: makeGate(calls),
+    })
+
+    await dispatch.preStep({
+      agent, messages: [textMessage('@kimi 帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+    expect(calls).toHaveLength(0)
   })
 })
 

@@ -74,7 +74,7 @@
   - **B 未知 provider 不短路**：`pool.length === 0` 时**继续走规则链**，`keep` 只留给「router off / activePreset 缺失」这类真·非路由场景，原因串写明「`@x` 非已知 provider，已按规则链决策」
   - **C 至少可解释**：原因串区分「已知 provider 但无可用候选」与「未知 provider」两类
   - **建议组合 A + B**（A 减误判面，B 兜住漏网的误判）；注意 `keep` 对未知 provider 是否**有意为之**（Q3 选项 B 曾把它记为「宽容分支」）须在 spec 里先定性
-- **状态**：**完成（2026-09-15，并入 v1.3.0）**——用户裁定「Q6 并入这一版，完成后再发」⇒ spec `docs/superpowers/specs/2026-09-15-at-directive-known-provider-design.md` + TDD 实施。**方向定案 A + C（B 被 A 吸收）**：新增 `effectiveExplicitDirective(text, known)` 与 `configuredProviders(preset)`，`known = 目录全部 provider（含不可用）∪ 预设已配置目标 ∪ KIMI_PROVIDER`；四处调用点同源（decide 显式分支 / 语义闸前置短路 / reviewTriggerHit / previewRoute）；取**首个已知匹配**（前面包名不吞后面真指令）；原因串前缀「`@x` 非本路由器已知 provider（已忽略）」；已知 provider 无候选仍 `keep`（Q3 语义保持）。**一处有意变更**：未识别的 `@provider`（如 `@anthropic`）由 keep 改落打底 + 说明——词法上与 `@README` 不可区分，必须在两种降级里选一边（原测试 `router.test.ts` 那条断言已按新语义改写并注明理由）。**验证**：655/655 绿（改前 641，+14 用例）、typecheck 0、build 过
+- **状态**：**完成（2026-09-15，并入 v1.3.0）**——用户裁定「Q6 并入这一版，完成后再发」⇒ spec `docs/superpowers/specs/2026-09-15-at-directive-known-provider-design.md` + TDD 实施。**方向定案 A + C（B 被 A 吸收）**：新增 `effectiveExplicitDirective(text, known)` 与 `configuredProviders(preset)`，`known = 目录全部 provider（含不可用）∪ 预设已配置目标 ∪ KIMI_PROVIDER`；四处调用点同源（decide 显式分支 / 语义闸前置短路 / reviewTriggerHit / previewRoute）；取**首个已知匹配**（前面包名不吞后面真指令）；原因串前缀「`@x` 非本路由器已知 provider（已忽略）」；已知 provider 无候选仍 `keep`（Q3 语义保持）。**一处有意变更**：未识别的 `@provider`（如 `@anthropic`）由 keep 改落打底 + 说明——词法上与 `@README` 不可区分，必须在两种降级里选一边（原测试 `router.test.ts` 那条断言已按新语义改写并注明理由）。**验证**：659/659 绿（改前 641，+18 用例——含评审修复波补的 4 条）、typecheck 0、build 过
 
 ---
 
