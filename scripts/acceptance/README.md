@@ -74,6 +74,21 @@ node scripts/acceptance/panel-legacy-scan.mjs --json
 
 同批顺带确认了**面板事件已停写**：全库 245 个会话，近 24h 更新的会话里 `kimi-tide/panel` 事件 **0 条**（v1.2.0 解耦生效的期望值）。
 
+## Q6 门控离线验收（`q6-gating-check.mjs`）
+
+`@` 在本 Harness 里同时是**工作区路径引用**语法与**路由指令**语法。修之前任何含 `@` 的文本都被当成显式指令；provider 不在候选池时 `decide` 返回 `keep` 并**整条跳过关键词规则链**（连带跳过语义确认闸、关掉评审流武装），界面上完全看不出规则被跳过。
+
+这个检查能离线跑完，是因为门控判据是纯函数、效果面（`decide`）也是纯函数（注入 metas 即可）——不必起宿主：
+
+```bash
+node scripts/acceptance/q6-gating-check.mjs          # 判据 10 例 + decide 三态 4 例
+node scripts/acceptance/q6-gating-check.mjs --json
+```
+
+退出码：`0` 全过 · `1` 有用例失败（附期望/实得） · `2` 取不到构建产物。
+
+**2026-09-15 实测全过**，四类关键行为：未识别 `@x`（`@README.md`/`@anthropic`）**落打底 + 原因串写明已忽略**；已知 provider 但无可用候选**仍 `keep`**（保 Q3「点了名就不静默改道」）；真指令且候选可用 ⇒ 精确寻址；`@kimi` 等内置别名不受影响。
+
 ## 判官离线探针（`judge-probe.mjs`）
 
 哨兵能告诉你「判官没成功」，**不能告诉你为什么**——判词在宿主进程内产出、只写 stdout。这个探针把**判官那一发请求**原样复现到进程外：用 `lib` 里真实的 `buildConfirmInput`，同样的 `maxTokens`、同样的线缆参数，只把传输换成本机 HTTP 直连。
