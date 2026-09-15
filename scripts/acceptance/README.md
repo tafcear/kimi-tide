@@ -74,6 +74,28 @@ node scripts/acceptance/panel-legacy-scan.mjs --json
 
 同批顺带确认了**面板事件已停写**：全库 245 个会话，近 24h 更新的会话里 `kimi-tide/panel` 事件 **0 条**（v1.2.0 解耦生效的期望值）。
 
+## 发布前一致性自检（`prepush-coherence.mjs`）
+
+已有的 `scripts/check-*.mjs` 各查一角（版本号 / README 双语骨架 / 发布正文四段 / 本地链接），但**没有一处**回答「**这次要发的新东西，有没有全部被讲到**」。本检查补这一角，五项：
+
+```bash
+node scripts/acceptance/prepush-coherence.mjs              # 含跑全量测试取实测数
+node scripts/acceptance/prepush-coherence.mjs --skip-tests # 只查一致性（快）
+node scripts/acceptance/prepush-coherence.mjs --json
+```
+
+| # | 查什么 |
+| --- | --- |
+| ① | 版本三方一致：`package.json` / CHANGELOG 首节 / README 双语版本行 |
+| ② | 发布正文条目数与 CHANGELOG 该节不背离（正文不应凭空多出 2 条以上） |
+| ③ | 发布正文里的**测试数 == 实测**（实跑 vitest 取数） |
+| ④ | **用户可见新特性逐条被讲到**：每条特性在「说明页 / README / README.en / CHANGELOG / 发布正文」里至少命中 N 个面 |
+| ⑤ | 干净度：仓库无 `.tmp-*`/`.bak` 残留、`src/` 无调试开关残留 |
+
+退出码：`0` 全过 · `1` 有项不过（逐条列出） · `2` 读取/环境错误。
+
+**2026-09-15 实测**（v1.3.0 推前）：版本三方一致、正文 14 条 vs CHANGELOG 25 条、**正文声称 691 = 实测 691**、7 条新特性全部 5/5 面命中、零残留 —— 全过。**并做过反例验证**：把正文测试数临时改成 12345 ⇒ ③ 精确报红并 exit 1（绿的检查不算证据）。
+
 ## Q6 门控离线验收（`q6-gating-check.mjs`）
 
 `@` 在本 Harness 里同时是**工作区路径引用**语法与**路由指令**语法。修之前任何含 `@` 的文本都被当成显式指令；provider 不在候选池时 `decide` 返回 `keep` 并**整条跳过关键词规则链**（连带跳过语义确认闸、关掉评审流武装），界面上完全看不出规则被跳过。
