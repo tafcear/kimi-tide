@@ -90,6 +90,18 @@
 
 ---
 
+### Q8 · 协作流设置的并发写栅栏（F-A4b 的落点，**部分定性、未修**）
+
+- **来源**：09-04 实机验收候选缺陷 F-A4b（切触发方式后 `settings.yaml` 的 `autoRevise: true` 被静默写成 `false`，而页内复选框仍显示 on）；2026-09-15 两次只读复查（第二次见 `plans/2026-09-04-review-flow-orchestration.md` 原位追加段）
+- **已排除**：① 客户端 payload 不丢字段（`SettingsCard.dom.test.tsx` 的 F-A4b 用例 + 两次切换断言 `autoRevise: true`）；② 「草稿陈旧」那条路（协作流表单**没有本地草稿**，每次 `onChange` 都从当前快照组装并立即写；关键词组那类形态已在 P2-4 修过）
+- **已定性**：`saveFlows` 是**整段覆盖**（`card-store.ts` → `saveTop('flows', flows)`，payload 由卡片快照组装）；宿主侧的乐观并发栅栏是齐的（`dsh-settings` 的 `update/replace/mutate` 收 `expectedRevision`，前移即抛 `SettingsConflictError`），**但 kimi-tide 没用上**——`saveTop` 走 `scope.set(field, value)`，而 owner scope 的公开面只有 `get/watch/update/replace`，**`SettingsScope` 上既无 `set` 也无 `revision`**（revision 只在 `describe()` 的 descriptor 上）
+- **未证（恢复时先做这一步）**：`scope.set` 在 rc.1 真机上的实际形状（`Object.keys(scope)` 探针 / 读 `ctx.settings.register` 返回对象的构造处）——**不确定它就写不出正确的栅栏改法**
+- **最可能场景（推断，附复现步骤）**：同页两张设置卡（或他端）并发提交时互相整段回滚。复现：开两张设置卡 → A 改 `rounds`、B 改 `trigger` → 看是否有一方的改动被回滚
+- **方向（待 scope 面核实后定）**：① 走 provider 面 `update(patch)` 做**局部写**（只带变更的字段）替掉整段覆盖，天然规避回滚；② 或给 scope 路径补 `expectedRevision`（前提是能拿到 revision，否则要先解决取数面）
+- **状态**：**排队（2026-09-15）**——定性完成、修复未做（缺真机核实与一个复现）
+
+---
+
 ## 处置记录
 
 | 日期 | 条目 | 处置 |
