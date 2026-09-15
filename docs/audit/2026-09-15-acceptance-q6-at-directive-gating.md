@@ -56,4 +56,43 @@
 
 ### 评审结论
 
-（待回填：严重 / 中等 / 轻微 / 优点 / 未核实项 / 评审方法）
+**有条件同意**——实现与 spec 主张逐条核实属实、变异判别力真实；两个条件**均已于本会话闭环**。
+
+#### 评审过程事故（S1，已修，责任在控制器）
+
+评审者按任务授权在工作树里做**原位变异测试**（把 `rules.ts:68` 的降级行改成
+`if (known == null || known.size >= 0) return explicitDirective(text)`——`known.size >= 0`
+恒真 ⇒ 函数变空操作 ⇒ Q6 门控**四处调用点全部退化为词法判定**，等于回滚到本次修复之前的 bug）。
+我在同一时段用 **`git add -A`** 提交验收档案，把这份**在途变异**一起扫进了 `58419a9`；
+评审者随后的 `git checkout` 是对着**已含变异的 HEAD** 还原的，所以它自己没救回来——**是评审者主动报告才被发现**（这一点值得记：评审者比控制器更早发现自己造成的污染）。
+
+- 修复：`git checkout 0e28be4 -- packages/dsh-kimi-tide/src/rules.ts` → 提交 `8923a8a`；`router.ts` 与全部测试未被波及（`git log 0e28be4..HEAD -- src test` 只命中 rules.ts）。
+- 涟漪处理：`v1.3.0` 附注 tag 已**重建**指向 `8923a8a`（否则发出去的 tag 内含带变异的提交），并用流水线同款路径复验（`check-release-notes --tag v1.3.0` OK）；`lib/` 已重建并以 `known == null` 断言核对。
+- **纪律（已写入协作日志）**：① 并行 agent 在改工作区时**不许 `git add -A`**——只 add 明确路径，提交前看 `git diff --cached --stat`；② **不许让子代理在共享工作树里做原位变异测试**（要变异就给 `git worktree`/副本，或要求它只列补丁）；③ 「我改完会还原」不是并发安全的保证。
+
+#### 两条中等的处置（均补测 + 变异实证）
+
+| # | 缺口 | 处置 | 变异验证（本次实跑） |
+| --- | --- | --- | --- |
+| M1 | `knownProviders()`「含 `available:false`」口径零测试钉住——既有的 keep 用例走的是 `configuredProviders` 通道 | `router.test.ts` 新增「provider 仅以 `available:false` 存在于 metas ⇒ 仍算认识 ⇒ keep」 | 把 `knownProviders` 改成 `.filter(m => m.available)` ⇒ **只有该用例红**（精确命中） |
+| M2 | `router.ts:881` 的 `reviewTriggerHit` 第 4 参无 wiring 级用例（既有用例只钉「真指令抑制武装」方向） | `review-orchestration.test.ts` 新增 4b「未知 `@README.md` ⇒ **不**抑制武装」 | 去掉第 4 参 ⇒ **只有 4b 红**（精确命中） |
+
+#### 轻微（3 条，均未修，登记备查）
+
+- **L1** `previewRoute` 无 `noteHead` 对应物（`rules.ts:401,430` vs `router.ts:303-304,389,393`）：路由**语义**两侧一致，仅可解释性不对称，且 spec/router.md 未声明。
+- **L2** `rules.ts:78-79` 注释称 `configuredProviders` 与 `pickExplicitTarget`「同源不会漂移」名不副实——实际是三份平行实现（`rules.ts:349-352`、`router.ts:403-406`）；语义今天一致，无机制防漂移。
+- **L3** 与已知 provider 同名的文件/目录仍会被当指令（`@kimi.md`、`@kimi-tide/kimi-tide`——本仓目录名即撞别名）。Q6 前后行为相同（**非回归**），但 spec §4 只讨论了「未知名不可区分」，未讨论「已知名碰撞」这一残留面。
+
+#### 评审核实的优点（3 条，摘）
+
+1. **单一实现纪律真实成立**：四处调用点全走 `effectiveExplicitDirective`，全 src grep 无漏网；残余词法用法仅三处且各有正当理由（降级路径、noteHead 解释器、带「不得当路由判据」JSDoc 的测试锚点）。
+2. **降级不误伤 + Q3 闭环落地**：`known == null` ⇒ 词法旧行为贯穿四点；`index.ts:209-219` 为「配置指向但目录缺失」补 `available:false` metas，使「已知无候选 ⇒ keep」在目录缺失时仍成立。
+3. **判别力经实际变异复现**：核心门控退回词法 ⇒ 9 用例红横跨 4 个测试文件；语义闸调用点退回词法 ⇒ 恰好 `router-wiring.test.ts:329` 一红——`de0f725` 声称的「变异实证」不是自述。
+
+#### 未核实 / 需运行期验证
+
+- 评审者的 M3/M4/M5 三个变异未实跑（其会话被截止）；其中 **M4（knownProviders 滤 available）已由本会话补跑**（见上表 M1 行），M3/M5 的核实方法已由评审者给出（改 `rules.ts:71-74` 为单匹配 / 删 `router.ts:881` 第 4 参）。
+- A9 实机验收、R6（preview/decide 两次拉取口径分叉，需宿主活体）、R1（枚举失败窗口期行为）离线不可构造，维持 spec 备案。
+- 本会话发现的补充边界：`known == null` 时门控退化为纯词法判定（见 A4），spec 未写成风险。
+
+**验证**：全量 `691/691 绿`（含新增 2 例）、typecheck 0、build 过、四个文档门禁过。

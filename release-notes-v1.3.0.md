@@ -30,7 +30,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-1.3.0.tgz
 
 ### 验证与验收
 
-- 测试：**688/688 通过**；typecheck 0 报错；build 通过（host + client）
+- 测试：**691/691 通过**；typecheck 0 报错；build 通过（host + client）
 - 实机验收：**路由面 A1/A6/A7/A9 已实机通过**（`@` 精确寻址、`@` 误判面、打底/改道、语义闸双向生效与判词缓存），清单与记录见 `docs/release-evidence.md` 的 v1.3.0 一节；另有两个不依赖宿主的离线验收工具可直接复跑：`scripts/acceptance/q6-gating-check.mjs`（`@` 门控 14 例）、`scripts/acceptance/panel-legacy-scan.mjs`（旧面板载荷容忍）
 
 ---
@@ -63,6 +63,6 @@ Compatibility: DSH ≥ `0.1.2-rc.1` (verified live on `0.1.5-rc.1`). **No `setti
 
 ### Verification & acceptance
 
-- Tests: **688/688 passing**; typecheck clean; build passing (host + client)
+- Tests: **691/691 passing**; typecheck clean; build passing (host + client)
 - Live acceptance: the routing surface **A1/A6/A7/A9 passed on the real host** (exact `@provider/model` addressing, `@` false-positive surface, default vs rule routing, and the semantic gate working in both directions with verdict caching); checklist and record in the v1.3.0 section of `docs/release-evidence.md`. Two host-independent checks can be re-run anytime: `scripts/acceptance/q6-gating-check.mjs` (`@` gating, 14 cases) and `scripts/acceptance/panel-legacy-scan.mjs` (legacy panel payload tolerance).
 - Live acceptance: checklist and record in the v1.3.0 section of `docs/release-evidence.md` (the A-series probes require restarting the host — the host half does not hot-reload)

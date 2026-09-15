@@ -124,6 +124,28 @@ describe('KimiRouter v4 decide', () => {
     expect(d).toMatchObject({ kind: 'keep' })
     expect((d as { reason: string }).reason).toContain('无可用候选')
   })
+  /**
+   * Q6 独立评审 M1（2026-09-15 补）：上一条走的是 **configuredProviders** 通道
+   * （夹具把 kimi-coding 的 metas 整个滤掉，靠"预设点过名"才算认识），因此
+   * `knownProviders()` 里那条**「含 `available:false` 者」**的口径此前没有任何用例钉住
+   * ——把实现改成 `.filter((m) => m.available)` 预计全绿存活。
+   *
+   * 这条口径是 spec §3.2 自称「防 Q3 回归」的关键：provider 明明在目录里、只是当前
+   * 无可用模型（key 缺失/未购买）时，`@它` 必须仍被当成真指令 ⇒ `keep`，而不是被
+   * 当成误判丢进规则链。
+   */
+  it('Q6/M1：provider 仅以 available:false 存在于 metas → 仍算「认识」⇒ keep', () => {
+    const metas = [
+      ...METAS,
+      { provider: 'zai-coding-cn', model: 'glm-5.3', modalities: ['text'], available: false },
+    ]
+    const r = new KimiRouter(cfg('saving'), metas, log)
+    const d = r.decide([textMsg('@zai-coding-cn 你好')], 1)
+    // Fails if: knownProviders 只收 available 者 ⇒ @zai-coding-cn 被判成误判、丢进
+    // 规则链（未命中词即落打底），而不是 Q3 要求的不静默改道。
+    expect(d).toMatchObject({ kind: 'keep' })
+    expect((d as { reason: string }).reason).toContain('无可用候选')
+  })
   it('Q6（有意变更）：未识别的 @provider 落打底，不再 keep', () => {
     // 原断言为 keep（夹具 @anthropic）。词法上 @anthropic 与 @README 完全同形、不可
     // 区分 ⇒ 二选一：「误判时静默短路整条规则链」（2026-09-15 已造成实机损失）或

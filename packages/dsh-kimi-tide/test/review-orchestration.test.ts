@@ -300,6 +300,24 @@ describe('review 编排：armed→累计→turn-stopping（spec §5）', () => {
     expect(agentFixture.append).not.toHaveBeenCalled()
   })
 
+  // 4b) Q6 独立评审的 M2 缺口（2026-09-15 补）：`reviewTriggerHit` 的第 4 参
+  //     （known 集）在 installRouter 侧**原本没有 wiring 级用例**——上面 4) 钉的是
+  //     「真指令 ⇒ 抑制武装」这个方向，而「**未知 @ ⇒ 不抑制**」这个方向没人钉。
+  //     判别力：把 router.ts 里传 `router.knownProviders()` 的那处退回不传（默认
+  //     null）⇒ 本用例红（未知 @ 会被当成显式轮而抑制武装）。
+  it('4b) 未知 @（@README.md）⇒ **不**抑制武装（Q6 修的就是这个方向，评审 M2）', async () => {
+    const fx = makeHarness()
+    const agentFixture = makeAgent()
+    installRouter(fx.ctx as never, new KimiRouter(v5Claimed(), metas(), { info: () => {} }), makeDeps().deps)
+
+    await armedTurn(fx, agentFixture, 7, '见 @README.md 的说明，帮我评审', ['产出'])
+    fx.turnStopping(agentFixture.agent, 7)
+    await flush()
+
+    // Fails if: 未知 @ 被当成显式轮 ⇒ 评审流不武装 ⇒ 零调用（Q6 修的就是这条）
+    expect(fx.streamCalls.length).toBeGreaterThan(0)
+  })
+
   it('5) turn 不匹配（armed turn=7，turn-stopping turn=8）→ 不发起评审', async () => {
     const fx = makeHarness()
     const agentFixture = makeAgent()
