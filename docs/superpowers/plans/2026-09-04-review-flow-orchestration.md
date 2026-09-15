@@ -1051,6 +1051,12 @@ git push
   - **候选缺陷 F-A4b**：协作流页切换无关字段（触发方式 keywords→manual→keywords）后 `settings.yaml` 的 `autoRevise: true` 被静默写为 `false`，而页内复选框仍显示 on——设置回写疑似丢字段，待复现修复；验收后已手工还原 `true`
     - **2026-09-15 复查（DSH）——客户端那一半排除，缺陷仍未复现**：新增 DOM 回归用例（`test/SettingsCard.dom.test.tsx`「F-A4b：切触发方式不改 autoRevise」）直接钉两次切换的 **payload**：两笔 `saveFlows` 都带 `autoRevise: true` ⇒ **卡片侧的 `{ ...flow, trigger }` spread 没丢字段**（若哪天改成只挑字段构造，据此立刻红）；同时断言复选框确实显示 on。
     - **因此丢字段只可能发生在写盘链**（`card-store.saveTop` → `scope.set` / `connection.api.settings.mutate` → 命名空间 schema → `settings.yaml`）。该链上有一条**已知的真实不对称**：`saveFlows` 是**整段覆盖**（`saveTop('flows', flows)`，payload 由**卡片拿到的快照**组装）——快照一旦陈旧（外部写入/双端并发/重挂载竞态），整段写回就会**静默把其他字段还原成快照里的旧值**，形态与 F-A4b 的观察一致。**这是目前最可疑的落点，但本次未复现，故不宣称已修。**
+    - **2026-09-15 二次复查（只读源码，三条结论 + 一条未证）**：
+      1. **「草稿陈旧」这条路已排除**：协作流表单**没有本地草稿**（`SettingsCard.tsx` 的 `useState` 清单里没有 flows 草稿；每次 `onChange` 都从当前快照 `flows` 组装并立即写），而关键词组那种「草稿仅挂载时初始化 → 外部推送后用旧草稿整段覆盖」的形态**已在 P2-4 修过**（`SettingsCard.tsx:231-237`）。所以 F-A4b 不是 P2-4 那类。
+      2. **宿主侧的并发栅栏是齐的**：`dsh-settings` 的 `update/replace/mutate` 都收 `expectedRevision`，命名空间已前移即抛 `SettingsConflictError`（`lib/index.js:399-460`，`if (expectedRevision !== undefined && expectedRevision !== registration.revision) throw …`）。
+      3. **但 kimi-tide 的写路径没用上它，而且拿不到它**：`card-store.saveTop` 走 `scope.set(field, value)`（`card-store.ts:336-365`），而 owner scope 的公开面只有 `get/watch/update/replace`（`dsh-settings/lib/types/index.d.ts:84-110`）——**`SettingsScope` 上既没有 `set`，也没有 revision**（revision 只出现在 `describe()` 的 descriptor 上，`index.d.ts:58-61`）；宿主 bundle 里 grep 不到 `set(` 的实现方法。⇒ 「给 scope 路径补乐观并发」**不是能静态确定的改法**。
+      - **未证**：`scope.set` 在真机上的实际形状（是 rc.1 的兼容别名、还是要 set/unset 的旧面？）。**核实方法**：在活体宿主的设置卡里打断点/加一次性探针打印 `Object.keys(scope)`，或读 `ctx.settings.register` 返回对象在 rc.1 下的构造处。
+      - **留给 F-A4b 的最可能解释**：真实场景里**同页两张设置卡**（或他端）并发提交时，整段覆盖会把对方的改动回滚——这与当时「页内复选框仍显示 on、文件里已变 false」的现象吻合（本卡的快照说 true、写入 payload 也带 true，但被对方的写入**先**落盘后本卡的 `load()` 又读了对方的值）。**仍属推断**，需要一个真机复现（开两张设置卡、A 改 rounds、B 改 trigger，看是否互相回滚）。
 - **宿主平台回归（2026-09-05 01:2x 发现，`f8d236e` 已绕开）**：dsh 宿主 09-03 21:15 升级 `0.1.2-rc.1` 后，插件设置卡经 api-remotes connection 的 `api.settings.describe` / `api.llm.models` 便利面被移除（connection 只剩低层 rpc/generation）。kimi-tide 已改走 loopback typed remote；effort 下拉的灰态/选项在 llm 命名空间懒挂载完成前仍可能降级（已知限制，不阻塞门禁）。上游 face 摘除是否有意，建议随发版后跟进确认
 - **观察项（非阻塞）**：新建会话的 `kimi-tide/review` 投影行出现其他会话的评审记录展示态（服务端评审缓存本身会话级隔离，A7 已证）；发版前核实该展示面口径
 - **环境注**：验收中 bsk 守护进程自动升级 0.1.11→0.2.0 致一次 browser_session start 被中止（瞬时，重试通过）；browser-skill-dsh-plugin 0.1.2→0.2.0（可访问性输出噪音消失）
