@@ -191,3 +191,83 @@ describe('TideDock 决策面板 portal 悬浮层', () => {
     }
   })
 })
+
+describe('TideDock 用量总览 portal（用量/余额 spec §6.2）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  const mount = async (panel: KimiTidePanelProjection) => {
+    container = document.body.appendChild(document.createElement('div'))
+    root = createRoot(container)
+    await act(() => { root.render(createElement(TideDock, { sessionId: 's', useProjection: () => panel })) })
+  }
+
+  const openOverview = async () => {
+    const toggle = container.querySelector('[data-kt-el="overview-toggle"]')!
+    await act(() => { toggle.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+  }
+
+  beforeEach(() => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  afterEach(async () => {
+    await act(() => { root.unmount() })
+    container.remove()
+  })
+
+  const overviewPanel = (): KimiTidePanelProjection => makePanel({
+    quotaSources: [
+      { provider: 'kimi-coding', kind: 'usage', state: 'ok' },
+      { provider: 'qwen-token-plan-cn', kind: 'usage', state: 'no-api', reason: '该套餐无公开用量 API（需控制台查看）' },
+      { provider: 'deepseek-official', kind: 'balance', state: 'ok' },
+      { provider: 'zai-coding-cn', kind: 'usage', state: 'failed', reason: '取数失败' },
+    ],
+    quotas: {
+      'kimi-coding': {
+        weekly: { used: 25, limit: 100, resetTime: 'w' },
+        fiveHour: { used: 50, limit: 100, resetTime: 'f' },
+        membershipLevel: 'L1', fetchedAt: 1, stale: false,
+      },
+      'deepseek-official': {
+        kind: 'balance',
+        balances: [{ currency: 'CNY', total: '110.00', granted: '10.00', toppedUp: '100.00' }],
+        available: true, fetchedAt: 1, stale: false,
+      },
+      'zai-coding-cn': null,
+    },
+    decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
+  })
+
+  it('打开后挂 body 层 portal，四个源各一行（用量 / 余额 / 无 API 面 / 取数失败四态齐）', async () => {
+    await mount(overviewPanel())
+    expect(document.querySelector('#kt-quota-overview')).toBeNull()
+    await openOverview()
+    const pop = document.querySelector('#kt-quota-overview')!
+    expect(pop).not.toBeNull()
+    // Fails if: 总览回退内联渲染（推挤 dock 文档流）
+    expect(container.querySelector('#kt-quota-overview')).toBeNull()
+    expect(pop.getAttribute('role')).toBe('dialog')
+    expect(pop.querySelectorAll('li')).toHaveLength(4)
+    const text = pop.textContent ?? ''
+    expect(text).toContain('kimi-coding')
+    expect(text).toContain('周剩75%')
+    expect(text).toContain('¥110.00')
+    // 三态各自说真话，不合并成笼统「无数据」
+    expect(text).toContain('该套餐无公开用量 API')
+    expect(text).toContain('取数失败')
+    // 只读：无按钮/表单控件
+    expect(pop.querySelectorAll('button, input, select, textarea')).toHaveLength(0)
+  })
+
+  it('Esc 关闭总览；再点按钮可再次打开（开合闭环）', async () => {
+    await mount(overviewPanel())
+    await openOverview()
+    expect(document.querySelector('#kt-quota-overview')).not.toBeNull()
+    await act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    // Fails if: Esc 监听缺失（悬浮层无法收起）
+    expect(document.querySelector('#kt-quota-overview')).toBeNull()
+    await openOverview()
+    expect(document.querySelector('#kt-quota-overview')).not.toBeNull()
+  })
+})

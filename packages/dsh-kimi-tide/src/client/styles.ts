@@ -232,6 +232,20 @@ export const CLIENT_CSS = `
     .kt-dock-pop::before { content: ''; display: block; height: 2px; border-radius: 2px;
       margin: -2px -4px 6px; background: linear-gradient(90deg, var(--kt-accent), rgb(139 111 244 / 0.12)); }
     .kt-dock-pop .kt-reason { border-top: none; padding: 0; gap: 5px; }
+    /* 总览入口按钮（独立类，勿复用 .kt-refresh——那是刷新按钮的测试钩子，
+       2026-09-15 实测复用会让 .kt-refresh 选择器同时命中两个元素） */
+    .kimi-tide-dock .kt-ov-toggle { display: inline-flex; align-items: center; padding: 0;
+      border: 0; background: transparent; color: inherit; cursor: pointer; }
+    /* 用量总览（spec §6.2）：一屏列全部源；无数据行置灰但恒渲染（结构恒定） */
+    .kt-dock-pop.kt-ov { width: min(360px, calc(100vw - 16px)); }
+    .kt-ov-list { list-style: none; margin: 6px 0 0; padding: 0;
+      display: flex; flex-direction: column; gap: 4px; }
+    .kt-ov-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+    .kt-ov-row.kt-dim { opacity: 0.55; }
+    .kt-ov-provider { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kt-ov-kind { flex: none; font-size: 11px; color: var(--dsw-alias-label-secondary, #8b93a7); }
+    .kt-ov-value { flex: none; font-variant-numeric: tabular-nums; }
+    .kt-ov-when { flex: none; font-size: 11px; color: var(--dsw-alias-label-secondary, #8b93a7); }
 
     /* ---- 评审卡（1.1.0 §7 会话流渲染；kt-review-* 自有命名不嵌宿主类——
           卡片挂在宿主 chat 行容器内，accent 变量不在 .kimi-tide-dock/.kimi-tide-settings

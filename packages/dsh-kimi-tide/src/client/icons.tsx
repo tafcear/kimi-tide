@@ -20,6 +20,7 @@ export type IconName =
   | 'refresh'
   | 'warn'
   | 'wallet'
+  | 'stacks'
 
 const SHAPES: Record<IconName, ReactNode> = {
   moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />,
@@ -75,6 +76,13 @@ const SHAPES: Record<IconName, ReactNode> = {
     <>
       <path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
       <path d="M12 9v4M12 17h.01" />
+    </>
+  ),
+  stacks: (
+    <>
+      <path d="M12 3l9 5-9 5-9-5 9-5Z" />
+      <path d="M3 13l9 5 9-5" />
+      <path d="M3 17l9 5 9-5" />
     </>
   ),
   wallet: (

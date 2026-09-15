@@ -25,7 +25,7 @@ export const FALLBACK_HINTS: Record<ImageFallback, string> = {
 /** dock 面板上的可视元素 id（说明页必须逐个讲到；`data-kt-el` 与之同源）。 */
 export const DOCK_ELEMENTS = [
   'label', 'preset-chip', 'baseline-chip', 'decision-chip', 'decision-toggle',
-  'kimi-warning', 'week-quota', 'fivehour-quota', 'balance-slot', 'image-context',
+  'kimi-warning', 'week-quota', 'fivehour-quota', 'balance-slot', 'overview-toggle', 'image-context',
   'fetched-at', 'refresh', 'notice', 'dock-states',
 ] as const
 
@@ -364,6 +364,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           '不适用（当前目标没有配额源）／无凭据（key 未配置）／取数失败，三种原因。',
           '取数时间标「(过期)」= 上一次刷新失败，此时显示的是更早的快照。',
+        ],
+      },
+      {
+        id: 'usage-overview',
+        title: '用量总览（第二行的总览按钮）',
+        anchors: ['overview-toggle'],
+        body: [
+          '一屏列出**全部已注册的源**：用量窗、余额，以及某个源为什么没有数据。',
+          '「没数据」分三种且逐行写明：该套餐无公开 API / key 未配置 / 取数失败——不用你猜。',
         ],
       },
       {

@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { BalanceSnapshot, KimiTidePanelProjection } from '../types.js'
+import type { BalanceSnapshot, KimiTidePanelProjection, QuotaSnapshot } from '../types.js'
 import { ReasonPanel } from './ReasonPanel.js'
 import { Icon } from './icons.js'
 
@@ -168,6 +168,59 @@ function balanceTitleOf(balance: BalanceSnapshot): string {
   return `${head}${primary}${detail}${all}`
 }
 
+/** 总览行（spec §6.2）。 */
+export interface OverviewRow {
+  provider: string
+  kindLabel: string
+  value: string
+  when: string
+  dim: boolean
+}
+
+/**
+ * 用量总览行（纯函数，可单测）：按注册表序（`quotaSources`）逐源一行。
+ * 三态来自元数据（S1）：无 API 面 ⇒ 显示静态真话；无凭据/取数失败 ⇒ 各自文案；
+ * 有数据 ⇒ 用量源给两个窗的剩余百分比、余额源给金额。无数据的行置灰但**恒渲染**
+ * （结构恒定，且「注册了但没数据」本身是可观测状态）。
+ */
+export function overviewRows(panel: KimiTidePanelProjection): OverviewRow[] {
+  const rows: OverviewRow[] = []
+  for (const meta of panel.quotaSources ?? []) {
+    const snap = panel.quotas?.[meta.provider] ?? null
+    const kindLabel = meta.kind === 'balance' ? '余额' : '用量'
+    const when = snap === null ? '' : `${fmtClock(snap.fetchedAt)}${snap.stale ? '（过期）' : ''}`
+    if (meta.state === 'no-api') {
+      rows.push({ provider: meta.provider, kindLabel, value: meta.reason ?? '无公开用量 API', when: '', dim: true })
+      continue
+    }
+    if (snap === null) {
+      rows.push({ provider: meta.provider, kindLabel, value: meta.reason ?? '无数据', when: '', dim: true })
+      continue
+    }
+    if ((snap as { kind?: unknown }).kind === 'balance') {
+      const b = snap as BalanceSnapshot
+      const first = b.balances[0]
+      const value = first === undefined
+        ? '—'
+        : `${currencySymbol(first.currency)}${first.total}${b.available === false ? '（余额不足）' : ''}`
+      rows.push({ provider: meta.provider, kindLabel, value, when, dim: false })
+      continue
+    }
+    const usage = snap as QuotaSnapshot
+    const w = remainPct(usage.weekly.used, usage.weekly.limit)
+    const f = remainPct(usage.fiveHour.used, usage.fiveHour.limit)
+    const parts: string[] = []
+    if (w !== null) parts.push(`周剩${w}%`)
+    if (f !== null) parts.push(`5h剩${f}%`)
+    rows.push({
+      provider: meta.provider, kindLabel,
+      value: parts.length > 0 ? parts.join(' · ') : '该窗口无数据',
+      when, dim: parts.length === 0,
+    })
+  }
+  return rows
+}
+
 function fmtClock(ts: number): string {
   if (ts <= 0) return '--:--'
   const d = new Date(ts)
@@ -191,6 +244,11 @@ export function TideDock(props: TideDockProps) {
   const dockRef = useRef<HTMLDivElement | null>(null)
   const popRef = useRef<HTMLDivElement | null>(null)
   const toggleRef = useRef<HTMLButtonElement | null>(null)
+  // 用量总览（spec §6.2）：与决策面板同款 portal + 外点/Esc 关闭。
+  const [overviewOpen, setOverviewOpen] = useState(false)
+  const [ovPos, setOvPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null)
+  const ovRef = useRef<HTMLDivElement | null>(null)
+  const ovToggleRef = useRef<HTMLButtonElement | null>(null)
 
   // 面板数据面（v1.2.0）：优先命令通道现算（fetchPanel ?? 全局自注入面），
   // 挂载即取一次 + 定时轻轮询；取不到（路由关闭 / 通道缺席）→ 投影回退。
@@ -273,6 +331,52 @@ export function TideDock(props: TideDockProps) {
     setExpanded(next)
     if (next) placePop()
   }
+
+  /** 总览悬浮层定位（与决策面板同款：右对齐、下方不够则翻到上方）。 */
+  const placeOv = () => {
+    const el = ovToggleRef.current
+    if (el === null) return
+    const rect = el.getBoundingClientRect()
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 768
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1024
+    const width = Math.min(POP_WIDTH, vw - 16)
+    const left = Math.max(8, Math.min(rect.right - width, vw - width - 8))
+    const spaceBelow = vh - rect.bottom
+    const maxH = Math.min(320, vh * 0.6)
+    if (spaceBelow < maxH && rect.top > spaceBelow) setOvPos({ left, bottom: vh - rect.top + 6 })
+    else setOvPos({ left, top: rect.bottom + 6 })
+  }
+
+  const toggleOverview = () => {
+    const next = !overviewOpen
+    setOverviewOpen(next)
+    if (next) placeOv()
+  }
+
+  // 总览悬浮层生命周期：外点/Esc/滚动/缩放关闭（与决策面板同款约束）。
+  useEffect(() => {
+    if (!overviewOpen) return
+    if (ovPos === null) placeOv()
+    const close = () => { setOverviewOpen(false) }
+    const onDown = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Node && (ovRef.current?.contains(target) === true || ovToggleRef.current?.contains(target) === true)) return
+      close()
+    }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+    // placeOv 不入依赖：定位只在展开动作/缺省补位时计算（同决策面板）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overviewOpen, ovPos])
 
   // 悬浮层生命周期：外点/Esc/滚动/缩放关闭（滚动会拖走 fixed 定位，直接收起）。
   useEffect(() => {
@@ -512,6 +616,18 @@ export function TideDock(props: TideDockProps) {
         )}
 
         <span className="kt-dock-r2-end">
+          <button
+            type="button"
+            data-kt-el="overview-toggle"
+            ref={ovToggleRef}
+            className={`kt-ov-toggle${overviewOpen ? ' kt-armed' : ''}`}
+            aria-expanded={overviewOpen}
+            aria-controls="kt-quota-overview"
+            title={overviewOpen ? '收起用量总览' : '展开用量总览（全部源）'}
+            onClick={toggleOverview}
+          >
+            <Icon name="stacks" className="kt-ic-refresh" />
+          </button>
           <span
             data-kt-el="fetched-at"
             className={`kt-slot kt-h${quotaDim ? ' kt-dim' : ''}`}
@@ -535,6 +651,32 @@ export function TideDock(props: TideDockProps) {
           </button>
         </span>
       </div>
+
+      {/* 用量总览（用量/余额 spec §6.2）：一屏列出全部注册源——用量/余额/三态。
+          portal 到 body（与决策面板同款，开合零推挤）；只读，无写路径。 */}
+      {overviewOpen && createPortal(
+        <div
+          className="kt-dock-pop kt-ov"
+          id="kt-quota-overview"
+          role="dialog"
+          aria-label="用量总览"
+          ref={ovRef}
+          style={{ left: ovPos?.left ?? 8, top: ovPos?.top, bottom: ovPos?.bottom }}
+        >
+          <span className="kt-h">用量总览</span>
+          <ul className="kt-ov-list">
+            {overviewRows(panel).map((row) => (
+              <li key={row.provider} className={row.dim ? 'kt-ov-row kt-dim' : 'kt-ov-row'}>
+                <span className="kt-ov-provider">{row.provider}</span>
+                <span className="kt-ov-kind">{row.kindLabel}</span>
+                <span className="kt-ov-value">{row.value}</span>
+                <span className="kt-ov-when">{row.when}</span>
+              </li>
+            ))}
+          </ul>
+        </div>,
+        document.body,
+      )}
 
       {/* 决策可观测面板：portal 到 body 的悬浮层（fixed 定位），开合零推挤。
           评审 P2-12：无决策也渲染——ReasonPanel 空态分支解释「暂无本步决策」。 */}
