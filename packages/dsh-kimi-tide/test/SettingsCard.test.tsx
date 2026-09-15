@@ -653,3 +653,27 @@ describe('模型显示名（2026-09-11 与官方 Models 页/模型选择器一�
     expect(html).not.toContain('<optgroup label="custom">')
   })
 })
+
+describe('v1.3.0 语义命中确认闸：设置页开关（spec §8.1）', () => {
+  it('默认关闭：复选框存在且未勾选，数字项不渲染', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
+    // Fails if: 开关缺失（用户只能手写配置才能开闸）
+    expect(html).toContain('aria-label="语义命中确认"')
+    expect(html).toContain('语义命中确认')
+    // 关闭态不渲染数字项（避免暴露无用参数）
+    expect(html).not.toContain('aria-label="判官超时"')
+  })
+
+  it('开启态：渲染超时与输出上限两项，并带上限约束', () => {
+    const cfg = v5cfg('saving')
+    cfg.presets.saving.hitConfirm = { enabled: true, timeoutMs: 900, maxTokens: 32 }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    expect(html).toContain('aria-label="判官超时"')
+    expect(html).toContain('aria-label="判官输出上限"')
+    expect(html).toContain('value="900"')
+    expect(html).toContain('value="32"')
+    // 说明写清 fail-open 与前置短路（用户不必读源码才知道边界）
+    expect(html).toContain('问不到')
+    expect(html).toContain('显式 @ 轮')
+  })
+})

@@ -42,6 +42,7 @@ import {
   DEFAULT_FLOWS,
   isFlowTarget,
   type CollaborationFlow,
+  type HitConfirm,
   type ImageFallback,
   type ReviewFlow,
   type RouteTarget,
@@ -455,6 +456,8 @@ export function SettingsCard(props: SettingsCardProps) {
    * 按 DOM 实际存在的 role=tab 计算顺序——协作流页签在 v4 下不存在，无需特判。
    */
   const onTablistKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    // 带修饰键的组合不吞（Alt/Shift+← 是浏览器历史导航等系统行为，评审 #7）。
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
     const tabs = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')]
     const selected = e.currentTarget.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
     const index = selected === null ? -1 : tabs.indexOf(selected)
@@ -704,6 +707,30 @@ export function SettingsCard(props: SettingsCardProps) {
   const saveImageFallbackFlow = (flowId: string): void => {
     if (activeId === null || active === null) return
     void storeWriter.savePreset(activeId, { ...active, imageFallbackFlow: flowId })
+  }
+
+  /**
+   * 语义命中确认闸（v1.3.0，spec §8.1）：整体写回 preset.hitConfirm。
+   * 数字项 validate-on-write——非 1..10000 / 1..256 整数一律**不写**（保持旧值），
+   * 空串视为「清除该项」（回落模块缺省），与 minHits 同款纪律。
+   */
+  const saveHitConfirm = (next: HitConfirm): void => {
+    if (activeId === null || active === null) return
+    void storeWriter.savePreset(activeId, { ...active, hitConfirm: next })
+  }
+  const writeHitConfirmNumber = (field: 'timeoutMs' | 'maxTokens', raw: string): void => {
+    const current = active?.hitConfirm ?? {}
+    const trimmed = raw.trim()
+    const bounds = field === 'timeoutMs' ? { min: 1, max: 10_000 } : { min: 1, max: 256 }
+    if (trimmed === '') {
+      const next: HitConfirm = { ...current }
+      delete next[field]
+      saveHitConfirm(next)
+      return
+    }
+    const value = Number(trimmed)
+    if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) return
+    saveHitConfirm({ ...current, [field]: value })
   }
 
   const createPreset = (): void => {
@@ -1029,6 +1056,58 @@ export function SettingsCard(props: SettingsCardProps) {
                     )}
                   </select>
                 </label>
+              )}
+            </div>
+          )}
+
+          {/* 语义命中确认闸（v1.3.0，仅 v5；spec §8.1）：默认关闭。开启后关键词命中
+              先由**本预设的打底模型**确认意图真伪，判否跳过该规则、继续后续规则；
+              超时/目标不可用/解析失败一律按原关键词结果走（fail-open）。 */}
+          {isV5 && (
+            <div className="kt-card kt-hit-confirm">
+              <label className="kt-row">
+                <span className="kt-field-label">语义命中确认</span>
+                <input
+                  type="checkbox"
+                  aria-label="语义命中确认"
+                  checked={active.hitConfirm?.enabled === true}
+                  disabled={!writable}
+                  onChange={(e) => saveHitConfirm({ ...(active.hitConfirm ?? {}), enabled: e.target.checked })}
+                />
+                <span className="kt-hint">
+                  命中先让本预设的默认模型（{configKey(active.default)}）确认一次；判否就跳过该条规则
+                </span>
+              </label>
+              {active.hitConfirm?.enabled === true && (
+                <>
+                  <label className="kt-row">
+                    <span className="kt-field-label">判官超时（毫秒）</span>
+                    <input
+                      type="number"
+                      aria-label="判官超时"
+                      min={1}
+                      max={10000}
+                      defaultValue={active.hitConfirm.timeoutMs ?? 1200}
+                      disabled={!writable}
+                      onBlur={(e) => writeHitConfirmNumber('timeoutMs', e.target.value)}
+                    />
+                  </label>
+                  <label className="kt-row">
+                    <span className="kt-field-label">判官输出上限（token）</span>
+                    <input
+                      type="number"
+                      aria-label="判官输出上限"
+                      min={1}
+                      max={256}
+                      defaultValue={active.hitConfirm.maxTokens ?? 64}
+                      disabled={!writable}
+                      onBlur={(e) => writeHitConfirmNumber('maxTokens', e.target.value)}
+                    />
+                  </label>
+                  <span className="kt-hint">
+                    问不到（超时/模型不可用/输出读不出）一律不过闸；显式 @ 轮与「带图规则已排首位」的轮不会调用判官。
+                  </span>
+                </>
               )}
             </div>
           )}

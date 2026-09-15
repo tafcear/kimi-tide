@@ -945,8 +945,22 @@ describe('SettingsCard ⑥-B 页签（四页签 + tabpanel 语义）', () => {
       tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     })
     expect(card.getAttribute('data-tab')).toBe('help')
+    // roving tabindex（评审 #6）：选中项 tabIndex=0、其余 -1，aria-selected 同步
+    const atHelp = [...container.querySelectorAll('button.kt-tab')]
+    expect(atHelp.map((b) => b.getAttribute('aria-selected'))).toEqual(['false', 'false', 'false', 'true'])
+    expect(atHelp.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '-1', '-1', '0'])
     await act(async () => {
       tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    expect(card.getAttribute('data-tab')).toBe('route')
+    // 循环回路由页后 roving 跟着回位
+    expect([...container.querySelectorAll('button.kt-tab')].map((b) => b.getAttribute('tabindex')))
+      .toEqual(['0', '-1', '-1', '-1'])
+    // 修饰键不吞（评审 #7）：Alt+→ 不改页签（浏览器历史导航等系统行为不该被 preventDefault）
+    await act(async () => {
+      ;[...container.querySelectorAll('button.kt-tab')][0]!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }),
+      )
     })
     expect(card.getAttribute('data-tab')).toBe('route')
   })

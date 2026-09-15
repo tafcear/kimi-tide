@@ -118,10 +118,12 @@ export function unwrapCommandOutcome(payload: unknown): CommandOutcome | null {
  */
 function remainPct(used: number, limit: number): number | null {
   if (!(limit > 0)) return null
-  return Math.round((Math.max(0, limit - used) / limit) * 100)
+  const pct = Math.round((Math.max(0, limit - used) / limit) * 100)
+  // 夹取到 0..100：used 为负（异常快照）时不许出现「剩 120%」这种上屏数字（评审 #5）。
+  return Math.min(100, Math.max(0, pct))
 }
 
-/** Color by REMAINING percentage: hot when little remains（阈值与原「已用 ≥80/≥90」等价）。 */
+/** Color by REMAINING percentage: hot when little remains。阈值取自「已用 ≥80/≥90」的同一界，但取整半界点与旧实现不严格等价（评审 #4）。 */
 function remainClass(remain: number | null): string {
   if (remain === null) return ''
   if (remain <= 10) return 'kt-danger'

@@ -5,7 +5,8 @@
  * 1. 纯数据 + 纯函数（`live` 只读入配置，不碰 ctx/IO），可脱离 DOM 单测；
  * 2. **只描述本版实际 ship 的行为**——未实施的特性不得出现在这里；
  * 3. `FEATURE_KEYS` 与配置面互锁（`test/help-content.test.ts` 的防腐烂闸）：
- *    配置加了字段而说明不补条目 → 测试红。
+ *    **顶层**配置字段加了而说明不补条目 → 测试红（嵌套/可选新字段靠人与评审把关，
+ *    见 2026-09-15 评审 #2：反向闸只遍历 schema 顶层键）。
  *
  * `FALLBACK_HINTS` 在此定义并由设置卡片与说明页**共用**（单一内容源，
  * 杜绝「两处真理」——原定义在 SettingsCard.tsx，2026-09-15 迁移）。
@@ -31,7 +32,7 @@ export const DOCK_ELEMENTS = [
 
 /** 设置页的功能区块 id（说明页必须逐个讲到）。 */
 export const SETTINGS_SECTIONS = [
-  'presets', 'preset-editor', 'preset-ops', 'rules', 'keyword-groups', 'image-fallback', 'flows', 'trial',
+  'presets', 'preset-editor', 'preset-ops', 'rules', 'keyword-groups', 'image-fallback', 'hit-confirm', 'flows', 'trial',
 ] as const
 
 /**
@@ -219,7 +220,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: '预设与激活',
         anchors: ['presets'],
         body: ['预设 = 一套「默认模型 + 有序规则」；同一时刻只有一个激活。', '「关闭」= 完全不动模型，等于停用路由。'],
-        live: (c) => `当前激活：${c.activePreset === null ? '关闭' : c.activePreset}`,
+        live: (c) => `当前激活：${presetOf(c)?.name ?? (c.activePreset ?? '关闭')}`,
       },
       {
         id: 'routing-rules',
@@ -239,10 +240,31 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         },
       },
       {
+        id: 'routing-hit-confirm',
+        title: '语义命中确认（默认关闭）',
+        anchors: ['hit-confirm'],
+        body: [
+          '开启后关键词命中不会立刻改道——先让**本预设的默认模型**判断「这是本轮的真意图吗」。',
+          '判否 ⇒ 跳过该条规则、继续匹配后续规则；**问不到**（超时/模型不可用/输出读不出）⇒ 按原关键词结果走。',
+          '显式 @ 轮与「带图规则已排首位」的轮不会调用判官（结果不可能生效，白花一次调用）。',
+        ],
+        live: (c) => {
+          const preset = presetOf(c)
+          if (preset === undefined) return undefined
+          const gate = preset.hitConfirm
+          return gate?.enabled === true
+            ? `当前：已开启（判官 ${targetKey(preset.default)}，超时 ${gate.timeoutMs ?? 1200}ms）`
+            : '当前：关闭——关键词命中直接按规则改道'
+        },
+      },
+      {
         id: 'routing-ops',
         title: '预设操作（新建 / 复制 / 删除）',
         anchors: ['preset-ops'],
-        body: ['删除预设前需二次确认；被规则引用的预设不会被静默删掉。'],
+        body: [
+          '删除预设前需二次确认（按钮会先变成「确认删除？」）。',
+          '规则指向的是**模型**、不指向预设，所以删掉一个预设不会牵连别的配置。',
+        ],
       },
       {
         id: 'routing-fallback',
@@ -340,6 +362,14 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           '一旦某组被评审流认领，该组绑定**路由规则**被静态抑制（不再整轮切模型）。',
           '这是有意设计：命中评审词时，本轮该干活干活，评审放到轮末。',
+        ],
+      },
+      {
+        id: 'flows-delete-guard',
+        title: '删除协作流受引用检查保护',
+        anchors: ['flows'],
+        body: [
+          '预置流不可删；自建流仍被规则目标或「懒转述流」引用时**拒删并给出原因**（先清引用再删）。',
         ],
       },
     ],

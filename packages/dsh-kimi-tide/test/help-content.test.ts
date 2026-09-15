@@ -84,8 +84,11 @@ describe('help-content：防腐烂闸（FEATURE_KEYS × 配置面）', () => {
     }
   })
 
-  it('反向闸：schema 顶层键集 ⊆ FEATURE_KEYS 首段 ∪ 遗留键（新增字段不补条目即红）', () => {
+  it('反向闸：schema 顶层键集 ⊆ FEATURE_KEYS 首段 ∪ 遗留键（顶层新增字段不补条目即红；嵌套字段不在本闸范围）', () => {
     const parsed = routerConfigSchema({} as never) as Record<string, unknown>
+    // 空转防线（评审 #9）：若 schema 对象键变得不可枚举，下面的循环会恒绿——先钉下限
+    // （当前实测 5 个键；探针不是契约：掉到 0 说明枚举机制坏了）。
+    expect(Object.keys(parsed).length).toBeGreaterThanOrEqual(5)
     const featureRoots = new Set(FEATURE_KEYS.map((k) => k.split('.')[0]))
     const legacy = new Set<string>(LEGACY_CONFIG_KEYS)
     for (const key of Object.keys(parsed)) {

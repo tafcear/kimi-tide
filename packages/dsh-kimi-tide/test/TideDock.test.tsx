@@ -388,11 +388,12 @@ describe('说明页 UI 锚（评审 M7）：dock 元素与 DOCK_ELEMENTS 同源'
     })))
     const empty = anchorsOf(renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => null })))
     const union = new Set([...normal, ...warning, ...balanceState, ...empty])
-    for (const id of DOCK_ELEMENTS) {
-      // notice 只在命令失败时出现，本闸覆盖不到（help-content 的覆盖闸仍要求它有说明条目）
-      if (id === 'notice') continue
-      expect(union.has(id), `dock 缺 data-kt-el="${id}"——说明页覆盖闸会因此失去 UI 锚`).toBe(true)
-    }
+    // 双向闸（2026-09-15 评审 #3）：notice 只在命令失败时出现，本闸覆盖不到
+    // （help-content 的覆盖闸仍要求它有说明条目），故两侧同时豁免后比**全等**——
+    // 旧版单向循环只抓「漏锚」，放行「挂了锚却没进 DOCK_ELEMENTS」。
+    const expected = DOCK_ELEMENTS.filter((id) => id !== 'notice').slice().sort()
+    const rendered = [...union].filter((id) => id !== 'notice').sort()
+    expect(rendered).toEqual(expected)
   })
 })
 
