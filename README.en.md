@@ -142,6 +142,8 @@ Two common tweaks (a few clicks in "Settings → 月汐"):
 
 The quota slots on the panel's second row **follow the current routed target** and adapt their shape: subscription plans (code plans) show usage windows (weekly / 5h — the bar draws the **remaining** share), while API-billed providers show a **balance** (with an explicit "insufficient balance" note when that is what the endpoint reports). Next to them a **Overview** button lists every registered source in one screen, including *why* a source has no data: "no public API for this plan" / "key not configured" / "fetch failed" — three distinct states, spelled out per row.
 
+> Credentials are resolved by the **`apiKeyEnv` name configured for that provider in `settings.yaml`** (built-in aliases as fallback), so **the panel still gets data when your key name differs from the plugin's default**.
+
 ### Help tab & semantic hit confirmation
 
 - **"Settings → 月汐 → 说明"** explains every panel element and every settings field across eight sections, with key entries carrying the **current value** (e.g. "trigger: manual ⇒ keyword hits will not fire a review"), plus a **symptom → cause** table.

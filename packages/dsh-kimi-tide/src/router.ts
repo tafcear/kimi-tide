@@ -87,9 +87,14 @@ export function withConfirmNote<T extends RouteDecision>(decision: T, note: stri
  */
 export function confirmNoteOf(ruleId: string, result: ConfirmReviewResult): string {
   if (result.outcome === 'fail') {
-    return result.failDetail === 'parse'
-      ? `语义闸判词不可解析 ${result.durationMs}ms（${ruleId}）`
-      : `语义闸无结论 ${result.durationMs}ms（${ruleId}）`
+    if (result.failDetail === 'parse') {
+      // v1.3.0 A7 定向修复：把判官原文摘要一并带上——只报「不可解析」的话，
+      // 修提示词还是修解析器只能靠猜（实机第一次取证就是这么卡住的）。
+      const sample = result.rawSample
+      const tail = sample === undefined || sample === '' ? '' : `· 原文「${sample}」`
+      return `语义闸判词不可解析 ${result.durationMs}ms（${ruleId}）${tail}`
+    }
+    return `语义闸无结论 ${result.durationMs}ms（${ruleId}）`
   }
   const why = result.why?.trim()
   if (result.outcome === 'omit' || result.outcome === 'cached-omit') {

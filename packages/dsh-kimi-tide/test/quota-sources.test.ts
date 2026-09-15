@@ -9,11 +9,12 @@ import {
   buildQuotaSources,
   deepseekBalanceUrl,
   parseDeepSeekBalance,
+  providerKeyCandidates,
   type QuotaSourceDeps,
 } from '../src/quota-sources.js'
 
 const deps = (over: Partial<QuotaSourceDeps> = {}): QuotaSourceDeps => ({
-  providerApiKeyEnv: (_id, fallback) => fallback,
+  providerApiKeyEnvs: (_id, fallbacks) => [...fallbacks],
   deepseekSection: () => undefined,
   resolveCredential: async () => 'k',
   env: {},
@@ -113,14 +114,57 @@ describe('buildQuotaSources：四源注册表', () => {
     expect(seen).toEqual(['MY_DS_KEY'])
   })
 
-  it('Kimi/Zai 的 key 引用走各自 apiKeyEnv（pi-ai 节）', async () => {
+  it('Kimi/Zai 的 key 引用走各自 apiKeyEnv 候选链（pi-ai 节）', async () => {
     const seen: string[] = []
     const sources = buildQuotaSources(deps({
-      providerApiKeyEnv: (id, fallback) => (id === 'kimi-coding' ? 'KIMI_X' : fallback),
+      providerApiKeyEnvs: (id, fallbacks) => (id === 'kimi-coding' ? ['KIMI_X', ...fallbacks] : [...fallbacks]),
       resolveCredential: async (ref) => { seen.push(ref); return null },
     }))
     await sources.find((s) => s.provider === 'kimi-coding')!.resolveKey()
     await sources.find((s) => s.provider === 'zai-coding-cn')!.resolveKey()
-    expect(seen).toEqual(['KIMI_X', 'ZAI_API_KEY'])
+    // 全部候选都被试过（旧实现只试第一个 ⇒ 别名 provider 恒解析不到 key）
+    expect(seen).toEqual(['KIMI_X', 'KIMI_CODING_API_KEY', 'KIMI_API_KEY', 'ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'])
+  })
+
+  it('候选链命中即止：第一个有 key 就不问后面的（v1.3.0 实机验收修复）', async () => {
+    const seen: string[] = []
+    const sources = buildQuotaSources(deps({
+      providerApiKeyEnvs: (_id, fallbacks) => [...fallbacks],
+      resolveCredential: async (ref) => { seen.push(ref); return ref === 'ZAI_CODING_CN_API_KEY' ? 'secret' : null },
+    }))
+    const zai = sources.find((s) => s.provider === 'zai-coding-cn')!
+    await expect(zai.resolveKey()).resolves.toBe('secret')
+    expect(seen).toEqual(['ZAI_CODING_CN_API_KEY'])
+  })
+
+  it('全链未配置 → null（保持 S1 的 no-credential 语义）', async () => {
+    const sources = buildQuotaSources(deps({ resolveCredential: async () => null }))
+    await expect(sources.find((s) => s.provider === 'zai-coding-cn')!.resolveKey()).resolves.toBeNull()
+  })
+})
+
+describe('providerKeyCandidates（v1.3.0 实机验收修复：ref 名三段链）', () => {
+  const ZAI_FILE = { providers: { 'zai-coding-cn': { apiKeyEnv: 'ZAI_CODING_CN_API_KEY' } } }
+
+  it('settings.yaml 文件里的 apiKeyEnv 优先于内置 fallback —— 本次缺陷的直接修复', () => {
+    // 实机：settings.get('llm-pi-ai') 恒 undefined（该命名空间从未注册），只有文件这一路
+    // 能给出真实 ref 名 ZAI_CODING_CN_API_KEY；旧实现只认 ZAI_API_KEY，而凭据库里没有
+    // 这个名字 ⇒ 配额源恒 no-key、dock 上切到 GLM 就是空的。
+    expect(providerKeyCandidates('zai-coding-cn', ['ZAI_API_KEY'], undefined, ZAI_FILE))
+      .toEqual(['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'])
+  })
+
+  it('服务端 section 可用时排最前（未来命名空间若注册即自动生效），并去重', () => {
+    expect(providerKeyCandidates('zai-coding-cn', ['ZAI_API_KEY'], ZAI_FILE, ZAI_FILE))
+      .toEqual(['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'])
+  })
+
+  it('两路都拿不到 → 只剩内置候选；坏形状与重复项不抛、不重复', () => {
+    expect(providerKeyCandidates('zai-coding-cn', ['ZAI_API_KEY', 'ZAI_API_KEY'], undefined, null))
+      .toEqual(['ZAI_API_KEY'])
+    expect(providerKeyCandidates('x', ['A'], { providers: 'nope' }, { providers: { x: { apiKeyEnv: 42 } } }))
+      .toEqual(['A'])
+    expect(providerKeyCandidates('x', ['A'], undefined, { providers: { x: { apiKeyEnv: '  ' } } }))
+      .toEqual(['A'])
   })
 })

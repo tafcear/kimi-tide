@@ -14,6 +14,20 @@ import type { RouteTarget } from './config.js'
 
 /** 判官输入的文本截断上限（字符）。 */
 export const CONFIRM_TEXT_LIMIT = 600
+/** 判官**原文**样本的截断上限（字符，v1.3.0 A7 定向修复）。 */
+export const CONFIRM_RAW_SAMPLE_LIMIT = 60
+
+/**
+ * 压平并截断判官原始输出，作为可观测样本（纯函数）。
+ *
+ * 为什么需要：A7 实机失效时判词只报「不可解析」，**看不到模型到底吐了什么**，
+ * 于是修提示词还是修解析器全靠猜。摘一小段原文进决策原因串，一眼就能定性
+ * （是思考过程、是残 JSON、还是压根没按格式答）。
+ */
+export function clipRawSample(raw: string): string {
+  const flat = raw.replace(/\s+/g, ' ').trim()
+  return flat.length <= CONFIRM_RAW_SAMPLE_LIMIT ? flat : `${flat.slice(0, CONFIRM_RAW_SAMPLE_LIMIT)}…`
+}
 /** 候选表上限（超出按路由链序截断；当前实现只传链首一条）。 */
 export const MAX_CONFIRM_CANDIDATES = 8
 /** 判官调用有界超时（§3.5）。 */
@@ -56,6 +70,8 @@ export interface ConfirmReviewResult {
   why?: string
   /** 仅 outcome === 'fail' 时给出。 */
   failDetail?: ConfirmFailDetail
+  /** 解析失败（failDetail === 'parse'）时的判官原文样本，供定向修复提示词/解析器。 */
+  rawSample?: string
 }
 
 const INSTRUCTION = [
@@ -202,8 +218,15 @@ export class HitConfirmGate {
     }
     const verdict = parseConfirmVerdict(raw, candidates)
     if (verdict === null) {
-      this.deps.log?.(`kimi-router: 语义确认 解析失败(${durationMs}ms) → 不过闸`)
-      return { omitRuleId: null, outcome: 'fail', durationMs, failDetail: 'parse' }
+      const rawSample = clipRawSample(raw)
+      this.deps.log?.(`kimi-router: 语义确认 解析失败(${durationMs}ms) → 不过闸 · 原文「${rawSample}」`)
+      return {
+        omitRuleId: null,
+        outcome: 'fail',
+        durationMs,
+        failDetail: 'parse',
+        ...(rawSample === '' ? {} : { rawSample }),
+      }
     }
     this.remember(key, verdict)
     this.deps.log?.(`kimi-router: 语义确认 ${verdict.verdict} ${verdict.ruleId} ${durationMs}ms`)

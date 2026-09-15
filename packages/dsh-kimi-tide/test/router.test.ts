@@ -540,4 +540,16 @@ describe('confirmNoteOf（v1.3.0 可观测性补链）', () => {
     expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'fail', durationMs: 880, failDetail: 'parse' }))
       .toBe('语义闸判词不可解析 880ms（code-kfc）')
   })
+
+  it('解析失败带判官原文样本 —— 实机 A7 正是靠这一行才看得到模型吐了什么', () => {
+    expect(confirmNoteOf('code-kfc', {
+      omitRuleId: null, outcome: 'fail', durationMs: 1910, failDetail: 'parse', rawSample: '好的，我来判断：这段…',
+    })).toBe('语义闸判词不可解析 1910ms（code-kfc）· 原文「好的，我来判断：这段…」')
+    // 无结论（调用失败/超时）没有原文可带，措辞保持不变
+    expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'fail', durationMs: 1200, failDetail: 'no-answer' }))
+      .toBe('语义闸无结论 1200ms（code-kfc）')
+    // 空样本视同没有（不产生空的「原文「」」）
+    expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'fail', durationMs: 900, failDetail: 'parse', rawSample: '' }))
+      .toBe('语义闸判词不可解析 900ms（code-kfc）')
+  })
 })

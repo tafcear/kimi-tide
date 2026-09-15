@@ -10,6 +10,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildConfirmInput,
+  clipRawSample,
+  CONFIRM_RAW_SAMPLE_LIMIT,
   CONFIRM_TEXT_LIMIT,
   HitConfirmGate,
   parseConfirmVerdict,
@@ -136,5 +138,29 @@ describe('HitConfirmGate：结论、缓存与失败退化', () => {
     const gate = new HitConfirmGate({ call: async () => '{"verdict":"omit","rule":"code-kfc","why":"引用"}' })
     await gate.review('same', candidates, judge)
     await expect(gate.review('same', candidates, judge)).resolves.toMatchObject({ outcome: 'cached-omit', why: '引用' })
+  })
+
+  it('解析失败时回传判官原文样本（v1.3.0 A7 定向修复的前提：必须看得到模型吐了什么）', async () => {
+    const gate = new HitConfirmGate({ call: async () => '好的，我来判断：\n\n这段文本看起来是在…' })
+    const result = await gate.review('z', candidates, judge)
+    expect(result.outcome).toBe('fail')
+    expect(result.failDetail).toBe('parse')
+    // 换行压平，才能进单行原因串
+    expect(result.rawSample).toBe('好的，我来判断： 这段文本看起来是在…')
+  })
+
+  it('无结论（调用失败/超时）不带 rawSample —— 那时根本没有原文', async () => {
+    const gate = new HitConfirmGate({ call: async () => null })
+    const result = await gate.review('y', candidates, judge)
+    expect(result.failDetail).toBe('no-answer')
+    expect(result.rawSample).toBeUndefined()
+  })
+
+  it('clipRawSample：压平空白、仅超长才截断加省略号（纯函数）', () => {
+    expect(clipRawSample('  a\n\n b  ')).toBe('a b')
+    expect(clipRawSample('x'.repeat(CONFIRM_RAW_SAMPLE_LIMIT + 10)))
+      .toBe(`${'x'.repeat(CONFIRM_RAW_SAMPLE_LIMIT)}…`)
+    expect(clipRawSample('y'.repeat(CONFIRM_RAW_SAMPLE_LIMIT)))
+      .toBe('y'.repeat(CONFIRM_RAW_SAMPLE_LIMIT))
   })
 })

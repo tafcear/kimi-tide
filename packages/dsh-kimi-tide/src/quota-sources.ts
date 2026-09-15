@@ -38,8 +38,13 @@ export interface QuotaSourceDescriptor {
 }
 
 export interface QuotaSourceDeps {
-  /** 读 llm-pi-ai 节里某 provider 的 apiKeyEnv 引用名。 */
-  providerApiKeyEnv: (providerId: string, fallbackEnv: string) => string
+  /**
+   * 读 llm-pi-ai 节里某 provider 的凭据 ref 名**候选链**（v1.3.0 实机验收修复）。
+   * 返回数组而非单名：`settings.get('llm-pi-ai')` 因该命名空间从未注册而恒为
+   * undefined（dsh-settings 的 `get(ns)` 只查已注册命名空间），所以必须能依次回落
+   * 到 settings.yaml 文件里的 apiKeyEnv 与内置兼容名。
+   */
+  providerApiKeyEnvs: (providerId: string, fallbacks: readonly string[]) => readonly string[]
   /** 读 llm-deepseek 节（apiKeyEnv / baseURL）。 */
   deepseekSection: () => { apiKeyEnv?: string; baseURL?: string } | undefined
   /** 解析凭据引用；未配置返回 null。 */
@@ -54,6 +59,43 @@ const nonEmpty = (value: string | undefined): string | undefined => {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed === '' ? undefined : trimmed
+}
+
+/**
+ * provider 凭据 ref 名的**候选链**（纯函数，v1.3.0 实机验收修复）。
+ *
+ * 为什么需要链而不是单名：`settings.get('llm-pi-ai')` 只查**已注册**的命名空间
+ * （dsh-settings 的实现为 `registrations.get(ns)?.resolved`），而 `dsh-llm-pi-ai`
+ * 与 `dsh-llm-deepseek` 都**不注册**命名空间 ⇒ 该调用恒为 undefined，旧实现于是
+ * 永远落到内置 fallback 名。实机后果：`ZAI_API_KEY` / `KIMI_API_KEY` 在凭据库里
+ * 并不存在（真实名是 `ZAI_CODING_CN_API_KEY` / `KIMI_CODING_API_KEY`）⇒ 这两个
+ * provider 的配额槽永远空白；只有 `DEEPSEEK_API_KEY` 恰好同名才正常显示余额。
+ *
+ * 顺序：settings 服务（未来若注册即自动生效）→ settings.yaml 文件（当前唯一
+ * 实际可用的来源）→ 内置兼容名。去重、丢空串、容忍任意坏形状（不抛）。
+ */
+export function providerKeyCandidates(
+  providerId: string,
+  fallbacks: readonly string[],
+  serviceSection: unknown,
+  fileSection: unknown,
+): string[] {
+  const out: string[] = []
+  const push = (value: unknown): void => {
+    if (typeof value !== 'string') return
+    const trimmed = value.trim()
+    if (trimmed === '' || out.includes(trimmed)) return
+    out.push(trimmed)
+  }
+  const pick = (section: unknown): void => {
+    const providers = (section as { providers?: Record<string, { apiKeyEnv?: unknown }> } | undefined)?.providers
+    if (providers === null || typeof providers !== 'object') return
+    push(providers[providerId]?.apiKeyEnv)
+  }
+  pick(serviceSection)
+  pick(fileSection)
+  for (const fallback of fallbacks) push(fallback)
+  return out
 }
 
 /**
@@ -92,15 +134,28 @@ export function parseDeepSeekBalance(json: unknown, now: number): BalanceSnapsho
 
 /** 四源注册表（含无 API 面的一源）。顺序 = 展示序（说明页/总览面板沿用）。 */
 export function buildQuotaSources(deps: QuotaSourceDeps): QuotaSourceDescriptor[] {
-  const credentialKey = (ref: string) => async (): Promise<string | null> => deps.resolveCredential(ref)
+  /**
+   * ref 名 → key 的解析（**多候选**，v1.3.0 实机验收修复）：依次试候选链，谁先解析到
+   * 非空 key 就用谁。旧实现只试单一 ref 名，而那个名字来自 `settings.get` 的回落值——
+   * 与实机凭据库里的名字不一致 ⇒ 配额源恒 no-key，只有恰好同名的 provider 正常。
+   */
+  const credentialKey = (refs: readonly string[]) => async (): Promise<string | null> => {
+    for (const ref of refs) {
+      const value = await deps.resolveCredential(ref)
+      if (value !== null && value.length > 0) return value
+    }
+    return null
+  }
   const ds = deps.deepseekSection() ?? {}
+  const deepseekRefs = [nonEmpty(ds.apiKeyEnv), 'DEEPSEEK_API_KEY']
+    .filter((ref): ref is string => ref !== undefined)
   return [
     {
       provider: 'kimi-coding',
       kind: 'usage',
       url: KIMI_USAGES_URL,
       parse: parseQuotaSnapshot,
-      resolveKey: credentialKey(deps.providerApiKeyEnv('kimi-coding', 'KIMI_API_KEY')),
+      resolveKey: credentialKey(deps.providerApiKeyEnvs('kimi-coding', ['KIMI_CODING_API_KEY', 'KIMI_API_KEY'])),
       pollMs: deps.usagePollMs,
     },
     {
@@ -108,7 +163,7 @@ export function buildQuotaSources(deps: QuotaSourceDeps): QuotaSourceDescriptor[
       kind: 'usage',
       url: ZAI_QUOTA_URL,
       parse: parseZaiQuota,
-      resolveKey: credentialKey(deps.providerApiKeyEnv('zai-coding-cn', 'ZAI_API_KEY')),
+      resolveKey: credentialKey(deps.providerApiKeyEnvs('zai-coding-cn', ['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'])),
       pollMs: deps.usagePollMs,
     },
     {
@@ -116,7 +171,7 @@ export function buildQuotaSources(deps: QuotaSourceDeps): QuotaSourceDescriptor[
       kind: 'usage',
       url: null,
       parse: null,
-      resolveKey: credentialKey(deps.providerApiKeyEnv('qwen-token-plan-cn', 'QWEN_TOKEN_PLAN_CN_API_KEY')),
+      resolveKey: credentialKey(deps.providerApiKeyEnvs('qwen-token-plan-cn', ['QWEN_TOKEN_PLAN_CN_API_KEY'])),
       pollMs: deps.usagePollMs,
       unavailableReason: QWEN_NO_API_REASON,
     },
@@ -125,7 +180,7 @@ export function buildQuotaSources(deps: QuotaSourceDeps): QuotaSourceDescriptor[
       kind: 'balance',
       url: deepseekBalanceUrl(ds.baseURL, deps.env.DEEPSEEK_BASE_URL),
       parse: parseDeepSeekBalance,
-      resolveKey: credentialKey(nonEmpty(ds.apiKeyEnv) ?? 'DEEPSEEK_API_KEY'),
+      resolveKey: credentialKey(deepseekRefs),
       pollMs: deps.balancePollMs,
       timeoutMs: BALANCE_TIMEOUT_MS,
     },

@@ -18,10 +18,11 @@ import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, Message } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { copyFileSync } from 'node:fs'
+import { copyFileSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import YAML from 'yaml'
 import { REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { claimedReviewGroups } from './rules.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
@@ -42,7 +43,7 @@ import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
-import { buildQuotaSources } from './quota-sources.js'
+import { buildQuotaSources, providerKeyCandidates } from './quota-sources.js'
 import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
 import { buildEffortCatalog, buildMountedModels, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
@@ -334,27 +335,52 @@ export function apply(ctx: Context, config: Config = {}) {
   // apiKeyEnv 引用名并解析 key（配额轮询用），永不触碰密钥本体。
   // 多 plan 配额（2026-08-29 用户裁定）：解析器按 provider 泛化——每个 pi-ai
   // code plan 一个配额监控源。
-  const providerApiKeyEnv = (providerId: string, fallbackEnv: string): string => {
-    const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
-    const section = settings?.get?.('llm-pi-ai') as { providers?: Record<string, { apiKeyEnv?: string }> } | undefined
-    return section?.providers?.[providerId]?.apiKeyEnv ?? fallbackEnv
+  /**
+   * 读 `~/.dsh/settings.yaml` 的一个顶层节（v1.3.0 实机验收修复）。
+   *
+   * 为什么必须读文件：`settings.get(ns)` 只查**已注册**的命名空间（dsh-settings 的
+   * 实现是 `registrations.get(ns)?.resolved`），而 `dsh-llm-pi-ai` 与
+   * `dsh-llm-deepseek` **都不注册**命名空间 ⇒ 该调用恒为 undefined，旧实现于是永远
+   * 落到内置 fallback 名。实机后果：`ZAI_API_KEY` / `KIMI_API_KEY` 在凭据库里根本
+   * 不存在（真实名带 provider 前缀）⇒ 这两个 provider 的配额槽永远空白，dock 上
+   * 「切到 GLM 就没有配额」；只有 `DEEPSEEK_API_KEY` 恰好同名才正常。
+   *
+   * 容错：文件缺失 / 坏 YAML / 形状不对一律返回 undefined（配额是可选面，绝不因此报错）。
+   */
+  const settingsFileSection = (ns: string): unknown => {
+    try {
+      const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+      const text = readFileSync(join(home, 'settings.yaml'), 'utf8')
+      const parsed = YAML.parse(text) as Record<string, unknown> | null
+      return parsed === null ? undefined : parsed?.[ns]
+    } catch { return undefined }
   }
-  const resolveProviderKey = (providerId: string, fallbackEnv: string): (() => Promise<string | null>) => {
+  const serviceSection = (ns: string): unknown => {
+    const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
+    return settings?.get?.(ns)
+  }
+  /** provider 的 ref 名候选链：settings 服务 → settings.yaml 文件 → 内置兼容名。 */
+  const providerApiKeyEnvs = (providerId: string, fallbacks: readonly string[]): readonly string[] =>
+    providerKeyCandidates(providerId, fallbacks, serviceSection('llm-pi-ai'), settingsFileSection('llm-pi-ai'))
+  /** 解析 provider 的 key：依次试候选 ref 名，命中即止（凭据服务 → 进程环境）。 */
+  const resolveProviderKey = (providerId: string, fallbacks: readonly string[]): (() => Promise<string | null>) => {
     return async (): Promise<string | null> => {
-      const env = providerApiKeyEnv(providerId, fallbackEnv)
-      const credentials = ctx.get('credentials') as { resolve?: (ref: string) => Promise<{ value: string } | undefined> } | undefined
-      if (typeof credentials?.resolve === 'function') {
-        try {
-          const resolved = await credentials.resolve(env)
-          if (resolved !== undefined && resolved.value.length > 0) return resolved.value
-        } catch { /* 落到 env 兜底 */ }
+      for (const ref of providerApiKeyEnvs(providerId, fallbacks)) {
+        const credentials = ctx.get('credentials') as { resolve?: (r: string) => Promise<{ value: string } | undefined> } | undefined
+        if (typeof credentials?.resolve === 'function') {
+          try {
+            const resolved = await credentials.resolve(ref)
+            if (resolved !== undefined && resolved.value.length > 0) return resolved.value
+          } catch { /* 落到 env 兜底 */ }
+        }
+        const fromEnv = process.env[ref]
+        if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv
       }
-      const fromEnv = process.env[env]
-      return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
+      return null
     }
   }
-  const resolveKey = resolveProviderKey('kimi-coding', 'KIMI_API_KEY')
-  const resolveZaiKey = resolveProviderKey('zai-coding-cn', 'ZAI_API_KEY')
+  const resolveKey = resolveProviderKey('kimi-coding', ['KIMI_CODING_API_KEY', 'KIMI_API_KEY'])
+  const resolveZaiKey = resolveProviderKey('zai-coding-cn', ['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'])
 
   // 0.4.x 二态接入指示：路由注册 + key 可解析。缺任一 → 面板显示配置指引
   // （spec §3.5/验收 5）。刷新触发：启动、llm/adapters-updated、设置文档变化
@@ -376,10 +402,13 @@ export function apply(ctx: Context, config: Config = {}) {
   // Panel data source：配额/余额源注册表（用量/余额 spec v2 §4）——四源，新源只需在
   // quota-sources.ts 加一项；无 API 面的源（qwen）不建 monitor，直接以 no-api 呈现。
   const quotaSources = buildQuotaSources({
-    providerApiKeyEnv,
+    providerApiKeyEnvs,
+    // deepseek 节同样要回落文件：apiKeyEnv 可能被用户改名，baseURL 也可能只写在
+    // settings.yaml 里（settings 服务对未注册命名空间恒 undefined，见上）。
     deepseekSection: () => {
-      const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
-      return settings?.get?.('llm-deepseek') as { apiKeyEnv?: string; baseURL?: string } | undefined
+      const pick = (section: unknown): { apiKeyEnv?: string; baseURL?: string } | undefined =>
+        section as { apiKeyEnv?: string; baseURL?: string } | undefined
+      return pick(serviceSection('llm-deepseek')) ?? pick(settingsFileSection('llm-deepseek'))
     },
     resolveCredential: async (ref) => {
       const credentials = ctx.get('credentials') as { resolve?: (r: string) => Promise<{ value: string } | undefined> } | undefined
