@@ -4,6 +4,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterRule } from '../src/config.js'
 import {
   duplicateRuleIds,
+  explicitDirective,
   explicitProvider,
   latestUserText,
   matchingRules,
@@ -215,5 +216,27 @@ describe('duplicateRuleIds（⑥-B 打磨三 2026-08-29: 规则条件互斥约�
     expect(duplicateRuleIds([kw('a', 'code'), kw('b', 'plan')])).toEqual([])
     expect(duplicateRuleIds([])).toEqual([])
     expect(duplicateRuleIds([img('a')])).toEqual([])
+  })
+})
+
+describe('explicitDirective：@provider 与 @provider/model（v1.3.0 Q3）', () => {
+  it('provider 简写；@kimi / @kimi-tide 解析为 kimi-coding 别名', () => {
+    expect(explicitDirective('@kimi 你好')).toEqual({ provider: 'kimi-coding' })
+    expect(explicitDirective('@kimi-tide 你好')).toEqual({ provider: 'kimi-coding' })
+    expect(explicitDirective('@zai-coding-cn 你好')).toEqual({ provider: 'zai-coding-cn' })
+  })
+
+  it('精确寻址：@provider/model（含点号与连字符的模型名）', () => {
+    expect(explicitDirective('@qwen-token-plan-cn/qwen3.8-max 评审')).toEqual({ provider: 'qwen-token-plan-cn', model: 'qwen3.8-max' })
+    expect(explicitDirective('@kimi/k3')).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(explicitDirective('@zai-coding-cn/glm-5.3-flash 干活')).toEqual({ provider: 'zai-coding-cn', model: 'glm-5.3-flash' })
+  })
+
+  it('词法边界保持：邮箱/句中引用不误判（前导锚定 2026-08-23 语义不变）', () => {
+    expect(explicitDirective('mail me at user@example.com')).toBeNull()
+    expect(explicitDirective('见 foo@bar/baz 那段')).toBeNull()
+    // 行首或空白/标点/中文之后才算指令
+    expect(explicitDirective('帮我 @kimi 一下')).toEqual({ provider: 'kimi-coding' })
+    expect(explicitDirective('（@kimi）')).toEqual({ provider: 'kimi-coding' })
   })
 })

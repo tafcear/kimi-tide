@@ -11,14 +11,27 @@ import { KIMI_PROVIDER, configKey, isFlowTarget, type CollaborationFlow, type Re
 import type { RouterConfigAny } from './router.js'
 
 export function explicitProvider(text: string): string | null {
-  // 前导锚定（评审修复 2026-08-23）：@ 前紧邻词字符（\w 或 @）则不是指令——
-  // 邮箱 user@example.com、句中引用等不误判。指令语义要求 @ 出现在行首或
-  // 空白/标点/中文之后。行首装饰器（@Component）与指令在词法上不可区分，
-  // 仍会命中 → 未知 provider 走 keep + 日志的既有宽容语义（decide 层钉桩）。
-  const m = /(?:^|[^\w@])@([\w-]{2,20})\b/.exec(text)
+  return explicitDirective(text)?.provider ?? null
+}
+
+/**
+ * 显式 @指令解析（v1.3.0 Q3）：支持 `@provider` 与 **`@provider/model`** 两种形态。
+ *
+ * 为什么需要：`@provider` 只锁到 provider 层，模型是「池内枚举序首个可用」——
+ * 实测 `@qwen-token-plan-cn` 会落到 MiniMax-M2.5（该套餐未购买）→ 403 整轮失败，
+ * 而决策原因里连选了谁都看不出来。精确寻址把「选哪个模型」变成显式意图。
+ *
+ * 词法（沿用 0.5.x 前导锚定 + 2026-08-23 评审修复）：`@` 前紧邻词字符（\w 或 @）
+ * 不算指令（邮箱 user@example.com、句中引用不误判）；`@kimi`/`@kimi-tide` 是
+ * kimi-coding 的便利别名；model 段允许 `[\w.-]`（覆盖 `qwen3.8-max`/`glm-5.3`）。
+ */
+export function explicitDirective(text: string): { provider: string; model?: string } | null {
+  const m = /(?:^|[^\w@])@([\w-]{2,20})(?:\/([\w.-]{1,64}))?/.exec(text)
   if (m === null) return null
-  if (m[1] === 'kimi' || m[1] === 'kimi-tide') return KIMI_PROVIDER
-  return m[1]
+  const raw = m[1]!
+  const provider = raw === 'kimi' || raw === 'kimi-tide' ? KIMI_PROVIDER : raw
+  const model = m[2]
+  return model === undefined || model === '' ? { provider } : { provider, model }
 }
 
 /** 从消息批次提取最新一条用户文本。 */
@@ -268,17 +281,31 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
   if (config.activePreset === null) return { hits, outcome: { kind: 'off', reason: '路由已关闭' } }
   const preset = config.presets[config.activePreset]
   if (preset === undefined) return { hits, outcome: { kind: 'off', reason: '激活预设不存在' } }
-  const explicit = explicitProvider(text)
+  // 显式 @指令：与 decide 同款语义（v1.3.0 Q3）——精确寻址优先；provider 简写
+  // 按「本预设已配置目标 → 目录序」确定化，并把实际选择写进 reason（可解释）。
+  const explicit = explicitDirective(text)
   if (explicit !== null) {
-    const models = deps.catalog?.find((group) => group.provider === explicit)?.models
-    const target = models !== undefined && models.length > 0
-      ? { provider: explicit, model: models[0] }
-      : null
+    const models = deps.catalog?.find((group) => group.provider === explicit.provider)?.models
+    const configured: RouteTarget[] = [
+      preset.default,
+      ...preset.rules.map((r) => r.target).filter((t): t is RouteTarget => !isFlowTarget(t)),
+    ]
+    const configuredModel = configured
+      .filter((t) => t.provider === explicit.provider)
+      .map((t) => t.model)
+      .find((model) => models === undefined || models.includes(model))
+    const pick = explicit.model ?? configuredModel ?? models?.[0]
+    const target = models !== undefined && pick !== undefined ? { provider: explicit.provider, model: pick } : null
+    const why = explicit.model !== undefined
+      ? (models !== undefined && models.includes(explicit.model) ? '' : '（不可用 → 回落）')
+      : configuredModel !== undefined ? ' → 预设内已配置目标' : ' → 目录序首个'
     return {
       hits,
       outcome: {
-        kind: 'explicit', provider: explicit, target,
-        reason: target === null ? `显式 @${explicit} 指令（候选目录不可判）` : `显式 @${explicit} 指令`,
+        kind: 'explicit', provider: explicit.provider, target,
+        reason: target === null
+          ? `显式 @${explicit.provider} 指令（候选目录不可判）`
+          : `显式 @${explicit.provider}${explicit.model === undefined ? '' : `/${explicit.model}`} 指令${why === '' ? '' : why}`,
       },
     }
   }

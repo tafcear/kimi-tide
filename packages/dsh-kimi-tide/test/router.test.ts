@@ -87,11 +87,33 @@ describe('KimiRouter v4 decide', () => {
     // 0.8.0 math 组含「推导」——原「推导这个式子」夹具改无命中说法，钉「未命中→打底」语义
     expect(r.decide([textMsg('给我讲讲这个思路')], 1)).toMatchObject({ via: 'default', target: { model: 'k3' } })
   })
-  it('显式 @kimi 优先于规则与默认', () => {
+  it('显式 @kimi 优先于规则与默认（Q3：池内选择确定化 + 可解释）', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
     const d = r.decide([textMsg('@kimi 随便聊聊')], 1)
-    expect(d).toMatchObject({ kind: 'route', via: 'explicit', reason: '显式 @kimi-coding 指令' })
+    expect(d).toMatchObject({ kind: 'route', via: 'explicit' })
     expect((d as { target: { provider: string } }).target.provider).toBe('kimi-coding')
+    // 确定性：优先「本预设已配置过的目标」（省钱预设的 image-k3 → kimi-coding/k3），
+    // 而不是目录枚举序首个（kimi-for-coding）——原因串写明实际模型与依据。
+    expect((d as { target: { model: string } }).target.model).toBe('k3')
+    expect((d as { reason: string }).reason).toBe('显式 @kimi-coding 指令 → k3（预设内已配置目标）')
+  })
+
+  it('Q3 精确寻址：@provider/model 直接钉到该模型（不再受池序影响）', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    const d = r.decide([textMsg('@kimi/kimi-for-coding 帮我写个函数')], 1)
+    expect(d).toMatchObject({
+      kind: 'route', via: 'explicit',
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      reason: '显式 @kimi-coding/kimi-for-coding 指令',
+    })
+  })
+
+  it('Q3 精确寻址落空：模型不在候选池 → 回落确定化选择并写明「不可用」', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    const d = r.decide([textMsg('@kimi/not-a-real-model 你好')], 1)
+    expect(d).toMatchObject({ kind: 'route', via: 'explicit', target: { provider: 'kimi-coding', model: 'k3' } })
+    // Fails if: 静默改道（用户点了名却拿到别的模型且界面不说明）
+    expect((d as { reason: string }).reason).toContain('显式 @kimi-coding/not-a-real-model 不可用 → k3')
   })
   it('显式 @provider 无可用候选 → keep', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)

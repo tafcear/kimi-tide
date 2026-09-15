@@ -371,12 +371,13 @@ describe('integration: decide 级规则路由（via 语义）', () => {
     },
   ]
 
-  it('显式 @kimi 指令 → via explicit 路由到 kimi-coding 首个可用候选', () => {
+  it('显式 @kimi 指令 → via explicit 路由到「预设内已配置目标」（Q3 确定化）', () => {
     const router = new KimiRouter(v4cfg('saving'), metas, silentLog)
     const decision = router.decide([text('@kimi 帮我写代码')], 1)
     expect(decision.kind).toBe('route')
     if (decision.kind === 'route') {
-      expect(decision.target).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+      // 省钱预设里 kimi 系目标只有 image-k3 → kimi-coding/k3（不再是目录序首个 kimi-for-coding）
+      expect(decision.target).toEqual({ provider: 'kimi-coding', model: 'k3' })
       expect(decision.via).toBe('explicit')
     }
   })

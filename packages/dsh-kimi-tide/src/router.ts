@@ -36,7 +36,7 @@ import { KIMI_TIDE_REVIEW_EVENT } from './projection.js'
 import { createReviewRunner, REVIEW_INPUT_LIMIT, type ReviewEventPayload, type ReviewRequest } from './review.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
 import { type HitConfirmGate } from './hit-confirm.js'
-import { explicitProvider, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
+import { explicitDirective, explicitProvider, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -233,14 +233,43 @@ export class KimiRouter {
     if (this.config.activePreset === null) return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
     const hasImage = hasImageOverride ?? messagesContainImage(messages)
-    // 1. 显式 @指令（最高优先级）：只锁 provider 层，模型=该 provider 枚举序首个可用候选（带图限定多模态）。
-    const explicit = explicitProvider(text)
+    // 1. 显式 @指令（最高优先级）。v1.3.0 Q3 两项升级：
+    //    a) **精确寻址** `@provider/model`——模型在候选池且可用（带图还须多模态）就直接用；
+    //       否则回落确定化选择，并把「不可用」写进原因（不静默改道）。
+    //    b) provider 简写的池内选择**确定化 + 可解释**——优先「本预设已配置过的目标」
+    //       （default → 规则序），其次目录枚举序首个；原因串写出实际模型与依据。
+    //       （实机教训：`@qwen-token-plan-cn` 曾落到池内首个 MiniMax-M2.5 = 未购买 → 403。）
+    const explicit = explicitDirective(text)
     if (explicit !== null) {
       const pool = this.metas.filter(
-        (m) => m.provider === explicit && m.available && (!hasImage || m.modalities.includes('image')),
+        (m) => m.provider === explicit.provider && m.available && (!hasImage || m.modalities.includes('image')),
       )
-      if (pool.length === 0) return { kind: 'keep', reason: `explicit @${explicit}: no available candidate` }
-      return { kind: 'route', target: { provider: pool[0].provider, model: pool[0].model }, reason: `显式 @${explicit} 指令`, via: 'explicit' }
+      if (pool.length === 0) return { kind: 'keep', reason: `explicit @${explicit.provider}: no available candidate` }
+      if (explicit.model !== undefined) {
+        const exact = pool.find((m) => m.model === explicit.model)
+        if (exact !== undefined) {
+          return {
+            kind: 'route',
+            target: { provider: exact.provider, model: exact.model },
+            reason: `显式 @${explicit.provider}/${explicit.model} 指令`,
+            via: 'explicit',
+          }
+        }
+        const fallback = this.pickExplicitTarget(pool)
+        return {
+          kind: 'route',
+          target: { provider: fallback.meta.provider, model: fallback.meta.model },
+          reason: `显式 @${explicit.provider}/${explicit.model} 不可用 → ${fallback.meta.model}（${fallback.why}）`,
+          via: 'explicit',
+        }
+      }
+      const picked = this.pickExplicitTarget(pool)
+      return {
+        kind: 'route',
+        target: { provider: picked.meta.provider, model: picked.meta.model },
+        reason: `显式 @${explicit.provider} 指令 → ${picked.meta.model}（${picked.why}）`,
+        via: 'explicit',
+      }
     }
     // 2. 预设规则链（首条目标可用者生效；目标不可用 → 跳过该规则，降级）。
     const preset = this.config.presets[this.config.activePreset]
@@ -296,6 +325,25 @@ export class KimiRouter {
     // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
     // 被认领组命中不入链——全部命中被抑制时同样落此打底（1.1.0 §4）。
     return { kind: 'route', target: { ...preset.default }, reason: `预设「${preset.name}」默认`, via: 'default' }
+  }
+
+  /**
+   * 池内确定化选择（Q3 方向 C）：优先「本预设已配置过的目标」（default → 规则序），
+   * 其次目录枚举序首个。返回选中 meta 与人类可读依据（进决策原因，可解释）。
+   */
+  private pickExplicitTarget(pool: readonly CandidateMeta[]): { meta: CandidateMeta; why: string } {
+    const preset = this.config.activePreset === null ? undefined : this.config.presets[this.config.activePreset]
+    if (preset !== undefined) {
+      const configured: RouteTarget[] = [
+        preset.default,
+        ...preset.rules.map((r) => r.target).filter((t): t is RouteTarget => !isFlowTarget(t)),
+      ]
+      for (const target of configured) {
+        const hit = pool.find((m) => m.provider === target.provider && m.model === target.model)
+        if (hit !== undefined) return { meta: hit, why: '预设内已配置目标' }
+      }
+    }
+    return { meta: pool[0]!, why: '目录序首个可用' }
   }
 
   /** agent/request 钩子：消费决策，返回替换后的 callConfig。 */
