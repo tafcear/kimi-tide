@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme/hero.gif" width="100%" alt="月汐 kimi-tide — DSH 的逐步模型路由器：任何已接入的模型，都按你的规则自动选路">
+  <img src="docs/assets/readme/hero.gif" width="100%" alt="月汐 kimi-tide — 装在 DSH 上的小插件：自动替你换 AI，日常活交给便宜的，关键活交给更聪明的，省钱又不用自己切">
 </p>
 <p align="center">
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>

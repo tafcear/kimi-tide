@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme/hero-en.gif" width="100%" alt="kimi-tide — the per-step model router for DSH: any connected model, routed by your rules">
+  <img src="docs/assets/readme/hero-en.gif" width="100%" alt="kimi-tide — a small plugin for DSH that picks the AI for you: routine work on the cheap model, key work on the smarter one, no manual switching">
 </p>
 <p align="center">
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
