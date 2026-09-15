@@ -906,7 +906,7 @@ describe('SettingsCard ⑥-B 页签（四页签 + tabpanel 语义）', () => {
       ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '说明')!.click()
     })
     expect(card.getAttribute('data-tab')).toBe('help')
-    expect(container.querySelector('#kt-panel-help')).not.toBeNull()
+    expect(container.querySelectorAll('[role="tabpanel"]:not([hidden])')).toHaveLength(1)
   })
 
   it('四页签完整 tab/tabpanel 语义 + 键盘 ←/→/Home/End（2026-09-15 还 UI 评审 C11/N5 债）', async () => {
@@ -928,14 +928,18 @@ describe('SettingsCard ⑥-B 页签（四页签 + tabpanel 语义）', () => {
       const controls = tab.getAttribute('aria-controls')
       expect(id).not.toBeNull()
       expect(controls).not.toBeNull()
-      const panel = container.querySelector(`#${controls}`)!
+      const panel = container.querySelector(`[id="${controls}"]`)!
       expect(panel).not.toBeNull()
       expect(panel.getAttribute('role')).toBe('tabpanel')
       expect(panel.getAttribute('aria-labelledby')).toBe(id)
     }
     // 非活动面板 hidden：保持挂载但不进无障碍树
-    expect((container.querySelector('#kt-panel-route') as HTMLElement).hidden).toBe(false)
-    expect((container.querySelector('#kt-panel-help') as HTMLElement).hidden).toBe(true)
+    // id 是实例级（useId 产出 `:rN:` 前缀），故用属性选择器而不是 `#id` 选择器
+    // ——jsdom 的 dom-selector 对 `#:r0:…` 报 Invalid selector。
+    const panelOf = (tab: Element): HTMLElement =>
+      container.querySelector<HTMLElement>(`[id="${tab.getAttribute('aria-controls')!}"]`)!
+    expect(panelOf(tabs[0]!).hidden).toBe(false)
+    expect(panelOf(tabs[3]!).hidden).toBe(true)
     // Fails if: 方向键不切换页签（只能鼠标点）
     await act(async () => {
       tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
@@ -977,7 +981,7 @@ describe('SettingsCard ⑥-B 页签（四页签 + tabpanel 语义）', () => {
     await act(async () => {
       ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '说明')!.click()
     })
-    const panel = container.querySelector('#kt-panel-help')!
+    const panel = container.querySelector('[role="tabpanel"]:not([hidden])')!
     // 八分区标题齐
     for (const title of ['面板速览', '常见疑问', '路由语义', '关键词与匹配', '协作流', '用量与余额', '术语表', '命令清单']) {
       expect(panel.textContent).toContain(title)
@@ -985,6 +989,54 @@ describe('SettingsCard ⑥-B 页签（四页签 + tabpanel 语义）', () => {
     // Fails if: 说明页长出可写控件（出现第二个写入口）
     expect(panel.querySelectorAll('button')).toHaveLength(0)
     expect(panel.querySelectorAll('input, select, textarea')).toHaveLength(0)
+  })
+
+  // 评审遗留（2026-09-15 UI 评审 #8，本次修）：页签 id 原为静态 `kt-tab-<key>` /
+  // `kt-panel-<key>`，同页挂两张卡（设置页 + 测试场/多入口）即 id 撞车：`aria-controls`
+  // 变成指向**另一张卡**的面板（读屏定位到错的面板），`#kt-panel-help` 这类选择器也
+  // 只命中第一张。改法 = useId 生成实例级 id，页签键改走 `data-kt-tab`（不再从 id 反推）。
+  it('同页挂两张卡：页签/面板 id 不撞车，aria-controls 各自指向本卡面板（UI 评审 #8）', async () => {
+    const a = makeDeferredStore()
+    const b = makeDeferredStore()
+    const cardA = document.createElement('div')
+    const cardB = document.createElement('div')
+    document.body.appendChild(cardA)
+    document.body.appendChild(cardB)
+    const rootA = createRoot(cardA)
+    const rootB = createRoot(cardB)
+    try {
+      await act(async () => {
+        rootA.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => a.store }))
+        rootB.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => b.store }))
+      })
+      await act(async () => {
+        a.publish(readyV5Snapshot())
+        b.publish(readyV5Snapshot())
+      })
+
+      const idsOf = (host: HTMLElement): string[] =>
+        [...host.querySelectorAll('[role="tab"], [role="tabpanel"]')].map((el) => el.id).filter((id) => id !== '')
+      const all = [...idsOf(cardA), ...idsOf(cardB)]
+      // Fails if: id 仍是静态串（两张卡产出同一批 id）
+      expect(new Set(all).size).toBe(all.length)
+      expect(all.length).toBeGreaterThanOrEqual(8)
+
+      // Fails if: aria-controls 指向另一张卡的面板（跨卡串味）
+      for (const [host, other] of [[cardA, cardB], [cardB, cardA]] as const) {
+        for (const tab of [...host.querySelectorAll('[role="tab"]')]) {
+          const id = tab.getAttribute('aria-controls')!
+          expect(host.querySelector(`[id="${id}"]`)).not.toBeNull()
+          expect(other.querySelector(`[id="${id}"]`)).toBeNull()
+        }
+      }
+    } finally {
+      await act(async () => {
+        rootA.unmount()
+        rootB.unmount()
+      })
+      cardA.remove()
+      cardB.remove()
+    }
   })
 })
 

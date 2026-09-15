@@ -30,7 +30,7 @@
  * 不拦保存）；「试一句」outcome 增 review-flow 枝（文案 = 本轮路由到 <routed
  * 摘要> + <label>，label 已含「评审模型不可用」盲区语义）。
  */
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
 import { Icon } from './icons.js'
 import { FALLBACK_HINTS } from './help-content.js'
@@ -449,6 +449,16 @@ export function SettingsCard(props: SettingsCardProps) {
   // ⑥-B：设置卡三页签（路由 / 协作流 / 测试场）——CSS 可见性切换（区块保持
   // 挂载，受控表单状态与既有测试选择器零改动）。
   const [activeTab, setActiveTab] = useState<'route' | 'flows' | 'trial' | 'help'>('route')
+  /**
+   * 页签/面板 id 的**实例前缀**（UI 评审 #8，2026-09-15 修）：原为静态
+   * `kt-tab-<key>` / `kt-panel-<key>`，同页挂两张卡（例如设置页与测试场并存、
+   * 或未来多入口）即 id 撞车——`aria-controls` 会指向**另一张卡**的面板（读屏
+   * 定位到错的面板），DOM 查询也只命中第一张。`useId()` 随实例变化，React 18
+   * 的 SSR/并发渲染下同样稳定（本卡在客户端挂载，取到的是 `:rN:` 形态）。
+   */
+  const cardUid = useId()
+  const tabId = (key: 'route' | 'flows' | 'trial' | 'help'): string => `${cardUid}kt-tab-${key}`
+  const panelId = (key: 'route' | 'flows' | 'trial' | 'help'): string => `${cardUid}kt-panel-${key}`
 
   /**
    * 页签键盘操作（2026-09-15 还 UI 评审 C11/N5 的债）：←/→ 循环、Home/End 跳首尾，
@@ -466,8 +476,9 @@ export function SettingsCard(props: SettingsCardProps) {
       if (target === undefined) return
       e.preventDefault()
       target.focus()
-      const panel = target.getAttribute('aria-controls') ?? ''
-      const key = panel.replace('kt-panel-', '')
+      // 页签键取自 data-kt-tab（评审 #8）：id 现在是实例级（useId），不能再从
+      // `aria-controls` 的字符串里反推键名。
+      const key = target.dataset.ktTab
       if (key === 'route' || key === 'flows' || key === 'trial' || key === 'help') setActiveTab(key)
     }
     if (e.key === 'ArrowRight') pick(tabs[(index + 1) % tabs.length])
@@ -767,23 +778,25 @@ export function SettingsCard(props: SettingsCardProps) {
       {/* ⑥-B：页签导航。2026-09-15 v2（评审 M1/M2）：可见性改由**容器 + hidden**
           驱动（styles.ts 有作者级 [hidden] 兜底）；旧 data-tab :not() 链退役——
           那套写法正是「测试场藏错误横幅 / 藏已保存」两起 bug 的成因。
-          键盘：←/→ 循环、Home/End 跳首尾（还 UI 评审 C11/N5 的债）。 */}
+          键盘：←/→ 循环、Home/End 跳首尾（还 UI 评审 C11/N5 的债）。
+          id：**实例级**（useId，评审 #8）——静态 `kt-tab-*`/`kt-panel-*` 在同页两张卡时撞车，
+          aria-controls 会指向另一张卡的面板；页签键改走 `data-kt-tab`，不再从 id 反推。 */}
       <div className="kt-tabs" role="tablist" onKeyDown={onTablistKeyDown}>
-        <button type="button" role="tab" id="kt-tab-route" aria-controls="kt-panel-route"
+        <button type="button" role="tab" id={tabId('route')} aria-controls={panelId('route')} data-kt-tab="route"
           aria-selected={activeTab === 'route'} tabIndex={activeTab === 'route' ? 0 : -1}
           className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('route')}>路由</button>
         {isV5 && (
-          <button type="button" role="tab" id="kt-tab-flows" aria-controls="kt-panel-flows"
+          <button type="button" role="tab" id={tabId('flows')} aria-controls={panelId('flows')} data-kt-tab="flows"
             aria-selected={activeTab === 'flows'} tabIndex={activeTab === 'flows' ? 0 : -1}
             className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
             onClick={() => setActiveTab('flows')}>协作流</button>
         )}
-        <button type="button" role="tab" id="kt-tab-trial" aria-controls="kt-panel-trial"
+        <button type="button" role="tab" id={tabId('trial')} aria-controls={panelId('trial')} data-kt-tab="trial"
           aria-selected={activeTab === 'trial'} tabIndex={activeTab === 'trial' ? 0 : -1}
           className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('trial')}>测试场</button>
-        <button type="button" role="tab" id="kt-tab-help" aria-controls="kt-panel-help"
+        <button type="button" role="tab" id={tabId('help')} aria-controls={panelId('help')} data-kt-tab="help"
           aria-selected={activeTab === 'help'} tabIndex={activeTab === 'help' ? 0 : -1}
           className={activeTab === 'help' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('help')}>说明</button>
@@ -792,7 +805,7 @@ export function SettingsCard(props: SettingsCardProps) {
       {savedFlash && <span className="kt-saved" role="status">已保存</span>}
 
       {/* 路由页容器：预设选择 / 编辑器 / 预设操作 / 关键词组（原本散落为 4+ 个并列子节点）。 */}
-      <div className="kt-tabpanel kt-route" role="tabpanel" id="kt-panel-route" aria-labelledby="kt-tab-route" tabIndex={0} hidden={activeTab !== 'route'}>
+      <div className="kt-tabpanel kt-route" role="tabpanel" id={panelId('route')} aria-labelledby={tabId('route')} tabIndex={0} hidden={activeTab !== 'route'}>
 
       {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
       <div className="kt-preset-row">
@@ -1182,7 +1195,7 @@ export function SettingsCard(props: SettingsCardProps) {
       </div>
 
       {/* 测试场页容器 */}
-      <div className="kt-tabpanel kt-trial" role="tabpanel" id="kt-panel-trial" aria-labelledby="kt-tab-trial" tabIndex={0} hidden={activeTab !== 'trial'}>
+      <div className="kt-tabpanel kt-trial" role="tabpanel" id={panelId('trial')} aria-labelledby={tabId('trial')} tabIndex={0} hidden={activeTab !== 'trial'}>
 
       {/* 「试一句」测试器（0.8.0 D2）：纯文本语义预测——命中规则（词数）+ 最终
           目标；带图输入只展示规则命中、不承诺最终改道（浏览器侧无 modalities）。 */}
@@ -1233,7 +1246,7 @@ export function SettingsCard(props: SettingsCardProps) {
 
       {/* 协作流页容器（flows 仅 v5 存在，故容器与内容一起门控） */}
       {isV5 && (
-        <div className="kt-tabpanel kt-flows" role="tabpanel" id="kt-panel-flows" aria-labelledby="kt-tab-flows" tabIndex={0} hidden={activeTab !== 'flows'}>
+        <div className="kt-tabpanel kt-flows" role="tabpanel" id={panelId('flows')} aria-labelledby={tabId('flows')} tabIndex={0} hidden={activeTab !== 'flows'}>
         <details className="kt-flows kt-card" open>
           <summary>协作流</summary>
           {flowEntries.map(([flowId, flow]) => (
@@ -1293,7 +1306,7 @@ export function SettingsCard(props: SettingsCardProps) {
 
       {/* 说明页容器（2026-09-15 v2）：状态感知自解释层——面板元素 + 全部设置语义。
           只读：无按钮/表单控件；静态内容来自 help-content.ts 单一内容源。 */}
-      <div className="kt-tabpanel kt-help" role="tabpanel" id="kt-panel-help" aria-labelledby="kt-tab-help" tabIndex={0} hidden={activeTab !== 'help'}>
+      <div className="kt-tabpanel kt-help" role="tabpanel" id={panelId('help')} aria-labelledby={tabId('help')} tabIndex={0} hidden={activeTab !== 'help'}>
         <HelpTab config={config} />
       </div>
     </div>
