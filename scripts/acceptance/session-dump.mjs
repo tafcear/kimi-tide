@@ -18,7 +18,7 @@
  *   node scripts/acceptance/session-dump.mjs <路径> --positions       # 哪些事件类型带 turn/step（跨事件对齐的前提）
  *   node scripts/acceptance/session-dump.mjs <路径> --users           # 用户消息形状（source/kind/content 块型）
  *   node scripts/acceptance/session-dump.mjs <路径> --errors          # 错误/失败扫描（finish reason / error 字段）
- *   node scripts/acceptance/session-dump.mjs <路径> --grep <正则>     # 任意事件原文匹配（截断显示）
+ *   node scripts/acceptance/session-dump.mjs <路径> --grep <文本>     # 任意事件原文匹配（字面量子串，截断显示）
  *   node scripts/acceptance/session-dump.mjs <路径> --json            # 结构化输出
  *   node scripts/acceptance/session-dump.mjs --list [--minutes 60]    # 不传路径时：列出最近更新的会话（含事件数与面板事件数）
  *
@@ -157,7 +157,7 @@ function listRecent(minutes) {
 const listIndex = minutesIndex
 if (target === undefined) {
   if (!flags.has('--list') && listIndex === -1) {
-    console.error('用法：node scripts/acceptance/session-dump.mjs <会话文件|目录> [--types|--positions|--users|--errors|--turns|--grep <正则>|--json]\n      node scripts/acceptance/session-dump.mjs --list [--minutes 60]')
+    console.error('用法：node scripts/acceptance/session-dump.mjs <会话文件|目录> [--types|--positions|--users|--errors|--turns|--grep <文本>|--json]\n      node scripts/acceptance/session-dump.mjs --list [--minutes 60]')
     process.exit(2)
   }
   const minutes = listIndex === -1 ? 60 : Number(argv[listIndex + 1])
@@ -237,11 +237,14 @@ if (flags.has('--errors')) {
 }
 
 if (grepPattern !== null) {
-  const re = new RegExp(grepPattern)
-  console.log(`\n=== 匹配 /${grepPattern}/ 的事件 ===`)
+  // 字面量子串匹配（不是正则）：把命令行传进来的字符串编译成正则，会让仓库常驻一条高风险告警
+  // （CodeQL `js/regexp-injection`，CWE-400 / CWE-730 —— 安全页告警 #4）。而这里真正要回答的
+  // 几乎只有「这段原文在不在」，字面量匹配把它 100% 覆盖，且天然免于 ReDoS：
+  // 正则元字符按字面处理（`--grep 'a.*b'` 找的就是字面 `a.*b`）。
+  console.log(`\n=== 含「${grepPattern}」的事件 ===`)
   let hits = 0
   for (const e of events) {
-    if (!re.test(JSON.stringify(e))) continue
+    if (!JSON.stringify(e).includes(grepPattern)) continue
     hits++
     console.log(`  [${e.type}] seq=${e.seq} ${brief(e.data ?? null, 240)}`)
   }

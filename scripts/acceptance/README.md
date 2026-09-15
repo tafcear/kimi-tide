@@ -84,9 +84,13 @@ node scripts/acceptance/session-dump.mjs <会话目录|文件>           # 概�
 node scripts/acceptance/session-dump.mjs <路径> --positions       # ★ 哪些事件类型带 turn/step
 node scripts/acceptance/session-dump.mjs <路径> --users           # 用户消息形状（source/块型）
 node scripts/acceptance/session-dump.mjs <路径> --errors          # 错误/失败扫描
-node scripts/acceptance/session-dump.mjs <路径> --grep <正则>     # 任意事件原文匹配
+node scripts/acceptance/session-dump.mjs <路径> --grep <文本>     # 任意事件原文匹配（字面量子串）
 node scripts/acceptance/session-dump.mjs <路径> --json
 ```
+
+**`--grep` 是字面量子串匹配，不是正则**（2026-09-15 修正）：把命令行传进来的字符串编译成正则，会让仓库常驻一条高风险告警（CodeQL `js/regexp-injection`，CWE-400 / CWE-730 —— 安全页告警 #4）。而这个入口真正要回答的几乎只有「这段原文在不在」，字面量匹配把它 100% 覆盖，还天然免于 ReDoS：正则元字符按字面处理，`--grep 'a.*b'` 找的就是字面 `a.*b`。
+
+同会话改前/改后对照实测（`session-42005dc1`，3503 事件）：`--grep 'step/start'` **279 条**（常用面不变）；`--grep 'step/(start|end)'` 改前 **558 条** → 改后 **0 条**；`--grep '.+'` 改前 **1660 条** → 改后 **8 条**（元字符已按字面处理）。
 
 **为什么 `--positions` 值得单独存在**：跨事件对齐的前提。2026-09-15 做「路由是否落地」判据时，
 按 `turn` 配对 `request/header` 与 `assistant/message` 得到 **3.2% 假阳性**——因为
