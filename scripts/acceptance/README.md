@@ -59,6 +59,21 @@ node scripts/acceptance/hit-confirm-sentinel.mjs --json
 
 这 5 次的会话日志被 LRU 语义确证过：缓存**一次都没命中**，因此 hit/omit 两种「成功」都被排除，只剩「无结论」与「判词不可解析」两种失败形态。
 
+## 旧面板载荷离线验收（`panel-legacy-scan.mjs`）
+
+治的是交接单里那句「待实机验收」——**「老会话能不能投影出来」是纯函数问题**（`panelSchema.parse`），不必开界面：把样例会话里**真实的**旧面板事件喂给发货中的同一份 schema 即可判定。
+
+```bash
+node scripts/acceptance/panel-legacy-scan.mjs         # 三个样例（交接单材料指针③）
+node scripts/acceptance/panel-legacy-scan.mjs --json
+```
+
+退出码：`0` 抽到的旧载荷全部可投影 · `1` 有载荷被拒（附 zod issues） · `2` 取不到 schema（产物形状变了）。
+
+**2026-09-15 实测**：`session-4fb0f4d5` 543/543 旧载荷通过、`session-6ca2f899` 53/53 通过（该会话另有 310 条现代载荷）⇒ **596 条旧载荷全过**，投影层那半闭环；剩「评审卡渲染」那半要眼睛。第三个样例 `session-c01dab3c` **已确认丢失**（09-14 `~\.dsh` 整目录删除事故，全盘扫描不复存在），脚本按「记录在案」处理、不判失败——把它算失败会掩盖真正要盯的两个。
+
+同批顺带确认了**面板事件已停写**：全库 245 个会话，近 24h 更新的会话里 `kimi-tide/panel` 事件 **0 条**（v1.2.0 解耦生效的期望值）。
+
 ## 判官离线探针（`judge-probe.mjs`）
 
 哨兵能告诉你「判官没成功」，**不能告诉你为什么**——判词在宿主进程内产出、只写 stdout。这个探针把**判官那一发请求**原样复现到进程外：用 `lib` 里真实的 `buildConfirmInput`，同样的 `maxTokens`、同样的线缆参数，只把传输换成本机 HTTP 直连。
