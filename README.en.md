@@ -13,17 +13,17 @@
   <a href="https://github.com/tafcear/kimi-tide/graphs/contributors"><img src="https://img.shields.io/github/contributors/tafcear/kimi-tide?color=blue" alt="Contributors"></a>
 </p>
 
-**kimi-tide (MoonTide) is the "pick the right model at every step" plugin for DSH.****kimi-tide (MoonTide): run on a cheap model, bring in a strong one where it matters — the "pick the right model at every step" plugin for DSH.**
+**kimi-tide (MoonTide) is a small plugin you install into DSH — the tool you use to work and write code together with an AI (open-sourced by DeepSeek).**
 
-DSH (DeepSeek Harness) is DeepSeek's official open-source AI coding agent framework — you work with an AI assistant in a web UI, and models, tools, and interface all load as plugins (the official motto: *Everything is a Plugin*). You can connect several models to DSH: some understand screenshots, some are great at code, some are cheap and fast. But by default **a DSH session sticks to one model from start to finish** — switching means doing it by hand, and remembering to switch back.
+**It does one job: it swaps in a better-suited AI for you, automatically.** You usually have several AIs connected — one cheap, one smart, one that can read screenshots. Until now you had to switch by hand, and often forgot to switch back; with kimi-tide it picks for you on every turn: **everyday work goes to the cheap one first, the important work goes to the smarter one, images go to the one that can see them.**
 
-With kimi-tide installed: **paste a screenshot and it goes to a model that can see it; write code and it goes to the coding model; small talk and translation go to the cheap one** — and the "🌙 MoonTide" panel below the input box always shows who was picked and why. The rules are yours to write and edit. Kimi and DeepSeek are just the ready-made examples — **any model you connect can be routed your way**.
+**Three things you get:**
 
-**The expensive models in your list are the ones you rarely dare to use — kimi-tide keeps them for the part that is worth the most:**
+- **Save money** — don't pay where you don't need to. Chat, translation, copy edits and tidying up keep using your cheapest AI; **the good steel goes only where the blade is**.
+- **No weak links** — the critical parts are backed by a strong model: coding, code review and math each go to the stronger one, and output that matters can be checked by a strong model first (issues by severity + advice + a pass/fail verdict) before it reaches you.
+- **No more switching back** — after a screenshot, only that turn moves to a vision AI; the next turn returns to the one you were using. **The pricey AI is billed by the slice, not by the whole session.**
 
-- **Send specialist work to a specialist**: coding, code review, screenshots, math — each goes to the stronger model for that domain, while everyday chat, docs and copywriting stay on your cheapest one. You no longer have to switch a whole session to a pricey model just because today involves code.
-- **Mixing is safe**: after a screenshot or a coding step, **the next turn goes back to your default model** — one image does not put the whole session on the expensive meter.
-- **A strong model signs off**: when the output is worth checking, kimi-tide sends it to the reviewer you configured, and the review card lands under that turn (you decide whether to redo it; "automatically send a failing turn back for rework" is still on the roadmap — see the collaborative-review section below).
+(In the rest of this document, "AI" and "model" mean the same thing — DSH calls them models.)
 
 **For you if**: you use DSH with more than one model connected.
 **Not for you if**: you use a single model, or haven't set up DSH yet (set up DSH first, then come back).
