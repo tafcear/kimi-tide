@@ -119,4 +119,22 @@ describe('HitConfirmGate：结论、缓存与失败退化', () => {
     await gate.review('b', candidates, judge, { maxTokens: 16 })
     expect(seen).toEqual([64, 16])
   })
+
+  it('可观测性补链（v1.3.0 A7 实机失效）：回传判词理由与失败细分，供决策原因串显形', async () => {
+    const okGate = new HitConfirmGate({ call: async () => '{"verdict":"omit","rule":"code-kfc","why":"引用语境"}' })
+    await expect(okGate.review('x', candidates, judge)).resolves.toMatchObject({ outcome: 'omit', why: '引用语境' })
+
+    // 无结论（调用失败/超时）与解析失败必须可区分——实机正是靠这个区分 (a) 超时 /(b) 解析 两条根因
+    const deadGate = new HitConfirmGate({ call: async () => null })
+    await expect(deadGate.review('y', candidates, judge)).resolves.toMatchObject({ outcome: 'fail', failDetail: 'no-answer' })
+
+    const badGate = new HitConfirmGate({ call: async () => '我拒绝输出 JSON' })
+    await expect(badGate.review('z', candidates, judge)).resolves.toMatchObject({ outcome: 'fail', failDetail: 'parse' })
+  })
+
+  it('缓存命中同样回传判词理由（不因走缓存而丢诊断面）', async () => {
+    const gate = new HitConfirmGate({ call: async () => '{"verdict":"omit","rule":"code-kfc","why":"引用"}' })
+    await gate.review('same', candidates, judge)
+    await expect(gate.review('same', candidates, judge)).resolves.toMatchObject({ outcome: 'cached-omit', why: '引用' })
+  })
 })

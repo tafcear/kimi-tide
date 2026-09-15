@@ -377,6 +377,23 @@ describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
       reason: '规则「带图」命中（协作流 transcribe）', via: 'rule',
     })).toMatchObject({ chosen: { provider: 'flow', model: 'transcribe' } })
   })
+
+  it('v1.3.0 可观测性补链：带语义闸注解的打底决策也要上报（判否落打底时不再隐形）', () => {
+    const noted = {
+      ...route,
+      via: 'default' as const,
+      reason: '语义闸判否（引用语境） · 预设「省钱」默认',
+      confirmNote: '语义闸判否（引用语境）',
+    }
+    // 判否 ⇒ 规则被过滤 ⇒ 最终必然落打底。若沿用「default 不上报」，
+    // 判否这个最需要被看见的结果将完全不可见——这正是 A7 实机失效被掩盖的原因。
+    expect(buildDecisionSummary(noted)).toEqual({
+      chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      reason: '语义闸判否（引用语境） · 预设「省钱」默认',
+    })
+    // 无注解的打底仍然隐形——既有语义逐字节不变
+    expect(buildDecisionSummary({ ...noted, confirmNote: undefined })).toBeNull()
+  })
 })
 
 describe('apply() decision lifecycle (0.5.0 via semantics)', () => {

@@ -146,6 +146,7 @@ The quota slots on the panel's second row **follow the current routed target** a
 
 - **"Settings → 月汐 → 说明"** explains every panel element and every settings field across eight sections, with key entries carrying the **current value** (e.g. "trigger: manual ⇒ keyword hits will not fire a review"), plus a **symptom → cause** table.
 - **Semantic hit confirmation** (off by default, needs config): with it enabled a keyword hit no longer reroutes immediately — the **preset's own default model** first confirms "is this really this turn's intent?", and an "omit" verdict skips that rule and keeps matching the rest. Timeout / unavailable judge / unparseable output all **fall back to the plain keyword result**; explicit `@` turns and turns where an image rule already leads make **no judge call at all**. Config knob: `preset.hitConfirm`.
+- **The verdict lands in the decision reason**: omit / hit / no-verdict is prepended to the panel's decision reason (e.g. "semantic gate: no verdict 1200ms (code-kfc)"). Because an omit drops the rule from the chain and therefore lands on the default route, **default-route decisions carrying a verdict note are now surfaced too** — otherwise the omit itself, the one outcome you most need to see, would stay invisible.
 
 ### Two ways to write an explicit @
 

@@ -93,12 +93,18 @@ export function defaultSidecarFile(): string {
  * truncated to 120 characters. Flow decisions (0.6.0, Task 9 接线) surface
  * with `flow:{flowId}` semantics — chosen = { provider: 'flow', model: flowId }.
  * Pure — no agent/ctx access.
+ *
+ * v1.3.0 例外（可观测性补链）：带**语义闸注解**（`confirmNote`）的打底决策要上报。
+ * 判否 ⇒ 被否规则过滤出路由链 ⇒ 最终必然落打底，若沿用「打底不上报」，那么
+ * 「判否」这个最需要被看见的结果反而完全不可见——A7 实机失效正是被这一点掩盖的。
+ * 无注解的打底仍不上报（既有语义逐字节不变）。
  */
 export function buildDecisionSummary(decision: RouteDecision): DecisionSummary | null {
   if (decision.kind === 'flow') {
     return { chosen: { provider: 'flow', model: decision.flowId }, reason: decision.reason.slice(0, 120) }
   }
-  if (decision.kind !== 'route' || decision.via === 'default') return null
+  if (decision.kind !== 'route') return null
+  if (decision.via === 'default' && decision.confirmNote === undefined) return null
   return { chosen: { provider: decision.target.provider, model: decision.target.model }, reason: decision.reason.slice(0, 120) }
 }
 

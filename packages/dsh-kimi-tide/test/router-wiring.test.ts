@@ -355,6 +355,45 @@ describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1
     })
     expect(calls).toHaveLength(0)
   })
+
+  // v1.3.0 可观测性补链：判词必须穿到**最终决策对象**上。判否 ⇒ 被否规则出链 ⇒
+  // 落打底（via:'default'），而打底按既有 gating 不上报面板——A7 实机失效正是被
+  // 这一点掩盖的。本组钉住「注记确实到达最终决策」，回退 withConfirmNote 即红。
+  it('判否（omit）⇒ 决策带 confirmNote 且 reason 前置判词（落打底形态也不再隐形）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
+      ...fixture.deps,
+      hitConfirm: new HitConfirmGate({ call: async () => '{"verdict":"omit","rule":"code-kfc","why":"引用语境"}' }),
+    })
+
+    await dispatch.preStep({
+      agent, messages: [textMessage('我昨天那个重构早就写完了，今天想聊点别的')], turn: 1, step: 1, signal: signal(),
+    })
+
+    const last = fixture.decisions.at(-1)?.decision
+    expect(last?.confirmNote).toBe('语义闸判否「引用语境」')
+    expect(last?.reason).toContain('语义闸判否「引用语境」')
+    // 判否 ⇒ 规则出链 ⇒ 打底
+    expect(last?.kind === 'route' && last.via).toBe('default')
+  })
+
+  it('无结论（fail）⇒ 决策带失败细分与耗时；fail-open 语义不变（规则照常生效）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
+      ...fixture.deps,
+      hitConfirm: new HitConfirmGate({ call: async () => null }),
+    })
+
+    await dispatch.preStep({
+      agent, messages: [textMessage('帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+
+    const last = fixture.decisions.at(-1)?.decision
+    expect(last?.confirmNote).toContain('语义闸无结论')
+    expect(last?.kind === 'route' && last.via).toBe('rule')
+  })
 })
 
 describe('installRouter vs 宿主模型选择覆盖（rc.2 installModelSelection 回归，2026-08-23）', () => {

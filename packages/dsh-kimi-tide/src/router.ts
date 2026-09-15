@@ -35,7 +35,7 @@ import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import { KIMI_TIDE_REVIEW_EVENT } from './projection.js'
 import { createReviewRunner, REVIEW_INPUT_LIMIT, type ReviewEventPayload, type ReviewRequest } from './review.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
-import { type HitConfirmGate } from './hit-confirm.js'
+import { type ConfirmReviewResult, type HitConfirmGate } from './hit-confirm.js'
 import { configuredProviders, effectiveExplicitDirective, explicitDirective, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
@@ -59,9 +59,44 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export type RouteDecision =
-  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default' }
-  | { kind: 'flow'; flowId: string; flow: TranscribeFlow; reason: string; via: 'rule' }
-  | { kind: 'keep'; reason: string }
+  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default'; confirmNote?: string }
+  | { kind: 'flow'; flowId: string; flow: TranscribeFlow; reason: string; via: 'rule'; confirmNote?: string }
+  | { kind: 'keep'; reason: string; confirmNote?: string }
+
+/**
+ * 语义闸注记（v1.3.0 可观测性补链）：把判词结论前置拼进决策原因串，并留下
+ * `confirmNote` 供 `buildDecisionSummary` 判别。判否 ⇒ 规则被过滤 ⇒ 最终必然
+ * 落打底（`via: 'default'`），而打底按既有语义**不上报面板**——不特殊处理的话，
+ * 「判否」这个最需要被看见的结果恰恰完全不可见（A7 实机失效即由此被掩盖）。
+ *
+ * 注记必须短：`buildDecisionSummary` 对 reason 截断 120 字符，故前置以保证不被截掉。
+ * 传 `undefined` 时原样返回同一引用，既有决策逐字节不变。
+ */
+export function withConfirmNote<T extends RouteDecision>(decision: T, note: string | undefined): T {
+  if (note === undefined) return decision
+  // 断言是刻意的：spread 保住判别式（kind/via）与全部既有字段，仅追加注记与前置 reason。
+  return { ...decision, confirmNote: note, reason: `${note} · ${decision.reason}` } as T
+}
+
+/**
+ * 判词 → 决策原因串注记（v1.3.0 可观测性补链，纯函数）。
+ *
+ * 两种失败形态**措辞与耗时都分开**：`no-answer`（无结论/超时，耗时会顶到 timeoutMs）与
+ * `parse`（判词不可解析，提前返回）。实机据此一眼区分 (a) 超时 / (b) 解析两条根因，
+ * 不必再去翻易失的 stdout——A7 实机失效正是因为没有这个面才被掩盖。
+ */
+export function confirmNoteOf(ruleId: string, result: ConfirmReviewResult): string {
+  if (result.outcome === 'fail') {
+    return result.failDetail === 'parse'
+      ? `语义闸判词不可解析 ${result.durationMs}ms（${ruleId}）`
+      : `语义闸无结论 ${result.durationMs}ms（${ruleId}）`
+  }
+  const why = result.why?.trim()
+  if (result.outcome === 'omit' || result.outcome === 'cached-omit') {
+    return why === undefined || why === '' ? '语义闸判否' : `语义闸判否「${why}」`
+  }
+  return why === undefined || why === '' ? '语义闸确认' : `语义闸确认「${why}」`
+}
 
 /**
  * 路由器配置的过渡形（Task 8）：v4 存量与 v5 协作编排配置皆可挂载。
@@ -700,6 +735,8 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       //     规则链之前就返回）与「首位是 image/flow 命中」的轮（关键词规则根本轮不到）
       //     一律零调用——避免白花 1.2s 且结果必然被丢弃。
       let omitted: ReadonlySet<string> | undefined
+      // v1.3.0 可观测性补链：判词结论以注记进决策原因串（前置，避免被 120 字截断吃掉）。
+      let confirmNote: string | undefined
       const gatePreset = activePreset()
       const gateCfg = gatePreset?.hitConfirm
       if (deps.hitConfirm !== undefined && gatePreset !== undefined && gateCfg?.enabled === true) {
@@ -721,11 +758,13 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
             )
             // 判否 ⇒ 该规则不进路由链（decide 内按 omittedRuleIds 过滤）；无结论 ⇒ 不过闸。
             if (verdict.omitRuleId !== null) omitted = new Set([verdict.omitRuleId])
+            confirmNote = confirmNoteOf(head.rule.id, verdict)
           }
         }
       }
-      // 4. 决策（三处调用**同带判否集合**——转述后的重跑若不传，被判否的规则会复活）
-      let decision = router.decide(payload.messages, payload.step, hasImage, omitted)
+      // 4. 决策（三处调用**同带判否集合**——转述后的重跑若不传，被判否的规则会复活；
+      //    注记同样三处同带，否则重跑会把判词从原因串里抹掉）
+      let decision = withConfirmNote(router.decide(payload.messages, payload.step, hasImage, omitted), confirmNote)
       let flowId: string | undefined
       // 0.6.x池#a：转述成败摘要（ok/total + 败图 id + visionModel）——onDecision
       // extra 透传给投影 lastFlowEvent（≤120 截断在推送侧）。
@@ -743,7 +782,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         flowDigest = flowDigestOf(okCount, total, failedIds, flow.visionModel)
         if (failedIds.length === 0) {
           hasImage = false
-          decision = router.decide(payload.messages, payload.step, false, omitted)
+          decision = withConfirmNote(router.decide(payload.messages, payload.step, false, omitted), confirmNote)
         } else if (flow.failurePolicy === 'latch-image') {
           decision = {
             kind: 'route',
@@ -755,7 +794,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         } else {
           for (const id of failedIds) images.mark(agent, id, 'blind')
           hasImage = false
-          decision = router.decide(payload.messages, payload.step, false, omitted)
+          decision = withConfirmNote(router.decide(payload.messages, payload.step, false, omitted), confirmNote)
         }
       }
       // 仍 native 的本轮新图补记 latchTarget（后续轮 latch 改道的目标）

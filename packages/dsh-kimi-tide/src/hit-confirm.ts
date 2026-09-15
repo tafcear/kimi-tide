@@ -39,6 +39,25 @@ export interface ConfirmVerdict {
 /** 判官一次调用的结果（供观测与验收指标：无结论率）。 */
 export type ConfirmOutcome = 'hit' | 'omit' | 'fail' | 'cached-hit' | 'cached-omit'
 
+/**
+ * 失败细分（v1.3.0 可观测性补链）：闸门失效有两种**根因不同**、耗时特征相反的形态——
+ * `no-answer` 判官调用拿不到结论（失败或吃满有界超时，耗时会顶到 timeoutMs）；
+ * `parse` 判官返回了但判词不可解析（提前返回，耗时低于 timeoutMs）。
+ * 二者的耗时差异是实机区分「(a) 超时」与「(b) 解析」两条根因的唯一可观测信号。
+ */
+export type ConfirmFailDetail = 'no-answer' | 'parse'
+
+/** 一次确认的完整结果；`why`/`failDetail` 供决策原因串显形（见 router.ts 的 withConfirmNote 链路）。 */
+export interface ConfirmReviewResult {
+  omitRuleId: string | null
+  outcome: ConfirmOutcome
+  durationMs: number
+  /** 有结论时的判词理由（判官 why 字段，≤40 字）；失败/无结论为 undefined。 */
+  why?: string
+  /** 仅 outcome === 'fail' 时给出。 */
+  failDetail?: ConfirmFailDetail
+}
+
 const INSTRUCTION = [
   '你是路由确认器。判断下列关键词在用户这句话里，是不是本轮真要执行的意图。',
   '只输出一行 JSON：{"verdict":"hit"|"omit","rule":"<规则id>","why":"不超过20字"}',
@@ -143,7 +162,7 @@ export class HitConfirmGate {
     candidates: readonly ConfirmCandidate[],
     judge: RouteTarget,
     options: ConfirmOptions = {},
-  ): Promise<{ omitRuleId: string | null; outcome: ConfirmOutcome; durationMs: number }> {
+  ): Promise<ConfirmReviewResult> {
     const started = Date.now()
     const judgeKey = `${judge.provider}/${judge.model}`
     const key = this.keyOf(text, candidates, judgeKey)
@@ -154,6 +173,7 @@ export class HitConfirmGate {
         omitRuleId: cached.verdict === 'omit' ? cached.ruleId : null,
         outcome: cached.verdict === 'omit' ? 'cached-omit' : 'cached-hit',
         durationMs: 0,
+        ...(cached.why ? { why: cached.why } : {}),
       }
     }
     const timeoutMs = options.timeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS
@@ -178,12 +198,12 @@ export class HitConfirmGate {
     const durationMs = Date.now() - started
     if (raw === null) {
       this.deps.log?.(`kimi-router: 语义确认 无结论(${durationMs}ms) → 不过闸`)
-      return { omitRuleId: null, outcome: 'fail', durationMs }
+      return { omitRuleId: null, outcome: 'fail', durationMs, failDetail: 'no-answer' }
     }
     const verdict = parseConfirmVerdict(raw, candidates)
     if (verdict === null) {
       this.deps.log?.(`kimi-router: 语义确认 解析失败(${durationMs}ms) → 不过闸`)
-      return { omitRuleId: null, outcome: 'fail', durationMs }
+      return { omitRuleId: null, outcome: 'fail', durationMs, failDetail: 'parse' }
     }
     this.remember(key, verdict)
     this.deps.log?.(`kimi-router: 语义确认 ${verdict.verdict} ${verdict.ruleId} ${durationMs}ms`)
@@ -191,6 +211,7 @@ export class HitConfirmGate {
       omitRuleId: verdict.verdict === 'omit' ? verdict.ruleId : null,
       outcome: verdict.verdict,
       durationMs,
+      ...(verdict.why ? { why: verdict.why } : {}),
     }
   }
 }

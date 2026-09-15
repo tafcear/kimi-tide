@@ -6,7 +6,7 @@ import {
 } from '../src/config.js'
 import type { ImageStateEntry } from '../src/image-state.js'
 import type { ResolvedImage } from '../src/transcribe.js'
-import { createStreamVisionCaller, effortForTarget, KimiRouter, reasoningEffortFor, resolveImageFallback } from '../src/router.js'
+import { confirmNoteOf, createStreamVisionCaller, effortForTarget, KimiRouter, reasoningEffortFor, resolveImageFallback, withConfirmNote } from '../src/router.js'
 
 const log = { info: () => {} }
 const METAS: CandidateMeta[] = [
@@ -496,5 +496,48 @@ describe('语义判否（v1.3.0）：omittedRuleIds 过滤路由链', () => {
     const batch = [textMsg('帮我重构这个函数，再翻译一下')]
     expect(r.decide(batch, 1, false, new Set())).toEqual(r.decide(batch, 1, false))
     expect(r.decide(batch, 1, false, undefined)).toEqual(r.decide(batch, 1, false))
+  })
+})
+
+describe('withConfirmNote（v1.3.0 可观测性补链）', () => {
+  const base = {
+    kind: 'route' as const,
+    target: { provider: 'zai-coding-cn', model: 'glm-5.3' },
+    reason: '规则「code」命中 2 词（特异度最高）',
+    via: 'rule' as const,
+  }
+
+  it('注记前置拼接，其余字段逐字节不变', () => {
+    const out = withConfirmNote(base, '语义闸确认')
+    expect(out.reason).toBe('语义闸确认 · 规则「code」命中 2 词（特异度最高）')
+    expect(out.confirmNote).toBe('语义闸确认')
+    expect(out.kind).toBe('route')
+    expect(out.via).toBe('rule')
+    expect(out.target).toEqual(base.target)
+  })
+
+  it('无注记时原样返回同一引用（不制造新对象、不扰动既有决策）', () => {
+    expect(withConfirmNote(base, undefined)).toBe(base)
+  })
+})
+
+describe('confirmNoteOf（v1.3.0 可观测性补链）', () => {
+  it('判否/确认带判词理由；理由缺失时退化为不带引号的短句', () => {
+    expect(confirmNoteOf('code-kfc', { omitRuleId: 'code-kfc', outcome: 'omit', durationMs: 800, why: '引用语境' }))
+      .toBe('语义闸判否「引用语境」')
+    expect(confirmNoteOf('code-kfc', { omitRuleId: 'code-kfc', outcome: 'cached-omit', durationMs: 0, why: '引用' }))
+      .toBe('语义闸判否「引用」')
+    expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'hit', durationMs: 700, why: '真意图' }))
+      .toBe('语义闸确认「真意图」')
+    expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'hit', durationMs: 700 }))
+      .toBe('语义闸确认')
+  })
+
+  it('两种失败形态措辞不同且都带耗时——实机据此一眼区分超时 / 解析', () => {
+    // 无结论会顶到 timeoutMs（1200 附近）；解析失败提前返回（明显低于 1200）
+    expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'fail', durationMs: 1200, failDetail: 'no-answer' }))
+      .toBe('语义闸无结论 1200ms（code-kfc）')
+    expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'fail', durationMs: 880, failDetail: 'parse' }))
+      .toBe('语义闸判词不可解析 880ms（code-kfc）')
   })
 })
