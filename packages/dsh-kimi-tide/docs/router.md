@@ -596,3 +596,62 @@ Typert remote src-json 通道下发 `provider/model → reasoningEfforts`）；�
   （routed），不再显示切模型。
 - **校验加固**：`validateRouterConfig` review 流分支拒绝 `reviewer.effort`
   （评审调用恒不带推理等级，spec L7）。
+
+## 1.3.0 用量/余额源 + 说明页 + 语义确认闸 + 显式 @ 精确寻址（2026-09-15）
+
+### 用量/余额源注册表（`src/quota-sources.ts`）
+
+一个源 = 一个 provider 的一份「用量窗」或「余额」数据面；**新源 = 注册表加一项**。
+四内置源：`kimi-coding`（`/coding/v1/usages`，周/5h）、`zai-coding-cn`
+（`/api/monitor/usage/quota/limit`，CREDIT_LIMIT/TOKENS_LIMIT 双形态）、
+`qwen-token-plan-cn`（**无 API 面**：`url/parse` 缺席 + 静态 `unavailableReason`，
+诚实呈现「该套餐查不到」而不是伪装成取数失败）、`deepseek-official`（**余额**：
+`GET <baseURL>/user/balance`，官方文档契约 `is_available` + `balance_infos[]`，
+金额是字符串原样透出）。**baseURL 三段取值链**与宿主 adapter 同源：settings
+`llm-deepseek.baseURL` → `process.env.DEEPSEEK_BASE_URL`（bootstrap-only，第三方
+插件只能直读 env）→ 官方域。
+
+- **快照类型**：`QuotaLike = QuotaSnapshot | BalanceSnapshot`；`kind: 'balance'`
+  是**唯一判别键**（用量快照不带 kind，历史载荷零破坏）。`UsageMonitor` 的
+  `parse` / `snapshot()` 已拓宽到 `QuotaLike`，并新增 `timeoutMs`（余额源 15s，
+  替代 `0.8 × pollMs`——300s 周期会挂 240s）与 `outcome`（`pending|ok|no-key|error`）。
+- **面板元数据**：投影新增 `quotaSources: Array<{provider, kind, state, reason?}>`
+  （`state ∈ ok|failed|no-credential|no-api`）——三态的**唯一事实来源**，客户端不再
+  从 `null` 猜原因。`quotas` 仍只承载快照。
+- **配置**：`balancePollMs`（缺省 300000）。`usagePollOnStart: false` 同时关停
+  用量源与余额源（不另设开关）。
+- **契约边界**：实时面板走 HTTP 只读路由（`index.ts` 的 `/api/kimi-tide/panel`，
+  `JSON.stringify` 直出、**无运行期校验**）；`types.ts` 是唯一契约，projection 的
+  zod 自 v1.2.0 起只服务历史会话 fold（其 union 分支为历史诚恳性）。
+- **UI**：额度槽按源类型自适应——用量源画两窗（条=**剩余**比例，与「剩 N%」同向）、
+  余额源画单槽 `¥金额`；第二行「总览」按钮给出全源一屏（含三态原因）。
+
+### 语义命中确认闸（`src/hit-confirm.ts`，默认关闭）
+
+关键词命中时先让**本预设的 default** 判定真伪：判否 ⇒ 该规则视同不存在（跳过、
+继续后续规则）；**问不到**（超时缺省 1200ms / 目标不可用 / 输出解析失败）⇒ 一律
+fail-open（按原关键词结果走）。
+
+- **执行序**：`agent/pre-step`（既有 await 点）→ 前置短路（显式 @ 轮；routable
+  首位为 image/flow 命中轮——两者零调用）→ 判官 `ctx.llm.stream` 直调（无
+  `purpose`、纯文本）→ `omittedRuleIds` 注入 `decide()` 第 4 参。
+- **三处调用同带判否集**（首次 + eager/lazy 转述后的两次重跑）——不传则被否规则
+  在重跑中复活。
+- **标注不变量**：`noteBase`（认领过滤后、判否过滤**前**）与路由链解耦——被否
+  规则仍占标注位，故次条不会误标「特异度最高」（0.8.x① 语义保持）。
+- **缓存**：LRU 64，键含**判官身份**（换预设不沿用旧判词）；只缓存有结论的结果。
+- **配置**：`preset.hitConfirm = { enabled?, timeoutMs?(1..10000), maxTokens?(1..256) }`。
+  **不入 settings schema**——对象型字段入 schema 会被 schemastery 注入 `{}`，破坏
+  「默认往返相等」；靠未知键透传保活 + `validateRouterConfig` 校验（与 v3 `default`
+  同款先例）。
+- **验收指标**：判否率与**无结论率**（fail-open 占比）——后者高说明闸门名存实亡。
+
+### 显式 @ 精确寻址与确定化（Q3）
+
+- `@provider/model`：直接钉到该模型（模型段 `[\w.-]`，覆盖 `qwen3.8-max`/`glm-5.3`）；
+  目标不可用时**回落并在原因里写明**（`显式 @x/y 不可用 → z（依据）`），不静默改道。
+- `@provider` 简写：池内选择**确定化**——优先「本预设已配置过的目标」
+  （default → 规则序），其次目录枚举序首个；原因串写出实际模型与依据。
+  （实机教训：旧行为下 `@qwen-token-plan-cn` 落到池内首个 MiniMax-M2.5 = 未购买 → 403。）
+- `@kimi`/`@kimi-tide` 别名保留；词法边界（邮箱/句中引用不误判）保持不变。
+- 「试一句」`previewRoute` 采用同款语义（预演 = decide 的文本语义）。

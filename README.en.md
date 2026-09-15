@@ -47,7 +47,7 @@ With kimi-tide installed: **paste a screenshot and it goes to a model that can s
 
 When a message arrives, kimi-tide decides in this order:
 
-1. **Explicit pick**: the message says `@kimi` or similar → use it (highest priority).
+1. **Explicit pick**: the message says `@kimi` (provider level: the model you configured in the preset) or `@kimi/k3` (pins that exact model) → highest priority.
 2. **Rule hit**: score the preset's rules — has an image? how many keyword-group words matched? → rules are sorted by **specificity** (more matched words first, image always first, ties keep list order) and the **first rule with an available target** wins (unavailable targets fall through to the next rule).
 3. **Baseline**: nothing fires → use the preset's default model.
 4. **Image guard**: even if a text-only model was picked, an image-bearing message is rerouted to a model that can see — no crashes.
@@ -138,6 +138,20 @@ Two common tweaks (a few clicks in "Settings → 月汐"):
 - **Minimum keyword hits**: set a threshold (e.g. 2) so a rule fires only when at least 2 distinct words from the group appear — "make a plan" no longer trips the plan-related words by accident.
 - **Reasoning effort**: give a rule target or the default model a "thinking depth" tier (deeper is slower and pricier); unsupported tiers are dropped automatically — no errors.
 
+### Usage & balance (follows the model that actually got picked)
+
+The quota slots on the panel's second row **follow the current routed target** and adapt their shape: subscription plans (code plans) show usage windows (weekly / 5h — the bar draws the **remaining** share), while API-billed providers show a **balance** (with an explicit "insufficient balance" note when that is what the endpoint reports). Next to them a **Overview** button lists every registered source in one screen, including *why* a source has no data: "no public API for this plan" / "key not configured" / "fetch failed" — three distinct states, spelled out per row.
+
+### Help tab & semantic hit confirmation
+
+- **"Settings → 月汐 → 说明"** explains every panel element and every settings field across eight sections, with key entries carrying the **current value** (e.g. "trigger: manual ⇒ keyword hits will not fire a review"), plus a **symptom → cause** table.
+- **Semantic hit confirmation** (off by default, needs config): with it enabled a keyword hit no longer reroutes immediately — the **preset's own default model** first confirms "is this really this turn's intent?", and an "omit" verdict skips that rule and keeps matching the rest. Timeout / unavailable judge / unparseable output all **fall back to the plain keyword result**; explicit `@` turns and turns where an image rule already leads make **no judge call at all**. Config knob: `preset.hitConfirm`.
+
+### Two ways to write an explicit @
+
+- `@kimi` (provider level): the model is **the one you configured in the preset**, not whatever happens to be first in the catalog — and the decision reason says which basis was used.
+- `@kimi/k3` (exact model): pins that model directly, regardless of pool order; if it is unavailable you are **told what it fell back to** instead of being silently switched.
+
 Matching details (word boundaries, specificity ranking, degradation), image behavior, and the full config reference: [router architecture](packages/dsh-kimi-tide/docs/router.md). The candidate pool is the full Models-page catalog — any model can be a default or a rule target.
 
 ---
@@ -163,7 +177,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v1.2.1 (2026-09-11)**
+> Current version: **v1.3.0 (2026-09-15)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
