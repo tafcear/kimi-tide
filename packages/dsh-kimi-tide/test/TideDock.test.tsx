@@ -375,12 +375,69 @@ describe('说明页 UI 锚（评审 M7）：dock 元素与 DOCK_ELEMENTS 同源'
       imageContext: { native: 1, transcribed: 0, blind: 0 },
     })))
     const warning = anchorsOf(render(makePanel({ kimi: { route: false, key: false } })))
+    const balanceState = anchorsOf(render(makePanel({
+      quotas: {
+        'deepseek-official': {
+          kind: 'balance',
+          balances: [{ currency: 'CNY', total: '1.00' }],
+          fetchedAt: 1,
+          stale: false,
+        },
+      },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+    })))
     const empty = anchorsOf(renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => null })))
-    const union = new Set([...normal, ...warning, ...empty])
+    const union = new Set([...normal, ...warning, ...balanceState, ...empty])
     for (const id of DOCK_ELEMENTS) {
       // notice 只在命令失败时出现，本闸覆盖不到（help-content 的覆盖闸仍要求它有说明条目）
       if (id === 'notice') continue
       expect(union.has(id), `dock 缺 data-kt-el="${id}"——说明页覆盖闸会因此失去 UI 锚`).toBe(true)
     }
+  })
+})
+
+describe('余额槽（用量/余额 spec v2 §6.1）：API 计费源画余额，不画用量条', () => {
+  const balanceSnap = {
+    kind: 'balance' as const,
+    balances: [{ currency: 'CNY', total: '110.00', granted: '10.00', toppedUp: '100.00' }],
+    available: true,
+    fetchedAt: 1,
+    stale: false,
+  }
+
+  it('目标为余额源 → 单槽显示 ¥ 总额与分项（不出现进度条）', () => {
+    const html = visible(render(makePanel({
+      quotas: { 'deepseek-official': balanceSnap },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+    })))
+    // Fails if: 余额快照被塞进用量槽（读 weekly 得 undefined → 崩或画出空条）
+    expect(html).toContain('¥110.00')
+    expect(html).toContain('余额')
+    expect(html).not.toContain('kt-quota-bar')
+    expect(html).toContain('赠送 ¥10.00')
+    expect(html).toContain('充值 ¥100.00')
+  })
+
+  it('余额不足（is_available=false）→ 明确标注，不静默', () => {
+    const html = visible(render(makePanel({
+      quotas: { 'deepseek-official': { ...balanceSnap, available: false } },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+    })))
+    // Fails if: 余额不足时界面与充足时长得一样（官方语义 = 余额是否够用）
+    expect(html).toContain('余额不足')
+  })
+
+  it('多币种：正文取首条，tooltip 列全', () => {
+    const html = render(makePanel({
+      quotas: {
+        'deepseek-official': {
+          ...balanceSnap,
+          balances: [{ currency: 'CNY', total: '1.00' }, { currency: 'USD', total: '2.00' }],
+        },
+      },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+    }))
+    expect(visible(html)).toContain('¥1.00')
+    expect(html).toContain('USD 2.00')
   })
 })

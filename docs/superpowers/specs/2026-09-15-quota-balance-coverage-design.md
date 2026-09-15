@@ -244,3 +244,36 @@ deepseek-official   余额  ¥110.00（赠10+充100）   14:30
 | 5 | 60s 内多次面板取数命中同一快照 | 现状即如此（按需现读 + 2s 节流），不因本版改变 |
 | 6 | 多币种展示 | 正文取首条，tooltip 全列；DeepSeek 实际单币种 CNY，过度设计风险低 |
 | 7 | 无鉴权探测的 401 误读风险（本次差点误判端点存在） | 已写入 §5.2 对照实验记录；后续任何端点探测必须带「必然不存在」的对照组 |
+
+---
+
+## 11. v2 修订（2026-09-15 独立评审处置）
+
+评审：`docs/audit/2026-09-15-review-quota-balance-coverage-spec-qwen-review.md`（qwen3.8-max；**1 严重 + 6 中等 + 4 轻微**；控制器复核 7 项必改全部成立、0 误报）。**本表即实施依据，与上文冲突处以本表为准。**
+
+### 11.1 必改项处置
+
+| # | 评审意见 | 处置（改后的设计） |
+|---|---|---|
+| **S1** | 三态（无 API 面 / 无凭据 / 取数失败）**没有数据通路**——`quotas` 只传「键是否存在 + 值是否 null」 | 面板投影**新增并列字段** `quotaSources: Array<{ provider, kind, state, reason? }>`（元数据/数据分离），`state ∈ 'ok' \| 'failed' \| 'no-credential' \| 'no-api'`。客户端据此渲染三态与注册表序；`quotas` 仍只承载快照（`QuotaLike \| null`）。**§10#3「不需要新快照字段」保留**——新增的是元数据而非快照字段 |
+| **M1** | `UsageMonitor` 三处类型写死 `QuotaSnapshot`，「零改动」在类型层不成立（实施即编译报错） | `usage.ts` 三处拓宽为 `QuotaLike`：`parse?: (json, now) => QuotaLike \| null`、私有字段同型、`snapshot(): { quota: QuotaLike \| null }`。**内部逻辑零改动**（仍是「取数→存快照→节流通知」） |
+| **M2** | `baseURL` 漏 `DEEPSEEK_BASE_URL` 环境层；且该名 bootstrap-only，第三方插件读不到 dsh-app-boot 的 environment 对象 | 取值链按 adapter 同源三段：settings `llm-deepseek.baseURL` → `process.env.DEEPSEEK_BASE_URL` → `https://api.deepseek.com`。**直读 `process.env`**（bootstrap 保证它在进程环境里），不走 settings/credentials 通道 |
+| **M3** | 改造点漏三处；`usagePollOnStart` 与余额源的语义未定 | 三处一并改：① 凭据落盘监听（`credentials/reference-updated` → 全部源 refresh，**漏它则用户刚填的 key 要等一个轮询周期才亮**）② `usagePollOnStart` 门控的 `start()` ③ 停止 effect。**语义定死：`usagePollOnStart: false` 同时关停用量源与余额源**（不新增开关） |
+| **M4** | 余额源超时 = `0.8 × pollMs`（300s 周期 ⇒ 单次挂起 240s） | descriptor 增 `timeoutMs?`；**余额源 15s**、用量源沿用 `0.8 × pollMs`。`UsageMonitor` 只增一个可选参数 |
+| **M5** | `is_available` 语义写反（官方文档：**余额是否充足**） | 语义改「余额是否充足」；UI 文案 `余额不足`（title 补「余额不足以调用 API」） |
+| **M6** | 契约边界写错位置（实时通道是 HTTP 路由，零 zod 校验） | §3 改写：**`types.ts` 是唯一契约**；实时路径（`index.ts` HTTP 路由 `JSON.stringify`）**无运行期守卫**，projection zod 自 v1.2.0 起只服务历史 fold（schema 同步为可选、为历史诚恳性）；§8 用例定位说明「schema 自测 ≠ 产品路径守卫」 |
+
+### 11.2 轻微项处置
+
+| # | 处置 |
+|---|---|
+| L1 `kind?: 'usage'` 可选判别键 | 采纳：**`QuotaSnapshot` 不加 `kind`**；判别只靠 `BalanceSnapshot.kind === 'balance'`（缺席即用量）——少改两个既有解析器，判别也干净 |
+| L2 §8/§9 与 §5.2 未同步 | 采纳：qwen 行统一为「无 API 面」默认预期；带 key 探针列为**可选**动作 |
+| L3 客户端分支顺序 | 采纳并写死：kind 分支**必须早于** `pct()`/剩余量计算（否则读 `weekly` 得 undefined） |
+| L4 copy/a11y 收尾 | 采纳：refresh 按钮 title 中性化；余额槽 aria 文案与三态措辞一致 |
+
+### 11.3 与其它在途项的关系
+
+- **说明页签稿 §5⑤**：其展示措辞与本稿的 `state` 枚举**同源**（本稿定枚举，说明页只做措辞）；
+- **Q5（Kimi monthly 口径）**：并入本稿实施时核查——若 `/coding/v1/usages` 不报月窗，面板会在月配额耗尽时仍显示「剩 N」，需在文档明说或补窗；
+- 版本：随 v1.3.0 一起发（用户 2026-09-15 裁定「把前面的做完一起发」）。

@@ -53,6 +53,45 @@ export interface QuotaSnapshot {
   stale: boolean
 }
 
+/** 单币种余额分项（DeepSeek `/user/balance` 契约；金额是字符串，原样透出不做 parseFloat）。 */
+export interface BalanceEntry {
+  currency: string
+  total: string
+  granted?: string
+  toppedUp?: string
+}
+
+/**
+ * 余额快照（API 计费源）。`kind` 是**唯一判别键**——用量快照不带 kind
+ * （2026-09-15 评审 L1：可选判别字段窄化不了，不用）。
+ */
+export interface BalanceSnapshot {
+  kind: 'balance'
+  balances: BalanceEntry[]
+  /**
+   * 端点 `is_available` 透传：官方文档语义 = **余额是否充足**（是否够调 API），
+   * 不是「账号是否可用」。缺席 = 端点未报。
+   */
+  available?: boolean
+  fetchedAt: number
+  stale: boolean
+}
+
+/** 面板/配额源统一快照形（用量 | 余额）。 */
+export type QuotaLike = QuotaSnapshot | BalanceSnapshot
+
+/** 源状态（三态的事实来源；供总览面板与说明页消费）。 */
+export type QuotaSourceState = 'ok' | 'failed' | 'no-credential' | 'no-api'
+
+/** 源元数据（面板投影的并列字段：数据与元数据分离，S1）。 */
+export interface QuotaSourceMeta {
+  provider: string
+  kind: 'usage' | 'balance'
+  state: QuotaSourceState
+  /** state 的人类可读原因（no-api 时来自 descriptor 的静态说明）。 */
+  reason?: string
+}
+
 /** 0.4.x 二态接入指示：kimi-coding 路由已注册（llm 目录）+ API key 可解析。 */
 export interface KimiAccessStatus {
   route: boolean
@@ -67,7 +106,7 @@ export interface ImageContextCounts {
 }
 
 export interface KimiTidePanelProjection {
-  quota: QuotaSnapshot | null
+  quota: QuotaLike | null
   /**
    * 0.8.x⑨：配额数据来源 provider（当前恒 'kimi-coding'）。dock 限额区按
    * 「末次决策目标（回落预设默认）的 provider === quotaProvider」门控渲染；
@@ -78,7 +117,13 @@ export interface KimiTidePanelProjection {
    * 多 plan 配额（2026-08-29 用户裁定）：provider → 快照；null = 已知源但本轮
    * 无数据（拉取失败/置灰）。缺席 = 旧载荷（客户端回落 legacy quota 通道）。
    */
-  quotas?: Record<string, QuotaSnapshot | null>
+  quotas?: Record<string, QuotaLike | null>
+  /**
+   * 源元数据（2026-09-15 v2，S1）：provider → {kind, state, reason}。三态
+   * （无 API 面 / 无凭据 / 取数失败）的**唯一事实来源**——不再让客户端从
+   * `null` 猜原因。缺席 = 旧载荷（客户端回落「无数据」单一文案）。
+   */
+  quotaSources?: QuotaSourceMeta[]
   /** 0.4.x 二态接入指示（spec §3.5/验收 5）：路由已注册 + key 可解析。 */
   kimi: KimiAccessStatus
   /** 0.5.0 路由视图：预设选择 / 预设名 / 默认目标 / 规则数（面板展示）。 */

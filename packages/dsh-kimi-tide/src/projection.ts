@@ -50,14 +50,38 @@ const quotaSnapshotSchema = z.object({
   stale: z.boolean(),
 })
 
+// 余额快照（2026-09-15 v2）：kind 是唯一判别键。历史载荷没有 kind → union 第一支
+// （用量）先匹配，向后兼容。注：实时面板走 HTTP 路由、不经本 schema（评审 M6），
+// 这里的 union 只为历史 fold 的诚恳性。
+const balanceSnapshotSchema = z.object({
+  kind: z.literal('balance'),
+  balances: z.array(z.object({
+    currency: z.string(),
+    total: z.string(),
+    granted: z.string().optional(),
+    toppedUp: z.string().optional(),
+  })),
+  available: z.boolean().optional(),
+  fetchedAt: z.number(),
+  stale: z.boolean(),
+})
+const quotaLikeSchema = z.union([quotaSnapshotSchema, balanceSnapshotSchema])
+
 const panelSchema = z.object({
-  quota: quotaSnapshotSchema.nullable(),
+  quota: quotaLikeSchema.nullable(),
   // 0.8.x⑨：配额数据来源 provider（dock 限额区按当前路由目标门控渲染）。
   // 可选——缺席 = 旧载荷（历史唯一来源视同 kimi-coding）。
   quotaProvider: z.string().optional(),
   // 多 plan 配额（2026-08-29 用户裁定）：provider → 快照 | null（null = 已知源
   // 本轮无数据）。可选——旧载荷无该字段照常通过（向后兼容）。
-  quotas: z.record(z.string(), quotaSnapshotSchema.nullable()).optional(),
+  quotas: z.record(z.string(), quotaLikeSchema.nullable()).optional(),
+  // 源元数据（2026-09-15 v2，S1）：三态的事实来源；缺席 = 旧载荷。
+  quotaSources: z.array(z.object({
+    provider: z.string(),
+    kind: z.union([z.literal('usage'), z.literal('balance')]),
+    state: z.union([z.literal('ok'), z.literal('failed'), z.literal('no-credential'), z.literal('no-api')]),
+    reason: z.string().optional(),
+  })).optional(),
   // projection v3 (0.4.x): 二态接入指示（spec §3.5/验收 5）——路由已注册 + key
   // 可解析，绝不携带 key 值。
   kimi: z.object({ route: z.boolean(), key: z.boolean() }),

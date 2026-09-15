@@ -25,7 +25,7 @@ export const FALLBACK_HINTS: Record<ImageFallback, string> = {
 /** dock 面板上的可视元素 id（说明页必须逐个讲到；`data-kt-el` 与之同源）。 */
 export const DOCK_ELEMENTS = [
   'label', 'preset-chip', 'baseline-chip', 'decision-chip', 'decision-toggle',
-  'kimi-warning', 'week-quota', 'fivehour-quota', 'image-context',
+  'kimi-warning', 'week-quota', 'fivehour-quota', 'balance-slot', 'image-context',
   'fetched-at', 'refresh', 'notice', 'dock-states',
 ] as const
 
@@ -125,11 +125,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         id: 'dock-quota',
-        title: '周配额 / 5h 配额槽',
-        anchors: ['week-quota', 'fivehour-quota'],
+        title: '周配额 / 5h 配额槽（用量源）· 余额槽（API 计费源）',
+        anchors: ['week-quota', 'fivehour-quota', 'balance-slot'],
         body: [
-          '跟随**当前命中目标**的 provider 自动切换数据源。',
-          '条画的是**剩余**比例，与旁边「剩 N%」同向：剩得多条就长、快耗尽时是短红条。',
+          '跟随**当前命中目标**的 provider 自动切换数据源与形态：code plan 显示两个用量窗，API 计费源显示余额。',
+          '用量条的条画的是**剩余**比例，与旁边「剩 N%」同向：剩得多条就长、快耗尽时是短红条。',
+          '余额槽显示总额（多币种取首个，其余进悬浮提示）；余额不足以调用 API 时会标注「余额不足」。',
         ],
       },
       {

@@ -42,8 +42,8 @@ import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
-import { ZAI_QUOTA_URL, parseZaiQuota } from './zai-usage.js'
-import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection } from './types.js'
+import { buildQuotaSources } from './quota-sources.js'
+import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
 import { buildEffortCatalog, buildMountedModels, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
 export const name = 'dsh-kimi-tide'
@@ -56,6 +56,11 @@ export const SETTINGS_NAMESPACE = 'kimi-tide-router'
 export interface Config {
   /** Quota poll period in milliseconds (default 60000). */
   usagePollMs?: number
+  /**
+   * 余额源轮询周期（默认 300000 = 5min）。余额接口是计费端点，60s×1440 次/天偏激进；
+   * 余额变化频率也远低于用量窗。
+   */
+  balancePollMs?: number
   /** Poll quota immediately on startup (default true). */
   usagePollOnStart?: boolean
   /**
@@ -361,21 +366,60 @@ export function apply(ctx: Context, config: Config = {}) {
   }
   void refreshKimiStatus()
 
-  // Panel data source: quota polling（本地 token 统计随接入层退役，Task 6 移除）。
-  const monitor = new UsageMonitor({
-    pollMs: config.usagePollMs ?? 60_000,
-    onUpdate: () => {
-      void refreshKimiStatus()
+  // Panel data source：配额/余额源注册表（用量/余额 spec v2 §4）——四源，新源只需在
+  // quota-sources.ts 加一项；无 API 面的源（qwen）不建 monitor，直接以 no-api 呈现。
+  const quotaSources = buildQuotaSources({
+    providerApiKeyEnv,
+    deepseekSection: () => {
+      const settings = ctx.get('settings') as { get?: (ns: unknown) => unknown } | undefined
+      return settings?.get?.('llm-deepseek') as { apiKeyEnv?: string; baseURL?: string } | undefined
     },
-    resolveKey,
+    resolveCredential: async (ref) => {
+      const credentials = ctx.get('credentials') as { resolve?: (r: string) => Promise<{ value: string } | undefined> } | undefined
+      if (typeof credentials?.resolve === 'function') {
+        try {
+          const resolved = await credentials.resolve(ref)
+          if (resolved !== undefined && resolved.value.length > 0) return resolved.value
+        } catch { /* 落到 env 兜底 */ }
+      }
+      const fromEnv = process.env[ref]
+      return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : null
+    },
+    env: process.env,
+    usagePollMs: config.usagePollMs ?? 60_000,
+    balancePollMs: config.balancePollMs ?? 300_000,
   })
-  // 多 plan 第二源：zai-coding-cn（GLM Coding Plan，api.z.ai 内部用量接口）。
-  const zaiMonitor = new UsageMonitor({
-    pollMs: config.usagePollMs ?? 60_000,
-    onUpdate: () => { /* 配额快照由面板取数现读，无推送 */ },
-    resolveKey: resolveZaiKey,
-    url: ZAI_QUOTA_URL,
-    parse: parseZaiQuota,
+  const quotaMonitors = quotaSources.map((source) => ({
+    source,
+    monitor: source.url === null || source.parse === null
+      ? null
+      : new UsageMonitor({
+        pollMs: source.pollMs,
+        onUpdate: () => { void refreshKimiStatus() },
+        resolveKey: source.resolveKey,
+        url: source.url,
+        parse: source.parse,
+        ...(source.timeoutMs === undefined ? {} : { timeoutMs: source.timeoutMs }),
+      }),
+  }))
+  /** 立即重取全部源（凭据落盘/命令 refresh 共用）。 */
+  const refreshAllQuotas = async (): Promise<void> => {
+    await Promise.all(quotaMonitors.map(({ monitor }) => monitor?.refresh() ?? Promise.resolve()))
+  }
+  /** 源状态（S1 三态的事实来源）。 */
+  const quotaSourceMetas = (): QuotaSourceMeta[] => quotaMonitors.map(({ source, monitor }) => {
+    const snap = monitor?.snapshot()
+    const state: QuotaSourceState = source.url === null
+      ? 'no-api'
+      : snap === undefined || snap.quota === null
+        ? (snap?.outcome === 'no-key' ? 'no-credential' : 'failed')
+        : 'ok'
+    const meta: QuotaSourceMeta = { provider: source.provider, kind: source.kind, state }
+    if (state === 'no-api') {
+      if (source.unavailableReason !== undefined) meta.reason = source.unavailableReason
+    } else if (state === 'no-credential') meta.reason = 'key 未配置'
+    else if (state === 'failed') meta.reason = snap?.outcome === 'pending' ? '尚未取数' : '取数失败'
+    return meta
   })
 
   // Router persistence (0.4.0): the dsh-settings namespace `kimi-tide-router`
@@ -552,7 +596,7 @@ export function apply(ctx: Context, config: Config = {}) {
     sidecar,
     // 多 plan 配额（2026-08-29）：refresh 覆盖全部已配源。
     monitor: {
-      refresh: async () => { await Promise.all([monitor.refresh(), zaiMonitor.refresh()]) },
+      refresh: refreshAllQuotas,
     },
     current: () => routerConfig,
     // A getter, not a snapshot: the settings service attaches asynchronously
@@ -584,17 +628,21 @@ export function apply(ctx: Context, config: Config = {}) {
   // Dropdown model catalogs: both enumerated async from the llm service
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }
+  /** 取某 provider 的快照（legacy quota 字段与 quotaProvider 同源）。 */
+  const quotaSnapshotOf = (provider: string): QuotaLike | null =>
+    quotaMonitors.find(({ source }) => source.provider === provider)?.monitor?.snapshot().quota ?? null
+
   const panelSnapshot = (agent: Agent): KimiTidePanelProjection => {
     const preset = routerConfig.activePreset === null ? undefined : routerConfig.presets[routerConfig.activePreset]
     const snapshot: KimiTidePanelProjection = {
-      quota: monitor.snapshot().quota,
+      quota: quotaSnapshotOf(QUOTA_SOURCE_PROVIDER),
       // 0.8.x⑨：配额来源标记（dock 按当前路由目标门控渲染限额区）。
       quotaProvider: QUOTA_SOURCE_PROVIDER,
       // 多 plan 配额（2026-08-29）：provider → 快照 | null（dock 按当前命中目标取）。
-      quotas: {
-        'kimi-coding': monitor.snapshot().quota,
-        'zai-coding-cn': zaiMonitor.snapshot().quota,
-      },
+      quotas: Object.fromEntries(quotaMonitors.map(({ source, monitor }) => [source.provider, monitor?.snapshot().quota ?? null])),
+      // S1（2026-09-15 v2）：数据与元数据分离——三态由 quotaSources 承载，客户端据此渲染
+      // 「无 API 面 / 无凭据 / 取数失败」，不再从 null 猜。
+      quotaSources: quotaSourceMetas(),
       kimi: kimiStatus,
       router: {
         activePreset: routerConfig.activePreset,
@@ -655,8 +703,7 @@ export function apply(ctx: Context, config: Config = {}) {
   // 事件未声明（宿主无凭据服务时永不触发）：经宽化类型注册，避免给 Events 增补类型。
   ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/reference-updated', () => {
     void refreshKimiStatus()
-    void monitor.refresh()
-    void zaiMonitor.refresh()
+    void refreshAllQuotas()
   })
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     // 首次取数即建签名基线（命令通道按需现算，此处只为观测基线）。
@@ -851,12 +898,10 @@ export function apply(ctx: Context, config: Config = {}) {
 
   // Quota polling lifecycle.
   if (config.usagePollOnStart !== false) {
-    monitor.start()
-    zaiMonitor.start()
+    for (const { monitor } of quotaMonitors) monitor?.start()
   }
   ctx.effect(() => () => {
-    monitor.stop()
-    zaiMonitor.stop()
+    for (const { monitor } of quotaMonitors) monitor?.stop()
   })
   ctx.effect(() => () => disposeRouter?.())
 }

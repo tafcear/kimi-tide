@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { KimiTidePanelProjection } from '../types.js'
+import type { BalanceSnapshot, KimiTidePanelProjection } from '../types.js'
 import { ReasonPanel } from './ReasonPanel.js'
 import { Icon } from './icons.js'
 
@@ -134,6 +134,38 @@ export function fmtRemain(n: number): string {
   if (n >= 1e8) return `${(n / 1e8).toFixed(1)}亿`
   if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`
   return String(n)
+}
+
+/** 币种符号（未收录币种退化为「代码 + 空格」前缀，不臆造符号）。 */
+function currencySymbol(currency: string): string {
+  if (currency === 'CNY') return '¥'
+  if (currency === 'USD') return '$'
+  return currency === '' ? '' : `${currency} `
+}
+
+/** 余额槽正文：取首币种（多币种进 tooltip）。 */
+function fmtBalance(balance: BalanceSnapshot): string {
+  const first = balance.balances[0]
+  if (first === undefined) return '—'
+  return `${currencySymbol(first.currency)}${first.total}`
+}
+
+/**
+ * 余额槽 title：主币种金额 + 赠送/充值分项 +（多币种时）全币种清单。
+ * `is_available === false` 的官方语义 = **余额不足以调用 API**（不是账号停用）。
+ */
+function balanceTitleOf(balance: BalanceSnapshot): string {
+  const first = balance.balances[0]
+  const head = balance.available === false ? '余额不足（不足以调用 API）' : '余额'
+  const primary = first === undefined ? '' : ` ${currencySymbol(first.currency)}${first.total}`
+  const bits: string[] = []
+  if (first?.granted !== undefined) bits.push(`赠送 ${currencySymbol(first.currency)}${first.granted}`)
+  if (first?.toppedUp !== undefined) bits.push(`充值 ${currencySymbol(first.currency)}${first.toppedUp}`)
+  const detail = bits.length === 0 ? '' : `（${bits.join(' · ')}）`
+  const all = balance.balances.length > 1
+    ? ` ｜ 全部：${balance.balances.map((b) => `${b.currency} ${b.total}`).join(' · ')}`
+    : ''
+  return `${head}${primary}${detail}${all}`
 }
 
 function fmtClock(ts: number): string {
@@ -303,9 +335,16 @@ export function TideDock(props: TideDockProps) {
       : targetProvider === quotaSourceProvider)
   const quotaDim = quota === null
   const showValues = quota !== null
+  // 余额源判别（用量/余额 spec v2 §6.1，评审 L3）：判别**必须早于**任何 weekly/
+  // fiveHour 读取——余额快照没有这两个窗，先读会直接崩（实测 TypeError）。
+  // 判别键只用 BalanceSnapshot 的 kind（用量快照不带 kind）。
+  const balance = quota !== null && (quota as { kind?: unknown }).kind === 'balance'
+    ? (quota as BalanceSnapshot)
+    : null
+  const usage = balance === null ? quota : null
   // 条=剩余（2026-09-15）：两窗各自取剩余比例；该窗无数据（limit<=0）时 pct=null。
-  const weekWindow = quota === null ? null : quota.weekly
-  const fiveWindow = quota === null ? null : quota.fiveHour
+  const weekWindow = usage === null ? null : usage.weekly
+  const fiveWindow = usage === null ? null : usage.fiveHour
   const weekPct = weekWindow === null ? null : remainPct(weekWindow.used, weekWindow.limit)
   const fivePct = fiveWindow === null ? null : remainPct(fiveWindow.used, fiveWindow.limit)
   const weekDim = quotaDim || weekPct === null
@@ -314,14 +353,14 @@ export function TideDock(props: TideDockProps) {
   // 把原因进 aria-label（仅置灰态；点亮态保留自然文本朗读，避免吞掉剩 N 数字）。
   const weekTitle = weekWindow !== null && weekPct !== null
     ? `周配额剩余比例 · 剩 ${fmtRemain(Math.max(0, weekWindow.limit - weekWindow.used))} / 共 ${fmtRemain(weekWindow.limit)}`
-    : quota !== null
+    : usage !== null
       ? '周配额（该窗口无数据）'
       : targetHasSource
         ? '周配额（取数失败，配额不可用）'
         : `周配额不适用于当前目标（${targetProvider ?? '—'}）`
   const fiveTitle = fiveWindow !== null && fivePct !== null
     ? `五小时窗剩余比例 · 剩 ${fmtRemain(Math.max(0, fiveWindow.limit - fiveWindow.used))} / 共 ${fmtRemain(fiveWindow.limit)}`
-    : quota !== null
+    : usage !== null
       ? '五小时窗（该窗口无数据）'
       : targetHasSource
         ? '五小时窗（取数失败，配额不可用）'
@@ -405,10 +444,13 @@ export function TideDock(props: TideDockProps) {
         </span>
       </div>
 
-      {/* ⑥-B 第二行（槽位常驻）：左=额度槽×2 + 图像上下文；右贴=取数时间 + 刷新。
-          非 kimi 目标/取数失败 → 额度与时钟槽置灰「—」，槽数不变。
-          2026-09-15：额度条改为**剩余**语义（条与数字同向；该窗无数据时单独置灰）。 */}
+      {/* ⑥-B 第二行（槽位常驻）：左=额度槽（用量双槽 | 余额单槽）+ 图像上下文；
+          右贴=取数时间 + 刷新。非 kimi 目标/取数失败 → 额度与时钟槽置灰「—」，槽数不变。
+          2026-09-15：额度条改为**剩余**语义；同日 v2 起按源类型自适应——API 计费源
+          （余额）画单槽 ¥ 金额，不画进度条（用量/余额 spec §6.1）。 */}
       <div className="kt-dock-r2">
+        {balance === null ? (
+        <>
         <span
           data-kt-el="week-quota"
           className={`kt-slot kt-quota-slot ${remainClass(weekPct)}${weekDim ? ' kt-dim' : ''}`}
@@ -442,6 +484,17 @@ export function TideDock(props: TideDockProps) {
             </>
           )}
         </span>
+        </>
+        ) : (
+        <span
+          data-kt-el="balance-slot"
+          className={`kt-slot kt-quota-slot${balance.available === false ? ' kt-warn' : ''}`}
+          title={balanceTitleOf(balance)}
+        >
+          <Icon name="wallet" className="kt-ic-calendar" /> 余额 {fmtBalance(balance)}
+          {balance.available === false && <span className="kt-warn"> 余额不足</span>}
+        </span>
+        )}
 
         {/* 0.6.x 池#1：投影 v6 图像上下文行客户端消费（spec §8）。缺席 = 无图
             会话不渲染；blind>0 警示态（盲答图在历史里，文本模型看不到）。 */}
