@@ -1,6 +1,6 @@
 # 面板与设置「说明」页签设计（状态感知的自解释层）v1.3.x
 
-> 状态：v1 待独立评审（按仓库惯例出稿；评审档案落 `docs/audit/`）
+> 状态：**v2（2026-09-15 独立评审处置完成，见文末 §11）**——评审档案 `docs/audit/2026-09-15-review-panel-help-tab-spec-qwen-review.md`（qwen3.8-max 独立评审；控制器逐项复核 9 项必改全部成立）
 > 版本归属：**待裁定**——建议与「用量/余额源全覆盖」同版（§8 说明：说明页要写该特性，分版就得写两遍）
 > 前置：0.8.0 可解释性（规则条件摘要 / 试一句 / 决策原因词数）、1.1.0 认领提示与盲区标注、v1.2.1 现状
 > 用户裁定（2026-09-15 本会话）：
@@ -179,3 +179,48 @@
 | 4 | 与既有就地 tooltip 重复 | `FALLBACK_HINTS` 提升为共享常量（§5）；其余 tooltip 保持短句，说明页讲语义，不复制 |
 | 5 | 多语言 | 先中文（与卡片其余文案一致）；`help-content.ts` 结构留 `en` 位，未来接 `locale`（`settings.kimi-tide` 命名空间已有 zh/en 先例） |
 | 6 | 说明页与 1.1.0 认领提示、0.8.0 试一句等既有解释面重叠 | 说明页做**汇总与语义**，就地提示做**当下情境**；两者读同一内容源（§5），不产生双份真理 |
+
+---
+
+## 11. v2 修订（2026-09-15 独立评审处置）
+
+评审：`docs/audit/2026-09-15-review-panel-help-tab-spec-qwen-review.md`（qwen3.8-max；**0 严重 + 8 中等 + 7 轻微**，控制器复核 9 项必改全部成立、0 误报）。逐项处置如下——**本表即实施依据，与上文冲突处以本表为准**。
+
+### 11.1 必改项处置
+
+| # | 评审意见 | 处置（改后的设计） |
+|---|---|---|
+| **M1** | route 页签**没有单一面板节点**（4+ 个并列子节点），`role=tabpanel` 无从挂；`styles.ts:161-164` 的 `>` + `:not()` 链需整体重写 | **每页签引入一个包装容器** `<div className="kt-tabpanel kt-route">` / `.kt-flows` / `.kt-trial` / `.kt-help`（`role="tabpanel"` + `id` + `aria-labelledby` + `tabIndex={0}`）。可见性规则改为「藏三个兄弟容器」：`.kimi-tide-settings[data-tab='X'] > .kt-tabpanel:not(.kt-X) { display: none; }`——`.kt-tabs`/`.kt-error`/`.kt-saved` 在容器之外，天然不受影响。`active!==null` 条件渲染的 `.kt-editor` 移入 route 容器后，空面板语义 = 容器内无内容（不渲染空壳） |
+| **M2** | 「`hidden` ≡ `display:none`」不成立：作者级 `display:flex` 会压过 UA 的 `hidden` | ① 补作者级兜底 `.kimi-tide-settings > .kt-tabpanel[hidden] { display: none !important; }`；② 可见性改由 **`hidden` 属性**驱动（CSS 规则保留为双保险，二者并存不冲突） |
+| **M3** | 新增 help 规则的 `:not()` 链会连错误横幅一起藏 | 由 M1 的容器方案天然消解（提示元素在容器外）。**另**：`styles.ts` 的 trial/flows 行缺 `.kt-saved` 的既有 bug 已在本轮回改前单独修掉（Q2，含 `role=status` 被 `display:none` 后不播报的连带问题） |
+| **M4** | ⑦ 第 4 行与 ② 的「首条命中生效」教错心智模型（真实=特异度降序） | ② 改为「规则按**特异度**排序：命中词数多者优先、带图恒第一、平手按列表序；排序后首条**目标可用**者生效」；⑦ 第 4 行改为「可能有**特异度更高**（命中词更多/带图）的规则胜出，或同分时更靠前者胜出」。README 双语同款措辞已于 Q4 修正，本页与之一致 |
+| **M5** | 「各用量源可用性」live 条目在 `snapshot` 里**必然拿不到数据**（`card-store.ts` 无 quota/usage 字段） | **从 §4 首版 live 清单删除**（不扩数据通道——说明页保持零新增宿主面）。该信息由 dock 与总览面板承担 |
+| **M6** | 防腐烂闸四处缝 | ① 键集不摸 schemastery 内部：用 `Object.keys(routerConfigSchema({}))` 解析输出取顶层键；② `FEATURE_KEYS` 用**全路径**在 `routerConfigSchema(DEFAULT_CONFIG_V5())` 的输出上走通；③ 可选字段（`imageFallback`/`imageFallbackFlow`/`minHits`/`auxTargets`/`review.keywordGroup`）在测试内构造一张能过 `validateRouterConfig` 的「含全部可选字段」样例配置再走路径；④ **反向闸**：schema 顶层键集 ⊆ `FEATURE_KEYS` 首段集合（新增配置字段而无说明条目 → 测试红） |
+| **M7** | `DOCK_ELEMENTS` 自证（对照同一作者手写的清单） | dock 每个可视元素挂 `data-kt-el="<id>"`；`TideDock.dom.test.tsx` 断言「实际渲染的 id 集 == `DOCK_ELEMENTS`」——闸锚到真实 UI，新增元素不补说明即红 |
+| **M8** | v4 存量配置的用户会看到 v5 语义（flows 页签本身已 `isV5` 门控） | 说明页补**版本门控**：`config.version !== 5` 时 ④（协作流）与 ⑤（用量余额）整节隐藏，并在页首显示一句「当前为 v4 配置，协作流/用量源章节不适用」 |
+
+### 11.2 轻微项处置
+
+| # | 处置 |
+|---|---|
+| m1 锚点偏差 | 采纳：`useSyncExternalStore` 实为 `SettingsCard.tsx:441`（`:455` 是 `activeTab`）；`router.md` 路径为 `packages/dsh-kimi-tide/docs/router.md` |
+| m2 转述不确 | 采纳：`reviewTriggerHit` 的判定顺序按 `rules.ts:191-204` 原文写（`explicitProvider`/version 在前，`type`/`trigger`/`keywordGroup` 复合判定在后）；结论（manual 永不武装）不变 |
+| m3 既有测试钉 | 采纳并写入测试面：`SettingsCard.dom.test.tsx:889` 的 `toHaveLength(3)` 改 4；`ClientStyles.test.ts` 补 `data-tab='help'` 容器结构钉 |
+| m4 措辞冲突 | 采纳：「无交互元素」→「无表单控件与按钮（`<summary>` 折叠除外）」 |
+| m5 覆盖清单缺口 | 采纳：① 节补 dock 的**加载中/暂无面板数据**两态与命令失败 notice 行；「看不到原因条」措辞改为「不渲染的是**决策目标 chip**（`buildDecisionSummary` 对 keep/default 返 null）」；设置页侧补「试一句」（含带图不承诺提示）、「（未挂载）」灰字、重复条件警示 |
+| m6 多流歧义 | 采纳：④ 的 live 值**逐流**渲染（flows 是注册表，可有多条），不是取首个 |
+| m7 措辞过头 | 采纳：§10-6 限定为「`FALLBACK_HINTS` 一项共享内容源，其余 tooltip 不共享」 |
+
+### 11.3 采纳的可用性建议（评审 §9 第 9 问）
+
+- **症状优先**：⑦「常见疑问」提为**第二分区**，且与 ① **并列默认展开**——带着症状来的人（如「我配了评审模型却没评审」）应该第一眼看到答案，而不是翻到第 4/7 个折叠区；
+- ④ 的「触发方式」live 行在页签顶部**常驻复述一行**；
+- 从既有解释面深跳：认领提示行（`SettingsCard.tsx:948`）、试一句的 review-flow outcome、dock 降级文案 → 锚链跳到对应分区（纯锚点导航，不是写控件，不违反只读性）；
+- ① 只列**常态**元素，条件行（余额槽/总览入口，未同版则不存在）挪到 ⑤。
+
+### 11.4 与其它在途项的关系
+
+- **Q2（已完成）**：本页签的可见性方案不再复制 `:not()` 链，改容器方案后该类 bug 结构性消失；
+- **Q4（已完成）**：README 措辞已与 ②/⑦ 同口径；
+- **用量/余额稿**：⑤ 的三态文案与 `quotaSources` 的 state 集合**同源**（该稿 v2 定义 state 枚举，本页只做展示措辞，跨稿以该稿为准）——避免两份真理；
+- **版本**：仍随 v1.3.0 一起发（用户 2026-09-15 裁定「把前面的做完一起发」）。
