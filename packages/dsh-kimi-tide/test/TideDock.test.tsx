@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { fmtRemain, TideDock } from '../src/client/TideDock.js'
+import { DOCK_ELEMENTS } from '../src/client/help-content.js'
 import type { KimiTidePanelProjection } from '../src/types.js'
 
 function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePanelProjection {
@@ -359,5 +360,27 @@ describe('配额条语义：条=剩余（2026-09-15 用户裁定「逻辑反了�
     expect(html).not.toContain('剩100%')
     expect(html).toContain('kt-dim')
     expect(count(html, '—')).toBe(2)
+  })
+})
+
+describe('说明页 UI 锚（评审 M7）：dock 元素与 DOCK_ELEMENTS 同源', () => {
+  const anchorsOf = (html: string): Set<string> =>
+    new Set([...html.matchAll(/data-kt-el="([^"]+)"/g)].map((m) => m[1]!))
+
+  it('三态并集覆盖全部锚点（新增 dock 元素不补说明条目不挂锚 → 此处红）', () => {
+    const normal = anchorsOf(render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
+      imageContext: { native: 1, transcribed: 0, blind: 0 },
+    })))
+    const warning = anchorsOf(render(makePanel({ kimi: { route: false, key: false } })))
+    const empty = anchorsOf(renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => null })))
+    const union = new Set([...normal, ...warning, ...empty])
+    for (const id of DOCK_ELEMENTS) {
+      // notice 只在命令失败时出现，本闸覆盖不到（help-content 的覆盖闸仍要求它有说明条目）
+      if (id === 'notice') continue
+      expect(union.has(id), `dock 缺 data-kt-el="${id}"——说明页覆盖闸会因此失去 UI 锚`).toBe(true)
+    }
   })
 })

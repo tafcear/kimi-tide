@@ -197,7 +197,7 @@
 | **M5** | 「各用量源可用性」live 条目在 `snapshot` 里**必然拿不到数据**（`card-store.ts` 无 quota/usage 字段） | **从 §4 首版 live 清单删除**（不扩数据通道——说明页保持零新增宿主面）。该信息由 dock 与总览面板承担 |
 | **M6** | 防腐烂闸四处缝 | ① 键集不摸 schemastery 内部：用 `Object.keys(routerConfigSchema({}))` 解析输出取顶层键；② `FEATURE_KEYS` 用**全路径**在 `routerConfigSchema(DEFAULT_CONFIG_V5())` 的输出上走通；③ 可选字段（`imageFallback`/`imageFallbackFlow`/`minHits`/`auxTargets`/`review.keywordGroup`）在测试内构造一张能过 `validateRouterConfig` 的「含全部可选字段」样例配置再走路径；④ **反向闸**：schema 顶层键集 ⊆ `FEATURE_KEYS` 首段集合（新增配置字段而无说明条目 → 测试红） |
 | **M7** | `DOCK_ELEMENTS` 自证（对照同一作者手写的清单） | dock 每个可视元素挂 `data-kt-el="<id>"`；`TideDock.dom.test.tsx` 断言「实际渲染的 id 集 == `DOCK_ELEMENTS`」——闸锚到真实 UI，新增元素不补说明即红 |
-| **M8** | v4 存量配置的用户会看到 v5 语义（flows 页签本身已 `isV5` 门控） | 说明页补**版本门控**：`config.version !== 5` 时 ④（协作流）与 ⑤（用量余额）整节隐藏，并在页首显示一句「当前为 v4 配置，协作流/用量源章节不适用」 |
+| **M8** | v4 存量配置的用户会看到 v5 语义（flows 页签本身已 `isV5` 门控） | 说明页补**版本门控**：④「协作流」整节隐藏（v4 配置面无 flows 注册表）。**实施反馈（2026-09-15）**：⑤「用量与余额」**不隐藏**——配额槽与取数在 v4 下同样工作，原稿把两节一起门控属过度收缩；实现按此落地 |
 
 ### 11.2 轻微项处置
 

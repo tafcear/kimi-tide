@@ -158,12 +158,22 @@ export const CLIENT_CSS = `
       background: transparent; color: var(--dsw-alias-label-secondary, #8b93a7); border-radius: 8px; padding: 3px 14px; }
     .kimi-tide-settings .kt-tab-on { background: var(--kt-accent-soft);
       color: var(--kt-accent-strong); border-color: var(--kt-accent-line); font-weight: 600; }
-    .kimi-tide-settings[data-tab='route'] > .kt-trial, .kimi-tide-settings[data-tab='route'] > .kt-flows,
-    /* 评审 P2-5 + 2026-09-15 修：错误横幅与「已保存」status 在任何页签都可见。
-       此前 flows 行只豁免 kt-error、trial 行两个都藏——被 display:none 的
-       role=status 不在无障碍树里，「已保存」既不显示也不播报（保存静默）。 */
-    .kimi-tide-settings[data-tab='flows'] > :not(.kt-flows):not(.kt-tabs):not(.kt-error):not(.kt-saved),
-    .kimi-tide-settings[data-tab='trial'] > :not(.kt-trial):not(.kt-tabs):not(.kt-error):not(.kt-saved) { display: none; }
+    /* 2026-09-15 v2（评审 M1/M2）：页签可见性 = 每页签一个 .kt-tabpanel 容器 + hidden 属性。
+       旧的 data-tab :not() 链**退役**——那套写法正是「测试场藏错误横幅 / 藏已保存」
+       两起 bug 的成因；容器方案下 .kt-tabs/.kt-error/.kt-saved 在容器之外，任何页签都可见。
+       作者级 [hidden] 兜底必须带 !important：容器上的 display 会压过 UA 的 [hidden]。 */
+    .kimi-tide-settings > .kt-tabpanel { display: block; }
+    .kimi-tide-settings > .kt-tabpanel[hidden] { display: none !important; }
+    /* 说明页（只读）：分区折叠 + 条目列表 + 状态感知行 */
+    .kimi-tide-settings .kt-help-sec { margin-bottom: 8px; }
+    .kimi-tide-settings .kt-help-entry { padding: 6px 0;
+      border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
+    .kimi-tide-settings .kt-help-entry:first-of-type { border-top: none; }
+    .kimi-tide-settings .kt-help-title { font-size: 12px; font-weight: 600; }
+    .kimi-tide-settings .kt-help-body { margin: 4px 0 0; padding-left: 18px; font-size: 12px;
+      color: var(--dsw-alias-label-secondary, #8b93a7); }
+    .kimi-tide-settings .kt-help-live { margin-top: 4px; font-size: 12px;
+      color: var(--kt-accent-strong); }
     .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--kt-accent-strong); }
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     /* 设置导航图标标记：契约无 icon 字段——按文案标记自己的行后，

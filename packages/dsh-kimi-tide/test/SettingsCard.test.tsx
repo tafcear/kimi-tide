@@ -236,7 +236,8 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
     // config.version 门控，v4 渲染逐字节保持。
     expect(html).not.toContain('<optgroup label="协作流"')
     expect(html).not.toContain('kt-flows')
-    expect(html).not.toContain('带图兜底')
+    // 2026-09-15：断言收到控件 a11y 名——说明页签恒挂载，其正文合法地含「带图兜底」。
+    expect(html).not.toContain('aria-label="带图兜底"')
   })
   it('「协作流」手风琴区渲染预置流（类型徽标 + 参数可编控件）', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
@@ -302,14 +303,16 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
   it('0.7.0 minHits 输入：关键词条件行渲染、纯带图规则行不渲染', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
     // Fails if: 关键词规则行的「最少命中词数」数字输入缺失（0.7.0 Task 5）。
-    expect(html).toContain('最少命中词数')
+    // 2026-09-15：断言查控件 a11y 名（说明页签恒挂载，正文也含「最少命中词数」）；
+    // 不绑序号——省钱预设的首条是带图规则，keywords 规则不在第一行。
+    expect(html).toContain('· 最少命中词数')
     const imageOnly = v4cfg('saving')
     imageOnly.presets.saving.rules = [
       { id: 'image-k3', when: { kind: 'image' }, target: { provider: 'kimi-coding', model: 'k3' } },
     ]
     const html2 = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(imageOnly) }))
     // Fails if: 纯带图规则行也渲染 minHits 输入（字段只在 keywords 条件下有意义）。
-    expect(html2).not.toContain('最少命中词数')
+    expect(html2).not.toContain('· 最少命中词数')
   })
 })
 

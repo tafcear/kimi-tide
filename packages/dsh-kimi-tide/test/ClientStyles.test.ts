@@ -47,20 +47,13 @@ describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
     expect(CLIENT_CSS).toMatch(/\.kt-dock-pop \.kt-reason \{[^}]*padding:\s*0/)
   })
 
-  it("flows 页签隐藏选择器豁免 .kt-error（错误横幅任何页签可见，评审 P2-5）", () => {
-    // Fails if: 选择器退回 :not(.kt-flows):not(.kt-tabs)（错误横幅在协作流页签被 display:none 藏住）
-    expect(CLIENT_CSS).toMatch(/data-tab='flows'\] > :not\(\.kt-flows\):not\(\.kt-tabs\):not\(\.kt-error\)/)
-  })
-
-  it("trial 页签隐藏选择器同豁免 .kt-error（2026-09-15 修：原行漏写，测试场页签藏错误横幅）", () => {
-    // Fails if: trial 行退回 :not(.kt-trial):not(.kt-tabs)（测试场页签看不到校验/保存错误）
-    expect(CLIENT_CSS).toMatch(/data-tab='trial'\] > :not\(\.kt-trial\):not\(\.kt-tabs\):not\(\.kt-error\)/)
-  })
-
-  it("隐藏规则不藏 .kt-saved（role=status 被 display:none 后不在无障碍树里，保存静默无播报）", () => {
-    // Fails if: flows/trial 行漏 :not(.kt-saved)——「已保存」在该页签既不显示也不播报
-    expect(CLIENT_CSS).toMatch(/data-tab='flows'\] > [^{]*:not\(\.kt-saved\)/)
-    expect(CLIENT_CSS).toMatch(/data-tab='trial'\] > [^{]*:not\(\.kt-saved\)/)
+  it('页签可见性走容器 + hidden；旧 :not() 链已退役（「藏掉提示」那类 bug 结构性消失）', () => {
+    // Fails if: 作者级 [hidden] 兜底规则被删（容器上的 display:flex 会压过 UA 的 hidden）
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-settings > \.kt-tabpanel\[hidden\] \{[^}]*display:\s*none\s*!important/)
+    // Fails if: 旧的 data-tab :not() 链回归——那套写法正是 Q2（测试场藏错误横幅 / 藏「已保存」）的成因
+    expect(CLIENT_CSS).not.toMatch(/\[data-tab='flows'\] > :not\(/)
+    expect(CLIENT_CSS).not.toMatch(/\[data-tab='trial'\] > :not\(/)
+    expect(CLIENT_CSS).not.toMatch(/\[data-tab='route'\] > \.kt-trial/)
   })
 
   it('A9 r2 行带 overflow 管理（窄窗口槽位溢出不顶破容器）', () => {

@@ -270,7 +270,7 @@ export function TideDock(props: TideDockProps) {
 
   if (panel === undefined || panel === null) {
     return (
-      <div className="kimi-tide-dock">
+      <div className="kimi-tide-dock" data-kt-el="dock-states">
         <span className="kt-label kt-slot"><Icon name="moon" className="kt-ic-moon" /> 月汐</span>
         <span className="kt-dim">
           {settled
@@ -338,13 +338,14 @@ export function TideDock(props: TideDockProps) {
           决策原因不进文本流（只在开关 title 与悬浮面板），长原因不再把 r1 挤换行。 */}
       <div className="kt-dock-r1">
         <span
+          data-kt-el="label"
           className="kt-label kt-slot"
           title="推理输出已启用 · 路由设置见 设置 → 月汐"
         >
           <Icon name="moon" className="kt-ic-moon" /> 月汐
         </span>
 
-        <span className="kt-chip kt-slot" title="当前路由预设">
+        <span data-kt-el="preset-chip" className="kt-chip kt-slot" title="当前路由预设">
           <Icon name="route" className="kt-ic-route" /> {router.presetName ?? '关闭'}
         </span>
 
@@ -352,6 +353,7 @@ export function TideDock(props: TideDockProps) {
           <>
             <span className="kt-route-arrow" aria-hidden>→</span>
             <span
+              data-kt-el="baseline-chip"
               className="kt-chip kt-slot"
               title={`预设打底模型 ${router.defaultTarget?.provider ?? ''}/${router.defaultTarget?.model ?? ''}（未命中规则时）`}
             >
@@ -364,6 +366,7 @@ export function TideDock(props: TideDockProps) {
           <>
             <span className="kt-route-arrow" aria-hidden>⟶</span>
             <span
+              data-kt-el="decision-chip"
               className="kt-chip kt-slot kt-route-target"
               title={`本步决策目标 ${panel.decision.chosen.provider}/${panel.decision.chosen.model}`}
             >
@@ -374,6 +377,7 @@ export function TideDock(props: TideDockProps) {
 
         {(!kimi.route || !kimi.key) && (
           <span
+            data-kt-el="kimi-warning"
             className="kt-chip kt-slot kt-warn"
             title="缺少 kimi-coding 路由或 API key（设置 → 模型 配置，apiKeyEnv 指向你的凭据）"
           >
@@ -388,6 +392,7 @@ export function TideDock(props: TideDockProps) {
           <button
             type="button"
             ref={toggleRef}
+            data-kt-el="decision-toggle"
             className={`kt-decision-chip kt-decision-toggle${expanded ? ' kt-armed' : ''}`}
             title={panel.decision === null
               ? `${expanded ? '收起' : '展开'}决策可观测（本步无决策）`
@@ -405,6 +410,7 @@ export function TideDock(props: TideDockProps) {
           2026-09-15：额度条改为**剩余**语义（条与数字同向；该窗无数据时单独置灰）。 */}
       <div className="kt-dock-r2">
         <span
+          data-kt-el="week-quota"
           className={`kt-slot kt-quota-slot ${remainClass(weekPct)}${weekDim ? ' kt-dim' : ''}`}
           title={weekTitle}
           aria-label={weekDim ? weekTitle : undefined}
@@ -421,6 +427,7 @@ export function TideDock(props: TideDockProps) {
         </span>
 
         <span
+          data-kt-el="fivehour-quota"
           className={`kt-slot kt-quota-slot ${remainClass(fivePct)}${fiveDim ? ' kt-dim' : ''}`}
           title={fiveTitle}
           aria-label={fiveDim ? fiveTitle : undefined}
@@ -440,6 +447,7 @@ export function TideDock(props: TideDockProps) {
             会话不渲染；blind>0 警示态（盲答图在历史里，文本模型看不到）。 */}
         {panel.imageContext !== undefined && (
           <span
+            data-kt-el="image-context"
             className={`kt-slot${panel.imageContext.blind > 0 ? ' kt-warn' : ''}`}
             title="本会话图像三态计数：原生视觉 / 已转述 / 盲答（盲>0 = 有图文本模型看不到）"
           >
@@ -452,6 +460,7 @@ export function TideDock(props: TideDockProps) {
 
         <span className="kt-dock-r2-end">
           <span
+            data-kt-el="fetched-at"
             className={`kt-slot kt-h${quotaDim ? ' kt-dim' : ''}`}
             title={clockTitle}
             aria-label={quotaDim ? clockTitle : undefined}
@@ -463,6 +472,7 @@ export function TideDock(props: TideDockProps) {
           </span>
           <button
             type="button"
+            data-kt-el="refresh"
             className="kt-refresh"
             disabled={busy}
             title="刷新配额（/kimi-tide refresh）"
@@ -492,7 +502,7 @@ export function TideDock(props: TideDockProps) {
       )}
 
       {notice !== '' && (
-        <span className="kt-warn kt-slot" role="status"><Icon name="warn" /> {notice}</span>
+        <span data-kt-el="notice" className="kt-warn kt-slot" role="status"><Icon name="warn" /> {notice}</span>
       )}
     </div>
   )

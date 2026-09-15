@@ -616,8 +616,11 @@ describe('SettingsCard 0.8.0 可解释性 + effort 下拉 + 试一句', () => {
       setter?.call(input, '帮我评审一下这个方案')
       input!.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    expect(container.textContent).toContain('轮末触发评审流')
-    expect(container.textContent).not.toContain('不可用')
+    // 断言作用域收窄到「试一句」结果区：说明页签恒挂载（设计要求：区块不卸载），
+    // 其正文里合法地会出现「评审模型不可用」等字样，整卡断言不再成立。
+    const trial = container.querySelector('.kt-trial-result')!
+    expect(trial.textContent).toContain('轮末触发评审流')
+    expect(trial.textContent).not.toContain('不可用')
   })
 })
 
@@ -853,7 +856,7 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
   })
 })
 
-describe('SettingsCard ⑥-B 三页签', () => {
+describe('SettingsCard ⑥-B 页签（四页签 + tabpanel 语义）', () => {
   let container: HTMLDivElement
   let root: Root | undefined
 
@@ -886,19 +889,88 @@ describe('SettingsCard ⑥-B 三页签', () => {
     const card = container.querySelector('.kimi-tide-settings')!
     // Fails if: 页签导航缺失（默认路由页）。
     expect(card.getAttribute('data-tab')).toBe('route')
-    expect(container.querySelectorAll('button.kt-tab')).toHaveLength(3)
-    // Fails if: 页签点击不切换 data-tab（CSS 可见性切换失效）。
+    expect(container.querySelectorAll('button.kt-tab')).toHaveLength(4)
+    // Fails if: 页签点击不切换 data-tab（可见性切换失效）。
     await act(async () => {
       ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '协作流')!.click()
     })
     expect(card.getAttribute('data-tab')).toBe('flows')
-    // 区块保持挂载：CSS display:none 切换，DOM 不卸载（既有测试选择器兼容）。
+    // 区块保持挂载：hidden 切换，DOM 不卸载（既有测试选择器兼容）。
     expect(container.querySelector('details.kt-flows')).not.toBeNull()
     await act(async () => {
       ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '测试场')!.click()
     })
     expect(card.getAttribute('data-tab')).toBe('trial')
     expect(container.querySelector('details.kt-trial')).not.toBeNull()
+    await act(async () => {
+      ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '说明')!.click()
+    })
+    expect(card.getAttribute('data-tab')).toBe('help')
+    expect(container.querySelector('#kt-panel-help')).not.toBeNull()
+  })
+
+  it('四页签完整 tab/tabpanel 语义 + 键盘 ←/→/Home/End（2026-09-15 还 UI 评审 C11/N5 债）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    const card = container.querySelector('.kimi-tide-settings')!
+    const tabs = [...container.querySelectorAll('button.kt-tab')]
+    expect(tabs.map((b) => b.textContent)).toEqual(['路由', '协作流', '测试场', '说明'])
+    // Fails if: 页签只有 role=tab 而无 tabpanel/aria-controls/aria-labelledby（读屏无法定位面板）
+    expect(container.querySelectorAll('[role="tabpanel"]')).toHaveLength(4)
+    for (const tab of tabs) {
+      const id = tab.getAttribute('id')
+      const controls = tab.getAttribute('aria-controls')
+      expect(id).not.toBeNull()
+      expect(controls).not.toBeNull()
+      const panel = container.querySelector(`#${controls}`)!
+      expect(panel).not.toBeNull()
+      expect(panel.getAttribute('role')).toBe('tabpanel')
+      expect(panel.getAttribute('aria-labelledby')).toBe(id)
+    }
+    // 非活动面板 hidden：保持挂载但不进无障碍树
+    expect((container.querySelector('#kt-panel-route') as HTMLElement).hidden).toBe(false)
+    expect((container.querySelector('#kt-panel-help') as HTMLElement).hidden).toBe(true)
+    // Fails if: 方向键不切换页签（只能鼠标点）
+    await act(async () => {
+      tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    expect(card.getAttribute('data-tab')).toBe('flows')
+    await act(async () => {
+      tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    })
+    expect(card.getAttribute('data-tab')).toBe('help')
+    await act(async () => {
+      tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    expect(card.getAttribute('data-tab')).toBe('route')
+  })
+
+  it('说明页签渲染八个分区（症状表靠前）且只读（无按钮/表单控件）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish(readyV5Snapshot())
+    })
+    await act(async () => {
+      ;[...container.querySelectorAll('button.kt-tab')].find((b) => b.textContent === '说明')!.click()
+    })
+    const panel = container.querySelector('#kt-panel-help')!
+    // 八分区标题齐
+    for (const title of ['面板速览', '常见疑问', '路由语义', '关键词与匹配', '协作流', '用量与余额', '术语表', '命令清单']) {
+      expect(panel.textContent).toContain(title)
+    }
+    // Fails if: 说明页长出可写控件（出现第二个写入口）
+    expect(panel.querySelectorAll('button')).toHaveLength(0)
+    expect(panel.querySelectorAll('input, select, textarea')).toHaveLength(0)
   })
 })
 

@@ -30,9 +30,11 @@
  * 不拦保存）；「试一句」outcome 增 review-flow 枝（文案 = 本轮路由到 <routed
  * 摘要> + <label>，label 已含「评审模型不可用」盲区语义）。
  */
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
 import { Icon } from './icons.js'
+import { FALLBACK_HINTS } from './help-content.js'
+import { HelpTab } from './HelpTab.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
@@ -110,13 +112,6 @@ const ruleTargetValue = (target: RuleTarget): string =>
   isFlowTarget(target) ? flowValue(target.flow) : configKey(target)
 const parseRuleTarget = (value: string): RuleTarget =>
   value.startsWith(FLOW_PREFIX) ? { flow: value.slice(FLOW_PREFIX.length) } : parseTarget(value)
-
-/** imageFallback 三态的一句话后果提示（spec §7）。 */
-const FALLBACK_HINTS: Record<ImageFallback, string> = {
-  latch: '带图后锁定视觉模型，后续文本轮继续走视觉',
-  blind: '文本轮当无图处理——看不到历史图，可能盲答',
-  'transcribe-lazy': '文本轮先把历史图转写为文字再作答（多一次视觉调用）',
-}
 
 /** 规则 id 生成：rule-<n> 递增避让（预设内唯一即可，React key 用）。 */
 const newRuleId = (rules: RouterRule[]): string => {
@@ -452,7 +447,31 @@ export function SettingsCard(props: SettingsCardProps) {
   const [newFlowType, setNewFlowType] = useState<'transcribe' | 'review'>('transcribe')
   // ⑥-B：设置卡三页签（路由 / 协作流 / 测试场）——CSS 可见性切换（区块保持
   // 挂载，受控表单状态与既有测试选择器零改动）。
-  const [activeTab, setActiveTab] = useState<'route' | 'flows' | 'trial'>('route')
+  const [activeTab, setActiveTab] = useState<'route' | 'flows' | 'trial' | 'help'>('route')
+
+  /**
+   * 页签键盘操作（2026-09-15 还 UI 评审 C11/N5 的债）：←/→ 循环、Home/End 跳首尾，
+   * 选中项随焦点移动（roving tabindex 在按钮上，见渲染处 tabIndex）。
+   * 按 DOM 实际存在的 role=tab 计算顺序——协作流页签在 v4 下不存在，无需特判。
+   */
+  const onTablistKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const tabs = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')]
+    const selected = e.currentTarget.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    const index = selected === null ? -1 : tabs.indexOf(selected)
+    if (index < 0) return
+    const pick = (target: HTMLElement | undefined): void => {
+      if (target === undefined) return
+      e.preventDefault()
+      target.focus()
+      const panel = target.getAttribute('aria-controls') ?? ''
+      const key = panel.replace('kt-panel-', '')
+      if (key === 'route' || key === 'flows' || key === 'trial' || key === 'help') setActiveTab(key)
+    }
+    if (e.key === 'ArrowRight') pick(tabs[(index + 1) % tabs.length])
+    else if (e.key === 'ArrowLeft') pick(tabs[(index - 1 + tabs.length) % tabs.length])
+    else if (e.key === 'Home') pick(tabs[0])
+    else if (e.key === 'End') pick(tabs[tabs.length - 1])
+  }
   // ⑥-B 打磨三（2026-08-29）：规则条件互斥——编辑产生新重复时保存被阻止的提示。
   const [ruleConflict, setRuleConflict] = useState<string | null>(null)
   // 评审 P2-2（2026-08-29）：删除预设两步确认——首击武装（3 秒自动解除），再击才删。
@@ -718,22 +737,35 @@ export function SettingsCard(props: SettingsCardProps) {
 
   return (
     <div className="kimi-tide-settings" data-tab={activeTab}>
-      {/* ⑥-B：三页签导航（CSS data-tab 可见性切换，区块保持挂载）。 */}
-      <div className="kt-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={activeTab === 'route'}
+      {/* ⑥-B：页签导航。2026-09-15 v2（评审 M1/M2）：可见性改由**容器 + hidden**
+          驱动（styles.ts 有作者级 [hidden] 兜底）；旧 data-tab :not() 链退役——
+          那套写法正是「测试场藏错误横幅 / 藏已保存」两起 bug 的成因。
+          键盘：←/→ 循环、Home/End 跳首尾（还 UI 评审 C11/N5 的债）。 */}
+      <div className="kt-tabs" role="tablist" onKeyDown={onTablistKeyDown}>
+        <button type="button" role="tab" id="kt-tab-route" aria-controls="kt-panel-route"
+          aria-selected={activeTab === 'route'} tabIndex={activeTab === 'route' ? 0 : -1}
           className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('route')}>路由</button>
         {isV5 && (
-          <button type="button" role="tab" aria-selected={activeTab === 'flows'}
+          <button type="button" role="tab" id="kt-tab-flows" aria-controls="kt-panel-flows"
+            aria-selected={activeTab === 'flows'} tabIndex={activeTab === 'flows' ? 0 : -1}
             className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
             onClick={() => setActiveTab('flows')}>协作流</button>
         )}
-        <button type="button" role="tab" aria-selected={activeTab === 'trial'}
+        <button type="button" role="tab" id="kt-tab-trial" aria-controls="kt-panel-trial"
+          aria-selected={activeTab === 'trial'} tabIndex={activeTab === 'trial' ? 0 : -1}
           className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('trial')}>测试场</button>
+        <button type="button" role="tab" id="kt-tab-help" aria-controls="kt-panel-help"
+          aria-selected={activeTab === 'help'} tabIndex={activeTab === 'help' ? 0 : -1}
+          className={activeTab === 'help' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+          onClick={() => setActiveTab('help')}>说明</button>
       </div>
       {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
       {savedFlash && <span className="kt-saved" role="status">已保存</span>}
+
+      {/* 路由页容器：预设选择 / 编辑器 / 预设操作 / 关键词组（原本散落为 4+ 个并列子节点）。 */}
+      <div className="kt-tabpanel kt-route" role="tabpanel" id="kt-panel-route" aria-labelledby="kt-tab-route" tabIndex={0} hidden={activeTab !== 'route'}>
 
       {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
       <div className="kt-preset-row">
@@ -1038,6 +1070,41 @@ export function SettingsCard(props: SettingsCardProps) {
         )}
       </div>
 
+      {/* 关键词组管理区：组列表 + 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
+      <details className="kt-groups kt-card">
+        <summary>关键词组</summary>
+        {groupNames.map((name) => (
+          <KeywordGroupRow
+            key={name}
+            name={name}
+            words={config.keywordGroups[name]}
+            writable={writable}
+            onSave={(words) => void storeWriter.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
+            onDelete={() => void storeWriter.saveKeywordGroups(omitKey(config.keywordGroups, name))}
+          />
+        ))}
+        <div className="kt-row">
+          <input
+            aria-label="新组名"
+            placeholder="新组名"
+            value={newGroupName}
+            disabled={!writable}
+            onChange={(e) => setNewGroupName(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={!writable || newGroupName.trim() === '' || Object.hasOwn(config.keywordGroups, newGroupName.trim())}
+            onClick={addGroup}
+          >
+            新建组
+          </button>
+        </div>
+      </details>
+      </div>
+
+      {/* 测试场页容器 */}
+      <div className="kt-tabpanel kt-trial" role="tabpanel" id="kt-panel-trial" aria-labelledby="kt-tab-trial" tabIndex={0} hidden={activeTab !== 'trial'}>
+
       {/* 「试一句」测试器（0.8.0 D2）：纯文本语义预测——命中规则（词数）+ 最终
           目标；带图输入只展示规则命中、不承诺最终改道（浏览器侧无 modalities）。 */}
       <details className="kt-trial kt-card" open>
@@ -1083,41 +1150,11 @@ export function SettingsCard(props: SettingsCardProps) {
           )
         })()}
       </details>
+      </div>
 
-      {/* 关键词组管理区：组列表 + 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
-      <details className="kt-groups kt-card">
-        <summary>关键词组</summary>
-        {groupNames.map((name) => (
-          <KeywordGroupRow
-            key={name}
-            name={name}
-            words={config.keywordGroups[name]}
-            writable={writable}
-            onSave={(words) => void storeWriter.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
-            onDelete={() => void storeWriter.saveKeywordGroups(omitKey(config.keywordGroups, name))}
-          />
-        ))}
-        <div className="kt-row">
-          <input
-            aria-label="新组名"
-            placeholder="新组名"
-            value={newGroupName}
-            disabled={!writable}
-            onChange={(e) => setNewGroupName(e.target.value)}
-          />
-          <button
-            type="button"
-            disabled={!writable || newGroupName.trim() === '' || Object.hasOwn(config.keywordGroups, newGroupName.trim())}
-            onClick={addGroup}
-          >
-            新建组
-          </button>
-        </div>
-      </details>
-
-      {/* 协作流注册表（0.6.0 spec §7，仅 v5）：预置流可改不可删；自建流可删
-          （被引用时禁用删除，store.deleteFlow 守卫兜底并上浮 error）。 */}
+      {/* 协作流页容器（flows 仅 v5 存在，故容器与内容一起门控） */}
       {isV5 && (
+        <div className="kt-tabpanel kt-flows" role="tabpanel" id="kt-panel-flows" aria-labelledby="kt-tab-flows" tabIndex={0} hidden={activeTab !== 'flows'}>
         <details className="kt-flows kt-card" open>
           <summary>协作流</summary>
           {flowEntries.map(([flowId, flow]) => (
@@ -1172,7 +1209,14 @@ export function SettingsCard(props: SettingsCardProps) {
             </button>
           </div>
         </details>
+        </div>
       )}
+
+      {/* 说明页容器（2026-09-15 v2）：状态感知自解释层——面板元素 + 全部设置语义。
+          只读：无按钮/表单控件；静态内容来自 help-content.ts 单一内容源。 */}
+      <div className="kt-tabpanel kt-help" role="tabpanel" id="kt-panel-help" aria-labelledby="kt-tab-help" tabIndex={0} hidden={activeTab !== 'help'}>
+        <HelpTab config={config} />
+      </div>
     </div>
   )
 }
