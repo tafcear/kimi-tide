@@ -58,3 +58,21 @@ node scripts/acceptance/hit-confirm-sentinel.mjs --json
 ```
 
 这 5 次的会话日志被 LRU 语义确证过：缓存**一次都没命中**，因此 hit/omit 两种「成功」都被排除，只剩「无结论」与「判词不可解析」两种失败形态。
+
+## 判官离线探针（`judge-probe.mjs`）
+
+哨兵能告诉你「判官没成功」，**不能告诉你为什么**——判词在宿主进程内产出、只写 stdout。这个探针把**判官那一发请求**原样复现到进程外：用 `lib` 里真实的 `buildConfirmInput`，同样的 `maxTokens`、同样的线缆参数，只把传输换成本机 HTTP 直连。
+
+```bash
+node scripts/acceptance/judge-probe.mjs                          # 默认探针句 + 宿主现状参数
+node scripts/acceptance/judge-probe.mjs --thinking disabled      # 关掉思考（= 修复后的行为）
+node scripts/acceptance/judge-probe.mjs --max-tokens 256 --runs 3
+node scripts/acceptance/judge-probe.mjs --text "帮我重构这段代码"  # 换句子
+```
+
+它一次问清三件事：真实耗时多少、预算够不够、模型到底吐了什么形状。**2026-09-15 的 A7 根因就是它定死的**：不关思考时 `completion_tokens` 全部计入 reasoning、正文 0 字符、`finish_reason=length`（64 与 256 都一样）；关掉思考后同预算下 450–850ms 返回合法判词。
+
+两条踩过的线缆细节（探针注释里也写着）：
+
+- 宿主的 `reasoningEffort: 'off'` 经 `dsh-llm-deepseek` 的 `resolveThinking` 映射为线缆上的 **`thinking: {type:'disabled'}`**；直传 `reasoning_effort: 'off'` 会被 DeepSeek 以 400 `unknown variant 'off'` 拒绝（它只认 `none|minimal|low|medium|high|xhigh|max`）。
+- 凭据取 `DEEPSEEK_API_KEY`（环境变量优先，回落 `~/.dsh/.credentials.yaml` 的 refs 段），探针从不打印 key。

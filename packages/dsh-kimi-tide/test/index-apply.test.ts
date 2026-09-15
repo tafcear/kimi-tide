@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
+import YAML from 'yaml'
+import { DEFAULT_CONFIG_V4 } from '../src/config.js'
 import { apply, buildDecisionSummary, defaultSidecarFile, defaultPatchFile, panelSignature } from '../src/index.js'
 
 /**
@@ -34,7 +36,16 @@ async function readPanel(
   return JSON.parse(result.text) as Record<string, unknown>
 }
 
-function makeCtx(agents: FakeAgent[], providers?: Array<{ id: string }>) {
+function makeCtx(
+  agents: FakeAgent[],
+  providers?: Array<{ id: string }>,
+  /** A7 定向修复用：捕获 llm.stream 的 options / 给候选池补档位能力 / 自定判官正文。 */
+  stream?: {
+    options?: unknown[]
+    efforts?: Record<string, string[]>
+    text?: string
+  },
+) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   let commandDef: { name: string; handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined
   const ctx = {
@@ -49,7 +60,11 @@ function makeCtx(agents: FakeAgent[], providers?: Array<{ id: string }>) {
       ],
       listModels: async (provider: string) =>
         provider === 'kimi-coding'
-          ? [{ id: 'kimi-for-coding' }]
+          // 目录含 k3（能力预设的打底与 image/review 规则目标）——夹具的**可用性**
+          // 语义要和生产一致：目标不在目录里就是 available:false、规则被跳过
+          // （本次修复真实注销后暴露：原先旧监听器一直用「枚举完成前的
+          //  fallback 元数据」作答，k3 被无条件当成可用）。
+          ? [{ id: 'k3' }, { id: 'kimi-for-coding' }]
           : provider === 'deepseek-official'
             ? [{ id: 'deepseek-v4-flash' }]
             : [{ id: 'other-model' }],
@@ -58,7 +73,18 @@ function makeCtx(agents: FakeAgent[], providers?: Array<{ id: string }>) {
         id: model,
         name: model,
         inputModalities: provider === 'kimi-coding' ? ['text', 'image'] : ['text'],
+        ...(stream?.efforts?.[`${provider}/${model}`] === undefined
+          ? {}
+          : { reasoning: { efforts: stream.efforts[`${provider}/${model}`].map((id) => ({ id })) } }),
       }),
+      // 生产confirm闸的判官缝（ctx.llm.stream）：只产出正文，无工具、无图。
+      stream: (options: unknown) => {
+        stream?.options?.push(options)
+        return (async function* () {
+          yield { type: 'text-delta', index: 0, text: stream?.text ?? '{"verdict":"hit","rule":"code-kfc","why":"真意图"}' }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        })()
+      },
     },
     commands: { register: (def: never) => { commandDef = def as never; return () => {} } },
     sessionProjections: { register: () => () => {} },
@@ -67,14 +93,26 @@ function makeCtx(agents: FakeAgent[], providers?: Array<{ id: string }>) {
     // whose dependency is absent, so the sidecar store stays in charge.
     inject: () => {},
     effect: (execute: () => unknown) => {
+      // 真实效应语义（本次修复）：execute 返回的注销器必须由 effect 的注销器执行——
+      // 原先 `void cleanup` 把它丢掉了，于是 `installRouter` 注册的
+      // agent/pre-step 监听器**从不注销**，重挂载（候选枚举完成 / 配置变更）
+      // 只会在数组尾部叠加新监听器，而用例取 `listeners.get(name)[0]` 命中的
+      // 永远是第一个路由器（= 枚举完成前的旧实例）。
       const cleanup = execute()
-      return () => { void cleanup }
+      return typeof cleanup === 'function' ? (cleanup as () => void) : () => {}
     },
     on: (name: string, listener: (payload: unknown) => unknown) => {
       const arr = listeners.get(name) ?? []
       arr.push(listener)
       listeners.set(name, arr)
-      return () => {}
+      // 真实注销（2026-09-15 A7 定向修复时暴露的夹具缺口）：原先返回 no-op，
+      // 于是配置重挂载/候选枚举完成后的重挂载会把新监听器**堆叠**在旧监听器之后，
+      // 而 `listeners.get(name)[0]` 取到的仍是**旧路由器**——本组用例正是据此
+      // 才发现枚举后的档位能力迟迟没被读到。生产 ctx.on 本就返回注销器。
+      return () => {
+        const i = arr.indexOf(listener)
+        if (i >= 0) arr.splice(i, 1)
+      }
     },
     get: (name: string) => (name === 'agents' ? { list: () => agents } : undefined),
   }
@@ -164,7 +202,7 @@ describe('apply() projection v4 + sidecar wiring', () => {
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     await new Promise((resolve) => setTimeout(resolve, 20))
     const snapshot = await readPanel(getCommand, agent) as { models?: { kimi: string[] } }
-    expect(snapshot.models?.kimi).toEqual(['kimi-for-coding'])
+    expect(snapshot.models?.kimi).toEqual(['k3', 'kimi-for-coding'])
   })
 
   it('reports configSource patch when the legacy patch router block is the only config', async () => {
@@ -303,6 +341,102 @@ describe('apply() 面板 v6 推送接线（0.6.0：imageContext 三态计数）'
 
     const snapshot = await readPanel(getCommand, agent)
     expect(snapshot.imageContext).toEqual({ native: 1, transcribed: 0, blind: 0 })
+  })
+})
+
+/**
+ * v1.3.0 A7 定向修复（判官档位的最后一环）：`judgeEffort` → `GenerateOptions.reasoningEffort`。
+ *
+ * 实机取证（`scripts/acceptance/judge-probe.mjs` 离线复现判官那一发请求）：不钉档位时
+ * 判官作为推理模型把 `max_tokens` 全花在 reasoning 上——正文 0 字符、`finish_reason=length`，
+ * 64 与 256 两个预算都一样 ⇒ 判词恒不可解析 ⇒ 闸门静默 fail-open。取消思考后同预算下
+ * 450–850ms 返回合法判词（3/3 可解析）。本组钉住「档位真的落到了 GenerateOptions 上」；
+ * 支持集判定（off 不被支持就不下发）在 hit-confirm/router-wiring 两层已各自钉住。
+ */
+describe('apply() 语义闸判官档位接线（v1.3.0 A7 定向修复）', () => {
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-judge-'))
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+    // 语义闸开启的省钱预设经 sidecar 落盘（v4 形态）：判官 = 预设 default =
+    // deepseek-official/deepseek-v4-flash。用文件而不是 config.router 种子——
+    // 种子走 v4 迁移链（sidecar 是 v4-only 存储），v5 形态的种子会被当成旧形状。
+    const seed = DEFAULT_CONFIG_V4()
+    seed.activePreset = 'saving'
+    seed.presets.saving.hitConfirm = { enabled: true }
+    writeFileSync(sidecarFile, YAML.stringify(seed), 'utf8')
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  const OFF_EFFORTS = { 'deepseek-official/deepseek-v4-flash': ['off', 'low', 'high', 'max'] }
+
+  /** 派发一次 pre-step（与 index-apply 既有用例同款形状）。 */
+  const dispatchStep = async (
+    listeners: Map<string, Array<(payload: unknown) => unknown>>,
+    agent: FakeAgent,
+    text: string,
+  ): Promise<void> => {
+    const listener = listeners.get('agent/pre-step')?.[0]
+    expect(listener).toBeDefined()
+    await (listener as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      { agent, messages: [{ role: 'user', content: [{ type: 'text', text }] } as never], turn: 1, step: 1, signal: new AbortController().signal },
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+  }
+
+  it('判官目标支持 off ⇒ 请求带 reasoningEffort=off，正文原样留给判词解析', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const stream = { options: [] as unknown[], efforts: OFF_EFFORTS }
+    const { ctx, listeners, getCommand } = makeCtx([agent], undefined, stream)
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect((await readPanel(getCommand, agent)).router).toMatchObject({ activePreset: 'saving' })
+    await dispatchStep(listeners, agent, '帮我重构这段周报')
+
+    // Fails if: judgeEffort 没落到 GenerateOptions（判官带思考 ⇒ 正文恒空 ⇒ 判词恒不可解析）
+    expect(stream.options).toHaveLength(1)
+    expect(stream.options[0]).toMatchObject({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'off',
+      maxTokens: 64,
+    })
+  })
+
+  it('判官目标不支持 off ⇒ 请求不带 reasoningEffort（绝不制造 UNSUPPORTED_REASONING_EFFORT）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const stream = { options: [] as unknown[], efforts: { 'deepseek-official/deepseek-v4-flash': ['low', 'high', 'max'] } }
+    const { ctx, listeners } = makeCtx([agent], undefined, stream)
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await dispatchStep(listeners, agent, '帮我重构这段周报')
+
+    expect(stream.options).toHaveLength(1)
+    expect(stream.options[0]).not.toHaveProperty('reasoningEffort')
+  })
+
+  it('判官支持 off 且真返回判否 ⇒ 决策落打底但带确认注记（端到端：判词进面板原因串）', async () => {
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const stream = {
+      options: [] as unknown[],
+      efforts: OFF_EFFORTS,
+      text: '{"verdict":"omit","rule":"code-kfc","why":"引用昨日重构"}',
+    }
+    const { ctx, listeners, getCommand } = makeCtx([agent], undefined, stream)
+
+    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await dispatchStep(listeners, agent, '我昨天那个重构早就写完了，今天想聊点别的')
+
+    const decision = (await readPanel(getCommand, agent)).decision as { chosen: { model: string }; reason: string } | null
+    expect(decision).not.toBeNull()
+    expect(decision!.reason).toContain('语义闸判否「引用昨日重构」')
   })
 })
 

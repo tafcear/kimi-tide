@@ -14,6 +14,7 @@ import {
   CONFIRM_RAW_SAMPLE_LIMIT,
   CONFIRM_TEXT_LIMIT,
   HitConfirmGate,
+  judgeEffortFor,
   parseConfirmVerdict,
   type ConfirmCandidate,
 } from '../src/hit-confirm.js'
@@ -122,6 +123,17 @@ describe('HitConfirmGate：结论、缓存与失败退化', () => {
     expect(seen).toEqual([64, 16])
   })
 
+  it('judgeEffort 透传给判官调用（支持集判定后决定是否钉 off）', async () => {
+    const seen: (string | undefined)[] = []
+    const gate = new HitConfirmGate({
+      call: async ({ judgeEffort }) => { seen.push(judgeEffort); return '{"verdict":"hit","rule":"code-kfc","why":"ok"}' },
+    })
+    await gate.review('a', candidates, judge, { efforts: ['off', 'low', 'high', 'max'] })
+    await gate.review('b', candidates, judge, { efforts: ['low', 'high', 'max'] })
+    await gate.review('c', candidates, judge)
+    expect(seen).toEqual(['off', undefined, undefined])
+  })
+
   it('可观测性补链（v1.3.0 A7 实机失效）：回传判词理由与失败细分，供决策原因串显形', async () => {
     const okGate = new HitConfirmGate({ call: async () => '{"verdict":"omit","rule":"code-kfc","why":"引用语境"}' })
     await expect(okGate.review('x', candidates, judge)).resolves.toMatchObject({ outcome: 'omit', why: '引用语境' })
@@ -162,5 +174,34 @@ describe('HitConfirmGate：结论、缓存与失败退化', () => {
       .toBe(`${'x'.repeat(CONFIRM_RAW_SAMPLE_LIMIT)}…`)
     expect(clipRawSample('y'.repeat(CONFIRM_RAW_SAMPLE_LIMIT)))
       .toBe('y'.repeat(CONFIRM_RAW_SAMPLE_LIMIT))
+  })
+})
+
+/**
+ * v1.3.0 A7 定向修复：判官档位（判词可解析性的前置条件）。
+ *
+ * 实机取证（离线复现判官那一发请求）：**不钉档位**时判官是推理模型，
+ * `completion_tokens` **全部**是 reasoning token、正文 0 字符、`finish_reason=length`
+ * ——64 与 256 两个预算都一样（思考把预算吃光，什么都没输出）。取消思考后
+ * 同预算下 450–850ms 返回合法判词。
+ *
+ * 但不支持 off 的目标（k3 / glm-5.3）钉 off 会被适配器抛 UNSUPPORTED_REASONING_EFFORT，
+ * 而调用点的 catch 会把它变成 null ⇒ **静默 fail-open**（评审 S1 已预言这一形态）。
+ * 故必须过支持集判定（与 `effortForTarget` 同款原则）：只钉**声明支持**的目标。
+ */
+describe('judgeEffortFor：判官档位按支持集判定（纯函数）', () => {
+  const judge = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+
+  it('支持集含 off → 钉 off（判词必须落在 maxTokens 预算内；实机 64 预算下 reasoning 会吃光）', () => {
+    expect(judgeEffortFor(judge, ['off', 'low', 'high', 'max'])).toBe('off')
+  })
+
+  it('支持集不含 off（k3 / glm-5.3 一类）→ 不下发，绝不制造 UNSUPPORTED_REASONING_EFFORT', () => {
+    expect(judgeEffortFor(judge, ['low', 'high', 'max'])).toBeUndefined()
+  })
+
+  it('能力未知（枚举未完成 / 适配器未暴露）→ 不下发（维持既有语义）', () => {
+    expect(judgeEffortFor(judge, undefined)).toBeUndefined()
+    expect(judgeEffortFor(judge, [])).toBeUndefined()
   })
 })

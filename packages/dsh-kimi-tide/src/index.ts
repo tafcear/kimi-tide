@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: brings the `ctx.settings` augmentation in without making
 // @deepseek-ai/dsh-settings a load-time dependency (rc.6 hosts lack it).
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, Message } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, Message, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { copyFileSync, readFileSync } from 'node:fs'
@@ -548,13 +548,20 @@ export function apply(ctx: Context, config: Config = {}) {
    * ⇒ 闸门 fail-open（不过闸），语义层永不制造比现状更坏的结果。
    */
   const confirmGate = new HitConfirmGate({
-    call: async ({ input, judge, maxTokens, signal }) => {
+    call: async ({ input, judge, maxTokens, judgeEffort, signal }) => {
       try {
         const options: GenerateOptions = {
           provider: judge.provider,
           model: judge.model,
           maxTokens,
           messages: [{ role: 'user', content: [{ type: 'text', text: input }] }] as unknown as Message[],
+          // v1.3.0 A7 定向修复：钉住判官的推理档位（支持集判定后的 'off'）。
+          // 判官是推理模型，而本闸只给 64 token——不钉档位时 reasoning 会把预算
+          // 吃光、正文恒为空 ⇒ 判词恒不可解析 ⇒ 闸门静默 fail-open（实机实证：
+          // completion_tokens 全部计入 reasoning、finish_reason=length）。适配器把
+          // 'off' 映射为 thinking 关闭，正是本处所需；不支持 off 的目标不会走到这里
+          // （hit-confirm 的 judgeEffortFor 已过支持集判定）。
+          ...(judgeEffort === undefined ? {} : { reasoningEffort: judgeEffort as ReasoningEffortId }),
           ...(signal === undefined ? {} : { signal }),
         }
         let text = ''

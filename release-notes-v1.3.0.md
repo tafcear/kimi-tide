@@ -29,7 +29,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-1.3.0.tgz
 
 ### 验证与验收
 
-- 测试：**659/659 通过**；typecheck 0 报错；build 通过（host + client）
+- 测试：**687/687 通过**；typecheck 0 报错；build 通过（host + client）
 - 实机验收：清单与记录见 `docs/release-evidence.md` 的 v1.3.0 一节（A 系探针需重启宿主后执行——host 半边不热重载）
 
 ---
@@ -61,5 +61,5 @@ Compatibility: DSH ≥ `0.1.2-rc.1` (verified live on `0.1.5-rc.1`). **No `setti
 
 ### Verification & acceptance
 
-- Tests: **659/659 passing**; typecheck clean; build passing (host + client)
+- Tests: **687/687 passing**; typecheck clean; build passing (host + client)
 - Live acceptance: checklist and record in the v1.3.0 section of `docs/release-evidence.md` (the A-series probes require restarting the host — the host half does not hot-reload)

@@ -396,6 +396,82 @@ describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1
   })
 })
 
+/**
+ * v1.3.0 A7 定向修复的接线面：判官的**支持集**必须从运行期候选池取得。
+ *
+ * 为什么这条接线值得单独钉：判官档位取自 `metas[].reasoningEfforts`，它在
+ * `index.ts` 的候选枚举里由 `resolveModelInfo` 填充。若这里传空/传错，判官要么
+ * 退回「不钉档位」（实机取证：推理把 maxTokens 预算吃光 ⇒ 正文 0 字符 ⇒ 判词恒
+ * 不可解析），要么钉一个目标不支持的档位（适配器抛 UNSUPPORTED_REASONING_EFFORT
+ * ⇒ 被调用点 catch 吞成 null ⇒ 静默 fail-open）。两种都是静默失效，所以两种都要钉。
+ */
+describe('语义闸判官档位：支持集取自运行期候选池（v1.3.0 A7 定向修复）', () => {
+  /** 判官目标声明支持 off 的候选池（deepseek 系实机形状）。 */
+  const OFF_METAS: CandidateMeta[] = [
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash', modalities: ['text'], available: true, reasoningEfforts: ['off', 'low', 'high', 'max'] },
+    { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available: true, reasoningEfforts: ['low', 'high', 'max'] },
+  ]
+  const gateConfig = (): RouterConfigV4 => {
+    const c = CONFIG()
+    c.presets.saving.hitConfirm = { enabled: true }
+    return c
+  }
+
+  it('判官支持 off ⇒ 调用请求带上「可钉 off」的能力信息', async () => {
+    const seen: Array<{ judgeEffort?: string | undefined }> = []
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), OFF_METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      hitConfirm: new HitConfirmGate({
+        call: async (req) => { seen.push({ judgeEffort: req.judgeEffort }); return '{"verdict":"hit","rule":"code-kfc","why":"真意图"}' },
+      }),
+    })
+
+    await dispatch.preStep({
+      agent, messages: [textMessage('帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+
+    // Fails if: pre-step 不传 efforts（判官退回不钉档位 ⇒ 实机正文恒空）
+    expect(seen).toEqual([{ judgeEffort: 'off' }])
+  })
+
+  it('判官不支持 off（k3 一类）⇒ 不下发档位，绝不制造 UNSUPPORTED_REASONING_EFFORT', async () => {
+    const seen: Array<{ judgeEffort?: string | undefined }> = []
+    const { ctx, dispatch } = makeCtx()
+    const c = gateConfig()
+    c.presets.saving.default = { provider: 'kimi-coding', model: 'k3' }
+    installRouter(ctx as never, new KimiRouter(c, OFF_METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      hitConfirm: new HitConfirmGate({
+        call: async (req) => { seen.push({ judgeEffort: req.judgeEffort }); return '{"verdict":"hit","rule":"code-kfc","why":"真意图"}' },
+      }),
+    })
+
+    await dispatch.preStep({
+      agent, messages: [textMessage('帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+
+    expect(seen).toEqual([{}])
+  })
+
+  it('候选池无档位信息（枚举未完成 / 旧宿主）⇒ 不下发（维持既有语义）', async () => {
+    const seen: Array<{ judgeEffort?: string | undefined }> = []
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      hitConfirm: new HitConfirmGate({
+        call: async (req) => { seen.push({ judgeEffort: req.judgeEffort }); return '{"verdict":"hit","rule":"code-kfc","why":"真意图"}' },
+      }),
+    })
+
+    await dispatch.preStep({
+      agent, messages: [textMessage('帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+
+    expect(seen).toEqual([{}])
+  })
+})
+
 describe('installRouter vs 宿主模型选择覆盖（rc.2 installModelSelection 回归，2026-08-23）', () => {
   // 实机回归（0.6.0 验收 turn 10 实锤）：rc.2 dsh-host-apiproxy 在 agent
   // 创建时安装 installModelSelection——agent/request 监听器把 provider/model

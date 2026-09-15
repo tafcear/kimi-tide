@@ -81,6 +81,36 @@ const INSTRUCTION = [
   '不确定一律 hit。不要解释，不要多余文本。',
 ].join('\n')
 
+/** 判官要钉的推理档位（v1.3.0 A7 定向修复）。 */
+export const JUDGE_EFFORT = 'off'
+
+/**
+ * 判官该不该钉推理档位（纯函数，v1.3.0 A7 定向修复）。
+ *
+ * **为什么要钉**：判官模型多为推理模型，而本闸只给 64 token。离线复现判官那一发
+ * 请求（`scripts/acceptance/judge-probe.mjs`）实测：不钉档位时 `completion_tokens`
+ * **全部**是 reasoning token、正文 0 字符、`finish_reason=length`——64 与 256 两个
+ * 预算都一样（思考把预算吃光），`parseConfirmVerdict` 必然拿到空串 ⇒ 判词恒不可解析
+ * ⇒ 闸门静默 fail-open（A7 实机失效的真根因）。钉 off 后同预算下 450–850ms 返回
+ * 合法判词（实测 3/3 可解析）。
+ *
+ * **为什么必须过支持集**：不支持 off 的目标（k3 / glm-5.3 一类）钉 off 会被适配器
+ * 抛 `UNSUPPORTED_REASONING_EFFORT`，而调用点的 catch 把它变成 null ⇒ 又一种静默
+ * fail-open（评审 S1 已预言这一形态）。故只钉**声明支持**的目标，能力未知一律不下发
+ * ——「'off' 不显式下发」是仓库既有原则（`router.ts` 的升级序循环即从 i>0 起跳），
+ * 这里的例外只因判官的预算必须留给正文。
+ *
+ * @param supported 判官目标的支持集（`CandidateMeta.reasoningEfforts` 同源）；
+ *                  undefined / 空数组 = 能力未知 ⇒ 不下发。
+ */
+export function judgeEffortFor(
+  _judge: RouteTarget,
+  supported: readonly string[] | undefined,
+): string | undefined {
+  if (supported === undefined || supported.length === 0) return undefined
+  return supported.includes(JUDGE_EFFORT) ? JUDGE_EFFORT : undefined
+}
+
 /** 判官输入：指令 + 本轮文本（截断）+ 候选规则表（不含词表，控 token）。 */
 export function buildConfirmInput(text: string, candidates: readonly ConfirmCandidate[]): string {
   const clipped = text.length <= CONFIRM_TEXT_LIMIT ? text : `${text.slice(0, CONFIRM_TEXT_LIMIT)}…（已截断）`
@@ -130,6 +160,12 @@ export interface ConfirmCallRequest {
   input: string
   judge: RouteTarget
   maxTokens: number
+  /**
+   * 要钉的推理档位（v1.3.0 A7 定向修复）：支持集声明支持 off 时为 `'off'`，
+   * 其余（含能力未知）为 undefined ⇒ 不下发。生产侧把它落到
+   * `GenerateOptions.reasoningEffort`（适配器再把 off 映射成 thinking: disabled）。
+   */
+  judgeEffort?: string
   signal: AbortSignal | undefined
 }
 
@@ -137,6 +173,11 @@ export interface ConfirmCallRequest {
 export interface ConfirmOptions {
   timeoutMs?: number
   maxTokens?: number
+  /**
+   * 判官目标的**支持集**（运行期候选池的 `reasoningEfforts`）。
+   * 闸门据此决定要不要钉 off（见 `judgeEffortFor`）；缺省 = 能力未知 ⇒ 不钉。
+   */
+  efforts?: readonly string[]
   signal?: AbortSignal
 }
 
@@ -201,11 +242,15 @@ export class HitConfirmGate {
         ? base
         : (typeof AbortSignal.any === 'function' ? AbortSignal.any([base, timeout]) : base)
     let raw: string | null = null
+    // 判官档位：只在目标声明支持 off 时钉（见 judgeEffortFor）——判官是推理模型，
+    // 不钉的话 maxTokens 会被 reasoning 吃光，正文为空 ⇒ 判词恒不可解析（实机实证）。
+    const judgeEffort = judgeEffortFor(judge, options.efforts)
     try {
       raw = await this.deps.call({
         input: buildConfirmInput(text, candidates),
         judge,
         maxTokens: options.maxTokens ?? DEFAULT_CONFIRM_MAX_TOKENS,
+        ...(judgeEffort === undefined ? {} : { judgeEffort }),
         signal: combined,
       })
     } catch {

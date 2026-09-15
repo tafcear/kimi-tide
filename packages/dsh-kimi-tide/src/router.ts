@@ -746,6 +746,11 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const gateCfg = gatePreset?.hitConfirm
       if (deps.hitConfirm !== undefined && gatePreset !== undefined && gateCfg?.enabled === true) {
         const turnText = latestUserText(payload.messages)
+        // v1.3.0 A7 定向修复：判官（= 本预设的 default）的档位支持集，供闸门判定是否
+        // 钉 off。取不到（枚举未完成 / 适配器未暴露）即不下发——绝不猜。
+        const judgeSupportedEfforts = router.metas.find(
+          (m) => m.provider === gatePreset.default.provider && m.model === gatePreset.default.model,
+        )?.reasoningEfforts
         // Q6：判据与 decide 同源——`@README.md` / `@deepseek-ai/…` 这类误判不再
         // 跳过语义闸（原来词法命中即短路，该问判官的一轮不问）。
         if (effectiveExplicitDirective(turnText, router.knownProviders()) === null) {
@@ -758,6 +763,10 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
               {
                 ...(gateCfg.timeoutMs === undefined ? {} : { timeoutMs: gateCfg.timeoutMs }),
                 ...(gateCfg.maxTokens === undefined ? {} : { maxTokens: gateCfg.maxTokens }),
+                // v1.3.0 A7 定向修复：判官的档位支持集取自**运行期候选池**（与
+                // effortForTarget 同源），闸门据此决定是否钉 off——判官是推理模型，
+                // 不钉档位时 64 token 会被 reasoning 吃光、正文恒为空（实机实证）。
+                ...(judgeSupportedEfforts === undefined ? {} : { efforts: judgeSupportedEfforts }),
                 signal: payload.signal,
               },
             )
