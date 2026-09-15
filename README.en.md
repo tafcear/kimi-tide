@@ -151,6 +151,7 @@ The quota slots on the panel's second row **follow the current routed target** a
 
 - `@kimi` (provider level): the model is **the one you configured in the preset**, not whatever happens to be first in the catalog — and the decision reason says which basis was used.
 - `@kimi/k3` (exact model): pins that model directly, regardless of pool order; if it is unavailable you are **told what it fell back to** instead of being silently switched.
+- **Only a real provider counts as a directive**: if the token after `@` is not a provider this plugin knows — a workspace path reference like `@README.md`, a scoped package name like `node_modules/@deepseek-ai/...`, or an `@xxx` inside a path — it is **not treated as an explicit directive**; the turn goes through the keyword rules as usual and the decision reason says "`@x` is not a known provider (ignored)".
 
 Matching details (word boundaries, specificity ranking, degradation), image behavior, and the full config reference: [router architecture](packages/dsh-kimi-tide/docs/router.md). The candidate pool is the full Models-page catalog — any model can be a default or a rule target.
 

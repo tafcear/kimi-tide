@@ -151,6 +151,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 
 - `@kimi`（provider 级）：模型取**你预设里配过的那个** kimi 目标（不是目录里碰巧排第一的），决策原因里会写明依据；
 - `@kimi/k3`（精确到模型）：直接钉到该模型——想用哪个模型就用哪个，不受候选池顺序影响；模型不可用时会**明确告诉你回落到了谁**，不会静默换人。
+- **只有真的 provider 才算指令**：`@` 后面若不是本插件认识的 provider——例如工作区路径引用 `@README.md`、scoped 包名 `node_modules/@deepseek-ai/…`、路径里的 `@xxx`——**不会被当成显式指令**，该轮照常走关键词规则，决策原因里写明「`@x` 非本路由器已知 provider（已忽略）」。
 
 匹配细节（词边界、特异度排序、降级语义）、带图行为、配置全字段：见[路由器架构详解](packages/dsh-kimi-tide/docs/router.md)。候选池 = Models 页全量目录，任何模型都能当默认或规则目标。
 

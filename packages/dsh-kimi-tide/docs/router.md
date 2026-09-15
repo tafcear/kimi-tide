@@ -655,3 +655,22 @@ fail-open（按原关键词结果走）。
   （实机教训：旧行为下 `@qwen-token-plan-cn` 落到池内首个 MiniMax-M2.5 = 未购买 → 403。）
 - `@kimi`/`@kimi-tide` 别名保留；词法边界（邮箱/句中引用不误判）保持不变。
 - 「试一句」`previewRoute` 采用同款语义（预演 = decide 的文本语义）。
+
+### 显式 @ 的「已知 provider」门控（Q6）
+
+- **判据**：`effectiveExplicitDirective(text, known)`——词法解析后，只有当 provider 在
+  `known` 里才算指令。`known` = 候选目录全部 provider（**含 available:false**）∪
+  预设已配置目标（default + 非流转规则目标）∪ 内置 `KIMI_PROVIDER`。含不可用者是有意的：
+  `@zai-coding-cn` 在 key 缺失时保持 Q3 的 `keep`，而不是被当成误判丢进规则链。
+- **为什么必须用 provider 知识**：`@zai-coding-cn`（真指令）与 `@deepseek-ai`（scoped 包名）、
+  `@README`（文件引用）都是 `@[\w-]+`，纯词法不可区分。误判的代价不止"选错模型"——
+  `decide` 在候选池为空时返回 `keep`，**整条规则链被跳过**。
+- **取首个「已知」匹配**：遍历全部 `@` 候选，返回第一个 provider 已知者——前面的包名不吞掉
+  后面的真指令（`见 @deepseek-ai/x，另 @kimi 帮我看` → 认 `@kimi`）。
+- **四处调用点同源**（单一实现，防漂移）：`decide` 显式分支、语义确认闸前置短路、
+  `reviewTriggerHit`（评审流武装抑制）、`previewRoute`。前两处传 `router.knownProviders()`，
+  后两处由调用方传同一集合（`previewRoute` 的 `catalog == null` ⇒ `known = null`）。
+- **降级**：`known === null`（调用方拿不到目录）退化为纯词法结果（旧行为）——不误杀真指令。
+- **可解释**：词法命中但被判非指令时，原因串前缀 `@x 非本路由器已知 provider（已忽略）· `。
+- **有意变更**：未识别的 `@provider`（如 `@anthropic`）由 `keep` 改为落打底 + 说明；
+  已知 provider 无可用候选仍 `keep`（原因串改为中文并写明"为何 keep"）。
