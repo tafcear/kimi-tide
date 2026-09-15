@@ -116,6 +116,24 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
     if (dft.effort !== undefined && (typeof dft.effort !== 'string' || dft.effort.trim() === '')) {
       return `预设 '${key}' 的 default.effort 必须为非空字符串`
     }
+    // v1.3.0 语义命中确认闸：**不入 schema**（对象型字段入 schema 会被注入 {}
+    // 破坏「默认往返相等」，评审 S1），故形状与界校验只在这里。
+    const hc = (preset as { hitConfirm?: unknown }).hitConfirm
+    if (hc !== undefined) {
+      if (hc === null || typeof hc !== 'object') return `预设 '${key}' 的 hitConfirm 必须是对象`
+      const { enabled, timeoutMs, maxTokens } = hc as Record<string, unknown>
+      if (enabled !== undefined && typeof enabled !== 'boolean') {
+        return `预设 '${key}' 的 hitConfirm.enabled 必须是布尔`
+      }
+      if (timeoutMs !== undefined
+        && (typeof timeoutMs !== 'number' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000)) {
+        return `预设 '${key}' 的 hitConfirm.timeoutMs 必须是 1..10000 的整数`
+      }
+      if (maxTokens !== undefined
+        && (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 256)) {
+        return `预设 '${key}' 的 hitConfirm.maxTokens 必须是 1..256 的整数`
+      }
+    }
     for (const rule of preset.rules) {
       const t = (rule.target ?? {}) as RuleTarget
       if (isFlowTarget(t)) {

@@ -31,6 +31,27 @@ export interface RouterPreset {
   imageFallback?: ImageFallback
   /** imageFallback 为 'transcribe-lazy' 时引用的 flows 键。 */
   imageFallbackFlow?: string
+  /**
+   * 预设级语义命中确认闸（v1.3.0）：关键词命中时先让**本预设的打底模型**
+   * 判定真伪，判否则跳过该规则继续后续规则。缺省/`enabled !== true` = 关闭
+   * （存量行为零突变）。
+   *
+   * **不入 settings schema**（2026-09-15 评审 S1）：对象型字段一旦进
+   * `presetSchema`，schemastery 会在解析时给每个预设注入 `hitConfirm: {}`，
+   * 破坏 `settings-schema.test.ts` 的「默认往返相等」红线。靠 schema 的
+   * 「未知键透传保留」保活，形状与界校验在 `validateRouterConfig`（与 v3
+   * `default` 同款先例）。
+   */
+  hitConfirm?: HitConfirm
+}
+
+/** 语义命中确认闸配置（全部可选；缺省 = 关闭）。 */
+export interface HitConfirm {
+  enabled?: boolean
+  /** 判官调用有界超时，1..10000ms，缺省 1200。 */
+  timeoutMs?: number
+  /** 判官输出上限，1..256 token，缺省 64。 */
+  maxTokens?: number
 }
 
 /* ---- v5（0.6.0）协作编排：规则 target 泛化为「模型 | 协作流引用」，新增 flows 注册表 ---- */

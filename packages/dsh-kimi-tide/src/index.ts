@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: brings the `ctx.settings` augmentation in without making
 // @deepseek-ai/dsh-settings a load-time dependency (rc.6 hosts lack it).
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
-import type { LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, Message } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { copyFileSync } from 'node:fs'
@@ -43,6 +43,7 @@ import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import { buildQuotaSources } from './quota-sources.js'
+import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
 import { buildEffortCatalog, buildMountedModels, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
 
@@ -506,6 +507,33 @@ export function apply(ctx: Context, config: Config = {}) {
     caller: createStreamVisionCaller(ctx, resolveEfforts),
     log: (message) => { ctx.logger.info(message) },
   })
+  /**
+   * v1.3.0 语义命中确认闸的判官调用：ctx.llm.stream 直调（与转述/评审同款 aux 通道）。
+   * 判官目标由 pre-step 逐次传入（= 当前预设的 default）；**任何失败/中止都返回 null**
+   * ⇒ 闸门 fail-open（不过闸），语义层永不制造比现状更坏的结果。
+   */
+  const confirmGate = new HitConfirmGate({
+    call: async ({ input, judge, maxTokens, signal }) => {
+      try {
+        const options: GenerateOptions = {
+          provider: judge.provider,
+          model: judge.model,
+          maxTokens,
+          messages: [{ role: 'user', content: [{ type: 'text', text: input }] }] as unknown as Message[],
+          ...(signal === undefined ? {} : { signal }),
+        }
+        let text = ''
+        for await (const chunk of ctx.llm.stream(options)) {
+          if (chunk.type === 'text-delta') text += chunk.text
+          else if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) return null
+        }
+        return text
+      } catch {
+        return null
+      }
+    },
+    log: (message) => { ctx.logger.info(message) },
+  })
   // 1.1.0 §8：手动评审实现登记（installRouter install 传 fn / dispose 传 null；
   // apply 作用域存最新 fn，Task 6 的 /kimi-tide review 命令消费）。
   let manualReviewFn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null = null
@@ -526,6 +554,9 @@ export function apply(ctx: Context, config: Config = {}) {
         // v1.2.0 闸：宿主目录未命中 → 拒绝写评审事件（见 registerSessionEventTypes）。
         reviewEventWritable,
         onManualReview: (fn) => { manualReviewFn = fn },
+        // v1.3.0 语义命中确认闸：判官 = **本预设的 default**，走 ctx.llm.stream 直调
+        // （不经 decide，无 purpose、纯文本无图块 → 不触发任何既有改写）。
+        hitConfirm: confirmGate,
       })
     }
   }

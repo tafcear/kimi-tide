@@ -30,12 +30,13 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {
   CandidateMeta, CollaborationFlow, ReviewFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
 } from './config.js'
-import { isFlowTarget } from './config.js'
+import { configKey, isFlowTarget } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import { KIMI_TIDE_REVIEW_EVENT } from './projection.js'
 import { createReviewRunner, REVIEW_INPUT_LIMIT, type ReviewEventPayload, type ReviewRequest } from './review.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
-import { claimedReviewGroups, explicitProvider, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, ruleLabel } from './rules.js'
+import { type HitConfirmGate } from './hit-confirm.js'
+import { explicitProvider, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -228,7 +229,7 @@ export class KimiRouter {
    * 布尔锁存。（历史锚点：2026-08-19 实机回归——deepseek 适配器序列化全量
    * 会话时图块曾抛 UNSUPPORTED_CONTENT，rc.2 起改原生占位投影。）
    */
-  decide(messages: readonly UserMessage[], step: number, hasImageOverride?: boolean): RouteDecision {
+  decide(messages: readonly UserMessage[], step: number, hasImageOverride?: boolean, omittedRuleIds?: ReadonlySet<string>): RouteDecision {
     if (this.config.activePreset === null) return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
     const hasImage = hasImageOverride ?? messagesContainImage(messages)
@@ -249,12 +250,16 @@ export class KimiRouter {
     }
     const flows = flowsOf(this.config)
     const hits = matchingScored(this.config, text, hasImage)
-    // 1.1.0 §4 静态抑制：被认领组的规则整条跳过（与本轮是否命中无关，语义可
-    // 预测）；命中词不再计入路由链。显式 @ 分支在其上方，天然先于抑制。
-    const claimed = claimedReviewGroups(this.config)
-    const routable = claimed.size === 0
-      ? hits
-      : hits.filter(({ rule }) => !(rule.when.kind === 'keywords' && claimed.has(rule.when.group)))
+    // 1.1.0 §4 静态抑制 + v2 语义判否：路由链 = 认领过滤 → 判否过滤（两步共用
+    // routableHits，避免与 pre-step 的闸各自过滤而漂移）。
+    // **noteBase 与路由链解耦**（v2 评审 M3）：标注基准是「认领过滤后、判否过滤**前**」
+    // 的列表——被否规则**视同不存在于路由链，但仍占标注位**，故次条不会误标
+    // 「特异度最高」（与 0.8.x①「降级不误标」同款不变量）。
+    const noteBase = routableHits(this.config, hits)
+    const routable = omittedRuleIds === undefined || omittedRuleIds.size === 0
+      ? noteBase
+      : noteBase.filter(({ rule }) => !omittedRuleIds.has(rule.id))
+    const headId = noteBase.length > 1 ? noteBase[0]?.rule.id : undefined
     for (const [index, { rule, score }] of routable.entries()) {
       const target = rule.target
       // 0.8.0 原因升级：携带命中词数；多命中且为排序后首命中时加（特异度最高）
@@ -262,9 +267,11 @@ export class KimiRouter {
       // 降级到后续命中时不得误标（后续命中并非特异度最高）。R6（1.1.0）：
       // index 与 length 均基于过滤后 routable（T1 后 hits 原文保留、routable
       // 为路由链）——被认领组抑制的首命中不得使次命中误标特异度最高。
+      // v2：判否过滤同理——只有 noteBase 首条**实际生效**时才标注。
+      const annotated = headId !== undefined && rule.id === headId && index === 0
       const note = score === Number.POSITIVE_INFINITY
         ? ''
-        : ` ${score} 词${routable.length > 1 && index === 0 ? '（特异度最高）' : ''}`
+        : ` ${score} 词${annotated ? '（特异度最高）' : ''}`
       // 协作流目标（0.6.0，spec §5.1）：flow 存在 + transcribe 型 + visionModel
       // 在候选目录中可用 → flow 决策；任一不满足 → 跳过该规则（与模型目标不可
       // 用的降级语义一致）。v4 存量 flows 为空表，flow 目标恒按「不存在」降级。
@@ -355,6 +362,11 @@ export interface RouterOrchestrationDeps {
   reviewEventWritable?: boolean
   /** 1.1.0 §8：手动评审实现登记（install 传 fn / dispose 传 null）。 */
   onManualReview?: (fn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null) => void
+  /**
+   * v1.3.0 语义命中确认闸（语义闸 spec v2 §7）：关键词命中时先让预设打底模型
+   * 判定真伪；判否 ⇒ 该规则视同不存在（跳过继续后续规则）。缺省 = 不过闸。
+   */
+  hitConfirm?: HitConfirmGate
 }
 
 /** 转述调用默认有界超时（I-2）。 */
@@ -609,8 +621,35 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // 3. 未转述图（本轮）→ hasImage
       const untranscribed = batch.filter((img) => peek(img.attachmentId) === undefined)
       let hasImage = untranscribed.length > 0
-      // 4. 决策
-      let decision = router.decide(payload.messages, payload.step, hasImage)
+      // 3.5 语义命中确认闸（v1.3.0；v2 评审 M1/M2 落地）：关键词命中时先问本预设的
+      //     打底模型「这是本轮真意图吗」。**前置短路**（M2）：显式 @ 轮（decide 在
+      //     规则链之前就返回）与「首位是 image/flow 命中」的轮（关键词规则根本轮不到）
+      //     一律零调用——避免白花 1.2s 且结果必然被丢弃。
+      let omitted: ReadonlySet<string> | undefined
+      const gatePreset = activePreset()
+      const gateCfg = gatePreset?.hitConfirm
+      if (deps.hitConfirm !== undefined && gatePreset !== undefined && gateCfg?.enabled === true) {
+        const turnText = latestUserText(payload.messages)
+        if (explicitProvider(turnText) === null) {
+          const head = routableHits(router.config, matchingScored(router.config, turnText, hasImage))[0]
+          if (head !== undefined && head.rule.when.kind === 'keywords' && !isFlowTarget(head.rule.target)) {
+            const verdict = await deps.hitConfirm.review(
+              turnText,
+              [{ ruleId: head.rule.id, group: head.rule.when.group, targetKey: configKey(head.rule.target) }],
+              gatePreset.default,
+              {
+                ...(gateCfg.timeoutMs === undefined ? {} : { timeoutMs: gateCfg.timeoutMs }),
+                ...(gateCfg.maxTokens === undefined ? {} : { maxTokens: gateCfg.maxTokens }),
+                signal: payload.signal,
+              },
+            )
+            // 判否 ⇒ 该规则不进路由链（decide 内按 omittedRuleIds 过滤）；无结论 ⇒ 不过闸。
+            if (verdict.omitRuleId !== null) omitted = new Set([verdict.omitRuleId])
+          }
+        }
+      }
+      // 4. 决策（三处调用**同带判否集合**——转述后的重跑若不传，被判否的规则会复活）
+      let decision = router.decide(payload.messages, payload.step, hasImage, omitted)
       let flowId: string | undefined
       // 0.6.x池#a：转述成败摘要（ok/total + 败图 id + visionModel）——onDecision
       // extra 透传给投影 lastFlowEvent（≤120 截断在推送侧）。
@@ -628,7 +667,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         flowDigest = flowDigestOf(okCount, total, failedIds, flow.visionModel)
         if (failedIds.length === 0) {
           hasImage = false
-          decision = router.decide(payload.messages, payload.step, false)
+          decision = router.decide(payload.messages, payload.step, false, omitted)
         } else if (flow.failurePolicy === 'latch-image') {
           decision = {
             kind: 'route',
@@ -640,7 +679,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         } else {
           for (const id of failedIds) images.mark(agent, id, 'blind')
           hasImage = false
-          decision = router.decide(payload.messages, payload.step, false)
+          decision = router.decide(payload.messages, payload.step, false, omitted)
         }
       }
       // 仍 native 的本轮新图补记 latchTarget（后续轮 latch 改道的目标）

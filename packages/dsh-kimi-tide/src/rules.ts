@@ -128,6 +128,16 @@ export function matchingRules(config: RuleMatchConfig, text: string, hasImage: b
   return matchingScored(config, text, hasImage).map((h) => h.rule)
 }
 
+/**
+ * 路由链候选（1.1.0 §4 认领抑制的**单一实现**；v2 起同时被 decide 与 pre-step
+ * 的语义闸使用——两处各自过滤必然漂移）。返回新数组，不原地改输入。
+ */
+export function routableHits(config: RouterConfigAny, hits: readonly RuleMatch[]): RuleMatch[] {
+  const claimed = claimedReviewGroups(config)
+  if (claimed.size === 0) return [...hits]
+  return hits.filter(({ rule }) => !(rule.when.kind === 'keywords' && claimed.has(rule.when.group)))
+}
+
 /** 决策摘要/UI 用的条件名：image→带图；keywords→组名。 */
 export function ruleLabel(rule: RouterRule): string {
   return rule.when.kind === 'image' ? '带图' : rule.when.group

@@ -227,3 +227,32 @@ describe('auxTargets 辅助请求改道配置（0.8.x⑧）', () => {
     expect(validateRouterConfig(c)).toContain('auxTargets')
   })
 })
+
+describe('v1.3.0 语义确认闸：hitConfirm 不入 schema（评审 S1）', () => {
+  it('默认往返仍逐字节相等（若 hitConfirm 进了 presetSchema，会被注入 {} 而破坏）', () => {
+    expect(routerConfigSchema(DEFAULT_CONFIG_V5() as never)).toEqual(DEFAULT_CONFIG_V5())
+  })
+
+  it('用户显式配置的 hitConfirm 经 schema 往返后仍在（未知键透传保活）', () => {
+    const withGate = DEFAULT_CONFIG_V5()
+    withGate.presets.saving!.hitConfirm = { enabled: true, timeoutMs: 900, maxTokens: 32 }
+    const parsed = routerConfigSchema(withGate as never) as RouterConfigV5
+    // Fails if: schema 剥离了未声明字段（「不入 schema」方案的前提就是透传保留）
+    expect(parsed.presets.saving?.hitConfirm).toEqual({ enabled: true, timeoutMs: 900, maxTokens: 32 })
+  })
+
+  it('validateRouterConfig 接受合法值、拒绝越界与错误类型', () => {
+    const ok = DEFAULT_CONFIG_V5()
+    ok.presets.saving!.hitConfirm = { enabled: true, timeoutMs: 1200, maxTokens: 64 }
+    expect(validateRouterConfig(ok)).toBeUndefined()
+    const badTimeout = DEFAULT_CONFIG_V5()
+    badTimeout.presets.saving!.hitConfirm = { timeoutMs: 0 }
+    expect(validateRouterConfig(badTimeout)).toContain('timeoutMs')
+    const badTokens = DEFAULT_CONFIG_V5()
+    badTokens.presets.saving!.hitConfirm = { maxTokens: 4096 }
+    expect(validateRouterConfig(badTokens)).toContain('maxTokens')
+    const badShape = DEFAULT_CONFIG_V5()
+    ;(badShape.presets.saving as { hitConfirm?: unknown }).hitConfirm = 'yes'
+    expect(validateRouterConfig(badShape)).toContain('hitConfirm')
+  })
+})

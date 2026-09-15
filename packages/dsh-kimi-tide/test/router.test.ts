@@ -400,3 +400,31 @@ describe('createStreamVisionCaller effort 注入（0.8.0 M6）', () => {
     expect(stream.mock.calls[2][0].reasoningEffort).toBeUndefined()
   })
 })
+
+describe('语义判否（v1.3.0）：omittedRuleIds 过滤路由链', () => {
+  it('被否规则视同不存在 → 走后续规则，且次条不误标「特异度最高」（0.8.x① 不变量）', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    // 文本让 code 组命中 2 词（重构/函数）、translate 组 1 词（翻译）——code 为特异度最高
+    // （注：'翻译成' 里含 '译成'，会让 translate 也吃到 2 词，故避免用「翻译成」）
+    const batch = [textMsg('帮我重构这个函数，再翻译一下')]
+    // 基线：code-kfc 与 translate-v4f 都命中 → 首条（code）生效并带标注
+    const base = r.decide(batch, 1)
+    expect(base).toMatchObject({ via: 'rule', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } })
+    expect(base.reason).toContain('（特异度最高）')
+    // 判否首条 → 交棒 translate；标注**不得**跟过去
+    const omitted = r.decide(batch, 1, false, new Set(['code-kfc']))
+    // Fails if: 判否集合没穿进 decide（仍走 code-kfc）
+    expect(omitted.reason).toContain('规则「translate」命中')
+    // Fails if: 前置过滤让次条升位后误标「特异度最高」（评审 M3）
+    expect(omitted.reason).not.toContain('（特异度最高）')
+  })
+
+  it('empty / 缺省 omittedRuleIds → 与 v1.2.1 行为逐字节一致', () => {
+    const r = new KimiRouter(cfg('saving'), METAS, log)
+    // 文本让 code 组命中 2 词（重构/函数）、translate 组 1 词（翻译）——code 为特异度最高
+    // （注：'翻译成' 里含 '译成'，会让 translate 也吃到 2 词，故避免用「翻译成」）
+    const batch = [textMsg('帮我重构这个函数，再翻译一下')]
+    expect(r.decide(batch, 1, false, new Set())).toEqual(r.decide(batch, 1, false))
+    expect(r.decide(batch, 1, false, undefined)).toEqual(r.decide(batch, 1, false))
+  })
+})
