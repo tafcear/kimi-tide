@@ -13,11 +13,17 @@
   <a href="https://github.com/tafcear/kimi-tide/graphs/contributors"><img src="https://img.shields.io/github/contributors/tafcear/kimi-tide?color=blue" alt="Contributors"></a>
 </p>
 
-**kimi-tide (MoonTide) is the "pick the right model at every step" plugin for DSH.**
+**kimi-tide (MoonTide) is the "pick the right model at every step" plugin for DSH.****kimi-tide (MoonTide): run on a cheap model, bring in a strong one where it matters — the "pick the right model at every step" plugin for DSH.**
 
 DSH (DeepSeek Harness) is DeepSeek's official open-source AI coding agent framework — you work with an AI assistant in a web UI, and models, tools, and interface all load as plugins (the official motto: *Everything is a Plugin*). You can connect several models to DSH: some understand screenshots, some are great at code, some are cheap and fast. But by default **a DSH session sticks to one model from start to finish** — switching means doing it by hand, and remembering to switch back.
 
 With kimi-tide installed: **paste a screenshot and it goes to a model that can see it; write code and it goes to the coding model; small talk and translation go to the cheap one** — and the "🌙 MoonTide" panel below the input box always shows who was picked and why. The rules are yours to write and edit. Kimi and DeepSeek are just the ready-made examples — **any model you connect can be routed your way**.
+
+**The expensive models in your list are the ones you rarely dare to use — kimi-tide keeps them for the part that is worth the most:**
+
+- **Send specialist work to a specialist**: coding, code review, screenshots, math — each goes to the stronger model for that domain, while everyday chat, docs and copywriting stay on your cheapest one. You no longer have to switch a whole session to a pricey model just because today involves code.
+- **Mixing is safe**: after a screenshot or a coding step, **the next turn goes back to your default model** — one image does not put the whole session on the expensive meter.
+- **A strong model signs off**: when the output is worth checking, kimi-tide sends it to the reviewer you configured, and the review card lands under that turn (you decide whether to redo it; "automatically send a failing turn back for rework" is still on the roadmap — see the collaborative-review section below).
 
 **For you if**: you use DSH with more than one model connected.
 **Not for you if**: you use a single model, or haven't set up DSH yet (set up DSH first, then come back).
@@ -133,6 +139,8 @@ Seven built-in keyword groups (word lists editable, custom groups allowed):
 | `math` | math | 数学, 证明, 推导, 求解, 公式, 数论, 概率, 逻辑题 |
 | `chitchat` | small talk | 你好, 谢谢, 怎么样, 随便, 聊聊, 天气 |
 
+> The `review` group serves the **collaborative review flow** by default (a strong model reviews this turn's output) — see "Multi-model collaborative review" below for the mechanism, the three switches and today's limits.
+
 Two common tweaks (a few clicks in "Settings → 月汐"):
 
 - **Minimum keyword hits**: set a threshold (e.g. 2) so a rule fires only when at least 2 distinct words from the group appear — "make a plan" no longer trips the plan-related words by accident.
@@ -158,6 +166,26 @@ The quota slots on the panel's second row **follow the current routed target** a
 - **Only a real provider counts as a directive**: if the token after `@` is not a provider this plugin knows — a workspace path reference like `@README.md`, a scoped package name like `node_modules/@deepseek-ai/...`, or an `@xxx` inside a path — it is **not treated as an explicit directive**; the turn goes through the keyword rules as usual and the decision reason says "`@x` is not a known provider (ignored)".
 
 Matching details (word boundaries, specificity ranking, degradation), image behavior, and the full config reference: [router architecture](packages/dsh-kimi-tide/docs/router.md). The candidate pool is the full Models-page catalog — any model can be a default or a rule target.
+
+## Multi-model collaborative review (a strong model signs off)
+
+Routing decides *who runs this step*; review decides *whether this step is good enough*. They work separately or together.
+
+**What it does**: when a turn closes, kimi-tide sends "your request for this turn + the main model's output" to **the reviewer you configured** (usually the stronger, pricier one) and gets back a structured review — issues graded by severity (blocking / suggested / optional) → improvement advice → a verdict (pass / conditional pass / fail) — rendered as a **review card** under that turn.
+
+**Three switches** (Settings → 月汐 → collaboration flows):
+
+| Switch | What it actually does today |
+|---|---|
+| Trigger | `keywords`: review only when the message hits the chosen keyword group; `manual`: run `/kimi-tide review` on the last turn at any time |
+| Rounds | 1–3, bounding how many review passes happen |
+| Auto-revise | **Not implemented yet** — ticking it changes nothing (the field is kept; implementation is on the roadmap) |
+
+**What it does not do today**: it does not send a failing turn back for rework, and it does not edit your code. When the verdict is "fail", the next move is yours — a deliberate trade-off: no strong-model quota burned by default, and no silent rewrite of output you were happy with.
+
+**Cost**: review only runs on **matching turns**, and only this turn's output slice is sent to the reviewer (12,000 characters per section, 60-second timeout, failures never interrupt the turn). In the industry data the research repo cites, adversarial review loops commonly cost 2–3× a single model's tokens — **this plugin has not measured its own numbers yet**.
+
+**Evidence grade**: the mechanism and the three rounds of practice are documented in [kimi-tide-research](https://github.com/tafcear/kimi-tide-research). Whether review actually *improves a weaker model's output* is **not measured yet** (no acceptance rate, no baseline against the strong model working alone, no regression rate), so this section quotes no effect numbers; the transfer-efficiency experiment is scheduled as pre-release evidence for v1.4.0.
 
 ---
 
