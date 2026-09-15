@@ -803,6 +803,47 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
     }))
   })
 
+  /**
+   * 候选缺陷 F-A4b 复现（2026-09-04 实机验收记录）：协作流页里切换**无关字段**
+   * （触发方式 keywords→manual→keywords）后 `settings.yaml` 的 `autoRevise: true`
+   * 被静默写成 `false`，而页内复选框仍显示 on。
+   *
+   * 本用例钉**客户端这一半**：两次切换的 payload 都必须带上 `autoRevise: true`
+   * ——`onChange` 用的是 `{ ...flow, trigger }` spread，若哪天改成只挑字段构造，
+   * 这里立刻红。若本用例绿而实机仍丢，则说明丢在 store/schema 落盘链，排查方向
+   * 随之收窄（这正是先钉这半的价值）。
+   */
+  it('F-A4b：切触发方式不改 autoRevise（两次切换 payload 都带 true）', async () => {
+    const saveFlows = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveFlows })
+    const base = readyV5Snapshot()
+    const flows = {
+      ...base.config!.flows,
+      review: { ...base.config!.flows.review, trigger: 'keywords' as const, keywordGroup: 'review', autoRevise: true },
+    }
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish({ ...base, config: { ...base.config!, flows } })
+    })
+    const trigger = container.querySelector<HTMLSelectElement>('select[aria-label="review 触发方式"]')
+    expect(trigger).not.toBeNull()
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="review 自动修订"]')!.checked).toBe(true)
+
+    await act(async () => { fireSelectChange(trigger!, 'manual') })
+    await act(async () => { fireSelectChange(trigger!, 'keywords') })
+
+    // Fails if: 切换无关字段把 autoRevise 丢了（payload 里缺席或变 false）
+    expect(saveFlows).toHaveBeenCalledTimes(2)
+    for (const call of saveFlows.mock.calls) {
+      expect(call[0]).toEqual(expect.objectContaining({
+        review: expect.objectContaining({ autoRevise: true }),
+      }))
+    }
+  })
+
   it('#7 新建流：id + 类型 → saveFlows 合并新流（预置模板）', async () => {
     const saveFlows = vi.fn(async () => {})
     const { store, publish } = makeDeferredStore({ saveFlows })
