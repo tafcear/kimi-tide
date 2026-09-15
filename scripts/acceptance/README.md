@@ -74,6 +74,32 @@ node scripts/acceptance/panel-legacy-scan.mjs --json
 
 同批顺带确认了**面板事件已停写**：全库 245 个会话，近 24h 更新的会话里 `kimi-tide/panel` 事件 **0 条**（v1.2.0 解耦生效的期望值）。
 
+## 会话日志普查（`session-dump.mjs`）
+
+排障与取证的**第一站**：读已运行的宿主留下的会话日志，回答「这卷日志里到底有什么」。
+
+```bash
+node scripts/acceptance/session-dump.mjs --list [--minutes 30]   # 不传路径：列最近更新的会话
+node scripts/acceptance/session-dump.mjs <会话目录|文件>           # 概览（事件类型普查）
+node scripts/acceptance/session-dump.mjs <路径> --positions       # ★ 哪些事件类型带 turn/step
+node scripts/acceptance/session-dump.mjs <路径> --users           # 用户消息形状（source/块型）
+node scripts/acceptance/session-dump.mjs <路径> --errors          # 错误/失败扫描
+node scripts/acceptance/session-dump.mjs <路径> --grep <正则>     # 任意事件原文匹配
+node scripts/acceptance/session-dump.mjs <路径> --json
+```
+
+**为什么 `--positions` 值得单独存在**：跨事件对齐的前提。2026-09-15 做「路由是否落地」判据时，
+按 `turn` 配对 `request/header` 与 `assistant/message` 得到 **3.2% 假阳性**——因为
+**`request/header` 与 `user/message` 都不带 turn/step**（只有 `turn/start`/`step/start`/`assistant/message` 带），
+必须按**事件序游标**归集。这一页把该事实一次打出来，省掉重踩。
+
+**与既有工具的分工**：`hit-confirm-sentinel.mjs` / `panel-legacy-scan.mjs` / `q6-gating-check.mjs` 是
+**面向具体判据**的；本工具是**面向「日志内容本身」**的通用入口。实现上逐帧解析 zstd frame header
+（不是扫 magic——那会在压缩数据里误命中），尾帧截断容忍（日志正在写），坏帧跳过并计数，
+v3 与 v0 两种磁盘形态都支持。
+
+**2026-09-15 实测**：v3 会话 56 帧 / 108 事件 · v0 样例 2 帧 / 547 事件（543 条 `kimi-tide/panel`）均正常。
+
 ## 发布前一致性自检（`prepush-coherence.mjs`）
 
 已有的 `scripts/check-*.mjs` 各查一角（版本号 / README 双语骨架 / 发布正文四段 / 本地链接），但**没有一处**回答「**这次要发的新东西，有没有全部被讲到**」。本检查补这一角，五项：
