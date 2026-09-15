@@ -14,7 +14,7 @@
 - **来源**：`docs/audit/2026-09-15-review-{semantic-hit-gate,quota-balance-coverage,panel-help-tab}-spec-qwen-review.md`（控制器逐项复核 22/22 成立、0 误报）
 - **内容**：语义闸 6 项（含 S1 对象型 schema 注入破坏往返相等、M1 判否集合未穿进 re-decide 三处调用点）／用量余额 7 项（含 S1 三态无通路、M1 `UsageMonitor` 类型契约）／说明页签 9 项（含 M1 route 页签无单一面板节点、M2 `hidden` 语义不自洽）
 - **附带同步**（2026-09-15 配额条改语义后新增）：用量/余额稿 §6.1 与说明页签稿 §3① 的「配额槽」描述须改写为**剩余语义**（条=剩余比例、数字=剩余百分比、警示色含条身、`limit=0` 显示 `—`）；说明页签稿 ⑦ 的「额度槽显示 `—`」病因行需补「该窗无数据」这一因
-- **状态**：**进行中（2026-09-15）**——① 说明页签：spec v2 + **实施完毕**（`eece851`）；② 用量/余额：spec v2 + **第一批实施完毕**（`36ff9ee`：四源注册表、`UsageMonitor` 拓宽 `QuotaLike`+`timeoutMs`+`outcome`、DeepSeek 余额解析与三段 baseURL 链、`quotaSources` 元数据、dock 余额单槽），**余「总览面板」与 Q5 口径核查**；③ 语义闸：v2 与实施**均待做**
+- **状态**：**进行中（2026-09-15）**——① 说明页签：spec v2 + **实施完毕**（`eece851`）；② 用量/余额：spec v2 + **实施完毕**（`36ff9ee` 数据层与自适应槽、`bb24af4` 总览面板、`909577d` Q5 结论与文档）——四源注册表、`QuotaLike` 拓宽、余额解析与三段 baseURL 链、`quotaSources` 三态元数据、dock 余额单槽 + 用量总览面板；③ 语义闸：v2 与实施**均待做**
 - **处置**：逐份出 v2，头部登记处置表；Q2/Q4 随说明页签 v2 一并处理（**二者已完成**）
 
 ### Q2 · 既有 bug：测试场页签藏掉错误横幅
@@ -55,7 +55,7 @@
 - **证据**：`403 permission_error: "You've reached your monthly usage limit for this billing cycle"` vs dock 显示的两窗为「周 / 5h」（`parseQuotaSnapshot`：`root.usage` → weekly、`limits[0].detail` → fiveHour，`types.ts:139-152`）
 - **待核**：`/coding/v1/usages` 是否也报 monthly 窗；若否，面板会在月配额已耗尽时仍显示「剩 N」
 - **转出**：并入 Q1 的用量/余额 v2（该稿正在改配额显示面）
-- **状态**：**排队**
+- **状态**：**已处置（2026-09-15）**——可核查部分已实证：该 403 文案确为 `monthly usage limit for this billing cycle`，而面板显示的是服务端返回的周/5h 两窗 ⇒ **月上限不在面板口径内**是设计事实而非 bug；已写入说明页（「为什么显示还有额度却报已达上限」）与 CHANGELOG。**未做**：无法在本机验证「服务端是否另有可取的月窗」——需带 key 实测（与 qwen 那条同性质，留给用户或后续版）
 
 ---
 
