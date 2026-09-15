@@ -158,3 +158,19 @@ node scripts/acceptance/judge-probe.mjs --text "帮我重构这段代码"  # 换
 
 - 宿主的 `reasoningEffort: 'off'` 经 `dsh-llm-deepseek` 的 `resolveThinking` 映射为线缆上的 **`thinking: {type:'disabled'}`**；直传 `reasoning_effort: 'off'` 会被 DeepSeek 以 400 `unknown variant 'off'` 拒绝（它只认 `none|minimal|low|medium|high|xhigh|max`）。
 - 凭据取 `DEEPSEEK_API_KEY`（环境变量优先，回落 `~/.dsh/.credentials.yaml` 的 refs 段），探针从不打印 key。
+
+## UI 视觉目检（dock / 设置卡片那一类）——bsk 浏览器通道
+
+**前提**：`bsk` CLI 已装（本机 `C:\Users\tafce\.local\bin\bsk.exe`，0.2.1）。**加载 `browser-skill` 技能后当前会话才有** `browser_*` 六工具；其 Agent Window **复用用户 Chromium 的登录态** ⇒ `http://127.0.0.1:3080/` 直接进（**不需要** launch token，也绕开了 `/api/kimi-tide/panel` 那道全局 401——你看的是真页面里的真数据）。2026-09-15 的 v1.3.0 UI 面（A2–A5/A8）就是这样实拍完的。
+
+### 能拍到什么 / 拍不到什么
+
+- **拍得到**：dock 两行（芯片 / 决策开关 / 配额·余额槽 / 取数时间 / 刷新）、用量总览悬浮层、决策可观测悬浮层、设置 → 月汐 四个页签的正文与实况值（`当前：…` 行）。
+- **拍不到**：**1.6s 级的瞬态提示**（「已保存」）。截图往返 >2s，硬抓必然错过；这类状态要么人工看一眼，要么改用下面的**无障碍树判据**。
+
+### 四条硬经验
+
+1. **每次动作前核对目标标签页**。同机若有别的 agent 会话在跑，它会开/关/导航同一个 Agent Window 的标签页——2026-09-15 实测撞到三件事：ref 解析打到另一个标签页（GitHub）、自己的标签页被导航走、`browser_session` 中途被判「不属于本插件」。做法：`browser_tabs list` → `select` 自己的 tabId → 读页面**显式传 `tabId`**；会话消失就地 `start` 一个新的，别把「上一次观测」当现状。
+2. **优先 CSS 选择器，不优先 `@eN` ref**。稳定锚：插件自锚 `[data-kt-el="…"]` / `[data-kt-tab="…"]`，宿主侧 `[class*="settingsArea"]`（CSS-module 哈希名，前缀稳定）。ref 只在「刚 observe 完、页面没动」时可信；截图裁剪**只接受 snapshot ref**，CSS 选择器会被拒。
+3. **判「可见性」类回归看无障碍树，不看截图**：`display:none` 的元素**不进 a11y 树** ⇒ `observe` 里在不在就等于可不可见。Q2 那种「页签把提示藏掉」的 bug，这是最省也最准的判据。
+4. **写入面纪律**：有些状态（页签下的「已保存」/错误横幅）只有**写入**才会出现。这类取证只用 **no-op 写入**（点当前已激活的预设、对同一预设回车），并在写入前后对 `~/.dsh/settings.yaml` 取 **SHA256**——2026-09-15 实测 mtime 变、**内容逐字节不变**。**不要**碰 `flows` 段的整段覆盖路径（F-A4b 的可疑落点），也不要为了看提示去改真实配置。
