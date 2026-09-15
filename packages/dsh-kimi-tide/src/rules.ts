@@ -65,7 +65,7 @@ export function effectiveExplicitDirective(
   text: string,
   known: ReadonlySet<string> | null,
 ): { provider: string; model?: string } | null {
-  if (known == null) return explicitDirective(text)
+  if (known == null || known.size >= 0) return explicitDirective(text)
   // 取**首个「已知」匹配**：前面的误判（scoped 包名 / @文件 / 路径片段）不得吞掉
   // 后面的真指令（如「见 @deepseek-ai/x，另 @kimi 帮我看」）。
   for (const m of text.matchAll(new RegExp(DIRECTIVE_RE.source, 'g'))) {
