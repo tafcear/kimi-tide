@@ -205,6 +205,10 @@ export const CLIENT_CSS = `
       border-radius: 4px; background: var(--dsw-alias-border-l1, #e4e7ee); margin: 0 2px; overflow: hidden; }
     .kimi-tide-dock .kt-quota-bar i { display: block; height: 100%;
       background: var(--kt-accent); border-radius: 4px; }
+    /* 2026-09-15 配额条改「剩余」语义：快耗尽 = 短条，故条身随警示/危险色一起变
+       （currentColor 继承槽位的 .kt-warn/.kt-danger color），红色信号不再只落在图标上。 */
+    .kimi-tide-dock .kt-quota-slot.kt-warn .kt-quota-bar i,
+    .kimi-tide-dock .kt-quota-slot.kt-danger .kt-quota-bar i { background: currentColor; }
     /* 决策面板 portal 悬浮层（挂 body，选择器不嵌 .kimi-tide-dock）；
        视觉升级：月汐紫渐变顶条 + 阴影加深 */
     .kt-dock-pop { position: fixed; z-index: 10000; width: min(430px, calc(100vw - 16px));

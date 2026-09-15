@@ -141,8 +141,9 @@ describe('TideDock ⑥-B 两行布局', () => {
     expect(html).toContain('kt-dock-r2')
     expect(html).toContain('kt-route-arrow')
     expect(html).toContain('kt-quota-bar')
-    // 周用量 10/100 → 进度条宽度 10%
-    expect(html).toContain('width:10%')
+    // 周用量 10/100 → 剩余 90% ⇒ 条宽 90%（条=剩余，与「剩90%」同向）
+    expect(html).toContain('width:90%')
+    expect(visible(html)).toContain('剩90%')
   })
 })
 
@@ -276,8 +277,9 @@ describe('多 plan 配额（2026-08-29 用户裁定：跟随目标自动切 + �
       decision: { chosen: { provider: 'zai-coding-cn', model: 'glm-5.3-flash' }, reason: '默认目标' },
     })))
     // Fails if: 槽位不随目标切到 quotas[targetProvider]（恒显示 kimi 或恒置灰）
-    expect(html).toContain('剩15.0亿')
-    expect(html).toContain('剩6.7亿')
+    // 周 5.0/20.0 亿 → 剩余 75%；5h 1.277/8.0 亿 → 剩余 84%（2026-09-15 起数字用剩余百分比）
+    expect(html).toContain('剩75%')
+    expect(html).toContain('剩84%')
     expect(html).not.toContain('kt-dim')
   })
 
@@ -288,7 +290,7 @@ describe('多 plan 配额（2026-08-29 用户裁定：跟随目标自动切 + �
     })))
     // Fails if: 无源 provider 的槽误点亮（读到别的 provider 数据）
     expect(html).toContain('kt-dim')
-    expect(html).not.toContain('剩6.7亿')
+    expect(html).not.toContain('剩84%')
   })
 
   it('向后兼容：无 quotas 字段 → 沿用 legacy quota+quotaProvider（⑨ 原语义）', () => {
@@ -299,5 +301,63 @@ describe('多 plan 配额（2026-08-29 用户裁定：跟随目标自动切 + �
     })))
     expect(html).toContain('剩90')
     expect(html).not.toContain('kt-dim')
+  })
+})
+
+describe('配额条语义：条=剩余（2026-09-15 用户裁定「逻辑反了」）', () => {
+  const quotaOf = (used: number, limit = 100) => ({
+    weekly: { used, limit, resetTime: 'w' },
+    fiveHour: { used, limit, resetTime: 'f' },
+    membershipLevel: '',
+    fetchedAt: 1,
+    stale: false,
+  })
+  /** 命中 kimi → 槽位点亮（不含 decision 时目标回落 deepseek-official，槽位置灰）。 */
+  const panelOf = (quota: ReturnType<typeof quotaOf>) => makePanel({
+    quota,
+    quotaProvider: 'kimi-coding',
+    decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
+  })
+
+  it('条宽与数字同向表示剩余比例（周 10/100 → 条 90%、剩90%）', () => {
+    const html = visible(render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
+    })))
+    // Fails if: 条仍画「已用比例」（剩 90% 时条只有 10%，一眼看着像快没了）
+    expect(html).toContain('width:90%')
+    expect(html).toContain('剩90%')
+    // Fails if: 数字仍用绝对量短格式（亿/万）而非百分比
+    expect(html).toContain('width:20%')
+    expect(html).toContain('剩20%')
+  })
+
+  it('title/aria 语义同步为「剩余比例」（不再写「已用比例」）', () => {
+    const html = render(makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
+    }))
+    // Fails if: 无障碍文案与视觉语义不一致（读屏说「已用」，画的是「剩余」）
+    expect(html).toContain('周配额剩余比例')
+    expect(html).not.toContain('周配额已用比例')
+  })
+
+  it('剩余 ≤20% 黄、≤10% 红（阈值与原「已用 ≥80/≥90」等价）', () => {
+    const at = (used: number) => render(panelOf(quotaOf(used)))
+    // Fails if: 阈值被绑到「已用」而条画「剩余」——两端算法不同源
+    expect(at(79)).not.toContain('kt-quota-slot kt-warn')
+    expect(at(80)).toContain('kt-quota-slot kt-warn')
+    expect(at(90)).toContain('kt-quota-slot kt-danger')
+  })
+
+  it('窗口无数据（limit 0）→ 该槽显示 — 且不谎报 100%', () => {
+    const html = visible(render(panelOf(quotaOf(0, 0))))
+    // Fails if: limit=0 被算成「剩余 100%」（缺席窗口伪装成满额）
+    expect(html).not.toContain('width:100%')
+    expect(html).not.toContain('剩100%')
+    expect(html).toContain('kt-dim')
+    expect(count(html, '—')).toBe(2)
   })
 })

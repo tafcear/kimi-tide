@@ -111,14 +111,21 @@ export function unwrapCommandOutcome(payload: unknown): CommandOutcome | null {
   return text === '' ? (envelope.ok === true ? { ok: true, text: '' } : null) : { ok: true, text }
 }
 
-function pct(used: number, limit: number): number {
-  return limit > 0 ? Math.round((used / limit) * 100) : 0
+/**
+ * 剩余比例（2026-09-15 用户裁定「逻辑反了」）：条宽与数字同源于**剩余**——
+ * 剩得多条就长、剩得少条就短，与「剩 N%」同向；快耗尽 = 短红条。
+ * limit<=0 = 该窗无数据 → null（不许算成「剩余 100%」把缺席窗伪装成满额）。
+ */
+function remainPct(used: number, limit: number): number | null {
+  if (!(limit > 0)) return null
+  return Math.round((Math.max(0, limit - used) / limit) * 100)
 }
 
-/** Color by USAGE percentage: hot when little remains. */
-function pctClass(usedPct: number): string {
-  if (usedPct >= 90) return 'kt-danger'
-  if (usedPct >= 80) return 'kt-warn'
+/** Color by REMAINING percentage: hot when little remains（阈值与原「已用 ≥80/≥90」等价）。 */
+function remainClass(remain: number | null): string {
+  if (remain === null) return ''
+  if (remain <= 10) return 'kt-danger'
+  if (remain <= 20) return 'kt-warn'
   return ''
 }
 
@@ -296,22 +303,29 @@ export function TideDock(props: TideDockProps) {
       : targetProvider === quotaSourceProvider)
   const quotaDim = quota === null
   const showValues = quota !== null
-  const weekUsedPct = quota === null ? 0 : pct(quota.weekly.used, quota.weekly.limit)
-  const fiveUsedPct = quota === null ? 0 : pct(quota.fiveHour.used, quota.fiveHour.limit)
-  const weekRemain = quota === null ? 0 : Math.max(0, quota.weekly.limit - quota.weekly.used)
-  const fiveRemain = quota === null ? 0 : Math.max(0, quota.fiveHour.limit - quota.fiveHour.used)
+  // 条=剩余（2026-09-15）：两窗各自取剩余比例；该窗无数据（limit<=0）时 pct=null。
+  const weekWindow = quota === null ? null : quota.weekly
+  const fiveWindow = quota === null ? null : quota.fiveHour
+  const weekPct = weekWindow === null ? null : remainPct(weekWindow.used, weekWindow.limit)
+  const fivePct = fiveWindow === null ? null : remainPct(fiveWindow.used, fiveWindow.limit)
+  const weekDim = quotaDim || weekPct === null
+  const fiveDim = quotaDim || fivePct === null
   // 评审 P2-10：置灰槽的「—」对读屏是零语义破折号，title 又不可达——
   // 把原因进 aria-label（仅置灰态；点亮态保留自然文本朗读，避免吞掉剩 N 数字）。
-  const weekTitle = quota !== null
-    ? '周配额已用比例'
-    : targetHasSource
-      ? '周配额（取数失败，配额不可用）'
-      : `周配额不适用于当前目标（${targetProvider ?? '—'}）`
-  const fiveTitle = quota !== null
-    ? '五小时窗已用比例'
-    : targetHasSource
-      ? '五小时窗（取数失败，配额不可用）'
-      : `五小时窗不适用于当前目标（${targetProvider ?? '—'}）`
+  const weekTitle = weekWindow !== null && weekPct !== null
+    ? `周配额剩余比例 · 剩 ${fmtRemain(Math.max(0, weekWindow.limit - weekWindow.used))} / 共 ${fmtRemain(weekWindow.limit)}`
+    : quota !== null
+      ? '周配额（该窗口无数据）'
+      : targetHasSource
+        ? '周配额（取数失败，配额不可用）'
+        : `周配额不适用于当前目标（${targetProvider ?? '—'}）`
+  const fiveTitle = fiveWindow !== null && fivePct !== null
+    ? `五小时窗剩余比例 · 剩 ${fmtRemain(Math.max(0, fiveWindow.limit - fiveWindow.used))} / 共 ${fmtRemain(fiveWindow.limit)}`
+    : quota !== null
+      ? '五小时窗（该窗口无数据）'
+      : targetHasSource
+        ? '五小时窗（取数失败，配额不可用）'
+        : `五小时窗不适用于当前目标（${targetProvider ?? '—'}）`
   const clockTitle = quota !== null
     ? `配额取数时间${quota.stale ? '（已过期）' : ''}`
     : targetHasSource
@@ -387,37 +401,38 @@ export function TideDock(props: TideDockProps) {
       </div>
 
       {/* ⑥-B 第二行（槽位常驻）：左=额度槽×2 + 图像上下文；右贴=取数时间 + 刷新。
-          非 kimi 目标/取数失败 → 额度与时钟槽置灰「—」，槽数不变。 */}
+          非 kimi 目标/取数失败 → 额度与时钟槽置灰「—」，槽数不变。
+          2026-09-15：额度条改为**剩余**语义（条与数字同向；该窗无数据时单独置灰）。 */}
       <div className="kt-dock-r2">
         <span
-          className={`kt-slot kt-quota-slot ${pctClass(weekUsedPct)}${quotaDim ? ' kt-dim' : ''}`}
+          className={`kt-slot kt-quota-slot ${remainClass(weekPct)}${weekDim ? ' kt-dim' : ''}`}
           title={weekTitle}
-          aria-label={quotaDim ? weekTitle : undefined}
+          aria-label={weekDim ? weekTitle : undefined}
         >
           <Icon name="calendar" className="kt-ic-calendar" /> 周{' '}
-          {showValues ? (
-            <>
-              <span className="kt-quota-bar"><i style={{ width: `${weekUsedPct}%` }} /></span>
-              剩{fmtRemain(weekRemain)}
-            </>
-          ) : (
+          {weekPct === null ? (
             '—'
+          ) : (
+            <>
+              <span className="kt-quota-bar"><i style={{ width: `${weekPct}%` }} /></span>
+              剩{weekPct}%
+            </>
           )}
         </span>
 
         <span
-          className={`kt-slot kt-quota-slot ${pctClass(fiveUsedPct)}${quotaDim ? ' kt-dim' : ''}`}
+          className={`kt-slot kt-quota-slot ${remainClass(fivePct)}${fiveDim ? ' kt-dim' : ''}`}
           title={fiveTitle}
-          aria-label={quotaDim ? fiveTitle : undefined}
+          aria-label={fiveDim ? fiveTitle : undefined}
         >
           <Icon name="gauge" className="kt-ic-gauge" /> 5h{' '}
-          {showValues ? (
-            <>
-              <span className="kt-quota-bar"><i style={{ width: `${fiveUsedPct}%` }} /></span>
-              剩{fmtRemain(fiveRemain)}
-            </>
-          ) : (
+          {fivePct === null ? (
             '—'
+          ) : (
+            <>
+              <span className="kt-quota-bar"><i style={{ width: `${fivePct}%` }} /></span>
+              剩{fivePct}%
+            </>
           )}
         </span>
 

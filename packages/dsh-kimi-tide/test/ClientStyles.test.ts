@@ -16,6 +16,14 @@ function bareKtReason(css: string): RegExpMatchArray | null {
   return css.match(/(?:^|[}\n])\s*\.kt-reason\s*\{([^}]*)\}/)
 }
 
+describe('client CSS 结构钉：配额条剩余语义（2026-09-15）', () => {
+  it('警示/危险态条身随色（不再恒为品牌紫，短红条信号完整）', () => {
+    // Fails if: 只给图标/文字变色而条身恒 accent——剩余条变短后红色信号缺一半
+    expect(CLIENT_CSS).toMatch(/\.kt-quota-slot\.kt-warn \.kt-quota-bar i[^{]*\{[^}]*background:\s*currentColor/)
+    expect(CLIENT_CSS).toMatch(/\.kt-quota-slot\.kt-danger \.kt-quota-bar i[^{]*\{[^}]*background:\s*currentColor/)
+  })
+})
+
 describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
   it('布局关键属性在裸 .kt-reason 选择器上（dock 与 portal 双上下文都能拿到 flex 列布局）', () => {
     // Fails if: display/flex-direction 被嵌回 .kimi-tide-dock .kt-reason 前缀下，
