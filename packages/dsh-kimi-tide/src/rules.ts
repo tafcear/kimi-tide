@@ -251,6 +251,35 @@ export function claimedReviewGroups(config: RouterConfigAny): Set<string> {
   return claimed
 }
 
+/** 认领冲突（2026-09-20 缺陷修复的回归钉住）：被 `flows.*` 认领的关键词组上**仍挂着
+ *  预设规则** ⇒ 那些规则会被静态抑制、**永不生效**。
+ *
+ *  为什么需要这条：出厂默认就含这一对互斥产物——`capability` 预设的 `review-k3`
+ *  规则（`review` 词组 ⇒ k3）与评审流本身；评审流默认 `trigger:'manual'` 不认领，
+ *  两者相安无事。但设置页把 trigger 改成 `keywords`（一个看起来只是"自动化增强"的
+ *  开关）后，同一组立刻被认领 ⇒ **出厂规则静默变死**，面板仍照常列出它。
+ *  实机即此形态（`docs/audit/2026-09-20-defect-explicit-model-pin-overridden-by-preset-default.md`）。
+ *
+ *  故把"会失效的规则"算成数据，交给**改 trigger 的那一行当场显示**——规则列表里的
+ *  小字提示（`kt-claimed-hint`）只有在用户恰好翻到那一页时才看得见。
+ *
+ *  @returns 逐条冲突（预设序 × 规则序）；无认领或无冲突 ⇒ 空数组。 */
+export function claimedGroupRuleConflicts(
+  config: RouterConfigAny,
+): Array<{ presetId: string; presetName: string; ruleId: string; group: string }> {
+  const claimed = claimedReviewGroups(config)
+  if (claimed.size === 0) return []
+  const out: Array<{ presetId: string; presetName: string; ruleId: string; group: string }> = []
+  for (const [presetId, preset] of Object.entries(config.presets)) {
+    for (const rule of preset.rules) {
+      if (rule.when.kind === 'keywords' && claimed.has(rule.when.group)) {
+        out.push({ presetId, presetName: preset.name, ruleId: rule.id, group: rule.when.group })
+      }
+    }
+  }
+  return out
+}
+
 /** 评审流触发判定（1.1.0 §5）：flows 注册表序首个「文本命中认领组（≥1 词）
  *  且 reviewer 可用」的 review 流。
  *

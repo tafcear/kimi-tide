@@ -118,3 +118,60 @@ python "E:\BaiduSyncdisk\Data\vibe-coding\kimi-tide\_k3-handoff-verify\decode-pr
 - 缺陷 B 的**影响面**（第 4 节第 1 条）由「打底对任意 agent 生效 + 无条件覆写」推出，其中**子代理场景有两次探针实测**，**主会话 GUI 选择被覆盖的场景本次未单独实测**——标为**推断**。
 - 探针 1 的子代理 descriptor **不含** `agentModel`，这是**结构性的**（`dsh-subagent/lib/index.js` L1393-1412：`mode:'one-shot'` 的 descriptor 只记 `version/mode/provider/label`），**不能**用它推断"pin 没到达"。本次之所以能定论，靠的是探针 2 的对照。
 - 未做：未改任何宿主配置、未改 kimi-tide 源码、未跑测试套件、未建 issue（`gh` 认证失效）。
+
+---
+
+## 七、处置（2026-09-20 维护者裁定并实施）
+
+> 本节写于 §五「处置建议」之后：**§五 是裁定前的建议，实际处置以本节为准。**
+
+### A 部分：删规则（已执行）
+
+- **裁定**（维护者原话）：「删掉，自动评审不这样做，先删」；同类死规则「一并删掉」；评审流「连评审流一起关」。
+- **执行**（`~\.dsh\settings.yaml`）：
+  1. 删 `capability` 预设的 `review-k3` 规则块；
+  2. 删 `saving` 预设的 `rule-2`（同类：`review` 组 ⇒ `deepseek-flash`，同样被认领抑制）；
+  3. `flows.review.trigger`：`keywords` → **`manual`**（取值域 `manual|keywords`，见 `src/config.ts` 的 `ReviewFlow` 定义；出厂默认即 `manual`，见同文件 `DEFAULT_FLOWS()`）。
+- **改前备份**：`vibe-coding\kimi-tide\_k3-handoff-verify\settings.yaml.bak-20260920`（5,603 B，三处原样可回滚）。
+- **复核（非口说）**：删后 `python -c "yaml.safe_load(...)"` 解析通过；实测 `capability.rules=['rule-3']`、`saving.rules=['code-kfc']`、`flows.review.trigger='manual'`。
+- **即时性边界**：宿主把配置持在内存中，**本次未实测文件改动能否热加载** ⇒ 标记「机制上应生效，未实测」。
+
+### ★ 一条必须知道的后果（本批最容易被忽略的一点）
+
+**「删规则」与「关评审流」各自都足以让 `review-k3` 复活，而这次两件一起做了。**
+
+`review-k3` 出厂就在 `capability` 预设里（`src/config.ts` L152），它之所以是死规则，**唯一原因是评审流的 `trigger:keywords` 认领了同一个组**。把 trigger 改回 `manual`（或只改 trigger、保留规则），该规则**立刻恢复生效：审查词 ⇒ `kimi-coding/k3`**。
+
+- 现行组合（规则已删 ＋ trigger=manual）⇒ **审查词轮不再改道，落预设默认 `deepseek-flash`**。
+- 若本意是「审查类工作要跑 K3」，正确形态是**保留规则 ＋ trigger=manual**；恢复＝把那段规则粘回（backup 有原文）。
+
+### B 部分：B-1a ＋ 覆盖时留痕（已实施）
+
+- **裁定**：「B-1a ＋ 覆盖时强制留痕」。
+- **实施**（`packages/dsh-kimi-tide/src/router.ts`）：
+  - 新增 `delegationDepthOf(agent)`（读子会话 header 的 `delegationDepth`，防御性读取——根 agent 与旧测试夹具恒 0）与 `shouldKeepExternalTarget(decision, incoming, agent)`（纯函数判据）。
+  - `agent/request` 钩子：**打底**（`via:'default'`）∧ **委派子代理**（`delegationDepth > 0`）∧ 传入目标 ≠ 打底目标 ⇒ **保持传入目标不改道**，并经既有 `withConfirmNote` 把「打底让位：外部显式目标 X（≠预设默认 Y）」写进**决策摘要**（面板可见）与 `ctx.logger.info`。
+  - 覆盖侧留痕：打底确实换掉了一个不同的传入目标时，日志行追加「（覆盖外部目标 X）」——过去这件事在决策串里是隐去的（打底按既有语义不上报面板）。
+  - **图像护栏位置不变**：让位后仍过护栏（带图步不得落到纯文本目标）。
+- **测试（RED → GREEN 双证）**：`test/router-wiring.test.ts` 新增 4 例。修复前第一例**实测红**：`expected {provider:'deepseek-official',model:'deepseek-v4-flash'} to deeply equal {provider:'kimi-coding',model:'k3'}`——**与实机症状逐字对应**；实施后 4/4 绿。
+- **保护边界（刻意写死）**：**主会话行为逐字节不变**——会话级模型选择本来就是预设要覆盖的对象（spec §5.1 未命中⇒预设默认）；把主会话一并保护会把打底整体废掉（该冲突已在实施前呈报，维护者选 B-1a）。
+
+### 回归钉住（交接单待办 7，已实施）
+
+- **★ 本轮新发现（比本单原判断更重）**：`review-k3` **不是用户手写的规则，而是出厂默认**（`src/config.ts` L152，`capability` 预设第 2 条）；出厂默认的评审流是 `trigger:'manual'`（`src/config.ts` L177），两者本来相安无事。**把这个 trigger 改成 `keywords`（一个看起来纯粹的"自动化增强"开关）就足以把出厂规则打成死规则** ⇒ **出厂默认的两件产物互斥，且互斥后果静默**。这已经不是"配置写错"，而是**产品级缺陷**；只靠规则列表里的 `kt-claimed-hint` 小字提示不足以兜住（用户不翻到那一页就永远看不见）。
+- **实施**：`src/rules.ts` 新增 `claimedGroupRuleConflicts(config)`（有认领 ⇒ 逐条列出会被抑制的预设规则＋**所属预设名**）；`src/client/SettingsCard.tsx` 在**改 trigger 的那一行**当场列出「本流认领该组后，下列预设规则将不再参与路由：review-k3（能力）」。
+- **测试**：`test/rules.test.ts` 3 例（出厂默认零冲突／改 keywords 后逐条点名／v4 与"认领无人用的组"不误报）＋ `test/SettingsCard.dom.test.tsx` 1 例。**变异探针已跑**：把注记 JSX 关掉（`false &&`）⇒ 该例**实测红**；还原后绿（证明用例有守护力，非空绿）。
+
+### 验证证据（2026-09-20 现场实测）
+
+- `npx vitest run` ⇒ **40 files / 699 tests 全绿**（本轮 +8：B-1a 4 ＋ 冲突 3 ＋ DOM 1）。
+- `npx tsc -p tsconfig.build.json --noEmit` ⇒ **exit 0**。
+- `npm run build`（host + client）⇒ **exit 0**；产物核对：`lib/router.js` 含让位逻辑、`lib/rules.js` 含新函数、`lib/client.js` 已重出（172,210 B）。
+- ⚠ **生效条件**：插件经符号链接 `~\.dsh\profiles\web\node_modules\dsh-kimi-tide` → 本仓 `packages/dsh-kimi-tide`，宿主加载 `lib/` ⇒ **改动要生效须重启 `dsh web`**（本次未重启：重启会终止发起它的会话）。
+
+### 未办（如实登记）
+
+- **GitHub issue 未建**：`gh` 认证失效（token invalid，需维护者 `gh auth login -h github.com`）——本单待办 6。
+- **可观测面只补了"让位/覆盖"两处**：本单待办 4 设想的"派发时记录请求模型 vs 实际落点"的**可查面**（可查询、不靠手工解码）未做——B-1a 后"请求 ≠ 实际"已只发生在主会话（设计使然），优先级下降，留待维护者定。
+- **未发布**：无版本号变更、未打 tag；CHANGELOG 为"按版本"结构，该修复应在下次发版条目中体现（AGENTS.md 的发版门禁与双语四段式正文照旧）。
+

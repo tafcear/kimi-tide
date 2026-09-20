@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterRule } from '../src/config.js'
 import {
+  claimedGroupRuleConflicts,
   configuredProviders,
   duplicateRuleIds,
   effectiveExplicitDirective,
@@ -307,5 +308,35 @@ describe('explicitDirective：@provider 与 @provider/model（v1.3.0 Q3）', () 
     // 行首或空白/标点/中文之后才算指令
     expect(explicitDirective('帮我 @kimi 一下')).toEqual({ provider: 'kimi-coding' })
     expect(explicitDirective('（@kimi）')).toEqual({ provider: 'kimi-coding' })
+  })
+})
+
+/**
+ * 2026-09-20 回归钉住（缺陷 A）：认领会把**挂在同组上的预设规则**静默抑制成死规则。
+ * 出厂默认即含这一对互斥产物（capability 预设的 review-k3 × 评审流 trigger=keywords），
+ * 故冲突必须算成数据、在改 trigger 的那一行当场可见。
+ * 会使其失败的生产改动：删掉 claimedGroupRuleConflicts、或让它漏掉任一预设的规则。
+ */
+describe('claimedGroupRuleConflicts', () => {
+  it('出厂默认形态（评审流 manual，不认领）⇒ 零冲突，review-k3 照常活着', () => {
+    const config = DEFAULT_CONFIG_V5()
+    expect(config.flows.review.trigger).toBe('manual')
+    expect(claimedGroupRuleConflicts(config)).toEqual([])
+  })
+
+  it('把评审流改成 keywords 认领 review 组 ⇒ 点名列出将被抑制的规则与所属预设', () => {
+    const config = DEFAULT_CONFIG_V5()
+    config.flows.review = { ...config.flows.review, trigger: 'keywords', keywordGroup: 'review' }
+    expect(claimedGroupRuleConflicts(config)).toEqual([
+      { presetId: 'capability', presetName: '能力', ruleId: 'review-k3', group: 'review' },
+    ])
+  })
+
+  it('v4（无 flows）与「认领一个没有规则使用的组」⇒ 零冲突（不误报）', () => {
+    expect(claimedGroupRuleConflicts(DEFAULT_CONFIG_V4())).toEqual([])
+    const config = DEFAULT_CONFIG_V5()
+    config.keywordGroups.unused = ['没有规则用它']
+    config.flows.review = { ...config.flows.review, trigger: 'keywords', keywordGroup: 'unused' }
+    expect(claimedGroupRuleConflicts(config)).toEqual([])
   })
 })

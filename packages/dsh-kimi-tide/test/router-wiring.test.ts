@@ -1245,3 +1245,71 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
     await expect(caller(VISION_EXP, 'p', [{ attachmentId: 'a', ref: imageRef('a') }])).resolves.toBe('')
   })
 })
+
+/**
+ * B-1a（2026-09-20 缺陷修复）：打底不改道**委派子代理**的外部显式目标。
+ *
+ * 背景（缺陷记录 `docs/audit/2026-09-20-defect-explicit-model-pin-overridden-by-preset-default.md`）：
+ * `decide()` 的「未命中 ≠ keep → 打底到预设默认」对每个 agent 都生效，而它只吃
+ * 消息文本、**结构上看不到调用方已经点名了模型** ⇒ `workflow`/`subagent` 的
+ * `agentOptions.provider/model`（或被点名的宿主会话模型）会被静默改写。实机两次
+ * 对照探针：同一 pin `kimi-coding/k3`，中性文本落预设默认、带 `@kimi` 落 k3。
+ *
+ * 本条修复只保护**派发产生的子代理**（子会话 header 的 `delegationDepth > 0`）：
+ * 那份目标是对**具体任务**的点名；主会话的模型选择则是预设**本来就要覆盖**的对象
+ * （spec §5.1 未命中⇒预设默认，v0.5.0 以来的核心语义），故主会话行为一律不变。
+ */
+describe('B-1a：打底让位于委派子代理的外部显式目标', () => {
+  /**
+   * 子代理 fixture：宿主子会话 header 记 `origin`/`delegationDepth`。
+   * 实机形（2026-09-20 探针会话 `e1e2d348-…` 第 0 帧）：
+   * `{"origin":"subagent","delegationDepth":1,"parentSession":"session-…"}`。
+   * 既有根 agent 夹具是空对象 ⇒ 深度 0 ⇒ 那条路径逐字节不变。
+   */
+  const childAgent = { session: { header: { origin: 'subagent', delegationDepth: 1 } } }
+  /** 外部显式目标（≠ 省钱预设默认 deepseek-official/deepseek-v4-flash）。 */
+  const EXTERNAL: RouteTarget = { provider: 'kimi-coding', model: 'k3' }
+
+  const mount = (metas: CandidateMeta[] = METAS) => {
+    const { ctx, dispatch, logs } = makeCtx()
+    const fixture = makeDeps()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), metas, { info: () => {} }), fixture.deps)
+    return { dispatch, fixture, logs }
+  }
+
+  it('子代理外部目标 ≠ 预设默认 ⇒ keep（不打底）＋决策注记＋日志留痕', async () => {
+    const { dispatch, fixture, logs } = mount()
+    await dispatch.preStep({ agent: childAgent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+
+    // 修复前：打底把 kimi-coding/k3 改写成 SAVING_DEFAULT——实机「钉 K3 不生效」即此。
+    expect(config).toEqual(EXTERNAL)
+    const last = fixture.decisions.at(-1)?.decision
+    // 决策本身仍是打底（未命中≠keep 的语义没变），但带让位注记（面板可见）。
+    expect(last?.kind === 'route' && last.via).toBe('default')
+    expect(last?.confirmNote).toContain('kimi-coding/k3')
+    expect(last?.reason).toContain('打底让位')
+    expect(logs.some((line) => line.includes('打底让位') && line.includes('kimi-coding/k3'))).toBe(true)
+  })
+
+  it('根 agent 行为不变：未命中规则仍打底到预设默认', async () => {
+    const { dispatch } = mount()
+    await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    expect(await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)).toEqual(SAVING_DEFAULT)
+  })
+
+  it('子代理目标 = 预设默认 ⇒ 无差异可让，不产生注记', async () => {
+    const { dispatch, fixture } = mount()
+    await dispatch.preStep({ agent: childAgent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, SAVING_DEFAULT)
+    expect(config).toEqual(SAVING_DEFAULT)
+    expect(fixture.decisions.at(-1)?.decision.confirmNote).toBeUndefined()
+  })
+
+  it('让位只针对打底：规则命中照常改道子代理', async () => {
+    const { dispatch } = mount()
+    await dispatch.preStep({ agent: childAgent, messages: [textMessage('帮我审查这段')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, SAVING_DEFAULT)
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'k3' }) // review 规则命中 ⇒ 改道
+  })
+})

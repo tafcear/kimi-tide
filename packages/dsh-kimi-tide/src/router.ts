@@ -483,6 +483,37 @@ export interface RouterOrchestrationDeps {
   hitConfirm?: HitConfirmGate
 }
 
+/**
+ * 委派深度（宿主子会话 header 的 `delegationDepth`；根 agent 与旧夹具缺省 0）。
+ *
+ * B-1a（2026-09-20 缺陷修复）判定用。防御性读取是刻意的：宿主类型面没把
+ * `session.header` 纳入 `Agent`，而本仓测试夹具是空对象 ⇒ 深度 0 ⇒ 主会话与
+ * 全部存量夹具的行为逐字节不变（只有真子会话才走新分支）。
+ * 实机形（2026-09-20 探针会话 `e1e2d348-…` 第 0 帧）：
+ * `{"origin":"subagent","delegationDepth":1,"parentSession":"session-…"}`。
+ */
+export function delegationDepthOf(agent: Agent): number {
+  const header = (agent as unknown as { session?: { header?: { delegationDepth?: unknown } } }).session?.header
+  const depth = header?.delegationDepth
+  return typeof depth === 'number' && Number.isFinite(depth) && depth > 0 ? depth : 0
+}
+
+/**
+ * B-1a 让位判据（纯函数）：**打底**决策 ∧ 该 agent 是委派子代理 ∧ 传入目标与打底
+ * 目标不同 ⇒ true（保持传入目标，不改道）。其余一律 false（交给 `applyTo`）。
+ *
+ * 为什么只保护子代理：子代理的 provider/model 是调用方对**具体任务**的点名
+ * （`workflow` 的 `agent(prompt,{provider,model})` → `subagents.start` 的
+ * `agentOptions`，spawn provider 声明 `agentOptions: true` 并在创建窗口合并）；
+ * 主会话的模型选择则是预设**本来就要覆盖**的对象（spec §5.1「未命中⇒预设默认」，
+ * v0.5.0 以来的核心语义）——一并保护会把打底整体废掉。
+ */
+export function shouldKeepExternalTarget(decision: RouteDecision, incoming: RouteTarget, agent: Agent): boolean {
+  if (decision.kind !== 'route' || decision.via !== 'default') return false
+  if (delegationDepthOf(agent) === 0) return false
+  return incoming.provider !== decision.target.provider || incoming.model !== decision.target.model
+}
+
 /** 转述调用默认有界超时（I-2）。 */
 const DEFAULT_TRANSCRIBE_TIMEOUT_MS = 30_000
 
@@ -901,7 +932,20 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const slot = slots.get(payload.agent)
       if (slot === undefined) return resolved
       slots.delete(payload.agent)
-      let replaced = router.applyTo(resolved, slot.decision)
+      // B-1a（2026-09-20 缺陷修复，docs/audit/2026-09-20-defect-explicit-model-pin-
+      // overridden-by-preset-default.md）：打底让位于**委派子代理**的外部显式目标。
+      // 打底之前的语义是「未命中 ≠ keep → 预设默认」，但它只看消息文本；子代理被
+      // 点名的 kimi-coding/k3 因此被静默改写成预设默认（实机两次对照探针坐实）。
+      // 让位后仍走图像护栏与后续日志，只是不再改写 provider/model。
+      const yieldToExternal = shouldKeepExternalTarget(slot.decision, resolved, payload.agent)
+      let replaced = yieldToExternal ? resolved : router.applyTo(resolved, slot.decision)
+      if (yieldToExternal && slot.decision.kind === 'route') {
+        // 留痕（沿用 v1.3.0 confirmNote 模式）：打底按既有语义不上报面板，不特殊
+        // 处理的话「这轮为什么没走省钱默认」同样不可见。
+        const note = `打底让位：外部显式目标 ${resolved.provider}/${resolved.model}（≠预设默认 ${slot.decision.target.provider}/${slot.decision.target.model}）`
+        deps.onDecision?.(payload.agent, withConfirmNote(slot.decision, note))
+        ctx.logger?.info?.(`kimi-router: ${note}`)
+      }
       // Image guard runs AFTER routing: an image-bearing step must never hit
       // a text-only route (typically the deepseek primary), whether it came
       // from a route decision or from the session's base model selection.
@@ -917,7 +961,13 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         const label = slot.decision.kind === 'route'
           ? slot.decision.reason
           : slot.decision.kind === 'flow' ? `flow:${slot.decision.flowId}` : 'kept'
-        ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${label})`)
+        // B-1a 留痕（覆盖侧）：打底把一个与预设默认不同的传入目标换掉时，日志里点名
+        // 被覆盖者——否则「谁被换掉了」在决策串里是隐去的（面板对打底同样不上报）。
+        const overridden = slot.decision.kind === 'route' && slot.decision.via === 'default'
+          && (resolved.provider !== slot.decision.target.provider || resolved.model !== slot.decision.target.model)
+          ? `（覆盖外部目标 ${resolved.provider}/${resolved.model}）`
+          : ''
+        ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${label})${overridden}`)
       }
       return replaced
     }, { prepend: true })

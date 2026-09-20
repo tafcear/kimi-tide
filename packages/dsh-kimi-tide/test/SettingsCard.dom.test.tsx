@@ -1182,4 +1182,22 @@ describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () =
     expect(saveSpy).not.toHaveBeenCalled()
     expect(container.textContent).toContain('没有可用条件')
   })
+
+  it('2026-09-20 回归钉住：评审流认领某组 ⇒ 在改 trigger 那一行列出将被抑制的预设规则', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    // 实机形态：把评审流从 manual 改成 keywords（出厂默认的 review-k3 规则此刻起被
+    // 静态抑制、永不生效，而规则列表里它照常显示）。
+    const snapshot = readyV5Snapshot()
+    const config = snapshot.config as typeof snapshot.config & {
+      flows: Record<string, { trigger: string; keywordGroup?: string }>
+    }
+    config.flows = { ...config.flows, review: { ...config.flows.review, trigger: 'keywords', keywordGroup: 'review' } }
+    await act(async () => { publish(snapshot) })
+
+    // Fails if: 代价只在规则列表里给一句小字（用户不翻到那一页就永远看不见），
+    // 或冲突列表漏掉规则所属预设（多预设同名规则时无法定位）。
+    expect(container.textContent).toContain('下列预设规则将不再参与路由')
+    expect(container.textContent).toContain('review-k3（能力）')
+  })
 })

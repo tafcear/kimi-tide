@@ -36,7 +36,7 @@ import { Icon } from './icons.js'
 import { FALLBACK_HINTS } from './help-content.js'
 import { HelpTab } from './HelpTab.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
-import { claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
+import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -276,6 +276,8 @@ function FlowRow(props: {
   modelNames: Record<string, string>
   availability: Record<string, boolean> | null
   groupNames: string[]
+  /** 2026-09-20 回归钉住：本流一旦以 keywords 认领某组，会被抑制成死规则的预设规则。 */
+  claimConflicts: Array<{ presetId: string; presetName: string; ruleId: string; group: string }>
   /** effort 选项取数（0.8.0 D3）：宿主档位表按 configKey 查询。 */
   effortsOf: (target: RouteTarget) => string[] | undefined
   onSave: (flow: CollaborationFlow) => void
@@ -365,6 +367,12 @@ function FlowRow(props: {
                 <option key={group} value={group}>{group}</option>
               ))}
             </select>
+          )}
+          {flow.trigger === 'keywords' && props.claimConflicts.length > 0 && (
+            <span className="kt-claimed-hint kt-claim-conflict">
+              本流认领该组后，下列预设规则将不再参与路由：
+              {props.claimConflicts.map((c) => `${c.ruleId}（${c.presetName}）`).join('、')}
+            </span>
           )}
           <input
             aria-label={`${props.id} 评审轮次`}
@@ -552,6 +560,10 @@ export function SettingsCard(props: SettingsCardProps) {
   // 认领组规则的命中被路由层静态抑制（spec §4）——规则行灰态 + 行尾提示。认领与
   // 规则共存是合法态，抑制是自然结果——只提示不拦保存；v4 无 flows → 空集。
   const claimedGroups = claimedReviewGroups(config)
+  // 2026-09-20 回归钉住：认领会把**挂在同组上的预设规则**抑制成死规则（出厂默认就
+  // 含这一对：capability 预设的 review-k3 × 评审流）。算成数据后放进**改 trigger 的
+  // 那一行**——用户在那里做决定，就该在那里看见代价。
+  const claimConflicts = claimedGroupRuleConflicts(config)
   const catalog = snapshot.catalog ?? []
   // 下拉只列可用模型（用户裁定 2026-08-21）：availability 明确 false（未挂载/目录未列出）即剔除；
   // availability 为 null（无连接通道）时不设灰态，全目录入选项。
@@ -1262,6 +1274,7 @@ export function SettingsCard(props: SettingsCardProps) {
               modelNames={modelNames}
               availability={availability}
               groupNames={groupNames}
+              claimConflicts={claimConflicts}
               effortsOf={effortsOf}
               onSave={(next) => void storeWriter.saveFlows({ ...flows, [flowId]: next })}
               onDelete={() => void storeWriter.deleteFlow(flowId)}
