@@ -1,0 +1,3 @@
+[dsh-browser-autostart] 已挂载：browser_* 工具派发前确保 Chrome 与 bsk 守护进程在运行
+[toolbox:flow] 原生静态 Host 已加载（功能: ）
+dsh web: http://127.0.0.1:3085/?token=v-Sr1mGyV5tgKWiezkQ8-v408XwqssRzZSs7ZFVYlxM
