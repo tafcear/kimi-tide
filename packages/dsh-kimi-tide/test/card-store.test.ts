@@ -75,7 +75,7 @@ describe('card-store v4', () => {
     // 拒绝经 result.error 返回（不抛），不检查则错误无声消失。
     const connection = { api: {
       settings: {
-        describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }),
+        describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V4() }, revision: 1 }] } } }),
         mutate: async () => ({ result: { ok: false as const, error: { message: 'activePreset 不在 presets 中' } } }),
       },
     } }
@@ -93,7 +93,7 @@ describe('card-store v4', () => {
   })
   it('catalog：connection.llm.models 全量目录入快照；availability=目录命中', async () => {
     const connection = { api: {
-      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }), mutate: async () => ({}) },
+      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V4() }, revision: 1 }] } } }), mutate: async () => ({}) },
       llm: { models: async () => ({ result: { ok: true as const, value: { groups: [
         { id: 'kimi-coding', models: [{ id: 'k3' }, { id: 'kimi-for-coding-highspeed' }] },
         { id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash' }] },
@@ -110,7 +110,7 @@ describe('card-store v4', () => {
     // Fails if: 目录映射丢弃 name 字段——下拉只能渲染裸 provider/model 键，
     // 与官方 Models 页/模型选择器的友好名不一致（实机报障本体）。
     const connection = { api: {
-      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }), mutate: async () => ({}) },
+      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V4() }, revision: 1 }] } } }), mutate: async () => ({}) },
       llm: { models: async () => ({ result: { ok: true as const, value: { groups: [
         { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V41-Flash' }] },
         { id: 'kimi-coding', name: 'Kimi', models: [{ id: 'k3', name: 'Kimi K3' }] },
@@ -126,7 +126,7 @@ describe('card-store v4', () => {
   })
   it('⑥-B 打磨三修订: provider 整个不在目录 → 不判 false（目录通道无法判定，插件自挂 provider 可经路由可达——实机误报 2026-08-29）', async () => {    // Fails if: 目录缺 provider 即给其配置目标标 false（工作中的模型被误标未挂载）
     const connection = { api: {
-      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 1 }] } } }), mutate: async () => ({}) },
+      settings: { describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V4() }, revision: 1 }] } } }), mutate: async () => ({}) },
       llm: { models: async () => ({ result: { ok: true as const, value: { groups: [
         { id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash' }] },
       ] } } }) },

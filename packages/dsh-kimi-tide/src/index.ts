@@ -12,9 +12,6 @@ import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-projection'
-// Type-only: brings the `ctx.settings` augmentation in without making
-// @deepseek-ai/dsh-settings a load-time dependency (rc.6 hosts lack it).
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, Message, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { KNOWN_SESSION_EVENT_TYPES as KNOWN_SESSION_EVENT_TYPES_DIRECT } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -22,6 +19,12 @@ import { copyFileSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+// Config schema 必须用 **scoped** 的 @deepseek-ai/schemastery：`.volatile()` 标记是
+// 3.18.1 起才有的 API（未加 scope 的 `schemastery` 在 npm 上停在 3.18.0，无此方法），
+// 而宿主判定「哪些字段可实时更新」读的正是 schema 实例上的 `meta.volatile`
+// （dsh-settings/lib/index.js:122-131 volatileForm）。其余 schema（routerConfigSchema
+// 等校验/迁移面）继续用未加 scope 的 3.18.0 —— 两者 API 同源、行为一致。
+import Schema from '@deepseek-ai/schemastery'
 import YAML from 'yaml'
 import { REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { claimedReviewGroups } from './rules.js'
@@ -39,18 +42,63 @@ import {
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
 import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
-import { routerConfigSchema, validateRouterConfig, EFFORT_CATALOG_SECTION_SCHEMA } from './settings-schema.js'
+import { routerConfigSchema } from './settings-schema.js'
+import { createSettingsPort, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import { buildQuotaSources, providerKeyCandidates } from './quota-sources.js'
 import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
-import { buildEffortCatalog, buildMountedModels, EFFORT_CATALOG_NAMESPACE } from './effort-catalog.js'
+import { buildEffortCatalog, buildMountedModels } from './effort-catalog.js'
 
 export const name = 'dsh-kimi-tide'
 
 export const inject = ['llm', 'timer', 'commands', 'sessionProjections']
+
+/**
+ * 本插件的配置形状（0.1.7 起：这就是「设置页里那条 profile entry」的表单来源）。
+ *
+ * `router` 是路由配置本体（v5 全量：预设/规则/协作流/keywordGroups/auxTargets），
+ * 标 `.volatile()` 有两个作用：① 表单只展示 volatile 字段（宿主
+ * `dsh-settings/lib/index.js:415-420` 的 volatileForm 闸），② 提交这类字段只做
+ * 实时更新、不重载插件实例（loader/volatile-update）。非 volatile 的四个 tunables
+ * 改动会走正常重载生命周期（与旧 Config interface 行为一致）。
+ *
+ * 形状直接复用 `routerConfigSchema`（settings-schema.ts 的单一真相源，默认值从
+ * DEFAULT_CONFIG_V5 派生），不另抄一份——避免 schema 与类型漂移。
+ */
+export const Config = Schema.object({
+  /**
+   * 路由配置（v5 全量：预设/规则/协作流/keywordGroups/auxTargets），标 `.volatile()`。
+   *
+   * ⚠ 实测记录（0.1.7 + schemastery 3.18.4，2026-09-28）：条目**未配置** router 时，
+   * 宿主解析出的 `activePreset` 是 `undefined`（不是 schema 声明的 null）——读取端
+   * 一律按「!== string 即视为不路由」判定，与旧 sidecar 链的 null 等价。
+   */
+  router: routerConfigSchema.volatile(),
+  /**
+   * effort 档位表（'provider/model' → 该模型支持的推理档位 id 列表）。**运行面数据**：
+   * 由候选枚举产物写入（buildEffortCatalog），不是用户配置——放在这里是因为
+   * 0.1.7 取消了「插件自命名设置命名空间」这条推送通道（旧 `kimi-tide-catalog`），
+   * 客户端要读它只能经本条目自身的 describe。标 volatile 的理由：① 表单只展示
+   * volatile 字段，故它才会出现在 describe 结果里；② 提交 volatile 字段不重载
+   * 插件实例（普通字段会），而这份数据随模型清单变化、刷新频繁。
+   */
+  efforts: Schema.dict(Schema.array(Schema.string())).volatile(),
+  /** 真实挂载表（'provider/model' 键列表）：试一句 reviewer 不可用判定的真相源。 */
+  mounted: Schema.array(Schema.string()).volatile(),
+  /** Quota poll period in milliseconds (default 60000). */
+  usagePollMs: Schema.number(),
+  /** 余额源轮询周期（默认 300000 = 5min）。 */
+  balancePollMs: Schema.number(),
+  /** Poll quota immediately on startup (default true). */
+  usagePollOnStart: Schema.boolean(),
+  /** Patch file holding the legacy static router seed (default $DSH_HOME/profiles/web/cordis.patch.yml). */
+  patchFile: Schema.string(),
+  /** Sidecar router store file (default: kimi-tide-router.yml next to the patch file). */
+  sidecarFile: Schema.string(),
+})
 
 /** User-settings namespace owning RouterConfigV5 (dsh-settings). */
 export const SETTINGS_NAMESPACE = 'kimi-tide-router'
@@ -470,12 +518,20 @@ export function apply(ctx: Context, config: Config = {}) {
   })
   const sidecarFile = config.sidecarFile ?? defaultSidecarFile()
   /**
-   * Composition seed in its raw v1 shape: entry config, else the patch static
-   * block. Read once — it feeds both the sidecar fallback chain and the
-   * settings `base` layer, and re-reading would duplicate its warnings.
+   * Composition seed.
+   *
+   * 0.1.7（2026-09-28）：`config.router` 现在是本条目 Config 的 **volatile 快照**。
+   * 取「原始值优先、快照兜底」两级（rawRouterConfig）：残留判定必须看原始词汇
+   * （v1 的 mode/primary/premium 会在解析期被 schema 补成 version:5，解析后再判就
+   * 永远认不出存量）；无 router 段时退回 patch 静态块（v1 词汇），只为存量迁移路径保留。
    */
-  const seedRaw: unknown = config.router !== undefined
-    ? config.router
+  const rawRouter = rawRouterConfig(config, (ctx as unknown as { fiber?: { entry?: { options?: { config?: unknown } } } }).fiber?.entry?.options?.config)
+  // 启动种子（决定是否走 coerce 迁移链）：仅当原始配置**是旧词汇形态**（v1~v4）时
+  // 用它——那种形态在 schema 解析期会被补成 version:5，解析后就认不出来了。
+  // 其余情形（v5 形态、或条目未配置）一律用宿主解析值，避免把 v5 用户配置再搬一遍。
+  const legacySeed = isLegacyRouterShape(rawRouter)
+  const seedRaw: unknown = legacySeed
+    ? rawRouter
     : (() => { try { return store.load() } catch { return null } })()
   const sidecar = new RouterSidecarStore({
     file: sidecarFile,
@@ -488,33 +544,33 @@ export function apply(ctx: Context, config: Config = {}) {
   let routerConfig: RouterConfigAny = loaded.config ?? DEFAULT_CONFIG_V4()
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
-  // The settings namespace's `base` layer must be v5-shaped (0.6.0)：composition
-  // entry（与 legacy patch 静态块）说 v1 词汇（mode/primary/premium），v1 键对
-  // routerConfigSchema 无意义——裸层叠会解析成 schema 的 DEFAULT 目标，静默丢路由。
-  // coerceRouterConfigV5 是版本分派的 v1/v2/v3/v4→v5 桥（预置流注册但不绑定）；
-  // NULL 种子解析为 DEFAULT_CONFIG_V5()，使命名空间 base 与 mergeResolved 的
-  // clean 谓词及上面的 routerConfig 兜底对齐。
-  const settingsBase: RouterConfigV5 =
-    seedRaw === null || seedRaw === undefined
-      ? DEFAULT_CONFIG_V5()
-      : coerceRouterConfigV5(seedRaw, warn)
+  /**
+   * 设置通道与 sidecar 共用的「条目已解析值」基线。
+   *
+   * 0.1.7 起由宿主解析（schema 默认 + 组合 base + 用户层），插件不再手工合并；
+   * 残留迁移链以 rawRouter 为准（见 rawRouterConfig 头注）。
+   */
+  const settingsBase: RouterConfigV5 = readRouterConfig(config)
 
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;
   // llm/adapters-updated (declared by dsh-llm, payload-free) re-enumerates.
   let candidateMetas: CandidateMeta[] = fallbackCandidateMetas(routerConfig)
-  // 0.8.0 effort 档位目录：随候选枚举刷新。0.8.0 B5 换道（2026-08-27）：推送
-  // 通道改为 dsh-settings 自有命名空间 kimi-tide-catalog（见 inject 块内的
-  // syncCatalogNamespace），原 typert remote 手工 contribution 客户端半链实机
-  // 证伪（vendored kernel $mount 静默挂起），宿主 provide/typert 注册已随之移除。
+  // 0.8.0 effort 档位目录：随候选枚举刷新。**0.1.7 换道（2026-09-28）**：不再推
+  // 「kimi-tide-catalog」设置命名空间（`settings.register` 已随 0.1.7 移除），改为写
+  // 本条目 Config 的两个 volatile 字段（efforts / mounted，见 export const Config）——
+  // 客户端用读路由配置的**同一次** settings.describe 就能拿到，少一次 RPC，也不再
+  // 往任何"设置文件"里塞运行面数据。（历史：0.8.0 走 typert $mount，实机证伪后改
+  // 自有命名空间；该命名空间在 0.1.7 无对应物。）
   let effortCatalog: Record<string, string[]> = buildEffortCatalog(candidateMetas)
-  // 1.1.0 A8（2026-09-04）：真实挂载表随同节发布（mounted 键）——试一句
-  // reviewer 不可用判定的唯一真相源（availability 三态对自挂 provider 盲）。
+  // 1.1.0 A8（2026-09-04）：真实挂载表同节发布——试一句 reviewer 不可用判定的唯一
+  // 真相源（availability 三态对自挂 provider 盲）。
   let mountedModels: string[] = buildMountedModels(candidateMetas)
   let enumerationSeq = 0
-  // settings attach 后由 inject 块赋值；枚举刷新与 attach 双向都会触发一次同步
-  // （写前脏检查，settings.yaml 的 kimi-tide-catalog 节仅随模型清单变化才重写）。
-  let syncCatalogNamespace: (() => void) | null = null
+  // 设置通道就绪后由下方赋值；枚举刷新触发一次同步。写前做内容脏检查：只有模型清单
+  // 真变化才落盘（volatile 提交虽不重载插件，仍是一次 profile patch 写）。
+  let syncCatalog: (() => void) | null = null
+  let lastSyncedCatalog = ''
   const refreshCandidates = () => {
     const seq = ++enumerationSeq
     void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfig, warn)
@@ -523,7 +579,7 @@ export function apply(ctx: Context, config: Config = {}) {
         candidateMetas = metas
         effortCatalog = buildEffortCatalog(metas)
         mountedModels = buildMountedModels(metas)
-        syncCatalogNamespace?.()
+        syncCatalog?.()
         mountRouter()
       })
       .catch((error) => warn(`dsh-kimi-tide: candidate enumeration failed: ${(error as Error).message}`))
@@ -778,9 +834,25 @@ export function apply(ctx: Context, config: Config = {}) {
     void refreshKimiStatus()
     void refreshAllQuotas()
   })
-  ctx.on('agent/created', (payload: { agent: Agent }) => {
+  // 0.1.7：agent/created 的监听器签名带 `this: Scoped<Agent>` 与返回位
+  // （`undefined | Promise<undefined>`）；载荷多出 source/signal 两字段，参数按
+  // 上下文推导（不再手写窄化注解——注解会切断 this 位的推断）。
+  //
+  // 两条硬约束（0.1.7 runtime-types.d.ts:218-220 明文，运行时可证）：
+  //   ① 返回值必须 undefined —— 该事件是 `@mode serial`，cordis 的 serial 分发把
+  //      非 undefined/null/false 的返回值当 bail（isBailed）并**短路掉后续监听器**，
+  //      而 agent/created 后面挂着宿主的 agent 初始化链。旧写法把 rememberPanel 的
+  //      返回值（一个投影对象）隐式返回了出去 ⇒ 每次都短路。
+  //   ② 监听器体内绝不能抛/拒绝 —— 抛一次 = 该 agent 创建失败、用户开不了会话。
+  //      rememberPanel 会读 agent.session 与路由槽位，属可能抛的观测面，故兜住。
+  ctx.on('agent/created', (payload) => {
     // 首次取数即建签名基线（命令通道按需现算，此处只为观测基线）。
-    rememberPanel(payload.agent)
+    try {
+      rememberPanel(payload.agent)
+    } catch (error) {
+      warn(`dsh-kimi-tide: agent/created 观测基线取数失败（不影响会话创建）：${(error as Error).message}`)
+    }
+    return undefined
   })
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     latestDecisions.delete(payload.agent)
@@ -848,126 +920,96 @@ export function apply(ctx: Context, config: Config = {}) {
   // 存活 agent 名册已不再需要：面板数据按需自 agent 现算，无推送目标。
   // （v1.2.0 会话事件解耦前这里维护 liveAgents 供 pushPanelToAllSessions 遍历。）
 
-  // Settings namespace (dsh-settings, rc.7+): register `kimi-tide-router` with
-  // the composition seed as its base layer and keep the owner scope so the
-  // command layer can write through it. This is installSettingsSection's
-  // wiring done by hand — the seam's hooks expose only a read thunk, and the
-  // host needs the read AND write halves of the scope. The callback never runs
-  // on a host without a settings service (rc.6), which is exactly the seam's
-  // no-op behavior: the sidecar fallback stays in charge. Wired here, after the
-  // panel roster exists, because attaching immediately applies the resolved
-  // config and pushes a snapshot.
-  ctx.inject(['settings'], (sctx) => {
-    let scope: SettingsScope<RouterConfigV5>
-    try {
-      scope = sctx.settings.register(SETTINGS_NAMESPACE as never, routerConfigSchema as never, {
-        base: settingsBase,
-        // dsh-settings' validate throws to refuse a write; T1's returns a message.
-        // 0.6.0（Task 12 接管 Task 5 类型桥接）：命名空间即 v5 存储，直接语义校验
-        // （validateRouterConfig 对 legacy version ≤4 直通——注册期存量不拒）。
-        validate: (value: RouterConfigV5) => {
-          const message = validateRouterConfig(value)
-          if (message !== undefined) throw new Error(message)
-        },
-      }) as unknown as SettingsScope<RouterConfigV5>
-    } catch (error) {
-      // A stored section that already fails schema/validate rejects the
-      // registration itself. Degrade loudly to the sidecar instead of leaving
-      // the whole plugin fiber broken.
-      warn(`dsh-kimi-tide: 设置命名空间 ${SETTINGS_NAMESPACE} 注册失败（${(error as Error).message}）；本次运行退回 sidecar 存储`)
-      return
-    }
-    const port: SettingsNamespacePort = {
-      get: () => scope.get(),
-      update: (patch) => scope.update(patch),
-      replace: (section) => scope.replace(section),
+  // 设置通道（0.1.7 换道，2026-09-28）。旧写法是向 dsh-settings 注册自有命名空间
+  // `kimi-tide-router`（`sctx.settings.register(ns, schema, {base, validate})` 返回
+  // 带 get/update/replace/watch 的 scope）——该 API 在 0.1.7 已整体移除。现行正道：
+  // 路由配置就是本条目 Config 的 `router` 字段（`export const Config` 声明 + `.volatile()`），
+  // 读 `ctx.config.router.get()`、写 `configEditor.edit(entry, …)`、变更通知
+  // `loader/volatile-update`；细节与证据链见 settings-port.ts 头注。
+  //
+  // 拿不到通道（旧宿主 / 测试桩 / 无 configEditor）时 port 为 null，命令层与
+  // applyConfig 自动退回 sidecar 存储（`applyConfig` 的 source 判定），行为不变。
+  const port = createSettingsPort({
+    ctx,
+    config,
+    tunables: () => ({
+      ...(config.usagePollMs === undefined ? {} : { usagePollMs: config.usagePollMs }),
+      ...(config.balancePollMs === undefined ? {} : { balancePollMs: config.balancePollMs }),
+      ...(config.usagePollOnStart === undefined ? {} : { usagePollOnStart: config.usagePollOnStart }),
+      ...(config.patchFile === undefined ? {} : { patchFile: config.patchFile }),
+      ...(config.sidecarFile === undefined ? {} : { sidecarFile: config.sidecarFile }),
+    }),
+    onError: warn,
+  })
+  if (port !== null) {
+    // 1) 首个生效值：存量残留（v1/v4 词汇）走 coerce 链，否则直接用快照。
+    let applied = readRouterConfig(config)
+    // 2) v5 一次性迁移：存量条目若还是 v1/v4 词汇则搬到 v5 并落盘；写失败只降级
+    //    （本次运行用迁移值，下次启动重试），绝不抛回启动路径。
+    //    ⚠ 判残留用原始值（rawRouter）——解析后的快照已被 schema 补成 version:5。
+    if (legacySeed && hasKimiTideResidueV5(rawRouter)) {
+      try {
+        const migrated = coerceRouterConfigV5(applied, warn)
+        if (migrated !== applied) {
+          const docPath = (ctx.get('configEditor') as { documentPath?: string } | undefined)?.documentPath
+          if (typeof docPath === 'string' && docPath.length > 0) {
+            try { copyFileSync(docPath, docPath + '.pre-v5') } catch (error) {
+              warn(`dsh-kimi-tide: 配置文档 .pre-v5 快照失败（${(error as Error).message}）`)
+            }
+          }
+          void port.replace(migrated as unknown as object)
+            .then(() => warn('dsh-kimi-tide: 插件配置的 router 段已迁移至 v5（协作流注册表挂载，行为保持）'))
+            .catch((error: unknown) =>
+              warn(`dsh-kimi-tide: v5 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
+          applied = migrated
+        }
+      } catch (error) {
+        warn(`dsh-kimi-tide: v5 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
+      }
     }
     settingsScope = port
-    // 0.8.0 B5 换道（2026-08-27）：档位表经第二个自有命名空间 kimi-tide-catalog
-    // 推送（客户端 settings.describe 按 ns 读取；原 typert $mount 客户端半链
-    // 实机证伪）。写入带脏检查——settings.yaml 的该节仅随模型清单变化才重写；
-    // 注册即首推（枚举可能先于 settings attach 完成），attach 后枚举刷新再推。
-    let catalogScope: {
-      get(): { efforts?: Record<string, string[]>; mounted?: string[] }
-      replace(section: object): Promise<void>
-    } | null = null
-    let lastSyncedCatalog = ''
-    syncCatalogNamespace = () => {
-      if (catalogScope === null) return
+    applyConfig(applied)
+    // 3) 运行时变更：volatile 提交（设置页/卡片/dock 写入）不发重载，只发本事件。
+    ctx.effect(() => onRouterConfigChanged(ctx, () => applyConfig(readRouterConfig(config))))
+    // 4) 卸载（provider 重载 / 服务释放）：命令层退回 sidecar。
+    ctx.effect(() => () => { settingsScope = null })
+    // 5) 档位表 / 挂载表发布：写本条目 Config 的 volatile 字段（客户端经同一次
+    //    settings.describe 读取）。写前内容脏检查——只有清单真变化才落盘。
+    syncCatalog = () => {
       const section = { efforts: effortCatalog, mounted: mountedModels }
       const serialized = JSON.stringify(section)
       if (serialized === lastSyncedCatalog) return
+      const setCatalog = port.setCatalog
+      if (setCatalog === undefined) return
       try {
-        void catalogScope.replace(section)
+        void setCatalog.call(port, section)
           .then(() => { lastSyncedCatalog = serialized })
           .catch((error: unknown) =>
-            warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 写入失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`))
+            warn(`dsh-kimi-tide: effort 档位表写入失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`))
       } catch (error) {
-        warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 写入异常（${(error as Error).message}）`)
+        warn(`dsh-kimi-tide: effort 档位表写入异常（${(error as Error).message}）`)
       }
     }
-    try {
-      catalogScope = sctx.settings.register(EFFORT_CATALOG_NAMESPACE as never, EFFORT_CATALOG_SECTION_SCHEMA as never, {}) as unknown as typeof catalogScope
-    } catch (error) {
-      warn(`dsh-kimi-tide: ${EFFORT_CATALOG_NAMESPACE} 命名空间注册失败（${(error as Error).message}）；effort 下拉降级为「跟随默认」`)
-      catalogScope = null
-    }
-    syncCatalogNamespace()
-    sctx.effect(() => () => { catalogScope = null; syncCatalogNamespace = null })
-    // v5 一次性迁移（0.6.0 协作编排，spec §6）。dsh-settings 的 replace 在 persist
-    // 之后才 commit（scope.get() 异步更新），因此必须同步算出迁移值直喂首个
-    // applyConfig——否则首个挂载与 sidecar 导入脏检查看到的是迁移前旧形。
-    // 持久化替换在后台完成；提交后 watch 会以相同值再触发 applyConfig，
-    // applyConfig 按值幂等（sameJson）不会重复挂载。整段迁移包在 try/catch
-    // 里：迁移失败只降级（保留旧形状），绝不把异常抛回 inject 回调使命名空间
-    // 半接（无 watch、无 sidecar 导入）。
-    let baseline: RouterConfigV5
-    try {
-      const current = scope.get()
-      const migrated = hasKimiTideResidueV5(current) ? coerceRouterConfigV5(current, warn) : current
-      if (migrated !== current) {
-        const docPath = (sctx.settings as { documentPath?: string }).documentPath
-        if (typeof docPath === 'string' && docPath.length > 0) {
-          try { copyFileSync(docPath, docPath + '.pre-v5') } catch (error) {
-            warn(`dsh-kimi-tide: 设置文档 .pre-v5 快照失败（${(error as Error).message}）`)
-          }
-        }
-        void scope.replace(migrated as unknown as object)
-          .then(() => warn('dsh-kimi-tide: 设置命名空间 kimi-tide-router 已迁移至 v5（协作流注册表挂载，行为保持）'))
-          .catch((error: unknown) =>
-            warn(`dsh-kimi-tide: 命名空间 v5 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
-      }
-      baseline = migrated
-    } catch (error) {
-      warn(`dsh-kimi-tide: 命名空间 v5 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
-      baseline = scope.get()
-    }
-    applyConfig(baseline)
-    // Detach (provider reload / service disposal) rides the scoped fiber: the
-    // command layer falls back to the sidecar until the callback re-runs.
-    sctx.effect(() => () => { settingsScope = null })
-    // Committed changes (panel save, /kimi-tide, external document edit, the
-    // migration below) all land here.
-    sctx.effect(() => scope.watch(() => applyConfig(scope.get())))
-    // One-shot legacy sidecar → namespace import. Imported dynamically so the
-    // dsh-settings dependency it carries is resolved only on a host that
-    // actually has the service (rc.6 keeps loading this plugin).
+    syncCatalog()
+    ctx.effect(() => () => { syncCatalog = null })
+    // 5) 一次性 sidecar → Config 导入（0.4.x 存量用户的迁移路径）。动态 import：
+    //    它带的 dsh-util-values 依赖只在真有设置通道的宿主上解析。
     void import('./settings-migration.js')
       .then(({ migrateSidecarIntoScope }) => migrateSidecarIntoScope({
         sidecarFile,
         scope: port,
-        // MUST be the same v4-shaped base the namespace was registered with:
-        // the dirty check compares scope.get() against mergeResolved(entry).
+        // 脏检查：只有「用户在 v5 语义下编辑过」才拒绝导入（口径见 hasExplicitV5Config）。
+        hasExplicitEntryConfig: hasExplicitV5Config(rawRouter),
         entry: settingsBase,
         onError: warn,
       }))
       .then((outcome) => {
         if (outcome === 'imported') {
-          warn('dsh-kimi-tide: sidecar 已迁移至设置命名空间 kimi-tide-router（原文件留档 .legacy-imported）')
+          warn('dsh-kimi-tide: sidecar 已迁移至插件配置的 router 段（原文件留档 .legacy-imported）')
         }
       })
       .catch((error) => warn(`dsh-kimi-tide: sidecar 迁移失败（${(error as Error).message}）`))
-  })
+  }
 
   // Quota polling lifecycle.
   if (config.usagePollOnStart !== false) {

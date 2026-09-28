@@ -1,5 +1,5 @@
 // src/settings-schema.ts
-import Schema from 'schemastery'
+import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_CONFIG_V5, isFlowTarget, type RouterConfigV5, type RuleTarget } from './config.js'
 
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。

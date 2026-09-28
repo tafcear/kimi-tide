@@ -1021,14 +1021,16 @@ describe('llm/stream 智能投影拦截器（S4c，spike 实证范式）', () =>
     expect(sent.messages[0].content[1]).toEqual({ type: 'text', text: '转述文字' })
   })
 
-  it('tool-result 嵌套图块递归同款处理', async () => {
+  it('0.1.7 线形：tool 角色消息内的图块同款改写', async () => {
     const { ctx, adapterCalls } = await seeded()
+    // 0.1.7 把工具结果从「user 消息里的 tool-result 块」升格为独立的 tool 角色消息；
+    // 其内层图块现在是消息级 content，改写与提取都应照旧命中。
     const messages = [
       {
-        role: 'user',
-        content: [
-          { type: 'tool-result', toolCallId: 'c1', content: [{ type: 'image', attachment: imageRef('att-1') }] },
-        ],
+        role: 'tool',
+        toolCallId: 'c1',
+        source: { kind: 'tool', toolName: 'read_image' },
+        content: [{ type: 'image', attachment: imageRef('att-1') }],
       },
     ]
     await drain((ctx.llm as { stream: (o: unknown) => AsyncIterable<unknown> }).stream({
@@ -1036,8 +1038,8 @@ describe('llm/stream 智能投影拦截器（S4c，spike 实证范式）', () =>
     }))
 
     expect(adapterCalls).toHaveLength(1)
-    const sent = (adapterCalls[0] as { messages: Array<{ content: Array<{ content: Array<Record<string, unknown>> }> }> }).messages
-    expect(sent[0].content[0].content[0]).toEqual({ type: 'text', text: '转述文字' })
+    const sent = (adapterCalls[0] as { messages: Array<{ content: Array<Record<string, unknown>> }> }).messages
+    expect(sent[0].content[0]).toEqual({ type: 'text', text: '转述文字' })
   })
 })
 
@@ -1129,16 +1131,16 @@ describe('extractResolvedImages（生产图块提取，spike S1 线形）', () =
     expect(out[0].ref).toBe(block)
   })
 
-  it('递归提取 tool-result 嵌套图块；无 attachmentId 的图块忽略', () => {
+  it('0.1.7 线形：tool 角色消息内的图块同款提取；无 attachmentId 的图块忽略', () => {
     const messages = [
       {
-        role: 'user',
-        content: [
-          { type: 'tool-result', toolCallId: 'c1', content: [{ type: 'image', attachment: imageRef('att-t') }] },
-        ],
+        role: 'tool',
+        toolCallId: 'c1',
+        source: { kind: 'tool', toolName: 'read_image' },
+        content: [{ type: 'image', attachment: imageRef('att-t') }],
       },
       { role: 'user', content: [{ type: 'image' }] }, // 无线形 ref → 忽略
-    ] as unknown as UserMessage[]
+    ] as unknown as Message[]
     const out = extractResolvedImages(messages)
     expect(out).toEqual([{ attachmentId: 'att-t', ref: imageRef('att-t') }])
   })

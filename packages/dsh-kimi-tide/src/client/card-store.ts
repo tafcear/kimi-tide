@@ -21,7 +21,22 @@ import {
   type RouterPreset,
 } from '../config.js'
 
-export const CARD_NAMESPACE = 'kimi-tide-router'
+/**
+ * 卡片读写的设置视图 id（= **profile entry id**）。
+ *
+ * 0.1.7 换道（2026-09-28）：`settings.describe` 的 `ns` 不再由插件自命名，而是恒等于
+ * profile 里那条 loader entry 的 id（宿主 `dsh-settings/lib/index.js:432`
+ * `ns: entry.options.id`）。本插件的 entry id 由 cordis.patch.yml 的 insert 行决定，
+ * 即 `dsh-kimi-tide`。旧的 `kimi-tide-router` / `kimi-tide-catalog` 两个命名空间在
+ * 0.1.7 已无对应物。
+ */
+export const CARD_NAMESPACE = 'dsh-kimi-tide'
+
+/**
+ * 配置载荷路径：0.1.7 起 describe 给出的 `value` 是**整条 entry 的 Config**
+ * （本插件 = `{ router, efforts, mounted, …tunables }`），路由配置在其 `router` 键下。
+ */
+export const CARD_CONFIG_PATH = 'router'
 
 /** 卡片消费的配置过渡形（Task 11）：v4 存量与 v5 协作编排配置皆可渲染。 */
 export type CardConfig = RouterConfigV4 | RouterConfigV5
@@ -165,6 +180,23 @@ export interface CardStore {
 const asConfig = (value: unknown): CardConfig | null =>
   typeof value === 'object' && value !== null ? (value as CardConfig) : null
 
+/** 从 entry 级 Config 载荷里取出路由配置（0.1.7：`value.router`；兼容旧扁平形态）。 */
+const asRouterConfig = (value: unknown): CardConfig | null => {
+  if (typeof value !== 'object' || value === null) return null
+  const holder = value as Record<string, unknown>
+  return asConfig(holder[CARD_CONFIG_PATH] ?? value)
+}
+
+/** 从 entry 级 Config 载荷里取运行面目录数据（efforts / mounted，0.1.7 volatile 字段）。 */
+const asCatalogMeta = (value: unknown): { efforts?: Record<string, string[]>; mounted?: string[] } => {
+  if (typeof value !== 'object' || value === null) return {}
+  const holder = value as Record<string, unknown>
+  return {
+    efforts: asConfig(holder.efforts) as Record<string, string[]> | null ?? undefined,
+    mounted: Array.isArray(holder.mounted) ? (holder.mounted as string[]) : undefined,
+  }
+}
+
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
@@ -294,7 +326,9 @@ export function createCardStore(
       readScope()
     } else if (connection !== null) {
       try {
-        const r = await connection.api.settings.describe({})
+        // 0.1.7：describe 是**零参**调用（宿主 typert 描述符 parameters: [] 严格
+        // arity——传 {} 会被拒）。插件自己早前在 effort 通道上就记过同款教训。
+        const r = await connection.api.settings.describe(undefined as never)
         if (!r.result.ok) {
           publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, modelNames: null, providerNames: null, availability: null, efforts: null })
           return
@@ -306,18 +340,22 @@ export function createCardStore(
           return
         }
         revision = view.revision
+        // 运行面目录（efforts / mounted）就在同一份 value 里（本条目 Config 的
+        // volatile 字段），随本次 describe 一并取得——不必再发第二次 RPC。
+        const meta = asCatalogMeta(view.value)
         publish({
           status: 'ready',
-          config: asConfig(view.value),
-          base: asConfig(view.base),
-          user: asConfig(view.user),
+          config: asRouterConfig(view.value),
+          base: asRouterConfig(view.base),
+          user: asRouterConfig(view.user),
           writable: r.result.value.writable,
           error: null,
           catalog: snapshot.catalog,
           modelNames: snapshot.modelNames,
           providerNames: snapshot.providerNames,
           availability: snapshot.availability,
-          efforts: snapshot.efforts,
+          efforts: meta.efforts ?? snapshot.efforts,
+          mounted: meta.mounted ?? snapshot.mounted,
         })
       } catch (error) {
         fail(error)
@@ -339,7 +377,9 @@ export function createCardStore(
       else if (connection !== null) {
         const r = (await connection.api.settings.mutate({
           ns: CARD_NAMESPACE,
-          ops: [{ op: 'set', path: [field], value }],
+          // 0.1.7：路径前缀补上 `router`——describe 的 value 是整条 entry Config
+          // （router/efforts/mounted/tunables），路由字段在其 router 子树下。
+          ops: [{ op: 'set', path: [CARD_CONFIG_PATH, field], value }],
           ...(revision === undefined ? {} : { expectedRevision: revision }),
         })) as { result?: SettingsRpcResult<unknown> } | undefined
         // I1 终审修复：宿主校验拒绝经 result 通道返回（不抛）——ok:false
@@ -453,7 +493,7 @@ export function createCardStore(
       else if (connection !== null) {
         await connection.api.settings.mutate({
           ns: CARD_NAMESPACE,
-          ops: [{ op: 'unset', path: [field] }],
+          ops: [{ op: 'unset', path: [CARD_CONFIG_PATH, field] }],
           ...(revision === undefined ? {} : { expectedRevision: revision }),
         })
       }

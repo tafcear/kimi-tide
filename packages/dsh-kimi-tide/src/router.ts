@@ -23,7 +23,7 @@ import type {
   LlmCallConfig,
   Message,
   ReasoningEffortId,
-  ToolResultBlock,
+  RequestUserInput,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -460,7 +460,7 @@ export class KimiRouter {
 export interface RouterOrchestrationDeps {
   images: ImageStateStore
   transcriber: Transcriber
-  resolveImages: (messages: readonly UserMessage[]) => ResolvedImage[]
+  resolveImages: (messages: readonly Message[]) => ResolvedImage[]
   onDecision?: (agent: Agent, decision: RouteDecision, extra?: { flowId?: string; flowDigest?: string }) => void
   transcribeTimeoutMs?: number
   /** 1.1.0 §7：评审完成回调（dock 流事件行 + 面板刷新由 index.ts 实现）。 */
@@ -531,22 +531,24 @@ function boundedSignal(base: AbortSignal | undefined, timeoutMs: number): AbortS
 
 /**
  * 从消息批次提取图块的持久引用（spike S1 实证线形：ImageBlock.attachment =
- * ImageAttachmentRef，提取即得 ref，无需 readImage 读字节）。tool-result 嵌套
- * 图块递归同款提取；无 attachmentId 的图块（非 rc.2 线形）忽略。
+ * ImageAttachmentRef，提取即得 ref，无需 readImage 读字节）。无 attachmentId
+ * 的图块（非 rc.2 线形）忽略。
+ *
+ * 0.1.7 线形变更：工具结果从「user 消息里的 `tool-result` 嵌套块」升格为独立的
+ * `tool` 角色消息（`ToolResultMessage.content: [ToolResultBlock]`），其内层图块
+ * 现在是**消息级**而非块级嵌套 ⇒ 遍历“消息 → content”即自然覆盖主轮图块与工具
+ * 产生的图块，原先对嵌套块的递归在新宿主上已无对应结构（0.1.1 的
+ * `ContentBlockMap['tool-result']` 在 0.1.7 已从块族移除）。
  */
-export function extractResolvedImages(messages: readonly UserMessage[]): ResolvedImage[] {
+export function extractResolvedImages(messages: readonly Message[]): ResolvedImage[] {
   const out: ResolvedImage[] = []
-  const walk = (blocks: readonly ContentBlock[]): void => {
-    for (const block of blocks) {
-      if (block.type === 'image') {
-        const ref = (block as ImageBlock).attachment
-        if (typeof ref?.attachmentId === 'string') out.push({ attachmentId: ref.attachmentId, ref })
-      } else if (block.type === 'tool-result') {
-        walk((block as ToolResultBlock).content)
-      }
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type !== 'image') continue
+      const ref = (block as ImageBlock).attachment
+      if (typeof ref?.attachmentId === 'string') out.push({ attachmentId: ref.attachmentId, ref })
     }
   }
-  for (const message of messages) walk(message.content)
   return out
 }
 
@@ -569,10 +571,15 @@ export function createStreamVisionCaller(ctx: Context, resolveEfforts: EffortRes
       { type: 'text', text: prompt },
       ...images.map((img) => ({ type: 'image', attachment: img.ref })),
     ] as unknown as ContentBlock[]
+    // 0.1.7 语义纠错：手工构造的 `{role:'user', content}` 恰好就是 RequestUserInput
+    // （一次性输入，无持久身份）——旧写法 `as unknown as Message[]` 是欺骗性断言，
+    // 而 GenerateOptions.messages 收的正是 RequestMessage[]（= Message |
+    // RequestUserInput），直接按 RequestUserInput 声明即可，零断言。
+    const message: RequestUserInput = { role: 'user', content }
     const options: GenerateOptions = {
       provider: target.provider,
       model: target.model,
-      messages: [{ role: 'user', content }] as unknown as Message[],
+      messages: [message],
       ...(signal === undefined ? {} : { signal }),
     }
     // 0.8.0 D3：visionModel.effort 经支持集判定后显式下发；不支持/未配置 →
@@ -603,8 +610,12 @@ interface Rewrite<T> { out: T; changed: boolean }
 
 /**
  * 把命中转述缓存的图块替换为 `{ type:'text', text: 转述文字 }`；无缓存图块保留
- * （rc.2 原生占位投影兜底）；tool-result 嵌套图块递归同款处理。绝不原地
- * mutation——loop 请求深冻结（dsh-llm deepFreeze），一律构造新块/新数组。
+ * （rc.2 原生占位投影兜底）。绝不原地 mutation——loop 请求深冻结（dsh-llm
+ * deepFreeze），一律构造新块/新数组。
+ *
+ * 0.1.7 线形变更：`tool-result` 不再是块类型，工具结果已是独立的 `tool` 角色
+ * 消息，其内层图块由 rewriteMessagesForText 的消息级遍历覆盖 ⇒ 块级函数不需要
+ * （也无法）再递归嵌套块。
  */
 function rewriteBlocksForText(
   blocks: readonly ContentBlock[],
@@ -618,9 +629,6 @@ function rewriteBlocksForText(
       const ref = (block as ImageBlock).attachment
       const text = typeof ref?.attachmentId === 'string' ? peek(ref.attachmentId) : undefined
       if (text !== undefined) next = { type: 'text', text }
-    } else if (block.type === 'tool-result') {
-      const inner = rewriteBlocksForText((block as ToolResultBlock).content, peek)
-      if (inner.changed) next = { ...block, content: inner.out } as ContentBlock
     }
     if (next !== block) {
       if (out === null) out = blocks.slice(0, i) as ContentBlock[]
@@ -632,12 +640,19 @@ function rewriteBlocksForText(
   return out === null ? { out: blocks as ContentBlock[], changed: false } : { out, changed: true }
 }
 
-/** 消息级同款替换（新消息数组 + 新消息对象；无命中时原引用返回）。 */
-function rewriteMessagesForText(
-  messages: readonly Message[],
+/**
+ * 消息级同款替换（新消息数组 + 新消息对象；无命中时原引用返回）。
+ *
+ * 0.1.7 线形变更：请求消息不再是窄化的 `Message`——`RequestMessage = Message |
+ * RequestUserInput`（一次性输入无 id/source，见 dsh-llm types.d.ts）。故本函数对
+ * 消息类型泛型化（只要求「有 content」），返回值与入参同型，调用方（llm/stream
+ * 投影拦截器）的载荷形状得以零改动穿过。
+ */
+function rewriteMessagesForText<T extends { readonly content: readonly ContentBlock[] }>(
+  messages: readonly T[],
   peek: (attachmentId: string) => string | undefined,
-): Rewrite<Message[]> {
-  let out: Message[] | null = null
+): Rewrite<T[]> {
+  let out: T[] | null = null
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     const inner = rewriteBlocksForText(message.content, peek)
@@ -648,7 +663,7 @@ function rewriteMessagesForText(
       out.push(message)
     }
   }
-  return out === null ? { out: messages as Message[], changed: false } : { out, changed: true }
+  return out === null ? { out: messages as T[], changed: false } : { out, changed: true }
 }
 
 /**

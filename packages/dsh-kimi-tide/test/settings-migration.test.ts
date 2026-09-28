@@ -43,7 +43,7 @@ describe('migrateSidecarIntoScope', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('skips (dirty) when the user layer already differs from defaults+base', async () => {
+  it('skips (dirty) when the entry carries an explicit edited v5 config', async () => {
     const dir = tmp()
     const file = join(dir, 'kimi-tide-router.yml')
     writeFileSync(file, YAML.stringify(DEFAULT_CONFIG_V4()), 'utf8')
@@ -51,10 +51,26 @@ describe('migrateSidecarIntoScope', () => {
     const dirty: RouterConfigV4 = { ...resolved, activePreset: 'saving' }
     const scope = fakeScope(dirty)
     const errors: string[] = []
-    expect(await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, onError: (m) => errors.push(m) })).toBe('skipped-dirty')
+    // 0.1.7 口径：脏 = 条目带「显式 v5 配置」（hasExplicitV5Config），不再靠结构比对
+    // 猜（宿主解析值自带 schema 默认，结构比对在未配置条目上必然不等、会假判脏）。
+    expect(await migrateSidecarIntoScope({ sidecarFile: file, scope, entry: {}, hasExplicitEntryConfig: true, onError: (m) => errors.push(m) })).toBe('skipped-dirty')
     expect(scope.replaced).toBeNull()
     expect(errors.some((m) => m.includes('跳过'))).toBe(true)
     expect(existsSync(file)).toBe(true)   // 未改名
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('imports when the entry has no explicit v5 config even if the resolved value differs', async () => {
+    const dir = tmp()
+    const file = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(file, YAML.stringify({ ...DEFAULT_CONFIG_V4(), activePreset: 'saving' }), 'utf8')
+    // 未配置条目 ⇒ 宿主给出的解析值（带 schema 默认）与 entry 基线必然不同结构，
+    // 但这不是「用户编辑」——必须照常导入。
+    const scope = fakeScope(mergeResolved({}))
+    expect(await migrateSidecarIntoScope({
+      sidecarFile: file, scope, entry: {}, hasExplicitEntryConfig: false, onError,
+    })).toBe('imported')
+    expect((scope.replaced as RouterConfigV4).activePreset).toBe('saving')
     rmSync(dir, { recursive: true, force: true })
   })
 

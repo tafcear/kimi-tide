@@ -355,7 +355,7 @@ describe('createCardStore write paths（v4 配置夹具）', () => {
   })
 
   it('passes the describe revision as expectedRevision on connection mutate', async () => {
-    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4(), revision: 7 }])
+    const { connection, mutate } = makeConnection([{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V4() }, revision: 7 }])
     const store = createCardStore(null, connection)
 
     await store.load()
@@ -363,8 +363,8 @@ describe('createCardStore write paths（v4 配置夹具）', () => {
 
     // Fails if: the connection/mutate write drops the optimistic-concurrency fence.
     expect(mutate).toHaveBeenCalledWith({
-      ns: 'kimi-tide-router',
-      ops: [{ op: 'set', path: ['activePreset'], value: 'saving' }],
+      ns: 'dsh-kimi-tide',
+      ops: [{ op: 'set', path: ['router', 'activePreset'], value: 'saving' }],
       expectedRevision: 7,
     })
   })
@@ -463,7 +463,7 @@ describe('createCardStore 协作流写路径（v5，Task 11 Step 1）', () => {
   })
 
   it('saveFlows 经 connection mutate 被拒（result.ok:false）→ error 上浮', async () => {
-    const { connection, mutate } = makeConnection([{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V5() }])
+    const { connection, mutate } = makeConnection([{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V5() } }])
     mutate.mockResolvedValueOnce({ result: { ok: false, error: { message: "validate: 规则 'r' 引用的协作流不存在" } } })
     const store = createCardStore(null, connection)
     await store.load()
@@ -478,7 +478,7 @@ describe('createCardStore 协作流写路径（v5，Task 11 Step 1）', () => {
 describe('createCardStore availability 降级（connection.api.llm.models）', () => {
   it('degrades to no grey-state (not an error) when the llm channel fails', async () => {
     const { connection } = makeConnection(
-      [{ ns: 'kimi-tide-router', value: DEFAULT_CONFIG_V4() }],
+      [{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V4() } }],
       undefined,
       new Error('rpc down'),
     )
@@ -515,7 +515,7 @@ describe('settings.section registration', () => {
     else globalThis.document = originalDocument
   })
 
-  it('registers a settings.section with id kimi-tide-router and order 100', () => {
+  it('registers a settings.section with id dsh-kimi-tide and order 100', () => {
     const injects: Array<{ name: string; factory: () => void }> = []
     const registers: Array<{ options: Record<string, unknown>; component: unknown }> = []
     const ctx = {
@@ -542,7 +542,7 @@ describe('settings.section registration', () => {
     const reg = registers.find((r) => r.options.name === 'settings.section')
     expect(reg).toBeDefined()
     // Fails if: the section id/order/label drifts from the plan's contract.
-    expect(reg!.options.id).toBe('kimi-tide-router')
+    expect(reg!.options.id).toBe('dsh-kimi-tide')
     expect(reg!.options.order).toBe(100)
     expect((reg!.options.label as () => string)()).toBe('月汐')
     expect(reg!.component).toBe(SettingsCard)

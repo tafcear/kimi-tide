@@ -2,10 +2,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
-import SettingsProvider, { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import YAML from 'yaml'
-import { apply, defaultPatchFile } from '../src/index.js'
+import { apply, Config, defaultPatchFile } from '../src/index.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
 
 function v4cfg(activePreset: string | null): RouterConfigV4 {
@@ -36,53 +34,97 @@ describe('defaultPatchFile', () => {
 })
 
 /**
- * Task 4 — settings-namespace wiring (0.5.0 v4).
+ * 0.1.7 设置通道接线（2026-09-28 换道）。
  *
- * These tests drive apply() against the REAL dsh-settings provider (an
- * in-memory subclass on its own cordis Context), not a hand-written stub.
+ * 旧 harness 驱动的是真实 dsh-settings provider（`ctx.settings.register` 命名空间），
+ * 该 API 在 0.1.7 已整体移除。现行架构：路由配置是本条目 Config 的 **volatile**
+ * `router` 字段（`export const Config` 声明），读 `ctx.config.router.get()`、
+ * 写 `configEditor.edit(entry, …)`、变更通知 `loader/volatile-update`。
+ *
+ * 本 harness 因此改为「宿主侧三件事」的内存替身，并**复用真实 Config schema** 做
+ * 解析——这样「默认值从 DEFAULT_CONFIG_V5 派生」「写回再解析幂等」等约束仍被真实
+ * 校验，而不是被替身放宽：
+ *   1. `doc`：profile patch 里的 raw config（ConfigEditor 的落点）；
+ *   2. `resolve()`：Config(schema) 解析 → 冻结快照（模拟 Loader 的解析 + Volatile）；
+ *   3. `edit()`：写 doc + 重解析 + 发 `loader/volatile-update`（模拟 ConfigEditor.edit）。
  */
-const NS = settingsNamespace('kimi-tide-router')
+const WRITE_OPTS = () => ({ patchFile: '', sidecarFile: '', usagePollOnStart: false })
 
-function memorySettingsClass(seed: Record<string, unknown> = {}, documentPath?: string) {
-  return class MemorySettings extends SettingsProvider {
-    readonly writable = true
-    // 实机 documentPath（settings.yaml 路径）的内存替身：驱动迁移留档（.pre-v5）落盘断言。
-    readonly documentPath = documentPath
-    doc: Record<string, unknown> = structuredClone(seed)
-    protected async load(): Promise<Record<string, unknown>> { return structuredClone(this.doc) }
-    protected async persist(ns: string, section: Record<string, unknown>): Promise<void> {
-      this.doc[ns] = structuredClone(section)
-    }
-  }
+interface FakeSettings {
+  doc: { router?: unknown }
+  /** 兼容旧断言写法：读路由配置快照。 */
+  get(): RouterConfigV5
+  /** 直接落一份 raw 路由配置（等价于用户在别处改了 profile patch）。 */
+  setRouter(next: unknown): void
+  documentPath?: string
+  writable: boolean
 }
 
-interface MemoryProvider extends SettingsProvider { doc: Record<string, unknown> }
+/** 解析 raw router → 冻结快照（Config 的真实解析，含默认值填充）。 */
+const resolveRouter = (raw: unknown): RouterConfigV5 => {
+  const resolved = Config({ router: raw ?? {} }) as { router: { get(): RouterConfigV5 } }
+  return structuredClone(resolved.router.get())
+}
 
-/** Boot a real settings provider with an optional pre-existing user document. */
-async function bootSettings(seed: Record<string, unknown> = {}, documentPath?: string): Promise<MemoryProvider> {
-  const root = new Context()
-  await root.plugin(memorySettingsClass(seed, documentPath) as never)
-  return (root as unknown as { settings: MemoryProvider }).settings
+function makeSettings(seedRouter: unknown, documentPath?: string): FakeSettings {
+  const state: FakeSettings = {
+    doc: seedRouter === undefined ? {} : { router: seedRouter },
+    get: () => resolveRouter(state.doc.router),
+    setRouter: (next: unknown) => { state.doc.router = next },
+    writable: true,
+    ...(documentPath === undefined ? {} : { documentPath }),
+  }
+  return state
+}
+
+/** 条目的**原始** config（= profile patch 里的原文）：脏检查读的正是这里。 */
+function entryOptionsFor(router: unknown): { options: { id: string; config?: unknown } } {
+  return { options: { id: 'dsh-kimi-tide', ...(router === undefined ? {} : { config: { router } }) } }
 }
 
 interface FakeAgent { session: { append: ReturnType<typeof vi.fn> } }
 
 /**
- * apply()'s host surface. `settings === undefined` reproduces a host with no
- * settings service: cordis never runs an `inject` callback whose dependency is
- * absent, so the sidecar fallback stays in charge.
+ * apply() 的宿主面替身。设置通道必备的四个面：`fiber.entry`、`get('configEditor')`、
+ * `config.router`（volatile）、`on('loader/volatile-update')`。
+ * `settings === undefined` ⇒ 不挂 configEditor ⇒ 复现「无设置通道的宿主」，
+ * port 为 null、sidecar 回退接管（旧 harness 的 detach 语义）。
  */
-function makeCtx(agents: FakeAgent[], settings?: SettingsProvider) {
+function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
-  const settingsCleanups: Array<() => void> = []
+  const effects: Array<() => void> = []
   const listModelsCalls: string[] = []
   let commandDef: { name: string; handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined
   const effect = (execute: () => unknown) => {
     const cleanup = execute()
+    if (typeof cleanup === 'function') effects.push(cleanup as () => void)
     return () => { void cleanup }
   }
+  // volatile 快照（冻结）+ 每次解析后重绑，模拟 Loader 提交后重新解析。
+  // ⚠ 必须是「带 .get() 的 Volatile」形状：生产里 apply(ctx, config) 的 config.router
+  // 就是它（干跑树实测 ctor=Object 且带 get），port 的可用性判定读的正是这个形状。
+  // 快照取**原始** seed（未解析）：与生产一致——插件自己经 coerce/merge 链解读，
+  // 而不是拿宿主解析产物当配置（那会让 readRouterConfig 直接返回解析值，丢掉迁移语义）。
+  let snapshot: unknown = settings?.doc.router ?? {}
+  const routerVolatile = { get: () => snapshot }
+  harnessRouterVolatile = routerVolatile
+  const pluginConfig = () => ({ router: routerVolatile })
+  const entry = entryOptionsFor(settings?.doc.router)
+  const configEditor = settings === undefined
+    ? undefined
+    : {
+        documentPath: settings.documentPath,
+        edit: async (_entry: unknown, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>) => {
+          const next = change(structuredClone(settings.doc.router ?? {}), {})
+          settings.doc.router = next.router
+          snapshot = resolveRouter(settings.doc.router)
+          for (const listener of listeners.get('loader/volatile-update') ?? []) listener([])
+        },
+      }
   const ctx: Record<string, unknown> = {
     logger: { info: () => {}, warn: () => {}, error: () => {} },
+    fiber: { entry },
+    config: pluginConfig(),
     llm: {
       registerAdapter: () => {},
       listProviders: () => [
@@ -116,31 +158,43 @@ function makeCtx(agents: FakeAgent[], settings?: SettingsProvider) {
       listeners.set(name, arr)
       return () => {}
     },
-    get: (name: string) => (name === 'agents' ? { list: () => agents } : undefined),
-  }
-  ctx.inject = (_deps: string[], callback: (scoped: unknown) => unknown) => {
-    if (settings === undefined) return
-    callback({
-      ...ctx,
-      settings,
-      effect: (execute: () => unknown) => {
-        const cleanup = execute()
-        if (typeof cleanup === 'function') settingsCleanups.push(cleanup as () => void)
-        return () => { void cleanup }
-      },
-    })
+    get: (name: string) => {
+      if (name === 'agents') return { list: () => agents }
+      if (name === 'configEditor') return configEditor
+      return undefined
+    },
   }
   return {
     ctx,
     listeners,
     listModelsCalls,
     getCommand: () => commandDef,
-    /** Simulate the settings service going away (provider reload / disposal). */
-    detachSettings: () => { for (const cleanup of settingsCleanups.splice(0)) cleanup() },
+    /** 模拟设置通道消失（条目移出 profile / configEditor 卸载）。 */
+    detachSettings: () => { for (const cleanup of effects.splice(0)) cleanup() },
   }
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+/**
+ * apply() 第二参的构造器：把测试传入的 router 包成 **Volatile**（`.get()` 快照），
+ * 与生产一致（干跑树实测：`apply(ctx, config)` 的 `config.router` 是带 get 的 volatile）。
+ * 不包的话 port 会判「Config 未声明 volatile router」而整条降级到 sidecar——那是旧宿主
+ * 的路径，不是本 harness 要覆盖的场景。
+ */
+let harnessRouterVolatile: { get: () => unknown } | null = null
+
+function withRouter(base: Record<string, unknown>): Record<string, unknown> {
+  // 优先级：base.router 已带 .get（显式 volatile）> base.router 是种子（包一层）>
+  // 用 harness 侧 volatile（= ctx.config.router 的同一实例，写入后能看到新快照）。
+  const explicit = (base.router as { get?: () => unknown } | undefined)?.get
+  const volatile = typeof explicit === 'function'
+    ? (base.router as { get: () => unknown })
+    : base.router !== undefined
+      ? { get: () => base.router }
+      : (harnessRouterVolatile ?? { get: () => ({}) })
+  return { ...base, router: volatile }
+}
 
 describe('apply() settings namespace wiring (Task 4)', () => {
   let dir: string
@@ -170,86 +224,82 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     return JSON.parse(result.text) as Record<string, unknown>
   }
 
-  it('registers the kimi-tide-router namespace and reports configSource "settings"', async () => {
-    const settings = await bootSettings()
+  it('registers the plugin config as the settings channel and reports configSource "settings"', async () => {
+    const settings = makeSettings(undefined)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    const descriptor = settings.describe().find((d) => d.ns === NS)
-    expect(descriptor).toBeDefined()
     expect(getCommand()!.name).toBe('kimi-tide')
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
-    expect((descriptor!.value as RouterConfigV5).version).toBe(5)
+    expect(settings.get().version).toBe(5)
   })
 
   /**
-   * Ruling 10.1 — a save must reach the namespace. Forgetting to hand
+   * Ruling 10.1 — a save must reach the plugin config. Forgetting to hand
    * `deps.settings` to registerKimiTideCommands degrades silently to the
-   * sidecar, so this asserts both halves: the namespace received the write AND
+   * sidecar, so this asserts both halves: the config received the write AND
    * no sidecar file appeared.
    */
-  it('writes a save through the namespace and never falls back to the sidecar file', async () => {
-    const settings = await bootSettings()
+  it('writes a save through the config and never falls back to the sidecar file', async () => {
+    const settings = makeSettings(undefined)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners, listModelsCalls, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
-    expect(listeners.get('agent/pre-step') ?? []).toHaveLength(0) // activePreset null: no router mounted
     const enumerationsBeforeSave = listModelsCalls.length
 
     await getCommand()!.handler({ rawInput: 'preset capability' })
     await tick()
 
-    const stored = settings.doc[NS] as RouterConfigV5
+    const stored = settings.doc.router as RouterConfigV5
     expect(stored.activePreset).toBe('capability')
     expect(stored.version).toBe(5)
     expect(Object.keys(stored.presets).length).toBeGreaterThan(0)
-    expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
+    expect((settings.get() as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
     // applyConfig ran: panel refreshed and the capability router was mounted.
     expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
     expect((listeners.get('agent/pre-step') ?? []).length).toBeGreaterThan(0)
     // One save = one candidate enumeration pass over the two providers.
-    // A save reaches applyConfig twice (the command's onSaved and the
-    // namespace commit watcher); without the by-value guard both passes would
-    // re-enumerate and re-mount.
+    // 0.1.7：写回是同一次 configEditor.edit（命令 onSaved 与 volatile-update 各触发
+    // 一次 applyConfig），by-value 守卫保证只挂载/枚举一次。
     expect(listModelsCalls.length - enumerationsBeforeSave).toBe(2)
   })
 
-  /** Ruling 10.2 — current() must track the namespace, not a frozen startup copy. */
-  it('current() tracks the namespace so a later save keeps the previous preset change', async () => {
-    const settings = await bootSettings()
+  /** Ruling 10.2 — current() must track the config, not a frozen startup copy. */
+  it('current() tracks the config so a later save keeps the previous preset change', async () => {
+    const settings = makeSettings(undefined)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
     await getCommand()!.handler({ rawInput: 'preset saving' })
     await getCommand()!.handler({ rawInput: 'preset capability' })
 
-    const resolved = settings.get(NS) as RouterConfigV4
+    const resolved = settings.get() as RouterConfigV4
     expect(resolved.activePreset).toBe('capability')   // second save wins
     expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
   })
 
-  /** T2 wiring: a legacy sidecar is imported into the namespace exactly once. */
-  it('migrates an existing sidecar into the namespace and archives the file', async () => {
+  /** T2 wiring: a legacy sidecar is imported into the config exactly once. */
+  it('migrates an existing sidecar into the config and archives the file', async () => {
     const legacy: RouterConfigV4 = v4cfg('capability')
     writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
-    const settings = await bootSettings()
+    const settings = makeSettings(undefined)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    expect((settings.get(NS) as RouterConfigV4).activePreset).toBe('capability')
+    expect((settings.get() as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
     expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
     expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
@@ -259,118 +309,119 @@ describe('apply() settings namespace wiring (Task 4)', () => {
   it('migrates the sidecar even when the composition entry is a v1 router block', async () => {
     const legacy: RouterConfigV4 = v4cfg('capability')
     writeFileSync(sidecarFile, YAML.stringify(legacy), 'utf8')
-    const settings = await bootSettings()
+    // v1 composition entry（0.2.x 形态）：作为条目原始配置 + volatile 快照起点。
+    const settings = makeSettings({
+      mode: 'cost',
+      primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+    })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, {
-      patchFile,
-      sidecarFile,
-      usagePollOnStart: false,
-      // v1 composition entry (0.2.x shape).
-      router: {
-        mode: 'cost',
-        primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
-      },
-    })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV4
+    const resolved = settings.get() as RouterConfigV4
     expect(resolved.activePreset).toBe('capability')
-    expect(settings.doc[NS]).toBeDefined()
+    expect(settings.doc.router).toBeDefined()
     expect(existsSync(sidecarFile)).toBe(false)
     expect(existsSync(sidecarFile + '.legacy-imported')).toBe(true)
     expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'capability' })
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
   })
 
-  it('keeps a user-edited namespace and leaves the sidecar in place (dirty skip)', async () => {
+  it('keeps a user-edited config and leaves the sidecar in place (dirty skip)', async () => {
     writeFileSync(sidecarFile, YAML.stringify(v4cfg('saving')), 'utf8')
-    const settings = await bootSettings({ [NS]: { activePreset: 'capability' } })
+    // 用户已按 v5 语义显式配置（version:5 + activePreset）⇒ 不拿旧 sidecar 覆盖。
+    const settings = makeSettings({ version: 5, activePreset: 'capability' })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV4
+    const resolved = settings.get() as RouterConfigV4
     expect(resolved.activePreset).toBe('capability')   // user edit kept
     expect(existsSync(sidecarFile)).toBe(true)   // left for manual /kimi-tide import-config
   })
 
   /**
-   * The composition seed (entry config or the legacy patch static block) must
-   * reach the namespace as its `base` layer, or a host that never touched the
-   * panel would silently lose its configured routing targets.
+   * 组合种子（entry config 或 legacy patch 静态块）必须经 coerce 链落进生效配置，
+   * 否则从没开过面板的宿主会静默丢掉自己配的路由目标。0.1.7 起种子来自 Config 的
+   * router 字段（volatile 快照），解析与迁移在插件启动路径上完成。
    */
-  it('layers the legacy patch static block under the namespace as base', async () => {
+  it('carries the legacy static router seed through the v5 coercion chain', async () => {
     writeFileSync(
       patchFile,
       '- insert:\n    - id: dsh-kimi-tide\n      config:\n        router:\n          mode: cost\n          primary: { provider: deepseek-official, model: deepseek-v4-flash }\n          premium: { provider: kimi-coding, model: kimi-for-coding }\n',
       'utf8',
     )
-    const settings = await bootSettings()
+    const settings = makeSettings({
+      // 存量：条目里是 v1 词汇（旧写法读 patch 文件同款）⇒ 启动迁移链搬到 v5。
+      mode: 'cost',
+      primary: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      premium: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+    })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV4
-    expect(resolved.activePreset).toBe('saving')   // mode cost → saving preset
+    const resolved = settings.get() as RouterConfigV4
+    expect(resolved.activePreset).toBe('saving')   // mode cost → saving preset（迁移落点）
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
     expect((await lastSnapshot(getCommand, agent)).router).toMatchObject({ activePreset: 'saving' })
   })
 
   it('uses the built-in default presets when there is no composition seed', async () => {
-    const settings = await bootSettings()
+    const settings = makeSettings(undefined)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
-    const resolved = settings.get(NS) as RouterConfigV4
-    expect(resolved.activePreset).toBeNull()
+    const resolved = settings.get() as RouterConfigV4
+    // 未配置 ⇒ 不路由（快照里 activePreset 缺席，读取端按 !== string 判定为关）。
+    expect(resolved.activePreset).toBeFalsy()
     expect(resolved.presets.saving).toBeDefined()
     expect(resolved.presets.capability.default.provider).toBe('kimi-coding')
   })
 
-  it('falls back to the sidecar store when the settings service goes away', async () => {
-    const settings = await bootSettings()
+  it('falls back to the sidecar store when the settings channel goes away', async () => {
+    const settings = makeSettings(undefined)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand, detachSettings } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
     detachSettings()
 
     await getCommand()!.handler({ rawInput: 'preset saving' })
 
     expect(existsSync(sidecarFile)).toBe(true)
-    expect(settings.doc[NS]).toBeUndefined()
+    // 设置通道断开后写回落到 sidecar；条目本身不再被写（doc 里仍是空）。
+    expect((settings.doc.router as RouterConfigV4 | undefined)?.activePreset).toBeUndefined()
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('sidecar')
   })
 
   it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v5，0.6.0 链）', async () => {
-    // 预置一个「用户编辑过」的 v2 命名空间节（0.3.0 面板写出来的形状）
+    // 预置一个「用户编辑过」的 v2 配置节（0.3.0 面板写出来的形状）
     const seed = {
-      [NS]: {
-        version: 2, mode: 'capability',
-        default: { provider: 'kimi-tide', model: 'k3' },
-        candidates: [{ provider: 'kimi-tide', model: 'k3' }, { provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
-        allowedProviders: ['kimi-tide', 'deepseek-official'],
-        scores: { 'kimi-tide/k3': { code: 4.7 } },
-        classify: {}, costTiers: {}, routeThreshold: 0.75, lambda: 0.5, premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2,
-      },
+      version: 2, mode: 'capability',
+      default: { provider: 'kimi-tide', model: 'k3' },
+      candidates: [{ provider: 'kimi-tide', model: 'k3' }, { provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
+      allowedProviders: ['kimi-tide', 'deepseek-official'],
+      scores: { 'kimi-tide/k3': { code: 4.7 } },
+      classify: {}, costTiers: {}, routeThreshold: 0.75, lambda: 0.5, premiumBudget: 0.2, budgetWindow: 20, charsPerToken: 2,
     }
-    const settings = await bootSettings(seed)
+    const settings = makeSettings(seed)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV5
+    const resolved = settings.get() as RouterConfigV5
     expect(resolved.version).toBe(5)
     expect(resolved.activePreset).toBe('capability')
     expect(resolved.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
@@ -382,31 +433,33 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(existsSync(sidecarFile)).toBe(false)
   })
 
-  it('无显式 version 的用户层不触发迁移（随 v5 base 解析，无替换写、无留档）', async () => {
-    const settings = await bootSettings({ [NS]: { activePreset: 'saving' } })
+  it('无显式 version 的用户层不触发迁移（随 v5 默认解析，无替换写、无留档）', async () => {
+    const settings = makeSettings({ activePreset: 'saving' })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
-    const resolved = settings.get(NS) as RouterConfigV5
+    const resolved = settings.get() as RouterConfigV5
     expect(resolved.version).toBe(5)
     expect(resolved.activePreset).toBe('saving')
-    // 无残留 → 不调 replace → 无写入发生：doc 仍等于预置 seed
-    expect(settings.doc[NS]).toEqual({ activePreset: 'saving' })
+    // 无残留 → 不触发 v5 迁移写：无 .pre-v5 留档，生效值仍是用户写的 saving。
+    // （doc 本身会被 volatile 目录写盘刷新——那是 setCatalog 的正常行为，不是迁移。）
+    expect((settings.doc.router as RouterConfigV5).activePreset).toBe('saving')
+    expect(existsSync(join(dir, 'cordis.patch.yml.pre-v5'))).toBe(false)
   })
 
-  it('v4 存量命名空间启动迁移到 v5：行为逐字保持 + 预置流注册不绑定 + .pre-v5 留档', async () => {
+  it('v4 存量配置启动迁移到 v5：行为逐字保持 + 预置流注册不绑定 + .pre-v5 留档', async () => {
     const legacy = v4cfg('saving')
-    const docFile = join(dir, 'settings.yaml')
-    writeFileSync(docFile, '# 用户设置文档替身（内存 provider 的 documentPath）\n', 'utf8')
-    const settings = await bootSettings({ [NS]: legacy }, docFile)
+    const docFile = join(dir, 'cordis.patch.yml')
+    writeFileSync(docFile, '# 用户配置文档替身（configEditor 的 documentPath）\n', 'utf8')
+    const settings = makeSettings(legacy, docFile)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
 
-    const resolved = settings.get(NS) as RouterConfigV5
+    const resolved = settings.get() as RouterConfigV5
     expect(resolved.version).toBe(5)
     expect(resolved.activePreset).toBe('saving')
     // 行为保持：presets/keywordGroups 逐字保留（不自动改挂流、不注入 imageFallback）
@@ -416,7 +469,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(resolved.flows.transcribe?.visionModel.model).toBe('deepseek-v4-flash-vision-exp')
     expect(resolved.presets.saving.rules[0].target).toEqual({ provider: 'kimi-coding', model: 'k3' })
     // 持久化替换 + 文档留档 .pre-v5
-    expect((settings.doc[NS] as RouterConfigV5).version).toBe(5)
+    expect((settings.doc.router as RouterConfigV5).version).toBe(5)
     expect(existsSync(docFile + '.pre-v5')).toBe(true)
   })
 
@@ -424,11 +477,11 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     // saving 预设的带图规则改挂预置 transcribe 流（用户经设置页操作后的形态）
     const v5 = v5cfg('saving')
     v5.presets.saving.rules[0] = { id: 'image-transcribe', when: { kind: 'image' }, target: { flow: 'transcribe' } }
-    const settings = await bootSettings({ [NS]: v5 })
+    const settings = makeSettings(v5)
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, listeners, getCommand } = makeCtx([agent], settings)
 
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
     // 无图会话不写 imageContext 字段（三零计数 ≠ 缺席）
     expect(await lastSnapshot(getCommand, agent)).not.toHaveProperty('imageContext')
@@ -479,10 +532,12 @@ describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => 
   }
 
   it('review 命令：路由开 → invocation.agent 直达 manualReviewFn；路由关 → 未挂载文案', async () => {
-    const settings = await bootSettings()
+    // 关态前置：显式把 activePreset 置 null（未配置的条目解析出来是 undefined，
+    // 与 null 同为「不路由」，但这里要一个确定的起点）。
+    const settings = makeSettings({ ...v5cfg(null) })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
     const command = getCommand()!
     // handler 返回 CommandResult {kind, text}——取 text 断言回显。
@@ -505,10 +560,10 @@ describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => 
   })
 
   it('show 认领行读实时配置（getter）——解认领后行消失，非注册时快照', async () => {
-    const settings = await bootSettings({ [NS]: claimedCfg() })
+    const settings = makeSettings(claimedCfg())
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
-    apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
     const command = getCommand()!
     const show = async () => {

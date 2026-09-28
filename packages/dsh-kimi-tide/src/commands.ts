@@ -59,6 +59,12 @@ export interface SettingsNamespacePort {
   get(): RouterConfigAny
   update(patch: object): Promise<void>
   replace(section: object): Promise<void>
+  /**
+   * 0.1.7 新增：把「运行面目录数据」（effort 档位表 + 真实挂载表）写进本条目 Config 的
+   * volatile 字段，供客户端经同一次 settings.describe 读取。旧实现是向自有命名空间
+   * `kimi-tide-catalog` 写入（该通道随 settings.register 一并取消）。
+   */
+  setCatalog?(section: { efforts: Record<string, string[]>; mounted: string[] }): Promise<void>
 }
 
 export interface KimiTideCommandDeps {

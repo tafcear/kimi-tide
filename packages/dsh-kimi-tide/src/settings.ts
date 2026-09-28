@@ -18,7 +18,7 @@
  *      元素含逗号/特殊字符即往返破损。
  */
 import { copyFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import Schema from 'schemastery'
+import Schema from '@deepseek-ai/schemastery'
 import type { RouteTarget } from './config.js'
 
 /* ---- @legacy v1（0.2.x）配置形状：patch 文件 router 节读写的词汇。

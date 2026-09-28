@@ -13,7 +13,7 @@ import { TideDock, tideDockBridge, tideDockPanelSource } from './TideDock.js'
 import type { KimiTidePanelProjection } from '../types.js'
 import { SettingsCard } from './SettingsCard.js'
 import { fetchCatalogMetaViaRemoteDescribe, fetchEffortsViaDescribe } from './effort-remote.js'
-import type { ConnectionLike } from './card-store.js'
+import { CARD_NAMESPACE, type ConnectionLike } from './card-store.js'
 import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
 import { REVIEW_NODE_KIND, ReviewCard, reviewNodeDefinition } from './ReviewCard.js'
@@ -231,21 +231,22 @@ export function apply(ctx: Context): void {
     const loopbackDescribe = remoteSettings?.describe?.bind(remoteSettings) ?? null
     return ctx.slots.register({
       name: 'settings.section',
-      id: 'kimi-tide-router',
+      // 0.1.7：卡片 id 与 profile entry id 单源（settings.describe 的 ns 恒等于 entry id）。
+      id: CARD_NAMESPACE,
       order: 100,
       label: navLabel,
       inject: () => ({
         scope: (ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
-          ?.bind({ namespace: 'kimi-tide-router' }) ?? null,
+          ?.bind({ namespace: CARD_NAMESPACE }) ?? null,
         connection: connectionFace,
         fetchEfforts: () =>
           loopbackDescribe !== undefined
             ? fetchCatalogMetaViaRemoteDescribe(loopbackDescribe)
             : fetchEffortsViaDescribe(connectionFace as Parameters<typeof fetchEffortsViaDescribe>[0]).catch(() => ({})),
-        // 0.8.x④：绑 catalog 命名空间 scope 作变更信号（官方 document-updated
-        // 推送缝）——宿主 adapters 刷新重写档位表时卡片重取 efforts。
-        catalogScope: ((ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
-          ?.bind({ namespace: 'kimi-tide-catalog' }) ?? null) as { subscribe(listener: () => void): () => void } | null,
+        // 0.8.x④ 的 catalogScope 变更缝在 0.1.7 已无对应物（自有命名空间取消）：
+        // 档位表现为本条目 Config 的 volatile 字段，随 describe 一并回来，并在
+        // 卡片订阅 settings/document-updated 时刷新（见 card-store 的 reload 路径）。
+        catalogScope: null,
       }),
     }, SettingsCard)
   })
