@@ -171,7 +171,7 @@ python "E:\BaiduSyncdisk\Data\vibe-coding\kimi-tide\_k3-handoff-verify\decode-pr
 
 ### 未办（如实登记）
 
-- **GitHub issue 未建**：`gh` 认证失效（token invalid，需维护者 `gh auth login -h github.com`）——本单待办 6。
-- **可观测面只补了"让位/覆盖"两处**：本单待办 4 设想的"派发时记录请求模型 vs 实际落点"的**可查面**（可查询、不靠手工解码）未做——B-1a 后"请求 ≠ 实际"已只发生在主会话（设计使然），优先级下降，留待维护者定。
-- **未发布**：无版本号变更、未打 tag；CHANGELOG 为"按版本"结构，该修复应在下次发版条目中体现（AGENTS.md 的发版门禁与双语四段式正文照旧）。
+- ✅ **GitHub issue 已建（2026-09-28 补记，本条闭环）**：[tafcear/kimi-tide#6](https://github.com/tafcear/kimi-tide/issues/6)「缺陷：派发时显式指定的 provider/model 被预设「打底」静默改写（含 review-k3 死规则）」，label `bug`；正文含对照探针表、源码级根因、A/B 处置与验证证据，并显式登记「`review-k3` 之死只因为评审流认领同组 ⇒ 若本意是审查跑 K3 就保留规则 + trigger=manual」这条后果。（原阻碍 `gh` 认证已于 09-22 修复；本单待办 6 就此办结。）
+- **可观测面只补了"让位/覆盖"两处**：本单待办 4 设想的"派发时记录请求模型 vs 实际落点"的**可查面**（可查询、不靠手工解码）未做——B-1a 后"请求 ≠ 实际"已只发生在主会话（设计使然），优先级下降，留待维护者定（已在 issue #6 「后续待定」节登记）。
+- ✅ **已随 v1.3.1 发布（2026-09-28 补记）**：本修复原为"未发布"（无版本号变更、未打 tag）。现已随 **v1.3.1** 发布（[Release](https://github.com/tafcear/kimi-tide/releases/tag/v1.3.1)，含 700/700 测试数与 B-1a 行为变更的用户视角说明）；tag 消息即 Release 正文，双语四段式门禁通过。
 
