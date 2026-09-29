@@ -118,6 +118,18 @@ export function rawRouterConfig(config: unknown, entryConfig?: unknown): unknown
 }
 
 /**
+ * 「当前是否有生效的预设」——**唯一**的正确判据。
+ *
+ * 0.1.7 实测：宿主对「未配置 router 的条目」解析出的 `activePreset` 是 `undefined`
+ * （不是 schema 声明的 `null`），而插件内部旧代码一律只判 `!== null` ⇒ 那种情况下
+ * 会**带着非法预设去挂路由器**（`presets[undefined]`）。凡「开/关路由」的判定都走
+ * 本函数，别各自写 `!== null`。
+ */
+export function hasActivePreset(config: { activePreset?: unknown }): boolean {
+  return typeof config.activePreset === 'string' && config.activePreset.length > 0
+}
+
+/**
  * 条目是否带**旧词汇**（v1~v4）配置——即需要走 coerce 迁移链的存量形态。
  *
  * v1~v4 的判别标记：`mode` / `primary` / `premium` / `default`（v5 已无这些键）。

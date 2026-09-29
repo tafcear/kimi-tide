@@ -43,7 +43,7 @@ import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
 import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
 import { routerConfigSchema } from './settings-schema.js'
-import { createSettingsPort, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
+import { createSettingsPort, hasActivePreset, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
@@ -638,7 +638,7 @@ export function apply(ctx: Context, config: Config = {}) {
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
-    if (routerConfig.activePreset !== null) {
+    if (hasActivePreset(routerConfig)) {
       disposeRouter = installRouter(ctx, new KimiRouter(routerConfig, candidateMetas, log), {
         images: imageStates,
         transcriber,
@@ -762,7 +762,11 @@ export function apply(ctx: Context, config: Config = {}) {
     quotaMonitors.find(({ source }) => source.provider === provider)?.monitor?.snapshot().quota ?? null
 
   const panelSnapshot = (agent: Agent): KimiTidePanelProjection => {
-    const preset = routerConfig.activePreset === null ? undefined : routerConfig.presets[routerConfig.activePreset]
+    // 0.1.7：宿主对「未配置 router 的条目」解析出的 activePreset 是 **undefined**
+    // （不是 schema 声明的 null）⇒ 归一化后再判，面板与命令层的「不路由」形态一致。
+    const rawPreset = routerConfig.activePreset
+    const activePreset = rawPreset === undefined ? null : rawPreset
+    const preset = activePreset === null ? undefined : routerConfig.presets[activePreset]
     const snapshot: KimiTidePanelProjection = {
       quota: quotaSnapshotOf(QUOTA_SOURCE_PROVIDER),
       // 0.8.x⑨：配额来源标记（dock 按当前路由目标门控渲染限额区）。
@@ -774,7 +778,7 @@ export function apply(ctx: Context, config: Config = {}) {
       quotaSources: quotaSourceMetas(),
       kimi: kimiStatus,
       router: {
-        activePreset: routerConfig.activePreset,
+        activePreset,
         presetName: preset?.name ?? null,
         defaultTarget: preset?.default ?? null,
         ruleCount: preset?.rules.length ?? 0,

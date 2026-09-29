@@ -112,7 +112,12 @@ export type SettingsRpcResult<T> =
 export interface ConnectionLike {
   api: {
     settings: {
-      describe(request: Record<string, never>): Promise<{
+      /**
+       * 0.1.7 起 `settings/describe` 是**零参** RPC（宿主 typert 描述符 `parameters: []`，
+       * 严格 arity）。实机报错原文：`client api:settings/describe expected 0 argument(s),
+       * got 1`——传 `{}` 或 `undefined` 都算「传了 1 个参数」，被宿主直接拒绝。
+       */
+      describe(): Promise<{
         result: SettingsRpcResult<{ writable: boolean; namespaces: SettingsDescribeView[] }>
       }>
       mutate(request: { ns: string; ops: SettingsPathOp[]; expectedRevision?: number }): Promise<unknown>
@@ -326,9 +331,8 @@ export function createCardStore(
       readScope()
     } else if (connection !== null) {
       try {
-        // 0.1.7：describe 是**零参**调用（宿主 typert 描述符 parameters: [] 严格
-        // arity——传 {} 会被拒）。插件自己早前在 effort 通道上就记过同款教训。
-        const r = await connection.api.settings.describe(undefined as never)
+        // 0.1.7：describe 零参（见 ConnectionLike 注）。传 undefined 也计数 ⇒ 实机被拒。
+        const r = await connection.api.settings.describe()
         if (!r.result.ok) {
           publish({ status: 'unavailable', config: null, base: null, user: null, writable: false, error: null, catalog: null, modelNames: null, providerNames: null, availability: null, efforts: null })
           return

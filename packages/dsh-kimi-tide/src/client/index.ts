@@ -49,8 +49,13 @@ export const inject = ['slots', 'remote', 'remote.commands', 'remote.settings', 
 function buildConnectionFace(ctx: Context): ConnectionLike | null {
   type LoopbackRemote = {
     settings?: {
-      describe?: (request: Record<string, never>) => Promise<unknown>
-      mutate?: (request: { ns: string; ops: unknown[]; expectedRevision?: number }) => Promise<unknown>
+      describe?: () => Promise<unknown>
+      /**
+       * 0.1.7：**位置参数** `(ns, ops, expectedRevision)`（宿主 typert 描述符严格
+       * arity；官方客户端姿势见 dsh-client-ui-settings client.js:1182）。旧形态是
+       * 单个对象载荷——这个差异是本插件在 0.1.7 上第二次踩 arity（第一次 describe）。
+       */
+      mutate?: (ns: string, ops: unknown[], expectedRevision?: number) => Promise<unknown>
     }
     llm?: { models?: (request: Record<string, never>) => Promise<unknown> }
     session?: { modelCatalog?: () => Promise<unknown> }
@@ -76,15 +81,25 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
   return {
     api: {
       settings: {
-        describe: async (request) => {
+        describe: async () => {
           const d = describe()
           if (d === undefined) throw new Error('settings.describe 通道不可用（connection api 面缺席且 loopback 未挂载）')
-          return { result: (await d(request)) as never }
+          // 0.1.7：零参转发（宿主 typert 描述符 parameters: [] —— 带参即被 arity 拒）。
+          const call = d as unknown as () => Promise<unknown>
+          return { result: (await call()) as never }
         },
         mutate: async (request) => {
+          const loopbackMutate = remote?.settings?.mutate
+          // 0.1.7 位置参数形态：把卡片侧的 {ns, ops, expectedRevision} 拆成三参
+          // （缺 revision 也要显式传 undefined——宿主按 3 参校验，少传即 arity 拒）。
+          if (typeof loopbackMutate === 'function') {
+            return { result: (await loopbackMutate(request.ns, request.ops, request.expectedRevision)) as never }
+          }
           const m = mutate()
           if (m === undefined) throw new Error('settings.mutate 通道不可用（connection api 面缺席且 loopback 未挂载）')
-          return { result: (await m(request)) as never }
+          // legacy connection.api.settings.mutate：对象载荷形态。
+          const legacyMutate = m as unknown as (req: typeof request) => Promise<unknown>
+          return { result: (await legacyMutate(request)) as never }
         },
       },
       llm: {

@@ -13,7 +13,8 @@ export { EFFORT_CATALOG_NAMESPACE }
 /** settings.describe 全量视图里与档位表相关的最小结构面（镜像 dsh 线格式）。 */
 export interface EffortDescribeFace {
   settings: {
-    describe(body: Record<string, never>): Promise<{
+    /** 0.1.7：零参 RPC（传任何实参都被宿主按 arity 拒绝）。 */
+    describe(): Promise<{
       result:
         | { ok: true; value: { namespaces: ReadonlyArray<{ ns: string; value: unknown }> } }
         | { ok: false; error: { message: string } }
@@ -23,20 +24,26 @@ export interface EffortDescribeFace {
 
 export type EffortsConnection = { api: EffortDescribeFace } | null
 
-/**
- * 经 settings.describe 读取档位表与真实挂载表（1.1.0 A8：mounted 随同节
- * 发布）。连接缺失/describe 失败/命名空间缺席时抛错，交由 card-store.loadEfforts
- * 的 catch 统一降级——本函数不做静默兜底。mounted 缺键（旧宿主遗留节）→ 空表，
- * 判定端以 null/缺省区分「退化三态」与「确认挂载」。
- */
+/** 档位表 + 真实挂载表（card-store 的快照字段消费）。 */
 export interface CatalogMeta {
   efforts: Record<string, string[]>
   mounted: string[]
 }
 
+/**
+ * 经 settings.describe 读取档位表与真实挂载表（1.1.0 A8：mounted 随同节发布）。
+ * 连接缺失/describe 失败/命名空间缺席时抛错，交由 card-store.loadEfforts 的 catch
+ * 统一降级——本函数不做静默兜底。mounted 缺键（旧宿主遗留节）→ 空表，判定端以
+ * null/缺省区分「退化三态」与「确认挂载」。
+ *
+ * 0.1.7 状态：此路已**不再是主通道**——档位表并入本条目 Config 的 volatile 字段
+ * （`efforts`/`mounted`），随路由配置的同一次 describe 回来（见 card-store 的
+ * `asCatalogMeta`）。保留本函数仅供旧宿主（< 0.1.7，仍有 `kimi-tide-catalog` 命名
+ * 空间）回退；调用形态必须是零参。
+ */
 export async function fetchEffortsViaDescribe(connection: EffortsConnection): Promise<CatalogMeta> {
   if (connection === null) throw new Error('effort 档位表：connection 通道不可用')
-  const r = await connection.api.settings.describe({})
+  const r = await connection.api.settings.describe()
   if (!r.result.ok) throw new Error(`effort 档位表 describe 失败：${r.result.error.message}`)
   const view = r.result.value.namespaces.find((n) => n.ns === EFFORT_CATALOG_NAMESPACE)
   const section = (view?.value as { efforts?: Record<string, string[]>; mounted?: string[] } | undefined) ?? {}
