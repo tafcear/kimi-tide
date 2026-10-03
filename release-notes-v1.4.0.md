@@ -28,7 +28,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-1.4.0.tgz
 - 测试：**779/779 通过**（本版新增 46 例：结论解析 20 / 修订注入 5 / 编排 14 / 卡片 7）；typecheck 0 报错；build 通过（host + client）；仓库门禁 `npm run check` 三脚本 exit 0
 - **独立只读复核**：对未提交快照做静态复核，6 条确证缺陷 + 8 条疑点逐条处置（修 5、驳回 1 附反证用例、5 条升级为实机必录项），处置表见设计稿 §8.1；修复点做 3 次**变异检验**（改坏 → 对应用例必须红，全部命中后回退）
 - **桌面端装载（活体证据）**：宿主自报条目 `active`；dock / 设置页 / 评审卡 / 退回卡四个注册点全部就位；会话槽契约确认带 `sessionId`（按钮可点的依据）。证据链 `docs/audit/2026-10-03-host-0.2.0-rc.2-desktop-port.md`
-- **实机验收（评审 → 退回回路）**：见下「发布说明」——按维护者裁定记录
+- **实机验收（真宿主 desktop profile，2026-10-03）通过**：手动评审（`turn:-1`）判「有条件通过」⇒ 点评审卡「让它重做」⇒ 退回留痕 `reason:manual / reviseIndex:1` ⇒ **复检自动落到修订轮**（第二条带 `verdict` 的评审记录，`turn=6`，只评一次）。会话 `session-dce497aa…`；两条记录的 reviewer 均为 `kimi-coding/k3`，顺带验证了新接入的 Kimi Code 通道。**未覆盖**：自动模式（该会话 `autoRevise:false`）与「达上限即停」（未触达上限）——留待后续实机。
 
 ---
 
@@ -58,4 +58,4 @@ Compatible with DSH ≥ `0.1.7-rc.1` (verified on `0.2.0-rc.2`, desktop and web 
 - Tests: **779/779 passing** (46 added by this release: verdict parsing 20 / revise message 5 / orchestration 14 / cards 7); typecheck clean; build passing (host + client); repo gates `npm run check` exit 0
 - **Independent read-only review**: a static review of the uncommitted snapshot produced 6 confirmed defects + 8 open questions, each dispositioned (5 fixed, 1 rejected with a counter-test, 5 promoted to mandatory live checks) — see the design doc §8.1; the fixes were falsified with 3 mutation checks (break the fix → the matching test must go red; all three caught, then reverted)
 - **Desktop load (live evidence)**: the host reports the entry as `active`; dock / settings page / review card / send-back card all registered; the session slot contract confirms it receives `sessionId` (what makes the button clickable). Evidence: `docs/audit/2026-10-03-host-0.2.0-rc.2-desktop-port.md`
-- **On-device acceptance (review → send-back loop)**: recorded below under the maintainer's ruling
+- **On-device acceptance (real host, desktop profile, 2026-10-03): passed** — a manual review (`turn:-1`) returned "conditional pass" ⇒ clicking "let it redo" on the review card left a send-back record (`reason:manual / reviseIndex:1`) ⇒ **the re-check landed on the reworked turn** (a second review record carrying `verdict`, `turn=6`, reviewed exactly once). Session `session-dce497aa…`; both records name `kimi-coding/k3` as the reviewer, which also verifies the newly wired Kimi Code route. **Not covered**: auto mode (that session ran `autoRevise:false`) and the cap-reached stop (the cap was never hit) — left for a later on-device pass.
