@@ -29,6 +29,10 @@
  * 其 keywordGroup → 认领组规则行灰态 + 行尾一句提示（认领与规则共存合法，只提示
  * 不拦保存）；「试一句」outcome 增 review-flow 枝（文案 = 本轮路由到 <routed
  * 摘要> + <label>，label 已含「评审模型不可用」盲区语义）。
+ *
+ * 1.4.1（2026-10-03 桌面端实机）：评审行补「档位」下拉（撤销 M7，与转述行对齐）；
+ * 档位表取数修复见 client/effort-remote.ts（0.1.7+ 改读本条目 Config 的 volatile
+ * 字段）；模型未声明档位时下拉唯一项文案自解释（「跟随默认（该模型未声明档位）」）。
  */
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
@@ -211,7 +215,9 @@ function EffortSelect(props: {
       disabled={props.disabled || options.length === 0}
       onChange={(e) => props.onChange(e.target.value === '' ? undefined : e.target.value)}
     >
-      <option value="">跟随默认</option>
+      {/* 1.4.1：模型未在宿主目录声明档位时这一项就是唯一选项（下拉禁用）——文案
+          自解释，别让用户对着灰框猜原因（实机反馈：「模型能力没法设置」）。 */}
+      <option value="">{options.length === 0 ? '跟随默认（该模型未声明档位）' : '跟随默认'}</option>
       {stored && <option value={props.value!}>{props.value!}</option>}
       {options.map((option) => (
         <option key={option} value={option}>{option}</option>
@@ -256,8 +262,9 @@ function KeywordGroupRow(props: {
 
 /**
  * 协作流行（0.6.0 spec §7）：类型徽标 + 流 id + 参数控件（改即整段写 flows）。
- * transcribe：视觉模型 + failurePolicy；review：评审模型 + trigger（keywords 时
- * 补关键词组选择）+ rounds（1..3 夹取，validate 界内）+ autoRevise。
+ * transcribe：视觉模型 + 档位 + failurePolicy；review：评审模型 + 档位（1.4.1
+ * 撤销 M7——评审调用现在同样下发推理档位）+ trigger（keywords 时补关键词组选择）
+ * + rounds（1..3 夹取，validate 界内）+ autoRevise。
  * 预置流（DEFAULT_FLOWS 键）可改不可删；自建流可删，被引用时禁用删除按钮
  * （store.deleteFlow 的引用守卫是写路径兜底）。无 useState——hooks 置顶纪律
  * 下本组件保持零 hook（参数变更直接落盘，与规则行同款）。
@@ -301,7 +308,7 @@ function FlowRow(props: {
             onChange={(value) => props.onSave({ ...flow, visionModel: parseTarget(value) })}
           />
           <EffortSelect
-            label={`${props.id} 视觉模型`}
+            label={`${props.id} 视觉模型 · 档位`}
             value={flow.visionModel.effort}
             options={props.effortsOf(flow.visionModel)}
             disabled={!props.writable}
@@ -334,6 +341,19 @@ function FlowRow(props: {
             unavailable={props.availability?.[configKey(flow.reviewer)] === false}
             disabled={!props.writable}
             onChange={(value) => props.onSave({ ...flow, reviewer: parseTarget(value) })}
+          />
+          <EffortSelect
+            label={`${props.id} 评审模型 · 档位`}
+            value={flow.reviewer.effort}
+            options={props.effortsOf(flow.reviewer)}
+            disabled={!props.writable}
+            onChange={(effort) => {
+              const r = flow.reviewer
+              const next: RouteTarget = effort === undefined
+                ? { provider: r.provider, model: r.model }
+                : { ...r, effort }
+              props.onSave({ ...flow, reviewer: next })
+            }}
           />
           <select
             aria-label={`${props.id} 触发方式`}
@@ -832,8 +852,14 @@ export function SettingsCard(props: SettingsCardProps) {
           className={activeTab === 'help' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('help')}>说明</button>
       </div>
-      {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
-      {savedFlash && <span className="kt-saved" role="status">已保存</span>}
+      {/* 1.4.1：瞬态状态位（错误横幅 /「已保存」闪现）收进**绝对定位**槽——它们是
+          反馈而不是内容，此前在文档流里各占一行，每次落盘闪现都会把下面整块内容顶下去
+          再弹回来（实机反馈：「切换完显示已保存 UI 会上下跳动」）。槽脱离文档流 ⇒
+          零位移；错误与「已保存」同槽并排，互不覆盖。 */}
+      <div className="kt-status-slot">
+        {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
+        {savedFlash && <span className="kt-saved" role="status">已保存</span>}
+      </div>
 
       {/* 路由页容器：预设选择 / 编辑器 / 预设操作 / 关键词组（原本散落为 4+ 个并列子节点）。 */}
       <div className="kt-tabpanel kt-route" role="tabpanel" id={panelId('route')} aria-labelledby={tabId('route')} tabIndex={0} hidden={activeTab !== 'route'}>

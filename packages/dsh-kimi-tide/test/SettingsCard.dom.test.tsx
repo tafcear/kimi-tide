@@ -246,6 +246,19 @@ describe('SettingsCard 评审修复批次2（2026-08-29）', () => {
     expect(container.textContent).toContain('已保存')
   })
 
+  it('1.4.1 状态位在 .kt-status-slot 里（绝对定位槽 = 闪现不再顶动下方内容）', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readySnapshot()) })
+    await act(async () => { buttonByText('省钱').click() })
+    // Fails if: 「已保存」退回文档流（每次落盘都把设置页内容顶下去再弹回——实机反馈）
+    expect(container.querySelector('.kt-status-slot .kt-saved')).not.toBeNull()
+    await act(async () => { publish({ ...readySnapshot(), error: 'boom' }) })
+    // 错误横幅同槽：两者都在槽内并排，且槽本身不参与流布局（CSS 侧见 ClientStyles 钉）
+    expect(container.querySelector('.kt-status-slot .kt-error')).not.toBeNull()
+    expect(container.querySelectorAll('.kt-status-slot').length).toBe(1)
+  })
+
   it('P2-4 关键词组外部推送重同步草稿（未聚焦时）；聚焦中不打断编辑', async () => {
     const { store, publish } = makeDeferredStore()
     await mount(store)
@@ -885,6 +898,69 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
     }))
     // 配额护栏（spec §3.5）：设置页必须明示「多花调用 + 上限」（上限口径 = 每会话，复核 F4）
     expect(container.textContent).toContain('本会话该流最多修订')
+  })
+
+  /**
+   * 1.4.1（2026-10-03 桌面端实机缺陷）：「模型能力没法设置」——路由页的档位下拉
+   * 在宿主未声明档位时是禁用的，但唯一项的文案只说「跟随默认」，用户只能猜。
+   * 现在文案自解释；声明了档位的模型照旧可选、可写。
+   */
+  it('1.4.1：档位下拉——未声明档位时禁用且文案自解释；声明后可改', async () => {
+    const savePreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ savePreset })
+    const base = readyV5Snapshot({ efforts: {} })
+    const dft = base.config!.presets[base.config!.activePreset!]!.default
+    const key = `${dft.provider}/${dft.model}`
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => { publish(base) })
+
+    let effort = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
+    expect(effort).not.toBeNull()
+    // Fails if: 空表被当成「有档位表但该模型没声明」以外的语义 / 文案退回裸「跟随默认」
+    expect(effort!.disabled).toBe(true)
+    expect(effort!.options[0]!.textContent).toBe('跟随默认（该模型未声明档位）')
+
+    await act(async () => { publish(readyV5Snapshot({ efforts: { [key]: ['low', 'high', 'max'] } })) })
+    effort = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
+    expect(effort!.disabled).toBe(false)
+    expect([...effort!.options].map((o) => o.textContent)).toEqual(['跟随默认', 'low', 'high', 'max'])
+    await act(async () => { fireSelectChange(effort!, 'high') })
+    // Fails if: 选了档位不落盘（D3 写路径断链）
+    expect(savePreset).toHaveBeenCalledWith(base.config!.activePreset, expect.objectContaining({
+      default: { provider: dft.provider, model: dft.model, effort: 'high' },
+    }))
+  })
+
+  /**
+   * 1.4.1：评审行补档位下拉（撤销 M7）——与转述行同款；改选经 saveFlows 整段落盘到
+   * flows.review.reviewer.effort，且不丢 reviewer 其余字段。
+   */
+  it('1.4.1：评审行档位下拉（宿主声明 low/high/max）→ 改选落盘 reviewer.effort', async () => {
+    const saveFlows = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveFlows })
+    const base = readyV5Snapshot({ efforts: { 'kimi-coding/k3': ['low', 'high', 'max'] } })
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => { publish(base) })
+
+    // 1.4.1 顺带修的可访问性缺陷：模型下拉与档位下拉此前共用 aria-label
+    // （「review 评审模型」），读屏/选择器都分不出两个控件——档位一律带「· 档位」后缀。
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="review 评审模型 · 档位"]')
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="review 评审模型"]')).not.toBeNull()
+    // Fails if: 评审行不渲染档位控件（M7 撤销未落到 UI）
+    expect(select).not.toBeNull()
+    expect([...select!.options].map((o) => o.value)).toEqual(['', 'low', 'high', 'max'])
+    await act(async () => { fireSelectChange(select!, 'high') })
+    expect(saveFlows).toHaveBeenCalledWith(expect.objectContaining({
+      review: expect.objectContaining({
+        reviewer: { provider: 'kimi-coding', model: 'k3', effort: 'high' },
+      }),
+    }))
   })
 
   it('#7 新建流：id + 类型 → saveFlows 合并新流（预置模板）', async () => {

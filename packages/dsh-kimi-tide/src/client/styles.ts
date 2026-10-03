@@ -41,7 +41,7 @@ export const CLIENT_CSS = `
 
     /* ---- settings card（设置页「月汐」，0.5.0 预设管理器；⑥-B 打磨三 2026-08-29
          卡片化 + 8px 节奏 + 字号分级 11/12/12.5）---- */
-    .kimi-tide-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px;
+    .kimi-tide-settings { position: relative; display: flex; flex-direction: column; gap: 8px; font-size: 12px;
       color: var(--dsw-alias-label-primary, #2b3245); }
     .kimi-tide-settings .kt-warn { color: var(--dsw-alias-warning-strong, #d97706); }
     .kimi-tide-settings .kt-h { font-size: 11px; opacity: 0.65; }
@@ -175,6 +175,12 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-help-live { margin-top: 4px; font-size: 12px;
       color: var(--kt-accent-strong); }
     .kimi-tide-settings .kt-saved { font-size: 11px; color: var(--kt-accent-strong); }
+    /* 1.4.1：状态位脱离文档流（实机反馈：每次落盘闪现都把下方内容顶下去再弹回）。
+       锚在卡片右上——页签行右侧的空白区，芯片短、不会压到页签；错误文案可能较长，
+       限宽 50% 并右对齐换行，仍不参与布局（出现/消失零位移）。 */
+    .kimi-tide-settings .kt-status-slot { position: absolute; top: 0; right: 0; z-index: 3;
+      display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+      max-width: 50%; text-align: right; }
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     /* 设置导航图标标记：契约无 icon 字段——按文案标记自己的行后，
        CSS 把宿主默认齿轮换成月汐紫月牙（先例：dsh-better-sidebar）。

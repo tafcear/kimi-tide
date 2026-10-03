@@ -1,16 +1,19 @@
 /**
  * Review flow 1.1.0（spec §6）：评审输入构造 + 评审调用 runner。
- * 纯文本无图、不设 purpose（auxRewriteTarget 不触及）、不带 effort（M7）、
- * AbortSignal.timeout(60s) 有界——评审发生于轮关闭后，不复用 turn signal
- * （spec §5.4）。runner 内 chunk 判别与 createStreamVisionCaller
- * （router.ts:406-415）一致：text-delta 累积、finish reason.kind 为
- * error/aborted 时抛错（失败落 ok:false 载荷，不向外抛）。产物接口由
+ * 纯文本无图、不设 purpose（auxRewriteTarget 不触及）、AbortSignal.timeout(60s)
+ * 有界——评审发生于轮关闭后，不复用 turn signal（spec §5.4）。1.4.1 起消费
+ * reviewer.effort（撤销 0.8.0 M7）：经 EffortResolver 支持集判定后显式下发；
+ * 不支持 / 目标未声明档位 / 未提供 resolver → 不携带（与 createStreamVisionCaller
+ * 同款语义，绝不硬塞目标不认的档位）。runner 内 chunk 判别与
+ * createStreamVisionCaller（router.ts）一致：text-delta 累积、finish reason.kind
+ * 为 error/aborted 时抛错（失败落 ok:false 载荷，不向外抛）。产物接口由
  * Task 5（编排 runner）与 Task 4（投影 payload = ReviewEventPayload）消费。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { CONTEXT_SUMMARY_MAX_CHARS, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContextFormed, GenerateOptions, Message, UserMessage } from '@deepseek-ai/dsh-llm'
-import type { ReviewFlow } from './config.js'
+import type { ContextFormed, GenerateOptions, Message, ReasoningEffortId, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ReviewFlow, RouteTarget } from './config.js'
+import type { EffortResolver } from './router.js'
 import { parseReviewVerdict, verdictLabel, type ReviewVerdict } from './review-verdict.js'
 
 /** 评审输入单段截断上限（字符，spec §6；Task 5 累计侧将共用此常量）。 */
@@ -165,8 +168,13 @@ export function buildReviewInput(req: ReviewRequest): string {
  * 评审调用 runner（Task 5 编排 / Task 6 手动命令共用）：ctx.llm.stream 直调
  * reviewer，单条 user 消息（buildReviewInput）；流成功 → ok:true 载荷，
  * 流失败/空输出 → ok:false + error 载荷——任何情形都不向外抛。
+ * @param resolveEfforts 目标支持集查询缝（1.4.1，与 VisionCaller 同款 M6 语义）：
+ *        缺省 = 不下发档位（旧调用点/测试桩行为不变）。
  */
-export function createReviewRunner(ctx: Context): (req: ReviewRequest) => Promise<ReviewEventPayload> {
+export function createReviewRunner(
+  ctx: Context,
+  resolveEfforts?: EffortResolver,
+): (req: ReviewRequest) => Promise<ReviewEventPayload> {
   return async (req: ReviewRequest): Promise<ReviewEventPayload> => {
     const startedAt = Date.now()
     const base = {
@@ -181,6 +189,15 @@ export function createReviewRunner(ctx: Context): (req: ReviewRequest) => Promis
         model: req.flow.reviewer.model,
         messages: [{ role: 'user', content: [{ type: 'text', text: buildReviewInput(req) }] }] as unknown as Message[],
         signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
+      }
+      // 1.4.1：reviewer.effort 经支持集判定后显式下发；不支持 / 目标未声明档位 /
+      // 无 resolver → 不携带（适配器默认语义保持）。
+      const effort = (req.flow.reviewer as RouteTarget).effort
+      if (effort !== undefined && resolveEfforts !== undefined) {
+        const supported = resolveEfforts(req.flow.reviewer)
+        if (supported !== undefined && supported.includes(effort)) {
+          options.reasoningEffort = effort as ReasoningEffortId
+        }
       }
       let text = ''
       for await (const chunk of ctx.llm.stream(options)) {

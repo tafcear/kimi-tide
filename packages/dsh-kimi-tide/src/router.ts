@@ -1088,7 +1088,10 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     // 紧随其后的 assistant/message 把「这一轮带了修订」落到该轮的轮号上。
     const reviseInjected = new WeakMap<Agent, true>()
     const reviseTurns = new WeakMap<Agent, number>()
-    const runReview = createReviewRunner(ctx)
+    // 1.4.1：评审 runner 接上档位查询缝（与 createStreamVisionCaller 同款：目标
+    // 支持集来自同一份 metas 池），reviewer.effort 才能真的下发到适配器。
+    const runReview = createReviewRunner(ctx, (target) =>
+      router.metas.find((m) => m.provider === target.provider && m.model === target.model)?.reasoningEfforts)
     // 重挂载惰性闸：agent.ctx 上的 feed 无法逐个注销（不强持 agent 引用），dispose
     // 置 false 使旧闭包的 feed 立即停摆（spec §5.2「重挂载 dispose 全部监听」）；
     // 注册本体随 agent dispose 由 Agent.ctx 作用域自动卸载（runtime-types :72）。

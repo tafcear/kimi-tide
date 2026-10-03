@@ -195,8 +195,24 @@ export function createSettingsPort(deps: SettingsPortDeps): SettingsNamespacePor
 
   // ConfigEditor.edit 收「完整 raw config」——所有字段（含非 volatile 的 tunables）
   // 都要带上，漏掉的字段会被这次写覆盖掉。故以 tunables 快照为底、只替换 router。
+  //
+  // 1.4.1 修复（2026-10-03 桌面端实机）：`efforts` / `mounted` 是本条目 Config 的
+  // volatile 运行面字段（宿主候选枚举后由 setCatalog 发布），**任何** router 写都
+  // 不能把它们从候选里漏掉——edit 是整份覆盖，漏一次就把档位表从 profile patch
+  // 里抹掉；此时 setCatalog 的内容脏检查（serialized === lastSyncedCatalog）恰好
+  // 命中，不会再补写 ⇒ 客户端档位表变空、所有「档位」下拉退化禁用（实机现象：
+  // 在设置页改任何一项之后，档位即灰）。故缓存最近一次发布的目录节，随每次写回带
+  // （本进程内没有发布过则为 null，写回内容与旧行为逐字一致）。
+  let catalogSection: { efforts: Record<string, string[]>; mounted: string[] } | null = null
+  const withCatalog = (base: Record<string, unknown>): Record<string, unknown> =>
+    catalogSection === null
+      ? base
+      : { ...base, efforts: writableCopy(catalogSection.efforts), mounted: writableCopy(catalogSection.mounted) }
   const write = (router: RouterConfigV5): Promise<void> => {
-    const next: Record<string, unknown> = { ...tunables(), router: writableCopy(router) as unknown as Record<string, unknown> }
+    const next: Record<string, unknown> = withCatalog({
+      ...tunables(),
+      router: writableCopy(router) as unknown as Record<string, unknown>,
+    })
     return editor.edit(entry, () => next)
   }
 
@@ -205,12 +221,11 @@ export function createSettingsPort(deps: SettingsPortDeps): SettingsNamespacePor
     update: (patch) => write(deepMergeRouter(readRouterConfig(config), patch)),
     replace: (section) => write(section as RouterConfigV5),
     setCatalog: (section) => {
-      const next: Record<string, unknown> = {
+      catalogSection = { efforts: section.efforts, mounted: section.mounted }
+      const next: Record<string, unknown> = withCatalog({
         ...tunables(),
         router: writableCopy(readRouterConfig(config)) as unknown as Record<string, unknown>,
-        efforts: writableCopy(section.efforts),
-        mounted: writableCopy(section.mounted),
-      }
+      })
       return editor.edit(entry, () => next)
     },
   }

@@ -238,6 +238,12 @@ export function createCardStore(
   const readScope = (): void => {
     if (scope === null) return
     const s = scope.getSnapshot()
+    // 1.4.1：运行面目录（efforts / mounted）与路由配置同一次读回——0.1.7+ 宿主把
+    // 它们放在本条目 Config 的 volatile 字段里（`asCatalogMeta`），scope 路径此前
+    // 完全没读，档位表只能指望 legacy fetchEfforts 通道（那条通道在 0.1.7+ 读的是
+    // 已移除的 kimi-tide-catalog 命名空间 ⇒ 恒空表 ⇒ 档位下拉全灰）。
+    // 扁平形（scope 直接给 router 子树）取不到键 → 保持既有值，行为不变。
+    const meta = asCatalogMeta(s.value)
     publish({
       status: s.status === 'ready' && s.value !== undefined
         ? 'ready'
@@ -251,7 +257,8 @@ export function createCardStore(
       modelNames: snapshot.modelNames,
       providerNames: snapshot.providerNames,
       availability: snapshot.availability,
-      efforts: snapshot.efforts,
+      efforts: meta.efforts ?? snapshot.efforts,
+      mounted: meta.mounted ?? snapshot.mounted,
     })
   }
 

@@ -24,6 +24,16 @@ describe('client CSS 结构钉：配额条剩余语义（2026-09-15）', () => {
   })
 })
 
+describe('client CSS 结构钉：设置卡状态位脱离文档流（1.4.1）', () => {
+  it('「已保存」/错误横幅收在绝对定位槽里（闪现不再顶动下方内容）', () => {
+    // Fails if: .kt-status-slot 退回文档流——每次落盘「已保存」闪现都会把设置页内容
+    // 顶下去再弹回（实机反馈：「切换完显示已保存 UI 会上下跳动」）
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-settings \.kt-status-slot \{[^}]*position:\s*absolute/)
+    // 锚点：卡片自身必须是定位上下文，否则槽会挂到最近的宿主祖先上（设置对话框）
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-settings \{[^}]*position:\s*relative/)
+  })
+})
+
 describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
   it('布局关键属性在裸 .kt-reason 选择器上（dock 与 portal 双上下文都能拿到 flex 列布局）', () => {
     // Fails if: display/flex-direction 被嵌回 .kimi-tide-dock .kt-reason 前缀下，

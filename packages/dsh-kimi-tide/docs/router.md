@@ -493,10 +493,10 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
 
 ### `effort` 推理程度配置（可选字段）
 
-`RouteTarget` 增可选 `effort?: string`，共三个配置入口：规则 `target.effort`、
-预设 `default.effort`、转述流 `flows.<id>.visionModel.effort`。**review 流的
-`reviewer` 不接收 effort**（内联 schema 无该字段，评审执行层不消费——用户圈定
-范围，M7）。
+`RouteTarget` 增可选 `effort?: string`，共四个配置入口：规则 `target.effort`、
+预设 `default.effort`、转述流 `flows.<id>.visionModel.effort`、评审流
+`flows.<id>.reviewer.effort`（1.4.1 起——撤销 0.8.0 的 M7：评审执行层现在
+**消费**该档位，见 `review.ts: createReviewRunner`）。
 
 优先级与运行期语义（`router.ts: effortForTarget`）：
 
@@ -517,15 +517,29 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
 5. **转述流 `visionModel.effort`**（`createStreamVisionCaller`）：经同一支持集
    判定后显式下发——支持 → `options.reasoningEffort` 携带；不支持 / 未配置 →
    不携带（视觉模型自身默认）。
+6. **评审流 `reviewer.effort`**（1.4.1，`review.ts: createReviewRunner`）：同一
+   口径——支持集里就下发，不支持 / 未声明 / 无 resolver（旧调用点）一律不携带。
+   runner 的 resolver 由 `installRouter` 从 `router.metas` 注入，与 VisionCaller
+   同源同表。
 
 **档位合法性 = 运行期降级，非写入期拒绝（M4 口径）**：schema 与
 `validateRouterConfig` 只查形状（非空 string），任意档位串（含未知档如
 `xhigh`、自定义档）均可写入；运行期按模型支持集判定，不支持即剥离。模型
 目录的档位演进因此不需要迁移用户配置。
 
-设置卡片 effort 下拉与上述判定共用同一张档位表（`effort-catalog.ts` 经
-Typert remote src-json 通道下发 `provider/model → reasoningEfforts`）；模型
-未声明档位时下拉只剩禁用的「跟随默认」。
+设置卡片 effort 下拉与上述判定共用同一张档位表（宿主候选枚举 →
+`effort-catalog.ts: buildEffortCatalog` → 写进**本条目 Config 的 volatile 字段**
+`efforts`/`mounted` → 客户端经 `settings.describe` 读回，见
+`client/effort-remote.ts` 与 `client/card-store.ts` 的 `asCatalogMeta`）；模型
+未声明档位时下拉只剩禁用的「跟随默认（该模型未声明档位）」。
+
+> **1.4.1 实机缺陷（2026-10-03）**：这条通道曾被两处半截改动打断，症状都是
+> 「档位下拉全灰、没法设置」：① 客户端 `fetchCatalogMetaViaRemoteDescribe` 仍只查
+> 0.1.7 已移除的 `kimi-tide-catalog` 命名空间，查不到时返回**空表**（而非「没数据」），
+> 把 `describe` 主通道刚读到的真表覆盖掉；② 宿主侧任何一次 router 写（设置页保存、
+> 命令层 persist、sidecar 迁移）经 `configEditor.edit` 整份覆盖时漏掉
+> `efforts`/`mounted`，而 `syncCatalog` 的内容脏检查恰好命中、不再补写。两处均已在
+> `test/effort-remote.test.ts` 与 `test/settings-port.test.ts` 钉住。
 
 ### 可解释性：条件摘要 + 试一句 + 决策原因词数
 
@@ -602,8 +616,9 @@ Typert remote src-json 通道下发 `provider/model → reasoningEfforts`）；�
   评审流认领，不再参与路由」——共存允许保存（抑制是自然结果，非非法态）；
   「试一句」命中认领组时 outcome 显示「轮末触发评审流 <flowId>」+ 过滤后路由
   （routed），不再显示切模型。
-- **校验加固**：`validateRouterConfig` review 流分支拒绝 `reviewer.effort`
-  （评审调用恒不带推理等级，spec L7）。
+- **档位（1.4.1）**：评审行与转述行一样有「档位」下拉（`reviewer.effort`）；
+  `validateRouterConfig` 只查形状（非空 string），档位合法性由运行期支持集判定
+  ——0.8.0/1.1.0 的 M7「评审调用恒不带推理等级」已撤销。
 
 ## 1.3.0 用量/余额源 + 说明页 + 语义确认闸 + 显式 @ 精确寻址（2026-09-15）
 

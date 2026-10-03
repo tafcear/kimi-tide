@@ -17,9 +17,10 @@ export const EFFORT_CATALOG_SECTION_SCHEMA = Schema.object({
 })
 
 const targetSchema = Schema.object({ provider: Schema.string(), model: Schema.string(), effort: Schema.string() })
-// 0.8.0（评审 M7）：review.reviewer 不接收 effort——flowSchema review 分支
-// 内联一份无 effort 的 target schema，尊重用户圈定范围（评审执行层不消费）。
-const reviewerTargetSchema = Schema.object({ provider: Schema.string(), model: Schema.string() })
+// 1.4.1（2026-10-03）：review.reviewer 与其余目标同形——收可选 effort（撤销 0.8.0
+// 的 M7：评审调用改为**消费**推理档位，见 review.ts 的 createReviewRunner 与
+// SettingsCard 评审行的档位下拉；语义面校验见 validateRouterConfig）。
+const reviewerTargetSchema = targetSchema
 const ruleSchema = Schema.object({
   id: Schema.string(),
   when: Schema.union([
@@ -103,8 +104,8 @@ export const routerConfigSchema = Schema.object({
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
  *  级联（transcribe-lazy 的 imageFallbackFlow 缺省解析到预置 transcribe，显式引用须
  *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup /
- *  review 流 reviewer 不收 effort（M7——1.1.0 L7 收编，评审调用恒不带推理等级）/
- *  effort 形状检查（default/规则 target/visionModel 三处，非空 string——M4）。
+ *  effort 形状检查（default/规则 target/visionModel/reviewer 四处，非空 string——M4；
+ *  reviewer 自 1.4.1 起收 effort，撤销 0.8.0 M7）。
  *  legacy version（≤4）直通返回 undefined（迁移兜底，注册期不做语义校验）。 */
 export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
   if ((raw as { version?: unknown }).version !== 5) return undefined
@@ -188,10 +189,11 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
       }
     }
     if (flow.type !== 'review') continue
-    // 1.1.0（L7 收编，M7 运行期一致性）：评审 reviewer 恒不带 effort——config 类型
-    // 含可选 effort 而运行期不消费的既有缝，注册期显式拒绝（M7 文案沿用 0.8.0）。
-    if (flow.reviewer.effort !== undefined) {
-      return '评审流 reviewer 不支持 effort（M7）：评审调用恒不带推理等级'
+    // 1.4.1（撤销 0.8.0 M7 / 1.1.0 L7）：评审 reviewer 的 effort 与 visionModel
+    // 同款形状校验（非空字符串）；运行期同样按目标支持集判定，不支持即剥离。
+    const rv = (flow.reviewer ?? {}) as { effort?: unknown }
+    if (rv.effort !== undefined && (typeof rv.effort !== 'string' || rv.effort.trim() === '')) {
+      return `评审流 '${fid}' 的 reviewer.effort 必须为非空字符串`
     }
     if (!Number.isInteger(flow.rounds) || flow.rounds < 1 || flow.rounds > 3) {
       return `评审流 '${fid}' 的 rounds 越界（须为 1..3 的整数）`

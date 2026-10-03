@@ -144,7 +144,7 @@ Seven built-in keyword groups (word lists editable, custom groups allowed):
 Two common tweaks (a few clicks in "Settings → 月汐"):
 
 - **Minimum keyword hits**: set a threshold (e.g. 2) so a rule fires only when at least 2 distinct words from the group appear — "make a plan" no longer trips the plan-related words by accident.
-- **Reasoning effort**: give a rule target or the default model a "thinking depth" tier (deeper is slower and pricier); unsupported tiers are dropped automatically — no errors.
+- **Reasoning effort**: give a rule target or the default model a "thinking depth" tier (deeper is slower and pricier); the transcription flow's vision model and the review flow's reviewer take one too (Settings → 月汐 → Collaboration flows). The dropdown lists **only the tiers that model declares** — "跟随默认（该模型未声明档位）" means it declares none; unsupported tiers are dropped automatically — no errors.
 
 ### Usage & balance (follows the model that actually got picked)
 
@@ -217,7 +217,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v1.4.0 (2026-10-03)**
+> Current version: **v1.4.1 (2026-10-03)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)

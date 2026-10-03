@@ -167,4 +167,18 @@ describe('card-store effort 档位目录（0.8.0）', () => {
     const store = createCardStore(scope, null)
     expect(store.getSnapshot().efforts).toBeNull()
   })
+
+  it('1.4.1：scope 路径也读运行面目录（entry Config 形：value 带 router + efforts/mounted）', () => {
+    const table = { 'zai-coding-cn/glm-5.3': ['low', 'high', 'max'] }
+    const scope = makeScope({
+      router: DEFAULT_CONFIG_V4(),
+      efforts: table,
+      mounted: ['zai-coding-cn/glm-5.3'],
+    })
+    const store = createCardStore(scope, null)
+    // Fails if: scope 路径不读 efforts/mounted（档位表就只能指望 legacy fetchEfforts
+    // 通道；那条通道在 0.1.7+ 宿主上读的是已移除的 kimi-tide-catalog 命名空间 = 恒空）
+    expect(store.getSnapshot().efforts).toEqual(table)
+    expect(store.getSnapshot().mounted).toEqual(['zai-coding-cn/glm-5.3'])
+  })
 })

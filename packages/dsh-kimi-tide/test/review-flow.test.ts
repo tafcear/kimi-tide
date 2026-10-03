@@ -176,6 +176,59 @@ describe('createReviewRunner', () => {
   })
 })
 
+// 1.4.1（2026-10-03 用户裁定）：撤销 M7——评审调用消费 reviewer.effort，
+// 判定口径与 createStreamVisionCaller 同款（支持集内 → 显式下发；不支持 /
+// 目标未声明档位 / 无 resolver → 不携带，绝不硬塞适配器不认的档位）。
+describe('createReviewRunner reviewer.effort（1.4.1）', () => {
+  const mkCtx = (seen: unknown[]) => ({
+    llm: {
+      stream: async function* (options: unknown) {
+        seen.push(options)
+        yield { type: 'text-delta', text: '意见' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+  }) as never
+  const reviewFlow = (effort?: string) => {
+    const flow = DEFAULT_FLOWS().review as { reviewer: { provider: string; model: string; effort?: string } }
+    const reviewer = effort === undefined ? { ...flow.reviewer } : { ...flow.reviewer, effort }
+    return { ...(DEFAULT_FLOWS().review as object), reviewer } as never
+  }
+  const req = (effort?: string) => ({ flowId: 'review', flow: reviewFlow(effort), turn: 1, userText: 'u', output: 'o' })
+  const supports = (map: Record<string, string[]>) =>
+    (t: { provider: string; model: string }): string[] | undefined => map[`${t.provider}/${t.model}`]
+
+  it('档位在支持集内 → 显式下发 reasoningEffort', async () => {
+    const seen: unknown[] = []
+    await createReviewRunner(mkCtx(seen), supports({ 'kimi-coding/k3': ['low', 'high', 'max'] }))(req('high'))
+    expect(seen[0]).toMatchObject({ provider: 'kimi-coding', model: 'k3', reasoningEffort: 'high' })
+  })
+
+  it('档位不在支持集 → 剥离（不硬塞）', async () => {
+    const seen: unknown[] = []
+    await createReviewRunner(mkCtx(seen), supports({ 'kimi-coding/k3': ['low', 'high'] }))(req('max'))
+    expect(seen[0]).not.toHaveProperty('reasoningEffort')
+  })
+
+  it('目标未声明档位（支持集 undefined）→ 剥离', async () => {
+    const seen: unknown[] = []
+    await createReviewRunner(mkCtx(seen), supports({}))(req('high'))
+    expect(seen[0]).not.toHaveProperty('reasoningEffort')
+  })
+
+  it('无 resolver（旧调用点 / 测试桩）→ 不携带，行为不变', async () => {
+    const seen: unknown[] = []
+    await createReviewRunner(mkCtx(seen))(req('high'))
+    expect(seen[0]).not.toHaveProperty('reasoningEffort')
+  })
+
+  it('未配档位 → 不携带（适配器默认语义保持）', async () => {
+    const seen: unknown[] = []
+    await createReviewRunner(mkCtx(seen), supports({ 'kimi-coding/k3': ['low', 'high', 'max'] }))(req())
+    expect(seen[0]).not.toHaveProperty('reasoningEffort')
+  })
+})
+
 // Task 4（2026-09-04）：kimi-tide/review 投影 unit（spec §7）——fold 保留最近 20 条
 // （新到旧）+ stateSchema 形状守门。brief 测试逐字。
 const record = (turn: number): ReviewEventPayload => ({
@@ -302,15 +355,21 @@ describe('/kimi-tide show 认领行', () => {
   })
 })
 
-// Task 7（2026-09-04）：validateRouterConfig review 流分支拒 reviewer.effort（L7）。
+// Task 7（2026-09-04）曾钉 reviewer.effort 被拒（L7/M7）。1.4.1（2026-10-03）撤销
+// M7：评审调用改为消费推理档位（用户裁定「协作流评审模型能力也没办法设置」），
+// 语义面改为与 visionModel.effort 同款的形状校验。
 // 断言式与 settings-schema.test.ts 既有惯例一致——validateRouterConfig 收集错误为
-// 返回串不抛错（宿主 set 前查 message、card-store C1 模拟宿主 !== undefined），
-// brief 的 toThrow 形按此实读收编为 toContain/toBeUndefined。
-describe('validateRouterConfig reviewer.effort（评审修复 L7）', () => {
-  it('review 流 reviewer 带 effort → 拒绝', () => {
+// 返回串不抛错（宿主 set 前查 message、card-store C1 模拟宿主 !== undefined）。
+describe('validateRouterConfig reviewer.effort（1.4.1 撤销 M7）', () => {
+  it('review 流 reviewer 带合法 effort → 通过', () => {
     const config = v5Claimed()
     ;(config.flows.review as { reviewer: { effort?: string } }).reviewer.effort = 'high'
-    expect(validateRouterConfig(config as never)).toContain('effort')
+    expect(validateRouterConfig(config as never)).toBeUndefined()
+  })
+  it('reviewer.effort 为空串 → 拒绝（非空字符串校验）', () => {
+    const config = v5Claimed()
+    ;(config.flows.review as { reviewer: { effort?: string } }).reviewer.effort = '   '
+    expect(validateRouterConfig(config as never)).toContain('reviewer.effort')
   })
   it('无 effort → 通过', () => {
     expect(validateRouterConfig(v5Claimed() as never)).toBeUndefined()

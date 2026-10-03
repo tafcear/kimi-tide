@@ -172,11 +172,10 @@ describe('effort 形状（0.8.0）', () => {
     expect(parsed.presets.saving.rules[0].target).toMatchObject({ effort: 'max' })
   })
 
-  it('预设 default 与 transcribe.visionModel 接受 effort；review.reviewer 无该字段（内联 schema）', () => {
-    // M7 语义钉桩：reviewer 内联 schema 无 effort 入口、评审执行层不消费 effort；
-    // 往 reviewer 塞 effort 只验「schemastery 非 strict 透传使塞入值存活」的现状——
-    // 若回滚 reviewerTargetSchema→targetSchema（reviewer 获得 effort 字段），本断言
-    // 不应变红（schema 层两式均接受），仅钉透传行为，非设计承诺。
+  it('预设 default / transcribe.visionModel / review.reviewer 三处都接受 effort（1.4.1 撤销 M7）', () => {
+    // 1.4.1（2026-10-03）：reviewer 目标 schema 与其余目标同形（targetSchema，含
+    // effort）——评审执行层也消费它（review.ts 的 createReviewRunner）。本断言同时
+    // 钉住「schema 层存活 + 值原样保留」。
     const c = DEFAULT_CONFIG_V5()
     ;(c.presets.saving.default as { effort?: string }).effort = 'high'
     ;(c.flows.transcribe.visionModel as { effort?: string }).effort = 'low'
@@ -185,6 +184,12 @@ describe('effort 形状（0.8.0）', () => {
     expect(parsed.presets.saving.default.effort).toBe('high')
     expect(parsed.flows.transcribe.visionModel.effort).toBe('low')
     expect((parsed.flows.review.reviewer as { effort?: string }).effort).toBe('max')
+  })
+
+  it('reviewer.effort 非法类型 → schema 拒绝（与其余目标同款，存在即校验）', () => {
+    const c = DEFAULT_CONFIG_V5()
+    ;(c.flows.review.reviewer as { effort?: unknown }).effort = 42
+    expect(() => routerConfigSchema(c as never)).toThrow(/effort/)
   })
 
   it('effort 非法类型 → schema 拒绝（存在即校验）', () => {
@@ -205,6 +210,17 @@ describe('validateRouterConfig effort（0.8.0，形状校验口径 M4）', () =>
     expect(withEffort({}, 'max')).toBeUndefined()
     expect(withEffort({}, 'xhigh')).toBeUndefined()
     expect(withEffort({}, 'unknown-tier')).toBeUndefined()
+  })
+
+  // 1.4.1：reviewer.effort 与 visionModel.effort 同款形状校验（撤销 M7 后的对称面）。
+  it('reviewer.effort 空串拒写；非空通过（1.4.1 撤销 M7）', () => {
+    const withReviewerEffort = (effort: unknown) => {
+      const c = structuredClone(DEFAULT_CONFIG_V5()); c.activePreset = 'saving'
+      ;(c.flows.review.reviewer as Record<string, unknown>).effort = effort
+      return validateRouterConfig(c)
+    }
+    expect(withReviewerEffort('  ')).toContain('reviewer.effort')
+    expect(withReviewerEffort('max')).toBeUndefined()
   })
 })
 
