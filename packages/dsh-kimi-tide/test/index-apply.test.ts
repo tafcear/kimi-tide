@@ -689,15 +689,18 @@ describe('apply() 会话事件类型注册（2026-09-10 历史日志拒载回归
    * `ignorable` 标记 `Session.append` 写不出来。所以：**停了写入，也不能
    * 停了注册**——注册是历史日志的只读兼容。
    */
-  it('注册 panel（历史只读兼容）+ review（仍写入）两类型', () => {
+  it('注册 panel（历史只读兼容）+ review + review-revise（v1.4.0 仍写入）三类型', () => {
     // 同一文件的既有用例已 apply 过（catalog 是进程级可变 Set），先删掉两个
     // 类型，让本次 apply 是唯一的注册来源。
     KNOWN_SESSION_EVENT_TYPES.delete('kimi-tide/panel')
     KNOWN_SESSION_EVENT_TYPES.delete('kimi-tide/review')
+    KNOWN_SESSION_EVENT_TYPES.delete('kimi-tide/review-revise')
     const { ctx } = makeCtx([])
     apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
     expect(KNOWN_SESSION_EVENT_TYPES.has('kimi-tide/panel')).toBe(true)
     expect(KNOWN_SESSION_EVENT_TYPES.has('kimi-tide/review')).toBe(true)
+    // v1.4.0 退回留痕也要先注册——否则写进去的日志重启后整卷读不出。
+    expect(KNOWN_SESSION_EVENT_TYPES.has('kimi-tide/review-revise')).toBe(true)
   })
 })
 

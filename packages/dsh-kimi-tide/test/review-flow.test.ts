@@ -200,6 +200,18 @@ describe('kimi-tide/review 投影', () => {
     expect(() => (kimiReviewProjectionDefinition as unknown as { stateSchema: { parse: (v: unknown) => unknown } }).stateSchema.parse({ records: [bad] })).toThrow()
     expect(() => (kimiReviewProjectionDefinition as unknown as { stateSchema: { parse: (v: unknown) => unknown } }).stateSchema.parse({ records: [record(1)] })).not.toThrow()
   })
+  it('verdict 随载荷留档（v1.4.0 §3.3；旧记录无该字段亦可投影）——复核 F5', () => {
+    const schema = (kimiReviewProjectionDefinition as unknown as {
+      stateSchema: { parse: (v: unknown) => { records: Array<Record<string, unknown>> } }
+    }).stateSchema
+    // 带结论：必须**不被 strip**（zod object 会丢未声明键——漏声明即投影面读不到结论）
+    const withVerdict = schema.parse({ records: [{ ...record(1), verdict: 'fail' }] })
+    expect(withVerdict.records[0]).toMatchObject({ verdict: 'fail' })
+    // 存量记录（08-25 起那批）没有该键：缺席必须照样过
+    expect(() => schema.parse({ records: [record(2)] })).not.toThrow()
+    // 非法值仍然拒绝
+    expect(() => schema.parse({ records: [{ ...record(3), verdict: 'maybe' }] })).toThrow()
+  })
 })
 
 // Task 6（2026-09-04）：/kimi-tide review 手动命令 + show 认领行（spec §8）——命令层
@@ -248,6 +260,33 @@ describe('/kimi-tide review 命令', () => {
   it('apply：manualReview 缺省（宿主未接线/路由关闭）→ 未挂载文案回显', async () => {
     const result = await applyKimiTideCommand({ kind: 'review' } as never, commandDeps(), NO_AGENT_YET)
     expect(result).toContain('评审流未挂载（路由关闭中）')
+  })
+})
+
+describe('/kimi-tide revise 命令（v1.4.0 手动退回）', () => {
+  it('parse：revise 子命令（与 review 互不串）', () => {
+    expect(parseKimiTideCommand('revise')).toMatchObject({ kind: 'revise' })
+    expect(parseKimiTideCommand('review')).not.toMatchObject({ kind: 'revise' })
+  })
+  it('apply：deps.manualRevise 收到命令的 agent、返回值透传为回显', async () => {
+    const seen: unknown[] = []
+    const agent = { label: 'agent-x' }
+    const deps = commandDeps()
+    deps.manualRevise = async (a) => { seen.push(a); return { ok: true, message: '已按评审意见退回重做（第 1 次）' } }
+    const result = await applyKimiTideCommand({ kind: 'revise' } as never, deps, agent as never)
+    expect(seen).toEqual([agent])
+    expect(result).toContain('退回重做')
+  })
+  it('apply：manualRevise 缺省（宿主未接线/路由关闭）→ 未挂载文案回显', async () => {
+    const result = await applyKimiTideCommand({ kind: 'revise' } as never, commandDeps(), NO_AGENT_YET)
+    expect(result).toContain('退回未挂载（路由关闭中）')
+  })
+  it('apply：退回被拒（上限/无可退回结论）→ 失败文案前缀 kimi-tide:', async () => {
+    const deps = commandDeps()
+    deps.manualRevise = async () => ({ ok: false, message: '已达修订上限（每轮会话最多 1 次）' })
+    const result = await applyKimiTideCommand({ kind: 'revise' } as never, deps, NO_AGENT_YET)
+    expect(result).toContain('kimi-tide:')
+    expect(result).toContain('上限')
   })
 })
 

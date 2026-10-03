@@ -90,13 +90,14 @@ describe('DEFAULT_CONFIG_V5', () => {
       failurePolicy: 'latch-image',
     })
   })
-  it('预置 review 流：k3 评审 + manual 触发 + rounds 1 + autoRevise false', () => {
+  it('预置 review 流：k3 评审 + manual 触发 + rounds 1 + autoRevise false + recheck true（v1.4.0 裁定默认开）', () => {
     expect(DEFAULT_CONFIG_V5().flows.review).toEqual({
       type: 'review',
       reviewer: { provider: 'kimi-coding', model: 'k3' },
       trigger: 'manual',
       rounds: 1,
       autoRevise: false,
+      recheck: true,
     })
   })
   it('预设与关键词组同 V4 逐项相等（迁移行为保持：预置流注册但不绑定）', () => {
@@ -123,6 +124,7 @@ describe('DEFAULT_CONFIG_V5', () => {
       trigger: 'manual',
       rounds: 1,
       autoRevise: false,
+      recheck: true,
     })
   })
 })

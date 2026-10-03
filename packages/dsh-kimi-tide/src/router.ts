@@ -32,11 +32,15 @@ import type {
 } from './config.js'
 import { configKey, isFlowTarget, KIMI_PROVIDER } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
-import { KIMI_TIDE_REVIEW_EVENT } from './projection.js'
-import { createReviewRunner, REVIEW_INPUT_LIMIT, type ReviewEventPayload, type ReviewRequest } from './review.js'
+import { KIMI_TIDE_REVIEW_EVENT, KIMI_TIDE_REVISE_EVENT } from './projection.js'
+import {
+  createReviewRunner, createReviseMessage, isReviseMessage, REVIEW_INPUT_LIMIT,
+  type ReviewEventPayload, type ReviewRequest, type ReviewRevisePayload,
+} from './review.js'
+import { isRevisableVerdict, verdictLabel, type ReviewVerdict } from './review-verdict.js'
 import type { ResolvedImage, Transcriber, VisionCaller } from './transcribe.js'
 import { type ConfirmReviewResult, type HitConfirmGate } from './hit-confirm.js'
-import { configuredProviders, effectiveExplicitDirective, explicitDirective, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
+import { configuredProviders, effectiveExplicitDirective, explicitDirective, latestUserMessage, latestUserText, matchingScored, messagesContainImage, reviewTriggerHit, routableHits, ruleLabel } from './rules.js'
 export { latestUserText, messagesContainImage } from './rules.js'
 export type { RouteTarget }
 
@@ -476,6 +480,14 @@ export interface RouterOrchestrationDeps {
   reviewEventWritable?: boolean
   /** 1.1.0 §8：手动评审实现登记（install 传 fn / dispose 传 null）。 */
   onManualReview?: (fn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null) => void
+  /**
+   * v1.4.0 §3.1：**手动退回**实现登记（install 传 fn / dispose 传 null）。
+   * 与 onManualReview 同款通道（客户端「让它重做」按钮 → `/kimi-tide revise`
+   * 命令 → 这里登记的实现），不新造 RPC。
+   */
+  onManualRevise?: (fn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null) => void
+  /** v1.4.0 §3.6：退回留痕回调（dock 流事件行；与会话事件同批交付）。 */
+  onReviewRevise?: (agent: Agent, event: ReviewRevisePayload) => void
   /**
    * v1.3.0 语义命中确认闸（语义闸 spec v2 §7）：关键词命中时先让预设打底模型
    * 判定真伪；判否 ⇒ 该规则视同不存在（跳过继续后续规则）。缺省 = 不过闸。
@@ -924,7 +936,12 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // （L2：无 turn-stopping 的关闭路径残留至下一轮覆盖，静默跳过）。router
       // off 时 installRouter 整体未挂载，天然关闭。
       const turnText = latestUserText(payload.messages)
-      const hit = reviewTriggerHit(router.config, turnText, reviewerAvailable, router.knownProviders())
+      // v1.4.0 评审闭环：**修订轮不重新武装**——注入文本里天然带「意见/评审」等
+      // 认领词，若照常武装，一次修订会在轮末再触发一次评审（配额翻倍，且与复检
+      // 重复）。判据是消息 source（本插件签名），不是文本内容。
+      const hit = isReviseMessage(latestUserMessage(payload.messages))
+        ? null
+        : reviewTriggerHit(router.config, turnText, reviewerAvailable, router.knownProviders())
       // fix round 1 F1（R10）：feed 常挂（每 agent 一次，首个 step-1 即登记）——
       // lastTurn 滚动维护「不依赖 armed」（spec §5.2），trigger=manual（预置
       // 默认态）用户的手动命令才有上一轮可评；武装命中只决定 turn-stopping
@@ -1042,13 +1059,35 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     // 整体重建（armed/lastTurn/outputs 随之重建，丢最近一轮缓存可接受，spec §10）。
     //   armed——本轮武装（pre-step step-1 命中写、turn-stopping 消费删、每轮覆盖）；
     //   outputs——按轮累计的 assistant 文本（REVIEW_INPUT_LIMIT 停收 + 截断标注）；
-    //   lastTurns——每 agent 最近一轮 {userText, output} 滚动缓存（手动命令消费，
-    //   spec §5.2「不依赖 armed」——任何产出非空的轮都更新）；
+    //   lastTurns——每 agent 最近一轮 {turn, userText, output} 滚动缓存（手动命令消费，
+    //   spec §5.2「不依赖 armed」——任何产出非空的轮都更新；v1.4.0 起带轮号，
+    //   手动评审的 turn:-1 载荷据此拿到复检基准）；
     //   sessionWired——session/event feed 的按 agent 去重。
     const armed = new WeakMap<Agent, { turn: number; flowId: string; flow: ReviewFlow; userText: string }>()
     const outputs = new WeakMap<Agent, { turn: number; text: string }>()
-    const lastTurns = new WeakMap<Agent, { userText: string; output: string }>()
+    const lastTurns = new WeakMap<Agent, { turn: number; userText: string; output: string }>()
     const sessionWired = new WeakSet<Agent>()
+    // ---- v1.4.0 评审闭环（spec §3.4/§3.6）：按 agent 的修订台账 ----
+    //   lastReview——最近一条**已交付**的评审载荷（手动退回的判据来源）；
+    //   revisions——{ 最近被修订的轮, 已用修订次数 }（幂等键 + 上限计数，
+    //               自动与手动共享同一本账：spec §3.4「手动退回同样计上限」）；
+    //   recheckQueue——待复检标记（修订后那一轮的 turn-stopping 消费一次）。
+    // 三者皆 Weak 键控，随 agent GC；installRouter 重挂载即整体重建（与 armed 同款）。
+    const lastReview = new WeakMap<Agent, ReviewEventPayload>()
+    // 修订台账**按流分账**（v1.4.0 修复：单槽会被跨流误判——rounds 是每流配置，
+    // A 流的两轮不该吃掉 B 流的额度）：flowId → { 最近被修订的轮, 已用次数 }。
+    const revisions = new WeakMap<Agent, Map<string, { turn: number | null; count: number }>>()
+    const recheckQueue = new WeakMap<Agent, {
+      flowId: string
+      flow: ReviewFlow
+      afterTurn: number
+      /** 复检的**身份闸**：预期被修订的那一轮（afterTurn+1; afterTurn<0 时 null=首轮）。 */
+      expectedTurn: number | null
+    }>()
+    // 修订注入到达标记（复检身份闸的第二重）：feed 见本源 user/message 置位，
+    // 紧随其后的 assistant/message 把「这一轮带了修订」落到该轮的轮号上。
+    const reviseInjected = new WeakMap<Agent, true>()
+    const reviseTurns = new WeakMap<Agent, number>()
     const runReview = createReviewRunner(ctx)
     // 重挂载惰性闸：agent.ctx 上的 feed 无法逐个注销（不强持 agent 引用），dispose
     // 置 false 使旧闭包的 feed 立即停摆（spec §5.2「重挂载 dispose 全部监听」）；
@@ -1072,6 +1111,112 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
     const textBlocksOf = (blocks: ReadonlyArray<{ type?: string; text?: unknown }>): string =>
       blocks.filter((b) => b.type === 'text').map((b) => String(b.text ?? '')).join('')
 
+    /**
+     * 退回事件落盘 + 交付（spec §3.6）。写入闸与评审事件同源（reviewEventWritable
+     * ——宿主会话目录里没有这个类型时不写，避免产出宿主读不出的日志）。
+     */
+    const emitRevise = (agent: Agent, payload: ReviewRevisePayload): void => {
+      if (deps.reviewEventWritable === false) {
+        // 诚实口径（v1.4.0 复核）：这条路径**只**跑事件回调（index.ts 的内存
+        // dock 行），刷新即无——别在告警里承诺"面板仍可见"。
+        ctx.logger?.warn?.('kimi-router: 宿主会话目录不含退回事件类型——本次退回不写入会话日志（无回读留痕，仅当次面板行）')
+      } else {
+        try {
+          agent.session.append(KIMI_TIDE_REVISE_EVENT, payload)
+        } catch (error) {
+          ctx.logger?.warn?.(`kimi-router: revise append failed: ${(error as Error).message}`)
+        }
+      }
+      try {
+        deps.onReviewRevise?.(agent, payload)
+      } catch (error) {
+        ctx.logger?.warn?.(`kimi-router: onReviewRevise callback failed: ${(error as Error).message}`)
+      }
+    }
+
+    /**
+     * 起一次修订（自动/手动**唯一**通道，spec §3.2）：`agent.steer` 注入一条
+     * 本插件签名的 user 消息，由宿主轮循环正常起下一轮。
+     *
+     * 四道护栏在这一次调用里全部落地：幂等（同轮只一次，仅自动支）、上限
+     * （`flows.review.rounds` 为本会话修订次数上限，自动/手动共账）、
+     * 留痕（`kimi-tide/review-revise`）、终止（超限时只落 stopped 事件不 steer）。
+     */
+    const issueRevise = (agent: Agent, input: {
+      flowId: string
+      flow: ReviewFlow
+      reason: 'auto' | 'manual'
+      turn: number
+      verdict: ReviewVerdict
+      reviewText: string
+      afterTurn: number
+    }): { ok: boolean; message: string } => {
+      const book = revisions.get(agent) ?? new Map<string, { turn: number | null; count: number }>()
+      revisions.set(agent, book)
+      const state = book.get(input.flowId) ?? { turn: null, count: 0 }
+      book.set(input.flowId, state)
+      // 幂等（spec §3.4）：同一轮只允许一次**自动**修订。手动是用户显式行为、不受此限
+      // （spec §3.4 明写），但手动**也写** turns 键——否则「手动退过第 N 轮 → 第 N 轮
+      // 的自动评审迟到送达」会再退一次同一轮（v1.4.0 修复）。
+      if (input.reason === 'auto' && state.turn === input.turn) {
+        return { ok: false, message: '本轮已退回过一次（幂等）' }
+      }
+      const limit = Number.isFinite(input.flow.rounds) && input.flow.rounds >= 1 ? Math.floor(input.flow.rounds) : 1
+      const at = new Date().toISOString()
+      if (state.count >= limit) {
+        emitRevise(agent, {
+          flowId: input.flowId, turn: input.turn, reason: input.reason,
+          verdict: input.verdict, reviseIndex: state.count, stopped: 'limit', at,
+        })
+        return { ok: false, message: `已达修订上限（本会话该流最多 ${limit} 次）` }
+      }
+      try {
+        agent.steer(createReviseMessage({ reviewText: input.reviewText, verdict: input.verdict }))
+      } catch (error) {
+        // 轮已销毁/驱动已停：不落退回事件（没退成就不该留痕），也不向上抛。
+        ctx.logger?.warn?.(`kimi-router: revise failed: ${(error as Error).message}`)
+        return { ok: false, message: `退回失败：${(error as Error).message}` }
+      }
+      state.count += 1
+      state.turn = input.turn
+      emitRevise(agent, {
+        flowId: input.flowId, turn: input.turn, reason: input.reason,
+        verdict: input.verdict, reviseIndex: state.count, at,
+      })
+      // 复检（spec §4：`flows.review.recheck` 默认开）——修订轮收官时再评一轮；
+      // 该追加评审同样受 rounds 上限约束（复检若再判不通过，退回时要过 issueRevise
+      // 的上限闸）。身份闸见 recheckQueue 注释与 turn-stopping 分支。
+      if (input.flow.recheck !== false) {
+        recheckQueue.set(agent, {
+          flowId: input.flowId,
+          flow: input.flow,
+          afterTurn: input.afterTurn,
+          expectedTurn: input.afterTurn >= 0 ? input.afterTurn + 1 : null,
+        })
+      }
+      return { ok: true, message: `已按评审意见退回重做（第 ${state.count} 次）` }
+    }
+
+    /**
+     * 评审交付后的编排分支（spec §3.1 自动修订）：`autoRevise === true`
+     * ∧ 评审成功 ∧ 结论判为「不通过／有条件通过」⇒ 退回重做。
+     * 其余一切情形（开关关、评审失败、判「通过」、结论解析不出）都**不**动手。
+     */
+    const consumeReview = (agent: Agent, req: ReviewRequest, event: ReviewEventPayload): void => {
+      lastReview.set(agent, event)
+      if (req.flow.autoRevise !== true || event.ok !== true) return
+      if (!isRevisableVerdict(event.verdict)) return
+      issueRevise(agent, {
+        flowId: req.flowId,
+        flow: req.flow,
+        reason: 'auto',
+        turn: req.turn,
+        verdict: event.verdict,
+        reviewText: event.reviewText,
+        afterTurn: req.turn,
+      })
+    }
+
     const finishReview = (agent: Agent, req: ReviewRequest): void => {
       void runReview(req)
         .then((event) => {
@@ -1094,6 +1239,13 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
             deps.onReviewEvent?.(agent, event)
           } catch (error) {
             ctx.logger?.warn?.(`kimi-router: onReviewEvent callback failed: ${(error as Error).message}`)
+          }
+          // v1.4.0：评审交付后接编排分支（自动退回）。单独 try——编排异常不得
+          // 被上面的 catch 误归成「review failed」。
+          try {
+            consumeReview(agent, req, event)
+          } catch (error) {
+            ctx.logger?.warn?.(`kimi-router: review consume failed: ${(error as Error).message}`)
           }
         })
         .catch((error: unknown) => {
@@ -1133,18 +1285,29 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           // 枝——dsh-agent-loop RuntimeContextProjection isOwned 同款判定实证）。
           // 仅人类输入刷新 lastTurn.userText；顺带刷新 armed.userText（本轮人类
           // 文本覆盖 pre-step latestUserText 可能取到的注入文本，评审需求恒人类）。
+          // v1.4.0：本插件自己的修订注入先落一个「本轮接过修订」标记（复检归属
+          // 的身份闸），它**不是**人类输入，故不刷新 lastTurn/armed。
+          if (isReviseMessage(event.data)) {
+            reviseInjected.set(agent, true)
+            return
+          }
           if (event.data?.source?.kind !== 'user') return
           const humanText = appendCapped('', textBlocksOf(event.data.content ?? []))
           if (humanText.trim() === '') return
           const armedEntry = armed.get(agent)
           if (armedEntry !== undefined) armedEntry.userText = humanText
           const prev = lastTurns.get(agent)
-          lastTurns.set(agent, { userText: humanText, output: prev?.output ?? '' })
+          lastTurns.set(agent, { turn: prev?.turn ?? -1, userText: humanText, output: prev?.output ?? '' })
           return
         }
         if (event.type !== 'assistant/message') return // 防环：kimi-tide/review 等其余类型直接忽略
         if (event.data?.interrupted === true) return // 中断前缀不计入产出
         const turn = event.data?.turn
+        // 修订注入后的第一轮产出：把「这一轮带了修订」记到轮号上（身份闸落点）。
+        if (reviseInjected.get(agent) === true) {
+          reviseInjected.delete(agent)
+          reviseTurns.set(agent, turn ?? -1)
+        }
         const turnText = textBlocksOf(event.data?.message?.content ?? [])
         const tracked = outputs.get(agent)
         if (tracked === undefined || tracked.turn !== turn) {
@@ -1159,7 +1322,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           // 的滚动值（user/message 人类枝维护，L3 判定不变）。armed 匹配性只影响
           // turn-stopping 侧「本轮是否评审」，不影响 lastTurn 维护。
           const rolling = lastTurns.get(agent)
-          lastTurns.set(agent, { userText: rolling?.userText ?? '', output: out.text })
+          lastTurns.set(agent, { turn: out.turn, userText: rolling?.userText ?? '', output: out.text })
         }
       })
     }
@@ -1172,6 +1335,29 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const payload = raw as { agent?: Agent; turn?: number }
       const agent = payload.agent
       if (agent === undefined) return
+      // **身份闸**（v1.4.0 复核 F1 修复）：光看「轮号更大」会把用户插话的那一轮
+      // 误当修订轮（评审卡张冠李戴 + lastReview 被无关产出覆盖）。判据收紧为
+      // 「feed 确实见过本插件的注入、且它落在这一轮」——注入是宿主写进同一份
+      // 会话日志的 user/message，feed 必然看得到；看不到就不评（安全方向）。
+      const pending = recheckQueue.get(agent)
+      if (pending !== undefined && typeof payload.turn === 'number' && payload.turn > pending.afterTurn) {
+        recheckQueue.delete(agent)
+        const injectedTurn = reviseTurns.get(agent)
+        const onTargetTurn = injectedTurn === payload.turn
+        const recheckOut = outputs.get(agent)
+        if (onTargetTurn && recheckOut !== undefined && recheckOut.turn === payload.turn && recheckOut.text.trim() !== '') {
+          finishReview(agent, {
+            flowId: pending.flowId,
+            flow: pending.flow,
+            turn: payload.turn,
+            userText: lastTurns.get(agent)?.userText ?? '',
+            output: recheckOut.text,
+          })
+        } else {
+          ctx.logger?.info?.(`kimi-router: 复检跳过——第 ${payload.turn} 轮不是本次修订的承载轮（预期 ${pending.expectedTurn ?? '首轮'}；不把无关产出当修订产出评）`)
+        }
+        return
+      }
       const entry = armed.get(agent)
       if (entry === undefined || entry.turn !== payload.turn) return
       armed.delete(agent)
@@ -1193,6 +1379,34 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       return { ok: true, message: '评审已发起' }
     })
 
+    /**
+     * 手动退回实现（v1.4.0 §3.1）：**不依赖 autoRevise 开关**，任何一次已交付的
+     * 评审都能一键退回；同样计 rounds 上限。判据取最近一条评审载荷（含手动评审
+     * 的 turn:-1 载荷——复检基准改用 lastTurn 的真实轮号）。
+     */
+    deps.onManualRevise?.(async (agent: Agent) => {
+      const review = lastReview.get(agent)
+      if (review === undefined) return { ok: false, message: '还没有可退回的评审结论（先评一轮：/kimi-tide review）' }
+      if (review.ok !== true) return { ok: false, message: '最近一次评审失败，没有可退回的结论' }
+      const flows = router.config.version === 5 ? router.config.flows : {}
+      const flow = flows[review.flowId]
+      if (flow === undefined || flow.type !== 'review') {
+        return { ok: false, message: `评审流 '${review.flowId}' 已不存在（配置改过？）` }
+      }
+      // 人工退回是用户的显式命令：**不做结论闸**（结论判「通过」也允许重做——
+      // 用户比评审更清楚要不要返工），但注入文本如实带上结论标签。
+      const afterTurn = review.turn >= 0 ? review.turn : (lastTurns.get(agent)?.turn ?? -1)
+      return issueRevise(agent, {
+        flowId: review.flowId,
+        flow,
+        reason: 'manual',
+        turn: review.turn,
+        verdict: review.verdict,
+        reviewText: review.reviewText,
+        afterTurn,
+      })
+    })
+
     return () => {
       disposePre()
       disposeRequest()
@@ -1201,6 +1415,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       disposeStop()
       feedsLive = false
       deps.onManualReview?.(null)
+      deps.onManualRevise?.(null)
     }
   })
 }

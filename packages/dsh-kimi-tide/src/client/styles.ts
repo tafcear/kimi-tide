@@ -186,6 +186,33 @@ export const CLIENT_CSS = `
       mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z'/%3E%3C/svg%3E") center / contain no-repeat; }
     /* ---- ⑥-B dock 两行（2026-08-29 打磨：骨架恒定）---- */
     .kimi-tide-dock.kt-dock-b { flex-direction: column; align-items: stretch; row-gap: 4px; }
+    /* ---- v1.4.x 紧凑态：输入工具行右端（提交按钮左侧）一行两个小按钮 ----
+       工具行本身是紧凑控件带（权限/模型/语音），故这里只保留最小高度与最大宽度：
+       超出用 ellipsis 收在芯片内，绝不换行、不推挤旁边的宿主控件。 */
+    .kimi-tide-dock.kt-dock-c { flex-direction: row; align-items: center; gap: 6px;
+      min-width: 0; max-width: 320px; font-size: 12px; }
+    .kimi-tide-dock.kt-dock-c .kt-c-main { display: inline-flex; align-items: center; gap: 4px;
+      min-width: 0; max-width: 220px; height: 26px; padding: 0 8px; border-radius: 8px;
+      border: 1px solid var(--dsw-alias-border-l1, #e4e7ee); background: transparent;
+      color: var(--dsw-alias-label-secondary, #8b93a7); font: inherit; font-size: 12px; cursor: pointer; }
+    .kimi-tide-dock.kt-dock-c .kt-c-main:hover { background: var(--kt-accent-soft, rgb(139 111 244 / 0.14));
+      border-color: var(--kt-accent-line, rgb(139 111 244 / 0.45)); }
+    .kimi-tide-dock.kt-dock-c .kt-c-main.kt-armed { border-style: solid;
+      border-color: var(--kt-accent-line, rgb(139 111 244 / 0.45)); color: var(--kt-accent-strong, #7c5cf0); }
+    .kimi-tide-dock.kt-dock-c .kt-c-preset { flex: none; font-weight: 600;
+      color: var(--dsw-alias-label-primary, #2b3245); }
+    .kimi-tide-dock.kt-dock-c .kt-c-warn { display: inline-flex; flex: none;
+      color: var(--dsw-alias-warning-strong, #d97706); }
+    .kimi-tide-dock.kt-dock-c .kt-c-quota { display: inline-flex; align-items: center; gap: 4px;
+      flex: none; height: 26px; padding: 0 8px; border-radius: 8px;
+      border: 1px solid var(--dsw-alias-border-l1, #e4e7ee); background: transparent;
+      color: var(--dsw-alias-label-secondary, #8b93a7); font-size: 11.5px; cursor: pointer;
+      font-variant-numeric: tabular-nums; }
+    .kimi-tide-dock.kt-dock-c .kt-c-quota:hover { background: var(--kt-accent-soft, rgb(139 111 244 / 0.14));
+      border-color: var(--kt-accent-line, rgb(139 111 244 / 0.45)); }
+    .kimi-tide-dock.kt-dock-c .kt-c-quota.kt-armed { border-color: var(--kt-accent-line, rgb(139 111 244 / 0.45));
+      color: var(--kt-accent-strong, #7c5cf0); }
+    .kimi-tide-dock.kt-dock-c .kt-c-state { white-space: nowrap; }
     /* r1 锁单行：决策原因不进文本流（在开关 title 里），长原因不再挤换行 */
     .kimi-tide-dock .kt-dock-r1 { display: flex; align-items: center; gap: 8px; width: 100%;
       white-space: nowrap; overflow: hidden; }
@@ -275,4 +302,25 @@ export const CLIENT_CSS = `
       border-color: var(--dsw-alias-border-l2, #d4d9e3); }
     .kt-review-error { font-size: 12px; line-height: 1.55;
       color: var(--dsw-alias-danger-strong, #e5484d); }
+    /* ---- v1.4.0 评审闭环：结论标签 + 「让它重做」 + 退回卡 ---- */
+    .kt-review-verdict { flex: none; font-size: 11px; padding: 0 6px; border-radius: 6px;
+      border: 1px solid currentColor; opacity: 0.85; }
+    .kt-review-verdict-pass { color: var(--dsw-alias-success-strong, #2f9e63); }
+    .kt-review-verdict-conditional { color: var(--dsw-alias-warning-strong, #b8760a); }
+    .kt-review-verdict-fail { color: var(--dsw-alias-danger-strong, #e5484d); }
+    .kt-review-verdict-unknown { color: var(--dsw-alias-label-tertiary, #8b93a7); }
+    .kt-review-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .kt-review-revise { font: inherit; font-size: 12px; padding: 2px 10px; cursor: pointer;
+      border-radius: 6px; color: var(--kt-accent-strong, #7c5cf0);
+      border: 1px solid var(--kt-accent-line, rgb(139 111 244 / 0.45));
+      background: transparent; }
+    .kt-review-revise:hover:not(:disabled) { background: rgb(139 111 244 / 0.12); }
+    .kt-review-revise:disabled { cursor: default; opacity: 0.5; }
+    .kt-review-note { font-size: 11px; min-width: 0; overflow-wrap: break-word; opacity: 0.8; }
+    .kt-revise-card { gap: 4px; }
+    .kt-revise-badge { color: var(--kt-accent-strong, #7c5cf0); }
+    .kt-revise-card-stopped { border-color: var(--dsw-alias-border-l2, #d4d9e3);
+      background: rgb(148 163 184 / 0.10); }
+    .kt-revise-card-stopped .kt-revise-badge { color: var(--dsw-alias-label-secondary, #8b93a7); }
+    .kt-revise-summary { font-size: 11px; opacity: 0.85; }
   `

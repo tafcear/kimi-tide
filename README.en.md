@@ -139,7 +139,7 @@ Seven built-in keyword groups (word lists editable, custom groups allowed):
 | `math` | math | 数学, 证明, 推导, 求解, 公式, 数论, 概率, 逻辑题 |
 | `chitchat` | small talk | 你好, 谢谢, 怎么样, 随便, 聊聊, 天气 |
 
-> The `review` group serves the **collaborative review flow** by default (a strong model reviews this turn's output) — see "Multi-model collaborative review" below for the mechanism, the three switches and today's limits.
+> The `review` group serves the **collaborative review flow** by default (a strong model reviews this turn's output) — see "Multi-model collaborative review" below for the mechanism, the four switches and today's limits.
 
 Two common tweaks (a few clicks in "Settings → 月汐"):
 
@@ -173,17 +173,24 @@ Routing decides *who runs this step*; review decides *whether this step is good 
 
 **What it does**: when a turn closes, kimi-tide sends "your request for this turn + the main model's output" to **the reviewer you configured** (usually the stronger, pricier one) and gets back a structured review — issues graded by severity (blocking / suggested / optional) → improvement advice → a verdict (pass / conditional pass / fail) — rendered as a **review card** under that turn.
 
-**Three switches** (Settings → 月汐 → collaboration flows):
+**Four switches** (Settings → 月汐 → collaboration flows):
 
 | Switch | What it actually does today |
 |---|---|
 | Trigger | `keywords`: review only when the message hits the chosen keyword group; `manual`: run `/kimi-tide review` on the last turn at any time |
-| Rounds | 1–3, bounding how many review passes happen |
-| Auto-revise | **Not implemented yet** — ticking it changes nothing (the field is kept; implementation is on the roadmap) |
+| Rounds | 1–3, bounding how many review passes happen — **and the per-session cap on "send it back"** |
+| Auto-revise | When the verdict is "fail / conditional pass", the review is sent back to the main model to rework (off by default) |
+| Re-check after revise | **Review the rework once more** (on by default) — to confirm the issues were really fixed |
 
-**What it does not do today**: it does not send a failing turn back for rework, and it does not edit your code. When the verdict is "fail", the next move is yours — a deliberate trade-off: no strong-model quota burned by default, and no silent rewrite of output you were happy with.
+**How sending it back works**: it does not edit your code for you; it injects one "revise per this feedback" message into that turn, so the **main model fixes only what was flagged** (no rewriting of unrelated parts), and the next turn starts normally. The original output stays in the session log, always reviewable.
 
-**Cost**: review only runs on **matching turns**, and only this turn's output slice is sent to the reviewer (12,000 characters per section, 60-second timeout, failures never interrupt the turn). In the industry data the research repo cites, adversarial review loops commonly cost 2–3× a single model's tokens — **this plugin has not measured its own numbers yet**.
+- **Automatic**: with auto-revise on, a "fail / conditional pass" verdict triggers it; a "pass" verdict — or a verdict that cannot be parsed — never does (no guessing).
+- **Manual**: every review card carries a "**let it redo**" button (or type `/kimi-tide revise`), and it works **without auto-revise** — you can ask for a rework even when the verdict was "pass".
+- **It cannot run away**: at most `rounds` (1–3) sends per session; after that the card reads "stopped (cap reached)" and nothing is sent again. A failed review (timeout / empty output) never triggers a send-back.
+
+**What it does not do today**: it does not edit your code, and it never bypasses the main model to write anything itself — the rework is still the main model's job.
+
+**Cost**: review only runs on **matching turns**, and only this turn's output slice is sent to the reviewer (12,000 characters per section, 60-second timeout, failures never interrupt the turn). With send-back enabled, each send costs **one extra main-model turn**, and re-check adds **one extra review call** on top. In the industry data the research repo cites, adversarial review loops commonly cost 2–3× a single model's tokens — **this plugin has not measured its own numbers yet**.
 
 **Evidence grade**: the mechanism and the three rounds of practice are documented in [kimi-tide-research](https://github.com/tafcear/kimi-tide-research). Whether review actually *improves a weaker model's output* is **not measured yet** (no acceptance rate, no baseline against the strong model working alone, no regression rate), so this section quotes no effect numbers; the transfer-efficiency experiment is scheduled as pre-release evidence for v1.4.0.
 

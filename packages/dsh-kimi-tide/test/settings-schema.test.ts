@@ -28,6 +28,21 @@ describe('routerConfigSchema v5', () => {
     ;(c.presets.saving as { imageFallback?: string }).imageFallback = 'bogus'
     expect(() => routerConfigSchema(c as never)).toThrow(/imageFallback/)
   })
+  it('v1.4.0 recheck：无该键的存量配置往返不注入；显式 false/true 存活；非布尔拒绝（复核疑点 8）', () => {
+    const legacy = DEFAULT_CONFIG_V5()
+    delete (legacy.flows.review as { recheck?: boolean }).recheck
+    const parsed = routerConfigSchema(legacy as never) as RouterConfigV5
+    // 无 default ⇒ 缺失省略（「默认往返相等」红线）；语义默认「开」在消费侧 `!== false`
+    expect((parsed.flows.review as { recheck?: boolean }).recheck).toBeUndefined()
+
+    const off = DEFAULT_CONFIG_V5()
+    ;(off.flows.review as { recheck?: boolean }).recheck = false
+    expect((routerConfigSchema(off as never) as RouterConfigV5).flows.review).toMatchObject({ recheck: false })
+
+    const bad = DEFAULT_CONFIG_V5()
+    ;(bad.flows.review as unknown as { recheck: unknown }).recheck = 'yes'
+    expect(() => routerConfigSchema(bad as never)).toThrow()
+  })
   it('存量 v4 节可过 schema（version 4 保留，flows 注入 {}）', () => {
     const parsed = routerConfigSchema(DEFAULT_CONFIG_V4() as never) as RouterConfigV5
     expect(parsed.version).toBe(4)

@@ -35,6 +35,14 @@ export interface TideDockProps {
   fetchPanel?: (sessionId: string) => Promise<KimiTidePanelProjection | null>
   /** 测试缝/深链：初始即展开决策可观测面板（默认折叠，点「决策」开）。 */
   defaultExpanded?: boolean
+  /**
+   * 形态（v1.4.x 位置调整，2026-10-03 用户裁定「挪到工具行右端」）：
+   * - `'full'`（默认）：composer 下方状态区的两行完整仪表（历史位置）；
+   * - `'compact'`：输入工具行右端（提交按钮左侧）的一行紧凑态——只有
+   *   「预设→目标」与「配额/余额」两个小按钮，点开仍是同一套 portal 面板。
+   * 两个形态共用数据与 portal，故行为（取数节流/开合/空态）完全一致。
+   */
+  variant?: 'full' | 'compact'
 }
 
 /** client/index.ts apply() 注入的真实取数实现（走 remote commands 通道）。 */
@@ -251,6 +259,8 @@ export function TideDock(props: TideDockProps) {
   const [ovPos, setOvPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null)
   const ovRef = useRef<HTMLDivElement | null>(null)
   const ovToggleRef = useRef<HTMLButtonElement | null>(null)
+  /** 紧凑态（v1.4.x 位置调整）：工具行右端一行，只留两个按钮。 */
+  const compact = props.variant === 'compact'
 
   // 面板数据面（v1.2.0）：优先命令通道现算（fetchPanel ?? 全局自注入面），
   // 挂载即取一次 + 定时轻轮询；取不到（路由关闭 / 通道缺席）→ 投影回退。
@@ -407,14 +417,19 @@ export function TideDock(props: TideDockProps) {
   }, [expanded])
 
   if (panel === undefined || panel === null) {
+    const stateText = settled
+      ? (degraded !== '' ? `暂无面板数据（${degraded}）` : '暂无面板数据（路由关闭或取数通道不可用）')
+      : '面板数据加载中…'
     return (
-      <div className="kimi-tide-dock" data-kt-el="dock-states">
-        <span className="kt-label kt-slot"><Icon name="moon" className="kt-ic-moon" /> 月汐</span>
-        <span className="kt-dim">
-          {settled
-            ? (degraded !== '' ? `暂无面板数据（${degraded}）` : '暂无面板数据（路由关闭或取数通道不可用）')
-            : '面板数据加载中…'}
+      <div className={`kimi-tide-dock${compact ? ' kt-dock-c' : ''}`} data-kt-el="dock-states">
+        {/* 紧凑态：状态文案收进 title（工具行只有一行），面上只留「月汐」，不挤掉别的控件。 */}
+        <span
+          className={`kt-label kt-slot${compact ? ' kt-c-state' : ''}`}
+          title={compact ? stateText : undefined}
+        >
+          <Icon name="moon" className="kt-ic-moon" /> 月汐
         </span>
+        {!compact && <span className="kt-dim">{stateText}</span>}
       </div>
     )
   }
@@ -476,9 +491,67 @@ export function TideDock(props: TideDockProps) {
     : targetHasSource
       ? '配额取数时间（取数失败，配额不可用）'
       : '配额取数时间（当前目标无配额数据）'
+  // ---- 紧凑态（v1.4.x，工具行右端）派生值 ----
+  // 目标链：本步决策目标优先，回落预设打底（与 r1 的 ⟶/→ 同语义，只是合成一个按钮）。
+  const compactTarget = panel.decision?.chosen ?? (router.activePreset !== null ? router.defaultTarget ?? null : null)
+  // 配额摘要一格：余额源给 `¥xx`，用量源给 `周剩NN%`，无数据给 null（退化为 ▤ 图标）。
+  const compactQuota = balance !== null
+    ? fmtBalance(balance)
+    : weekPct === null ? null : `周剩${weekPct}%`
+  const compactQuotaTitle = balance !== null
+    ? balanceTitleOf(balance)
+    : weekPct === null
+      ? '用量总览（当前目标无配额数据）'
+      : `${weekTitle} · 点开用量总览`
 
   return (
-    <div className="kimi-tide-dock kt-dock-b" ref={dockRef} role="region" aria-label="月汐路由状态">
+    <div className={`kimi-tide-dock ${compact ? 'kt-dock-c' : 'kt-dock-b'}`} ref={dockRef} role="region" aria-label="月汐路由状态">
+      {compact ? (
+        <>
+          {/* 紧凑态（工具行右端，仅一行空间）：① 预设→目标（点开决策面板）
+              ② 配额/余额（点开用量总览）。额度条/刷新按钮不进这一行——额度明细
+              在总览里，「刷新配额」走 `/kimi-tide refresh`（工具行放不下第三个控件）。 */}
+          <button
+            type="button"
+            data-kt-el="compact-toggle"
+            ref={toggleRef}
+            className={`kt-c-main kt-slot${expanded ? ' kt-armed' : ''}`}
+            aria-expanded={expanded}
+            title={panel.decision === null
+              ? `${expanded ? '收起' : '展开'}决策可观测（本步无决策）· 预设 ${router.presetName ?? '关闭'}`
+              : `${expanded ? '收起' : '展开'}决策可观测：${panel.decision.reason}`}
+            onClick={toggleExpand}
+          >
+            <Icon name="moon" className="kt-ic-moon" />
+            <span className="kt-c-preset">{router.presetName ?? '关闭'}</span>
+            {compactTarget !== null && (
+              <>
+                <span className="kt-route-arrow" aria-hidden>→</span>
+                <span className="kt-ellip kt-route-target">{compactTarget.model}</span>
+              </>
+            )}
+            {(!kimi.route || !kimi.key) && (
+              <span data-kt-el="kimi-warning" className="kt-c-warn" title="缺少 kimi-coding 路由或 API key（设置 → 模型 配置）">
+                <Icon name="warn" />
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            data-kt-el="compact-quota"
+            ref={ovToggleRef}
+            className={`kt-c-quota kt-slot${overviewOpen ? ' kt-armed' : ''}${quotaDim ? ' kt-dim' : ''}`}
+            aria-expanded={overviewOpen}
+            aria-controls="kt-quota-overview"
+            title={compactQuotaTitle}
+            onClick={toggleOverview}
+          >
+            {compactQuota === null ? <Icon name="stacks" /> : compactQuota}
+          </button>
+        </>
+      ) : (
+      <>
       {/* ⑥-B 第一行（锁单行）：身份 + 路由链（预设 → 打底 ⟶ 决策目标）+ 右贴决策开关。
           决策原因不进文本流（只在开关 title 与悬浮面板），长原因不再把 r1 挤换行。 */}
       <div className="kt-dock-r1">
@@ -653,6 +726,8 @@ export function TideDock(props: TideDockProps) {
           </button>
         </span>
       </div>
+      </>
+      )}
 
       {/* 用量总览（用量/余额 spec §6.2）：一屏列出全部注册源——用量/余额/三态。
           portal 到 body（与决策面板同款，开合零推挤）；只读，无写路径。 */}

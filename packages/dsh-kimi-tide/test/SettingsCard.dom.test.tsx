@@ -762,6 +762,14 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }
 
+  /** 复选框点击（React 的 change 事件由 click 触发）。 */
+  function fireInputCheck(input: HTMLInputElement, checked: boolean): void {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set
+    setter?.call(input, checked)
+    input.dispatchEvent(new Event('click', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+
   it('#c 评审轮次界外输入回显钳制值：9 → 落盘 3', async () => {
     const saveFlows = vi.fn(async () => {})
     const { store, publish } = makeDeferredStore({ saveFlows })
@@ -842,6 +850,41 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
         review: expect.objectContaining({ autoRevise: true }),
       }))
     }
+  })
+
+  /**
+   * v1.4.0 评审闭环（spec §3.5/§4）：`recheck` 默认开——存量配置**没有这个键**
+   * 也要显示为勾选（语义 `!== false`），取消勾选显式落盘 `false`；同时页面上
+   * 必须写清代价（多一轮评审 + 修订次数上限）。
+   */
+  it('v1.4.0：复检默认勾选（缺键亦然）、取消勾选落盘 false、配额提示在页内', async () => {
+    const saveFlows = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveFlows })
+    const base = readyV5Snapshot()
+    const flows = {
+      ...base.config!.flows,
+      review: { ...base.config!.flows.review, trigger: 'keywords' as const, keywordGroup: 'review', autoRevise: true },
+    }
+    // 存量形态：显式删掉 recheck 键（模拟升级前写下的配置）
+    delete (flows.review as { recheck?: boolean }).recheck
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => {
+      publish({ ...base, config: { ...base.config!, flows } })
+    })
+
+    const recheck = container.querySelector<HTMLInputElement>('input[aria-label="review 复检"]')
+    expect(recheck).not.toBeNull()
+    expect(recheck!.checked).toBe(true) // Fails if: 缺键被当成关（默认开是用户裁定）
+
+    await act(async () => { fireInputCheck(recheck!, false) })
+    expect(saveFlows).toHaveBeenCalledWith(expect.objectContaining({
+      review: expect.objectContaining({ recheck: false }),
+    }))
+    // 配额护栏（spec §3.5）：设置页必须明示「多花调用 + 上限」（上限口径 = 每会话，复核 F4）
+    expect(container.textContent).toContain('本会话该流最多修订')
   })
 
   it('#7 新建流：id + 类型 → saveFlows 合并新流（预置模板）', async () => {

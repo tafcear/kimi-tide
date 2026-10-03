@@ -559,6 +559,96 @@ describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => 
     expect(on).toContain('无可评审的上一轮')
   })
 
+  it('revise 命令（v1.4.0）：路由关 → 未挂载文案；路由开无评审记录 → 明确拒绝文案', async () => {
+    const settings = makeSettings({ ...v5cfg(null) })
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, getCommand } = makeCtx([agent], settings)
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    const command = getCommand()!
+    const echo = async (rawInput: string) => {
+      const r = await command.handler({ rawInput, agent }) as { kind: string; text?: string }
+      return r.text ?? ''
+    }
+
+    // 路由关：installRouter 未挂载 → index 单源兜底文案（与 review 命令同款降级）。
+    const off = await echo('revise')
+    expect(off).toContain('退回未挂载（路由关闭中）')
+
+    // 路由开但没有已交付的评审结论：拒绝并指路（不得编一条空意见退回）。
+    await command.handler({ rawInput: 'preset capability' })
+    await tick()
+    const on = await echo('revise')
+    expect(on).toContain('还没有可退回的评审结论')
+  })
+
+  it('onReviewRevise 接线：手动退回后 /kimi-tide panel 的 lastFlowEvent 出现退回行（复核疑点 6）', async () => {
+    // reviewer 换成本 harness 目录里真实可用的目标（kimi-coding 只列了 kimi-for-coding，
+    // k3 不在池里 ⇒ reviewerAvailable=false，命令会走「没有可用的评审流」降级）。
+    const cfg = claimedCfg()
+    ;(cfg.flows.review as { reviewer: { provider: string; model: string } }).reviewer = {
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    }
+    const settings = makeSettings(cfg)
+    // 富 agent：需要 feed（agent.ctx.on）与 steer——退回链路的两个真实接口。
+    const sessionListeners: Array<(session: unknown, event: unknown) => void> = []
+    const append = vi.fn()
+    const steer = vi.fn()
+    const agent = {
+      session: { append },
+      steer,
+      ctx: {
+        on: (name: string, listener: (session: unknown, event: unknown) => void) => {
+          if (name === 'session/event') sessionListeners.push(listener)
+          return () => {}
+        },
+      },
+    }
+    const { ctx, getCommand, listeners } = makeCtx([agent as never], settings)
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    await getCommand()!.handler({ rawInput: 'preset capability' })
+    await tick()
+
+    // 一轮活（不含评审关键词 ⇒ 不武装，只填 lastTurn 缓存）
+    const preStep = [...(listeners.get('agent/pre-step') ?? [])]
+    for (const listener of preStep) {
+      await listener({
+        agent,
+        messages: [{ role: 'user', content: [{ type: 'text', text: '写个函数' }] }],
+        turn: 3,
+        step: 1,
+        signal: new AbortController().signal,
+      }, () => Promise.resolve({ kind: 'enter' }))
+    }
+    for (const listener of sessionListeners) {
+      listener({}, { type: 'user/message', seq: 1, time: 0, data: { role: 'user', content: [{ type: 'text', text: '写个函数' }], source: { kind: 'user' }, id: 'u1' } })
+    }
+    for (const listener of sessionListeners) {
+      listener({}, {
+        type: 'assistant/message', seq: 2, time: 0,
+        data: { turn: 3, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '产出甲' }], source: { kind: 'model', provider: 'kimi-coding', model: 'k3' }, id: 'a1' } },
+      })
+    }
+    for (const listener of [...(listeners.get('agent/turn-stopping') ?? [])]) listener({ agent, turn: 3, signal: new AbortController().signal })
+
+    // 手动评审 → 手动退回（都不经结论闸，正好覆盖 index 的两个登记回调）
+    const echo = async (rawInput: string) => {
+      const r = await getCommand()!.handler({ rawInput, agent }) as { kind: string; text?: string }
+      return r.text ?? ''
+    }
+    expect(await echo('review')).toContain('评审已发起')
+    await tick()
+    expect(await echo('revise')).toContain('退回重做')
+    expect(steer).toHaveBeenCalledTimes(1)
+
+    // dock 行落到面板快照（lastFlowEvent 是「与评审完成行同款通道」的那条）
+    const panel = JSON.parse(await echo('panel')) as { lastFlowEvent?: string }
+    expect(panel.lastFlowEvent).toContain('revise:review')
+    expect(panel.lastFlowEvent).toContain('第 1 次')
+  })
+
   it('show 认领行读实时配置（getter）——解认领后行消失，非注册时快照', async () => {
     const settings = makeSettings(claimedCfg())
     const agent: FakeAgent = { session: { append: vi.fn() } }

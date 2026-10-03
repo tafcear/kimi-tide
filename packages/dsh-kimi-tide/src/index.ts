@@ -26,10 +26,10 @@ import { dirname, join } from 'node:path'
 // 等校验/迁移面）继续用未加 scope 的 3.18.0 —— 两者 API 同源、行为一致。
 import Schema from '@deepseek-ai/schemastery'
 import YAML from 'yaml'
-import { REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
+import { REVISE_UNMOUNTED_MESSAGE, REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { claimedReviewGroups } from './rules.js'
 import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
-import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, kimiReviewProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
+import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, KIMI_TIDE_REVISE_EVENT, kimiReviewProjectionDefinition, kimiReviseProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
   extractResolvedImages,
@@ -350,6 +350,9 @@ function registerSessionEventTypes(): boolean {
   }
   known.add(KIMI_TIDE_PANEL_EVENT)
   known.add(KIMI_TIDE_REVIEW_EVENT)
+  // v1.4.0 评审闭环：退回留痕同样是「本插件写过的事件」——写之前必须先进目录，
+  // 否则会话日志一重启就整卷拒读（09-10 故障模式的同款预防）。
+  known.add(KIMI_TIDE_REVISE_EVENT)
   return hostReached
 }
 
@@ -635,6 +638,8 @@ export function apply(ctx: Context, config: Config = {}) {
   // 1.1.0 §8：手动评审实现登记（installRouter install 传 fn / dispose 传 null；
   // apply 作用域存最新 fn，Task 6 的 /kimi-tide review 命令消费）。
   let manualReviewFn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null = null
+  // v1.4.0 §3.1：手动退回实现登记（与 manualReviewFn 同款「apply 作用域存最新 fn」）。
+  let manualReviseFn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null = null
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
@@ -652,6 +657,14 @@ export function apply(ctx: Context, config: Config = {}) {
         // v1.2.0 闸：宿主目录未命中 → 拒绝写评审事件（见 registerSessionEventTypes）。
         reviewEventWritable,
         onManualReview: (fn) => { manualReviewFn = fn },
+        onManualRevise: (fn) => { manualReviseFn = fn },
+        onReviewRevise: (agent, event) => {
+          // v1.4.0 §3.6 dock 行：退回留痕（与评审完成行同款通道、同款 ≤120 截断）。
+          const what = event.stopped === 'limit'
+            ? `退回已停（达上限）· 第 ${event.reviseIndex} 次`
+            : `退回重做（${event.reason === 'manual' ? '手动' : '自动'}）· 第 ${event.reviseIndex} 次`
+          latestFlowEvents.set(agent, `revise:${event.flowId} ${what}`.slice(0, 120))
+        },
         // v1.3.0 语义命中确认闸：判官 = **本预设的 default**，走 ctx.llm.stream 直调
         // （不经 decide，无 purpose、纯文本无图块 → 不触发任何既有改写）。
         hitConfirm: confirmGate,
@@ -741,6 +754,8 @@ export function apply(ctx: Context, config: Config = {}) {
     // 挂载/卸载，onManualReview 登记/置 null）。路由关闭（activePreset=null →
     // installRouter 未挂载）或宿主无评审流时 fn=null → 单源兜底文案。
     manualReview: (agent) => manualReviewFn?.(agent) ?? Promise.resolve({ ok: false, message: REVIEW_UNMOUNTED_MESSAGE }),
+    // v1.4.0 §3.1：手动退回 = Task 2 挂载的 manualReviseFn（同款单源兜底文案）。
+    manualRevise: (agent) => manualReviseFn?.(agent) ?? Promise.resolve({ ok: false, message: REVISE_UNMOUNTED_MESSAGE }),
     // show 认领行数据：getter——routerConfig 在 applyConfig 处整体替换（let 重绑），
     // getter 保证每次命令执行读实时配置而非注册时快照（与上方 settings getter 同款）。
     get claimedGroups() { return claimedReviewGroups(routerConfig) },
@@ -754,6 +769,8 @@ export function apply(ctx: Context, config: Config = {}) {
   // R9（1.1.0 §7）：评审投影 unit 独立注册（与 panel 并列——L4 裁定不并入
   // panel；fold 每会话保留最近 20 条评审记录）。
   ctx.sessionProjections.register(kimiReviewProjectionDefinition)
+  // v1.4.0 §3.6：退回留痕同款独立 unit（历史回看 + 对账）。
+  ctx.sessionProjections.register(kimiReviseProjectionDefinition)
   // Dropdown model catalogs: both enumerated async from the llm service
   // (kimi-coding route + deepseek-official); refreshed when adapters change.
   let modelOptions: { kimi: string[]; deepseek: string[] } = { kimi: [], deepseek: [] }

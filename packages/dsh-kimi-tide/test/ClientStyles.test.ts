@@ -60,6 +60,14 @@ describe('client CSS 结构钉：决策面板样式作用域（P1-1）', () => {
     // Fails if: .kt-dock-r2 退回无 overflow 控制
     expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock \.kt-dock-r2 \{[^}]*overflow: hidden/)
   })
+
+  it('v1.5.0 紧凑态（工具行右端）：单行 + 芯片有宽度上限与 ellipsis（不推挤宿主控件）', () => {
+    // Fails if: kt-dock-c 退回竖排（又变成占两行）或丢掉 max-width——工具行会被撑开
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock\.kt-dock-c \{[^}]*flex-direction:\s*row/)
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock\.kt-dock-c \{[^}]*max-width:\s*\d+px/)
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock\.kt-dock-c \.kt-c-main \{[^}]*min-width:\s*0/)
+    expect(CLIENT_CSS).toMatch(/\.kimi-tide-dock\.kt-dock-c \.kt-c-quota \{[^}]*flex:\s*none/)
+  })
 })
 
 describe('client CSS 结构钉：月汐品牌主题化视觉升级（2026-08-29 用户裁定）', () => {

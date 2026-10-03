@@ -60,6 +60,7 @@ export const FEATURE_KEYS = [
   'flows.review.keywordGroup',
   'flows.review.rounds',
   'flows.review.autoRevise',
+  'flows.review.recheck',
 ] as const
 
 /** schema 里有、但不承载「用户可理解特性」的遗留键（反向闸豁免）。 */
@@ -111,6 +112,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           '预设：当前激活的规则集；显示「关闭」= 路由被显式关掉，不是故障。',
           '打底：所有规则都没命中时用的默认模型。',
           '决策目标：**本步实际路由到谁**——它和打底不同，就说明这次是规则或显式 @ 生效了。',
+          '工具行右端的紧凑态把这三枚合成一枚按钮：`省钱 → deepseek-flash`——右侧有目标时是**决策目标**，没有时是**打底**。',
         ],
         live: (c) => {
           const preset = presetOf(c)
@@ -122,7 +124,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: 'dock-decision-toggle',
         title: '决策开关（▸ / ▾）',
         anchors: ['decision-toggle'],
-        body: ['展开决策可观测悬浮层，看本步为什么这么选。', '**打底与「保持原样」不上屏**——看不到原因条不等于出错。'],
+        body: ['展开决策可观测悬浮层，看本步为什么这么选。', '**打底与「保持原样」不上屏**——看不到原因条不等于出错。', '紧凑态：点那枚「预设 → 目标」按钮就是开关。'],
       },
       {
         id: 'dock-quota',
@@ -130,6 +132,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         anchors: ['week-quota', 'fivehour-quota', 'balance-slot'],
         body: [
           '跟随**当前命中目标**的 provider 自动切换数据源与形态：code plan 显示两个用量窗，API 计费源显示余额。',
+          '紧凑态只显示一枚摘要（`¥3.94` 或 `周剩NN%`），点它展开**用量总览**看全部源与明细。',
           '用量条的条画的是**剩余**比例，与旁边「剩 N%」同向：剩得多条就长、快耗尽时是短红条。',
           '余额槽显示总额（多币种取首个，其余进悬浮提示）；余额不足以调用 API 时会标注「余额不足」。',
         ],
@@ -178,6 +181,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           '先看「触发方式」：`手动` 时关键词命中**不会**触发评审（只有 `/kimi-tide review` 会）。',
           '改成「关键词组」并选组后：命中的那一轮照常执行，**轮末**由评审模型异步评一次。',
           '其余可能：本轮没有产出、消息里带了显式 @、或评审模型不可用（界面会标注盲区）。',
+        ],
+      },
+      {
+        id: 'faq-revise',
+        title: '评审说不通过，但模型没有重做',
+        body: [
+          '先看设置页「**自动修订**」有没有勾（默认关）：没勾时评审只给意见，不会自动退回。',
+          '没勾也能手动退：评审卡上点「**让它重做**」，或打 `/kimi-tide revise`。',
+          '勾了还没退：看结论是不是「通过」；再看是不是**已达上限**（每会话＝「轮次」次，到顶后事件卡标「已停（达上限）」）。',
         ],
       },
       {
@@ -341,12 +353,29 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         id: 'flows-review-fields',
-        title: '评审流的四个字段',
+        title: '评审流的字段',
         anchors: ['flows'],
         body: [
           '评审模型 = **谁来评**；触发方式 = **什么时候评**（两个字段，别混）。',
-          '轮次 = 评几轮；自动修订 = 是否让主模型按意见改（本版只呈现意见，不改）。',
+          '轮次 = 评几轮，**也是每会话「退回重做」的次数上限**。',
+          '自动修订 = 评审判「不通过/有条件通过」时**自动让主模型按意见改**；复检 = 改完再评一轮。',
+          '两个开关都会多花调用：退回多一轮主模型，复检再多一轮评审。',
         ],
+      },
+      {
+        id: 'flows-revise',
+        title: '退回重做：自动与手动',
+        anchors: ['flows'],
+        body: [
+          '评审卡上有「**让它重做**」按钮：不勾自动修订也能点，按最近一次评审意见退回。',
+          '退回 = 注入一条带评审意见的消息，让主模型**只改被指出的问题**；原产出仍在会话日志里（可回看）。',
+          '每会话最多退回「轮次」次（1–3）；到顶后事件卡会显示「已停（达上限）」，不再自动重做。',
+        ],
+        live: (c) => {
+          const flow = v5(c)?.flows.review
+          if (flow === undefined || flow.type !== 'review') return undefined
+          return `当前：自动修订${flow.autoRevise ? '开' : '关'} · 复检${flow.recheck === false ? '关' : '开'} · 上限 ${flow.rounds} 次`
+        },
       },
       {
         id: 'flows-trigger',
@@ -460,6 +489,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           '`show` 现状总览 · `panel [--json]` 面板数据 · `refresh` 立刻重取配额。',
           '`export-config` / `import-config <path|inline YAML>` 导出与导入预设。',
           '`review` 手动评审上一轮（有缓存评缓存，无缓存会明说）。',
+          '`revise` 手动退回：按最近一次评审意见让主模型重做（与评审卡按钮同一条路）。',
         ],
       },
       {

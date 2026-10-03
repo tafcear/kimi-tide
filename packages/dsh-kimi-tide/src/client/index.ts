@@ -1,7 +1,8 @@
 /**
- * Browser half of dsh-kimi-tide: registers the 月汐 dock panel into the
- * conversation composer dock band (read-only dashboard under the composer
- * card, beside the shipped stats line), and the 月汐 settings card into the
+ * Browser half of dsh-kimi-tide: registers the 月汐 status row into the composer
+ * tool row (`conversation.input.right`, right before the submit button — moved
+ * there in v1.5.0 at the user's request; it used to occupy its own line in the
+ * status band under the composer card), and the 月汐 settings card into the
  * official settings panel (settings.section). 面板数据走 1.2.0 拉模型
  * ——dock 经 `/kimi-tide panel --json`（ctx.remote.commands.execute）取本会话
  * 快照，历史会话仍可经 `kimi-tide/panel` 会话投影读到（本插件自 1.2.0 起
@@ -16,7 +17,7 @@ import { fetchCatalogMetaViaRemoteDescribe, fetchEffortsViaDescribe } from './ef
 import { CARD_NAMESPACE, type ConnectionLike } from './card-store.js'
 import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
-import { REVIEW_NODE_KIND, ReviewCard, reviewNodeDefinition } from './ReviewCard.js'
+import { REVIEW_NODE_KIND, REVISE_NODE_KIND, ReviewCard, ReviewReviseCard, reviewNodeDefinition, reviewReviseBridge, reviseNodeDefinition } from './ReviewCard.js'
 
 // 'remote.settings' / 'remote.llm' / 'remote.session'（2026-09-11 增补 session）：
 // 设置卡 describe / 模型目录走 loopback typed remote，cordis 要求嵌套路径逐级
@@ -141,6 +142,10 @@ export function apply(ctx: Context): void {
   tideDockBridge.execute = (sessionId, line) =>
     commands.execute(sessionId, line).catch((cause: unknown) =>
       /expected 3 business argument/.test(String(cause)) ? commands.execute(sessionId, line, []) : Promise.reject(cause))
+  // v1.4.0 评审闭环：评审卡「让它重做」按钮走**同一条命令通道**（`/kimi-tide revise`
+  // → 宿主命令层 → deps.onManualRevise → agent.steer），不新造 RPC；arity 兼容
+  // 交给已在 dock 侧验证过的 tideDockBridge.execute，避免两套回包处理漂移。
+  reviewReviseBridge.revise = (sessionId, line) => tideDockBridge.execute(sessionId, line)
 
   /**
    * 面板取数（1.2.0 会话事件解耦 → 2026-09-10 换道）：dock 经宿主挂载的
@@ -192,11 +197,19 @@ export function apply(ctx: Context): void {
   // 面板取数经全局自注入面（tideDockPanelSource）而非 props：槽渲染器由宿主
   // 传入 useProjection 等宿主 props，本插件自己的取数面走模块单例更省心，也让
   // 测试可直接替换（TideDock.test 的 props 缝保留）。
-  ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
-    name: 'conversation.composer.dock',
+  //
+  // v1.5.0 位置调整（2026-10-03 用户裁定「排版位置」→「挪到工具行右端」）：
+  // 原挂 `conversation.composer.dock`（输入框下方的环境信息带：每条 occupant 占
+  // 一整行，与宿主 stats 行上下叠着）；现挪到 `conversation.input.right`
+  // （composer 工具行右端、提交按钮左侧，与权限/模型/语音并排），形态改
+  // `variant: 'compact'`——只留「预设→目标」与「配额/余额」两个小按钮，
+  // 点开仍是同一套 portal 面板（决策 / 用量总览）。
+  ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+    name: 'conversation.input.right',
     id: 'kimi-tide',
-    order: 10, // after the shipped stats line (order 0)
+    order: 10,
     label: '月汐',
+    inject: () => ({ variant: 'compact' as const }),
   }, TideDock))
 
   // 评审卡（1.1.0 spec §7，A6 载体）两件套：
@@ -212,9 +225,14 @@ export function apply(ctx: Context): void {
   //    服务变更时卸载重跑、作用域挂当前 fiber——cordis registry.d.ts:111；
   //    better-sidebar client.js:3830 先例同款）。
   const registerReviewDefinition = (host: Context): (() => void) | undefined => {
-    const ui = host.get('uiConversation') as { events?: { register?: (d: typeof reviewNodeDefinition) => () => void } } | undefined
+    const ui = host.get('uiConversation') as {
+      events?: { register?: (d: typeof reviewNodeDefinition | typeof reviseNodeDefinition) => () => void }
+    } | undefined
     if (ui?.events?.register === undefined) return undefined
-    return ui.events.register(reviewNodeDefinition)
+    // v1.4.0：评审卡 + 退回卡两类事件各自注册（同一 services 面，一起 dispose）。
+    const disposeReview = ui.events.register(reviewNodeDefinition)
+    const disposeRevise = ui.events.register(reviseNodeDefinition)
+    return () => { disposeReview(); disposeRevise() }
   }
   ctx.effect(() => {
     const disposer = registerReviewDefinition(ctx)
@@ -232,6 +250,11 @@ export function apply(ctx: Context): void {
     name: 'conversation.chat.node',
     key: REVIEW_NODE_KIND,
   }, ReviewCard))
+  // v1.4.0：退回卡渲染器（同槽第二个 key——宿主按 entryKey=node.kind 分发）。
+  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node',
+    key: REVISE_NODE_KIND,
+  }, ReviewReviseCard))
 
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
   // inject 内惰性执行（挂载到卡片时才绑定，不因宿主缺服务而阻塞本插件激活）。

@@ -85,19 +85,35 @@ export function configuredProviders(preset: RouterPreset): string[] {
   return names
 }
 
-/** 从消息批次提取最新一条用户文本。 */
-export function latestUserText(messages: readonly UserMessage[]): string {
+/** 一条用户消息的文本块拼接（无文本块 → 空串）。 */
+function userTextOf(message: UserMessage): string {
+  let out = ''
+  for (const block of message.content) {
+    const b = block as { type?: string; text?: unknown }
+    if (b?.type === 'text' && typeof b.text === 'string') out += b.text
+  }
+  return out
+}
+
+/**
+ * 从消息批次提取最新一条**带文本**的用户消息。
+ *
+ * v1.4.0 评审闭环新增：编排侧要读消息的 `source` 才能判别「这一轮是人说的，
+ * 还是月汐自己的修订注入」（后者跳过评审武装）；只看文本会分不出来。
+ */
+export function latestUserMessage(messages: readonly UserMessage[]): UserMessage | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
     if (message.role !== 'user') continue
-    let out = ''
-    for (const block of message.content) {
-      const b = block as { type?: string; text?: unknown }
-      if (b?.type === 'text' && typeof b.text === 'string') out += b.text
-    }
-    if (out.trim().length > 0) return out
+    if (userTextOf(message).trim().length > 0) return message
   }
-  return ''
+  return undefined
+}
+
+/** 从消息批次提取最新一条用户文本。 */
+export function latestUserText(messages: readonly UserMessage[]): string {
+  const message = latestUserMessage(messages)
+  return message === undefined ? '' : userTextOf(message)
 }
 
 /** True when any user message in the batch carries an image block. */

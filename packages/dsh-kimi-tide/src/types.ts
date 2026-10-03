@@ -4,7 +4,7 @@
  * (string-or-number fields, missing sections degrade instead of throwing).
  */
 import type { RouteTarget } from './config.js'
-import type { ReviewEventPayload } from './review.js'
+import type { ReviewEventPayload, ReviewRevisePayload } from './review.js'
 
 /**
  * Where the effective router config came from. 'settings' is the 0.4.0 primary
@@ -148,6 +148,12 @@ export type ReviewRecord = ReviewEventPayload
 
 /** kimi-tide/review 投影（1.1.0 §7）：每会话最近 20 条评审记录（新到旧）。 */
 export interface KimiReviewProjection { records: ReviewRecord[] }
+
+/** 一条退回留痕 = 退回事件载荷形状（v1.4.0 spec §3.6，直接复用）。 */
+export type ReviewReviseRecord = ReviewRevisePayload
+
+/** kimi-tide/review-revise 投影（v1.4.0 §3.6）：每会话最近 20 条退回记录（新到旧）。 */
+export interface KimiReviseProjection { records: ReviewReviseRecord[] }
 
 function toNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value

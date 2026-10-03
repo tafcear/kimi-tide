@@ -401,6 +401,25 @@ function FlowRow(props: {
             />
             自动修订
           </label>
+          <label className="kt-row">
+            <input
+              aria-label={`${props.id} 复检`}
+              type="checkbox"
+              // v1.4.0：默认开（用户 2026-10-02 裁定）——存量配置没写该键也显示为勾选；
+              // 取消勾选显式落盘 false（`!== false` 语义的写侧对应）。
+              checked={flow.recheck !== false}
+              disabled={!props.writable}
+              onChange={(e) => props.onSave({ ...flow, recheck: e.target.checked })}
+            />
+            修订后复检
+          </label>
+          {/* v1.4.0 配额护栏（spec §3.5）：两个开关各多花一次调用，写清代价再让人勾。
+              上限口径 = **每会话每流**（与 README/CHANGELOG 一致，复核 F4 修正「每轮会话」）。 */}
+          <span className="kt-flow-quota-hint">
+            开启自动修订或复检后：每次退回会多一轮主模型调用
+            {flow.recheck !== false ? '，复检再各多一次评审调用' : ''}
+            ；本会话该流最多修订 {Math.min(3, Math.max(1, Math.round(flow.rounds) || 1))} 次（= 轮次上限，手动退回同计）。
+          </span>
         </>
       )}
       {!props.preset && (

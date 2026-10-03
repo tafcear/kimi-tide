@@ -315,9 +315,12 @@ Models 页全量目录，任何 provider 的任何模型都可作预设默认、
   （0.8.0 起原因带命中词数；image 规则 = `规则「带图」命中`）、
   `显式 @kimi 指令 → kimi-coding/k3`。
 - **组件**（`src/client/`）：
-  - `TideDock`（`conversation.composer.dock` 只读仪表）：主行 chips（📡 预设名
+  - `TideDock`（v1.5.0 起挂 `conversation.input.right`——输入工具行右端、提交按钮
+    左侧，紧凑态两个小按钮：`预设 → 目标`（点开 ReasonPanel 决策面板）与
+    `配额/余额`（点开用量总览）；`variant:'full'` 保留原 `conversation.composer.dock`
+    两行完整仪表形态，宿主换位即可复用）：主行 chips（📡 预设名
     或「关闭」、⚡ 预设默认模型、路由 chip、kimi 接入指引 chip、配额 chip、
-    决策 chip）+ 「🔄 刷新配额」按钮 + ReasonPanel（configSource 标签 + 决策
+    决策 chip）+ 「🔄 刷新配额」按钮（仅完整态）+ ReasonPanel（configSource 标签 + 决策
     摘要）+ 推理状态行；写控件已整体移除（0.4.0 起）。
   - `SettingsCard`（`settings.section`，id `kimi-tide-router`）：官方设置页
     「月汐」卡片，0.5.0 重做为**预设管理器**——预设选择行（关闭/省钱/能力/

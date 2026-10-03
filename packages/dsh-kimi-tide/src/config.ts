@@ -73,8 +73,15 @@ export interface ReviewFlow {
   reviewer: RouteTarget
   trigger: 'manual' | 'keywords'
   keywordGroup?: string
-  rounds: number            // 1..3
+  rounds: number            // 1..3；同时是**每会话修订次数上限**（v1.4.0）
   autoRevise: boolean
+  /**
+   * 修订后再评一轮（v1.4.0 spec §4；用户 2026-10-02 裁定默认开）。
+   * 缺省/`undefined` = **开**（`!== false` 语义——存量配置不写该键也享受复检，
+   * 与「默认开」的裁定一致）；显式 `false` 才关闭。每次修订因此多一次评审调用，
+   * 开销同样受 `rounds` 上限约束。
+   */
+  recheck?: boolean
 }
 
 export type CollaborationFlow = TranscribeFlow | ReviewFlow
@@ -177,6 +184,9 @@ export function DEFAULT_FLOWS(): Record<string, CollaborationFlow> {
       trigger: 'manual',
       rounds: 1,
       autoRevise: false,
+      // v1.4.0：复检默认开（用户 2026-10-02 裁定）。预置流显式写出该键，
+      // 「默认往返相等」的 schema 往返测试因此逐字成立。
+      recheck: true,
     },
   }
 }

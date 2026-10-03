@@ -19,7 +19,7 @@
  */
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type { KimiReviewProjection, KimiTidePanelProjection, ReviewRecord } from './types.js'
+import type { KimiReviewProjection, KimiReviseProjection, KimiTidePanelProjection, ReviewRecord, ReviewReviseRecord } from './types.js'
 
 export const KIMI_TIDE_PANEL_KEY = 'kimi-tide/panel' as const
 /** Session event type carrying the whole panel payload (log + fold input). */
@@ -233,6 +233,10 @@ const reviewRecordSchema = z.object({
   error: z.string().optional(),
   durationMs: z.number(),
   at: z.string(),
+  // v1.4.0 §3.3：结论解析结果随载荷留档。**可选**——08-25 起的存量评审记录没有
+  // 这个键，缺席必须可投影（zod object 会 strip 未声明键，漏了这一行等于投影面
+  // 拿不到结论）。
+  verdict: z.enum(['pass', 'conditional', 'fail', 'unknown']).optional(),
 })
 /** Fold 状态 = 最近 ≤20 条记录（新到旧）或 null（空日志，init 惯例）。 */
 const reviewProjectionSchema = z.object({ records: z.array(reviewRecordSchema).max(20) }).nullable()
@@ -266,6 +270,73 @@ export const kimiReviewProjectionDefinition:
   },
   wire: {
     viewSchema: bridgedReviewViewSchema,
+    view: (state) => state,
+  },
+}
+
+/* ---- v1.4.0 评审闭环：退回留痕投影 ---- */
+
+/**
+ * kimi-tide: review-revise projection — key 'kimi-tide/review-revise'。
+ *
+ * 独立 unit（与 review 并列，理由同 L4：整值快照语义去重会被异构记录污染）。
+ * 每条退回事件 = 一条 ReviewReviseRecord（含「已停（达上限）」的 stopped 载荷）；
+ * fold 每会话保留最近 REVISE_KEEP 条（新到旧）。stateVersion 1；wire 必带。
+ */
+export const KIMI_TIDE_REVISE_KEY = 'kimi-tide/review-revise' as const
+/** Session event type carrying one revise record (log + fold input). */
+export const KIMI_TIDE_REVISE_EVENT = 'kimi-tide/review-revise' as const
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /** 一条退回留痕（spec §3.6）——fold 侧逐条前置进 records。 */
+    'kimi-tide/review-revise': ReviewReviseRecord
+  }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    'kimi-tide/review-revise': KimiReviseProjection | null
+  }
+  interface SessionProjectionStateMap {
+    'kimi-tide/review-revise': KimiReviseProjection | null
+  }
+}
+
+/** 退回记录形状守门（spec §3.6 载荷字段 + stopped 终止标记；旧记录无 stopped）。 */
+const reviseRecordSchema = z.object({
+  flowId: z.string(),
+  turn: z.number().int(),
+  reason: z.enum(['auto', 'manual']),
+  verdict: z.enum(['pass', 'conditional', 'fail', 'unknown']),
+  reviseIndex: z.number().int(),
+  stopped: z.literal('limit').optional(),
+  at: z.string(),
+})
+const reviseProjectionSchema = z.object({ records: z.array(reviseRecordSchema).max(20) }).nullable()
+
+type ReviseProjectionDefinition = ProjectionDefinition<typeof KIMI_TIDE_REVISE_KEY, KimiReviseProjection | null>
+
+const bridgedReviseStateSchema = reviseProjectionSchema as unknown as ReviseProjectionDefinition['stateSchema']
+const bridgedReviseViewSchema = reviseProjectionSchema as unknown as
+  NonNullable<ReviseProjectionDefinition['wire']>['viewSchema']
+
+/** fold 保留条数（与评审记录同额：退回次数受 rounds 上限约束，20 已是宽裕上界）。 */
+const REVISE_KEEP = 20
+export const kimiReviseProjectionDefinition:
+  Omit<ReviseProjectionDefinition, 'wire'> & { wire: NonNullable<ReviseProjectionDefinition['wire']> } = {
+  key: KIMI_TIDE_REVISE_KEY,
+  stateSchema: bridgedReviseStateSchema,
+  stateVersion: 1,
+  init: () => null,
+  apply: (state, event) => {
+    if ((event as { type: string }).type !== KIMI_TIDE_REVISE_EVENT) return state
+    const incoming = (event as { data: ReviewReviseRecord }).data
+    const previous = state?.records ?? []
+    return { records: [incoming, ...previous].slice(0, REVISE_KEEP) }
+  },
+  wire: {
+    viewSchema: bridgedReviseViewSchema,
     view: (state) => state,
   },
 }

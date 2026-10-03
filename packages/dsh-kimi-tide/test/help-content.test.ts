@@ -26,6 +26,7 @@ function fullSample(): RouterConfigV5 {
     keywordGroup: 'review',
     rounds: 1,
     autoRevise: false,
+    recheck: true,
   }
   return c
 }

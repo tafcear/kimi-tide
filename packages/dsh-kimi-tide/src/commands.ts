@@ -48,11 +48,15 @@ export type KimiTideCommand =
   | { kind: 'import-config'; path: string }
   | { kind: 'refresh' }
   | { kind: 'review' }
+  | { kind: 'revise' }
   | { kind: 'help' }
   | { kind: 'error'; message: string }
 
 /** 手动评审未接线/路由关闭时的命令回显文案（index.ts 兜底共用，单源防漂移）。 */
 export const REVIEW_UNMOUNTED_MESSAGE = '评审流未挂载（路由关闭中）'
+
+/** 手动退回未接线/路由关闭时的命令回显文案（v1.4.0，同款单源）。 */
+export const REVISE_UNMOUNTED_MESSAGE = '退回未挂载（路由关闭中）'
 
 /** Settings namespace port: primary read/write channel for the router config. */
 export interface SettingsNamespacePort {
@@ -79,6 +83,11 @@ export interface KimiTideCommandDeps {
   onSaved: (config: RouterConfigAny) => void
   /** 1.1.0 §8：手动评审（spec §8——取该 agent 的 lastTurn 缓存同款异步评审）。 */
   manualReview?: (agent: Agent) => Promise<{ ok: boolean; message: string }>
+  /**
+   * v1.4.0 §3.1：手动退回（评审卡「让它重做」按钮 → 本命令 → 编排侧 steer）。
+   * 不依赖 `autoRevise` 开关；同样计 `flows.review.rounds` 上限。
+   */
+  manualRevise?: (agent: Agent) => Promise<{ ok: boolean; message: string }>
   /** show 认领行数据：claimedReviewGroups 的实时结果（非空 → 输出追加一行）。 */
   claimedGroups?: Set<string>
   /**
@@ -133,6 +142,8 @@ export function parseKimiTideCommand(args: string): KimiTideCommand {
       return { kind: 'refresh' }
     case 'review':
       return { kind: 'review' }
+    case 'revise':
+      return { kind: 'revise' }
     default:
       return { kind: 'error', message: `unknown subcommand "${parts[0]}" — try /kimi-tide help` }
   }
@@ -147,6 +158,7 @@ const HELP_TEXT = [
   '/kimi-tide import-config <path|inline YAML> — load a YAML file OR inline YAML text (panel save channel)',
   '/kimi-tide refresh — re-poll code plan quotas (kimi/zai) now',
   '/kimi-tide review — 手动评审最近完成的一轮（无需 armed 命中；无缓存或路由关闭会得到对应提示）',
+  '/kimi-tide revise — 手动退回：按最近一次评审意见让主模型重做（不依赖 autoRevise 开关；计 flows.review.rounds 上限）',
 ].join('\n')
 
 export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideCommandDeps, agent?: Agent): Promise<string> {
@@ -181,6 +193,14 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       const r = deps.manualReview === undefined || agent === undefined
         ? { ok: false, message: REVIEW_UNMOUNTED_MESSAGE }
         : await deps.manualReview(agent)
+      return r.ok ? r.message : `kimi-tide: ${r.message}`
+    }
+    case 'revise': {
+      // v1.4.0 §3.1：手动退回（评审卡按钮与打字命令共用同一入口）。与 review
+      // 同款降级：命令层未接线/无 agent/路由关闭 → 单源文案，不静默成功。
+      const r = deps.manualRevise === undefined || agent === undefined
+        ? { ok: false, message: REVISE_UNMOUNTED_MESSAGE }
+        : await deps.manualRevise(agent)
       return r.ok ? r.message : `kimi-tide: ${r.message}`
     }
     case 'preset': {
@@ -268,7 +288,7 @@ function formatFlows(flows: RouterConfigV5['flows']): string {
   const entries = Object.entries(flows).map(([id, flow]) =>
     flow.type === 'transcribe'
       ? `${id}(转述 → ${flow.visionModel.provider}/${flow.visionModel.model}, 失败 ${flow.failurePolicy})`
-      : `${id}(评审 → ${flow.reviewer.provider}/${flow.reviewer.model}, ${flow.trigger}, ${flow.rounds} 轮${flow.autoRevise ? ', 自动修订' : ''})`,
+      : `${id}(评审 → ${flow.reviewer.provider}/${flow.reviewer.model}, ${flow.trigger}, ${flow.rounds} 轮${flow.autoRevise ? ', 自动修订' : ''}${flow.recheck === false ? '' : ', 复检'})`,
   )
   return entries.length === 0 ? '无' : entries.join(' · ')
 }

@@ -57,6 +57,9 @@ const flowSchema = Schema.union([
     keywordGroup: Schema.string(),
     rounds: Schema.number(),
     autoRevise: Schema.boolean(),
+    // v1.4.0 评审闭环：修订后是否再评一轮。无 default —— 缺失省略不注入
+    // （「默认往返相等」红线），语义默认「开」由消费侧 `!== false` 落地。
+    recheck: Schema.boolean(),
   }),
 ])
 

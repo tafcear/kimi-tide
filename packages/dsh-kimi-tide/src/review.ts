@@ -8,8 +8,10 @@
  * Task 5（编排 runner）与 Task 4（投影 payload = ReviewEventPayload）消费。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_SUMMARY_MAX_CHARS, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, GenerateOptions, Message, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ReviewFlow } from './config.js'
+import { parseReviewVerdict, verdictLabel, type ReviewVerdict } from './review-verdict.js'
 
 /** 评审输入单段截断上限（字符，spec §6；Task 5 累计侧将共用此常量）。 */
 export const REVIEW_INPUT_LIMIT = 12_000
@@ -38,6 +40,102 @@ export interface ReviewEventPayload {
   error?: string
   durationMs: number
   at: string
+  /**
+   * 结论解析结果（v1.4.0 spec §3.3：解析结果写入事件载荷，便于事后对账）。
+   * 失败载荷恒 `unknown`。旧日志里的评审记录没有这个字段 ⇒ 读侧必须容忍缺席。
+   */
+  verdict: ReviewVerdict
+}
+
+/**
+ * 退回留痕载荷（v1.4.0 spec §3.6）：`kimi-tide/review-revise` 事件的数据。
+ * `stopped: 'limit'` = 命中修订上限，只留痕不 steer（spec §3.4「达上限即停，
+ * 事件卡标已停」）——此时 reviseIndex 为已用掉的修订次数。
+ */
+export interface ReviewRevisePayload {
+  flowId: string
+  /** 被修订的那一轮（手动评审路径为 -1，同评审载荷语义）。 */
+  turn: number
+  reason: 'auto' | 'manual'
+  verdict: ReviewVerdict
+  /** 第几次修订（1 起；`stopped` 时 = 已用尽的上限值）。 */
+  reviseIndex: number
+  stopped?: 'limit'
+  at: string
+}
+
+/**
+ * 修订注入消息的 producer 标识（v1.4.0 评审闭环 spec §3.2）。
+ *
+ * 本轮修订走 `agent.steer(createUserMessage(...))`：宿主的轮循环把这条 user 消息
+ * 落成 `user/message` 会话事件并起下一轮（dsh-agent-loop `step()`：
+ * `session.append('user/message', message)`）。消息的 `source.kind` 是本插件自
+ * 己声明的值（MessageSourceMap 是 merge-extensible 的 sum type，每个 producer
+ * 声明自己的 kind——dsh-agent 的 'model-selection' 是同款先例），因此：
+ * - 编排侧据此识别「本轮由修订发起」⇒ 跳过评审武装（否则注入文本里的「意见」
+ *   等词会命中评审词组，一次修订触发两次评审）；
+ * - session feed 的人类枝判据 (`source.kind === 'user'`) 天然忽略它 ⇒ 修订文本
+ *   不会覆盖 lastTurn.userText（评审需求恒人类）。
+ */
+export const REVISE_SOURCE_KIND = 'kimi-tide-revise' as const
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** 一条由 kimi-tide 评审闭环发起的修订请求（`notice` 形态一句话摘要）。 */
+    'kimi-tide-revise': ContextFormed & { kind: 'kimi-tide-revise' }
+  }
+}
+
+/** 是否为本插件发起的修订注入消息（编排层判别；未知/人类/注入一律 false）。 */
+export function isReviseMessage(message: unknown): boolean {
+  const source = (message as { source?: { kind?: unknown } } | null | undefined)?.source
+  return source?.kind === REVISE_SOURCE_KIND
+}
+
+const REVISE_INSTRUCTION =
+  '〔月汐 · 按意见修订〕上一轮产出被判为「{VERDICT}」。请只修改下面指出的问题，' +
+  '不要重写无关部分，也不要顺手引入新的大改；改完用一两句说明改了什么。'
+
+/** 修订输入构造入参（结论 + 评审正文）。 */
+export interface ReviseInput {
+  reviewText: string
+  verdict: ReviewVerdict
+}
+
+/**
+ * 修订注入文本（spec §3.2）：〔评审意见摘要〕＋〔修订指令〕。评审正文按
+ * REVIEW_INPUT_LIMIT 单段截断（与评审输入同源上限——**上限只约束评审正文那一段**，
+ * 指令头另计，整条注入文本因此略长于 LIMIT）。
+ */
+export function buildReviseInput(input: ReviseInput): string {
+  return [
+    REVISE_INSTRUCTION.replace('{VERDICT}', verdictLabel(input.verdict)),
+    '',
+    '[评审意见]',
+    truncate(input.reviewText),
+  ].join('\n')
+}
+
+/** 修订消息的 source（notice 形态：宿主 chat 渲染一行摘要，不展开整段）。 */
+export function reviseMessageSource(verdict: ReviewVerdict): {
+  kind: typeof REVISE_SOURCE_KIND
+  form: 'notice'
+  summary: string
+} {
+  const summary = `月汐：按意见修订（${verdictLabel(verdict)}）`
+  return {
+    kind: REVISE_SOURCE_KIND,
+    form: 'notice',
+    summary: summary.length <= CONTEXT_SUMMARY_MAX_CHARS ? summary : `${summary.slice(0, CONTEXT_SUMMARY_MAX_CHARS - 1)}…`,
+  }
+}
+
+/** 构造一条修订注入消息（宿主 steer 入参形状 = UserMessage）。 */
+export function createReviseMessage(input: ReviseInput): UserMessage {
+  return createUserMessage({
+    content: [{ type: 'text', text: buildReviseInput(input) }],
+    source: reviseMessageSource(input.verdict),
+  }) as unknown as UserMessage
 }
 
 /** 超限截断并加标注；未超限原样返回。 */
@@ -93,9 +191,26 @@ export function createReviewRunner(ctx: Context): (req: ReviewRequest) => Promis
         }
       }
       if (text.trim() === '') throw new Error('review empty output')
-      return { ...base, reviewText: text, ok: true, durationMs: Date.now() - startedAt, at: new Date().toISOString() }
+      // 结论解析在**推送侧**做一次（spec §3.3：解析结果写入事件载荷）——客户端与
+      // 编排层读同一份判定，避免两处各解析一次而口径漂移。
+      return {
+        ...base,
+        reviewText: text,
+        ok: true,
+        verdict: parseReviewVerdict(text),
+        durationMs: Date.now() - startedAt,
+        at: new Date().toISOString(),
+      }
     } catch (error) {
-      return { ...base, reviewText: '', ok: false, error: (error as Error).message, durationMs: Date.now() - startedAt, at: new Date().toISOString() }
+      return {
+        ...base,
+        reviewText: '',
+        ok: false,
+        verdict: 'unknown' as ReviewVerdict,
+        error: (error as Error).message,
+        durationMs: Date.now() - startedAt,
+        at: new Date().toISOString(),
+      }
     }
   }
 }
