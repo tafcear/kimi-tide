@@ -21,8 +21,9 @@
     "cordis.patch.yml"
   ],
   "scripts": {
+    "clean": "node scripts/clean-lib.mjs",
     "build": "npm run build:host && npm run build:client",
-    "build:host": "tsc -p tsconfig.build.json",
+    "build:host": "npm run clean && tsc -p tsconfig.build.json",
     "build:client": "node scripts/build-client.mjs",
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "test": "vitest run"
