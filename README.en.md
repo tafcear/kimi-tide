@@ -192,7 +192,7 @@ Routing decides *who runs this step*; review decides *whether this step is good 
 
 **Cost**: review only runs on **matching turns**, and only this turn's output slice is sent to the reviewer (12,000 characters per section, 60-second timeout, failures never interrupt the turn). With send-back enabled, each send costs **one extra main-model turn**, and re-check adds **one extra review call** on top. In the industry data the research repo cites, adversarial review loops commonly cost 2–3× a single model's tokens — **this plugin has not measured its own numbers yet**.
 
-**Evidence grade**: the mechanism and the three rounds of practice are documented in [kimi-tide-research](https://github.com/tafcear/kimi-tide-research). Whether review actually *improves a weaker model's output* is **not measured yet** (no acceptance rate, no baseline against the strong model working alone, no regression rate), so this section quotes no effect numbers; the transfer-efficiency experiment is scheduled as pre-release evidence for v1.4.0.
+**Evidence grade**: the mechanism and the three rounds of practice are documented in [kimi-tide-research](https://github.com/tafcear/kimi-tide-research). Whether review actually *improves a weaker model's output* is **not measured yet** (no acceptance rate, no baseline against the strong model working alone, no regression rate), so this section quotes no effect numbers; the transfer-efficiency experiment was originally slated for v1.4.0 — **v1.4.0 ships the mechanism itself (send-back for rework) only**, and the experiment moves to the next version, whose testbed (the product running its own review loop) is exactly what v1.4.0 puts in place.
 
 ---
 
@@ -217,7 +217,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v1.3.1 (2026-09-28)**
+> Current version: **v1.4.0 (2026-10-03)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)

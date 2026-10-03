@@ -3,11 +3,12 @@
 > **用途**：发布门禁 convention 的证据锚点——任何版本发版（打 tag / 触发 Actions Release）前，该版本实机验收清单必须全绿 + 用户裁定 tag；**执行记录回写本文件锚点**。用户视角的版本史见仓库根 [CHANGELOG](../CHANGELOG.md)。
 > **来源**：2026-08-31 自 README「路线图」节**原样迁移**（结构方案 C，见 [`docs/superpowers/specs/2026-08-31-zero-basis-docs-design.md`](superpowers/specs/2026-08-31-zero-basis-docs-design.md) §4.5）；除相对链接路径调整、头部门禁句并入用途横幅、0.8.5 计划悬空链去链接化（补注分支位置）、v1.0.0 表行补「auxTargets/」（同步本文件末行 bullet 与英文表行，清偿旧 README 自身口径不一）外，条目零删改。
 
-> 当前版本：**v1.3.1（2026-09-28）**——适配 DSH 0.1.7：依赖对齐运行时解析、设置改住插件条目配置（volatile `router`）、工具结果图块识别、`agent/created` 短路隐患修复、设置卡读写 arity 适配。[Release v1.3.1](https://github.com/tafcear/kimi-tide/releases/tag/v1.3.1) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
-> **v1.3.1 已就绪（2026-09-28）**：700/700 绿 + typecheck 0 + build 双端过 + 门禁三连过；干跑树与**真实 profile 镜像**两次起真宿主均为**零 stderr**（证据见下）；**用户实机验收通过**（设置卡可读可写）。
+> 当前版本：**v1.4.0（2026-10-03）**——评审闭环（autoRevise 落地 + 手动一键退回 + 复检 + 退回归档）+ 适配 DSH 0.2.0-rc.2（桌面端；peer 上界重开）+ 月汐状态行挪到输入工具行右端。[Release v1.4.0](https://github.com/tafcear/kimi-tide/releases/tag/v1.4.0) · [Actions 流水线](https://github.com/tafcear/kimi-tide/actions)（tag 触发全自动）
+> **v1.4.0 已准备（2026-10-03）**：779/779 绿 + typecheck 0 + build 双端过 + 门禁三连过 + Release 正文门禁过；桌面端装载活体证据齐（条目 active、四个注册点、会话槽 `sessionId` 契约）；独立只读复核 6 确证 + 8 疑点逐条处置 + 3 次变异检验。**实机验收（评审→退回回路）状态见下表行**。
 
 | 版本线 | 状态 | 证据锚点 |
 |---|---|---|
+| **v1.4.0 评审闭环 + 桌面端适配** | 🟡 **已准备，待维护者裁定 tag**（推送后回填 Actions run 号） | **Release 正文**＝`release-notes-v1.4.0.md`（双语四段 7/7，含 779/779）· **设计稿**＝[`superpowers/specs/2026-10-02-review-closure-auto-revise-design.md`](superpowers/specs/2026-10-02-review-closure-auto-revise-design.md)（v1.1 + §8 实施记录 + §8.1 复核处置表）· **验收清单**＝[`superpowers/plans/2026-10-03-review-closure-acceptance.md`](superpowers/plans/2026-10-03-review-closure-acceptance.md)（A0-H1..H5 宿主契约必录项 + A1–A6；**评审→退回回路尚未实机跑**，H4 已由槽目录静态+活体结案）· **桌面端移植证据**＝[`audit/2026-10-03-host-0.2.0-rc.2-desktop-port.md`](audit/2026-10-03-host-0.2.0-rc.2-desktop-port.md)（逐包哈希对照 + 装载活体 + profile 配置） |
 | v0.1.3 | ✅ 已发布（仅凭据门控 + OAuth 加固） | tag `e2a2eb4`，[Release 页](https://github.com/tafcear/kimi-tide/releases/tag/v0.1.3) |
 | 0.2.x 双模型路由器 | ✅ 已随 v0.4.0 发布 | `71b1d18` / `16a75d0` / `fcbf421`，M5 双探针 + 带图闭环 |
 | 0.3.0 能力评分路由 | ✅ 已随 v0.4.0 发布 | `86da918`（203/203 绿） |
