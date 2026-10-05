@@ -28,7 +28,7 @@
 
 ---
 
-### 任务 1：配置 v6（形状 + 迁移 + schema + 版本落点加宽）
+### Task 1：配置 v6（形状 + 迁移 + schema + 版本落点加宽）
 
 **Files：**
 - 修改：`packages/dsh-kimi-tide/src/config.ts`（新增 `RoleEntry` / `RouterConfigV6` / `RouterConfigV5Plus` / `isV5Plus` / `DEFAULT_ROLES` / `DEFAULT_CONFIG_V6`）
@@ -348,7 +348,7 @@ git commit -m "feat(config): 配置 v6 —— 新增 driver/driverSticky/rulesAp
 
 ---
 
-### 任务 2：分工表纯函数层 `src/roles.ts`
+### Task 2：分工表纯函数层 `src/roles.ts`
 
 **Files：**
 - 新建：`packages/dsh-kimi-tide/src/roles.ts`
@@ -593,7 +593,7 @@ git commit -m "feat(roles): 分工表纯函数层 —— 认领集合/冲突判�
 
 ---
 
-### 任务 3：分工表注册成宿主 runtime skill `src/team-skill.ts`
+### Task 3：分工表注册成宿主 runtime skill `src/team-skill.ts`
 
 **Files：**
 - 新建：`packages/dsh-kimi-tide/src/team-skill.ts`
@@ -771,7 +771,7 @@ git commit -m "feat(team): 分工表注册为宿主 runtime skill —— 探测�
 
 ---
 
-### 任务 4：路由核心（`via:'role'` + 主驱动恒定 + 子代理跳关键词规则）
+### Task 4：路由核心（`via:'role'` + 主驱动恒定 + 子代理跳关键词规则）
 
 **Files：**
 - 修改：`packages/dsh-kimi-tide/src/router.ts`（`RouteDecision` 的 `via` 联合、`decide` 第 5 可选参、pre-step 闭包 role 分支与 driverSticky、`installRouter` deps 增 `teamLookup`、槽位增 `dispatch`）
@@ -942,7 +942,7 @@ git commit -m "feat(router): via:'role' 分工表改道 + 主驱动恒定 + 子�
 
 ---
 
-### 任务 5：派发台账（ledger + panelSnapshot + 投影 v7）
+### Task 5：派发台账（ledger + panelSnapshot + 投影 v7）
 
 **Files：**
 - 新建：`packages/dsh-kimi-tide/src/dispatch-ledger.ts`
@@ -1098,7 +1098,7 @@ git commit -m "feat(dispatch): 派发台账 + 面板快照 dispatch 字段 + 投
 
 ---
 
-### 任务 6：dock 派发区（摘要行 + 明细）
+### Task 6：dock 派发区（摘要行 + 明细）
 
 **Files：**
 - 修改：`packages/dsh-kimi-tide/src/client/TideDock.tsx`（r2 加 `data-kt-el="dispatch"` 摘要行；向 `ReasonPanel` 传 dispatch）
@@ -1170,7 +1170,7 @@ git commit -m "feat(dock): 派发区摘要行与明细 + 帮助锚点与样式"
 
 ---
 
-### 任务 7：设置页角色编辑器（分工表）
+### Task 7：设置页角色编辑器（分工表）
 
 **Files：**
 - 修改：`packages/dsh-kimi-tide/src/client/SettingsCard.tsx`（「路由」页内新增 `<details className="kt-card">` 分工表卡，照关键词组卡 `:1223-1251` 的形态与组件）
@@ -1277,7 +1277,7 @@ git commit -m "feat(settings): 分工表角色编辑器 + saveRoles 守卫式写
 
 ---
 
-### 任务 8：文档 + 实机验收 runbook
+### Task 8：文档 + 实机验收 runbook
 
 **Files：**
 - 修改：`packages/dsh-kimi-tide/docs/router.md`（新增「2.0.0 团队派发」节）
