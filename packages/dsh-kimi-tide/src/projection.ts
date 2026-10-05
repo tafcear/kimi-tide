@@ -6,7 +6,8 @@
  * 配额轮询的空帧不再膨胀会话日志），框架 fold 后推送。v3 payload: quota
  * + router + kimi 二态接入指示 + candidates + decision. v6 (0.6.0 协作编排)
  * adds optional imageContext（按图三态计数快照）+ lastFlowEvent（流执行摘要）
- * ——新字段可选，对存量读取端向后兼容。Pure unit functions + the
+ * ——新字段可选，对存量读取端向后兼容。v7（v2.0.0 团队派发）adds optional
+ * dispatch（按父会话聚合的派发台账，每会话 ≤20 条）。Pure unit functions + the
  * SessionProjectionMap merge that types both ends (host register / client
  * useProjection).
  *
@@ -110,6 +111,17 @@ const panelSchema = z.object({
     blind: z.number().int().nonnegative(),
   }).optional(),
   lastFlowEvent: z.string().max(120).optional(),
+  // 面板 v7（v2.0.0 团队派发，设计稿 D7）：按父会话聚合的派发台账（每会话最近
+  // 20 条，新在前）。可选——v6 及更早的存量载荷无该字段照常通过（向后兼容）。
+  // agentId 是进程内清理键（agent/disposed 用），不入 wire 契约。
+  dispatch: z.array(z.object({
+    basis: z.enum(['role', 'explicit', 'keep', 'unclaimed']),
+    teammate: z.string().optional(),
+    roleLabel: z.string().optional(),
+    target: z.object({ provider: z.string(), model: z.string(), effort: z.string().optional() }),
+    at: z.number(),
+    parentSession: z.string().optional(),
+  })).max(20).optional(),
 })
 
 /**
@@ -173,9 +185,9 @@ export const kimiTideProjectionDefinition:
   Omit<PanelProjectionDefinition, 'wire'> & { wire: NonNullable<PanelProjectionDefinition['wire']> } = {
   key: KIMI_TIDE_PANEL_KEY,
   stateSchema: bridgedStateSchema,
-  // v5 → v6（0.6.0）：形状变更即弃旧缓存（rc.2 迁移惯例——stateVersion 递升
-  // 使持久化的 v5 行整体作废，无需逐字段迁移）。
-  stateVersion: 6,
+  // v5 → v6（0.6.0）→ v7（v2.0.0 团队派发 dispatch 字段）：形状变更即弃旧缓存
+  // （rc.2 迁移惯例——stateVersion 递升使持久化的旧版行整体作废，无需逐字段迁移）。
+  stateVersion: 7,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;

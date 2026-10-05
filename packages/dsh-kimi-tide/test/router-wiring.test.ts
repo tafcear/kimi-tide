@@ -21,6 +21,7 @@ import {
 } from '../src/router.js'
 import { HitConfirmGate } from '../src/hit-confirm.js'
 import { Transcriber, type ResolvedImage, type VisionCaller } from '../src/transcribe.js'
+import type { DispatchEntry } from '../src/dispatch-ledger.js'
 
 /**
  * Integration tests for installRouter against the VERIFIED dsh-agent-loop
@@ -1456,5 +1457,58 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
     // 子代理落打底 ⇒ B-1a 让位外部目标；driver 不得插手子代理路由
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
     expect(config).toEqual(EXTERNAL)
+  })
+})
+
+/**
+ * v2.0.0 派发台账接线（Task 5，Task 4 评审 Minor④）：槽位 dispatch → onDispatch
+ * 记账回调的直接断言。子代理轮（delegationDepth > 0，pre-step 槽位带 dispatch
+ * 元信息）请求层记一条；主会话轮槽位无 dispatch，不产生记账。台账本体
+ * （DispatchLedger）单测在 dispatch-ledger.test.ts；面板聚合接线在 index-wiring.test.ts。
+ */
+describe('v2.0.0 派发台账接线：槽位 dispatch → onDispatch 记账', () => {
+  const childWithParent = {
+    id: 'child-1',
+    session: { header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
+  }
+  const ROLE_FRONT: RoleEntry = { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } }
+  const EXTERNAL: RouteTarget = { provider: 'kimi-coding', model: 'k3' }
+
+  const mountWithLedger = (membership?: { role: string; name: string }) => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    const entries: DispatchEntry[] = []
+    installRouter(ctx as never, new KimiRouter(TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), METAS, { info: () => {} }), {
+      ...fixture.deps,
+      ...(membership === undefined ? {} : { teamLookup: () => membership }),
+      onDispatch: (_agent, entry) => { entries.push(entry) },
+    })
+    return { dispatch, entries }
+  }
+
+  it('子代理轮（delegationDepth > 0，槽位带 dispatch）产生一条记账', async () => {
+    const { dispatch, entries } = mountWithLedger({ role: 'teammate', name: 'frontend' })
+    await dispatch.preStep({ agent: childWithParent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: childWithParent, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    // Fails if: 请求层没把槽位 dispatch 交给 onDispatch（记账链断）；或目标取了护栏前的值
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      basis: 'role',
+      teammate: 'frontend',
+      roleLabel: '前端',
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      parentSession: 'lead-session',
+      agentId: 'child-1',
+    })
+    expect(typeof entries[0]!.at).toBe('number')
+  })
+
+  it('主会话轮不产生记账', async () => {
+    const { dispatch, entries } = mountWithLedger({ role: 'teammate', name: 'frontend' })
+    await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    // Fails if: 主会话轮也记账（pre-step 仅 isChild 写 dispatch 的判据失效）
+    expect(entries).toHaveLength(0)
   })
 })

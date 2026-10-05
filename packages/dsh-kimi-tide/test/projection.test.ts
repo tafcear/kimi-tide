@@ -28,13 +28,42 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
   }
 }
 
-describe('panelSchema (projection v6)', () => {
+describe('panelSchema (projection v7)', () => {
   const parse = (kimiTideProjectionDefinition.stateSchema as { parse: (v: unknown) => unknown }).parse.bind(
     kimiTideProjectionDefinition.stateSchema as never,
   ) as (v: unknown) => KimiTidePanelProjection | null
 
-  it('pins stateVersion 6 (v6 投影)', () => {
-    expect(kimiTideProjectionDefinition.stateVersion).toBe(6)
+  it('pins stateVersion 7 (v7 投影)', () => {
+    expect(kimiTideProjectionDefinition.stateVersion).toBe(7)
+  })
+
+  it('v7：dispatch 派发行 schema 往返保留；缺席合法；超 20 条与非法 basis 拒绝', () => {
+    const p = panel(1)
+    p.dispatch = [{
+      basis: 'role', teammate: 'frontend', roleLabel: '前端',
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding', effort: 'high' },
+      at: 1728000000000, parentSession: 'lead-session',
+    }]
+    const out = parse(p)
+    // Fails if: schema 未列 dispatch（可选新字段必须显式入 schema 钉住往返，同 quotaProvider 先例）
+    expect(out!.dispatch).toHaveLength(1)
+    expect(out!.dispatch![0]).toMatchObject({
+      basis: 'role', teammate: 'frontend', roleLabel: '前端',
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding', effort: 'high' },
+      parentSession: 'lead-session',
+    })
+    // 缺席合法（v6 及更早的存量载荷向后兼容）
+    expect(parse(panel(1))!.dispatch).toBeUndefined()
+    // 超 20 条拒绝（wire 面收口，与台账每会话 20 条同额）
+    const over = panel(1)
+    over.dispatch = Array.from({ length: 21 }, (_, i) => ({
+      basis: 'keep' as const, target: { provider: 'kimi-coding', model: 'k3' }, at: i,
+    }))
+    expect(() => parse(over)).toThrow()
+    // 非法 basis 枚举值拒绝
+    const bad = panel(1)
+    bad.dispatch = [{ basis: 'bogus', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 } as never]
+    expect(() => parse(bad)).toThrow()
   })
 
   it('v6：imageContext/lastFlowEvent 新字段 schema 往返保留', () => {

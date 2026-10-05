@@ -40,6 +40,7 @@ import {
   type RouterLog,
 } from './router.js'
 import { ImageStateStore } from './image-state.js'
+import { DispatchLedger } from './dispatch-ledger.js'
 import { Transcriber } from './transcribe.js'
 import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RoleEntry, type RouteTarget, type RouterConfigV5Plus } from './config.js'
 import { routerConfigSchema } from './settings-schema.js'
@@ -651,6 +652,11 @@ export function apply(ctx: Context, config: Config = {}) {
   // metas 支持集判定后显式下发，不支持/未配置不携带（Ruling 2 默认语义保持）。
   // candidateMetas 是 let——闭包读最新枚举值。
   const imageStates = new ImageStateStore()
+  /**
+   * 派发台账（v2.0.0 Task 5，设计稿 D7）：插件级状态，与 imageStates 同款范式——
+   * 配置变更/候选枚举重挂路由器时不丢；不落盘、不跨宿主重启；条目只存字符串 id。
+   */
+  const dispatchLedger = new DispatchLedger()
   const resolveEfforts = (target: RouteTarget): string[] | undefined =>
     candidateMetas.find((m) => m.provider === target.provider && m.model === target.model)?.reasoningEfforts
   const transcriber = new Transcriber({
@@ -727,6 +733,9 @@ export function apply(ctx: Context, config: Config = {}) {
         // v2.0.0（Task 4）：队友身份查询注入——agentTeams 服务缺席即 undefined，
         // pre-step 的 role 分支自然不命中（逐字节回到无分工表行为）。
         teamLookup: agentTeams === undefined ? undefined : (agent) => agentTeams.tryMembership?.(agent),
+        // v2.0.0（Task 5）：派发台账记账注入——请求层仅在子代理轮（槽位带
+        // dispatch 元信息）回调；台账本体插件级，重挂路由器不丢。
+        onDispatch: (_agent, entry) => dispatchLedger.record(entry),
       })
     }
   }
@@ -881,6 +890,13 @@ export function apply(ctx: Context, config: Config = {}) {
     if (counts.native + counts.transcribed + counts.blind > 0) snapshot.imageContext = counts
     const flowEvent = latestFlowEvents.get(agent)
     if (flowEvent !== undefined) snapshot.lastFlowEvent = flowEvent
+    // 面板 v7（v2.0.0 Task 5，设计稿 D7）：按父会话聚合的派发台账（每会话最近 20 条，
+    // 新在前）——子代理记账的 parentSession = Lead 会话 id。Agent 类型面核对结论：
+    // agent.id 即 SessionId（dsh-agent types.d.ts:13「Session-backed Agent identity」，
+    // 宿主 roster 同口径），快照侧直接以 agent.id 取台账。无派发 = 空数组（非
+    // undefined——读取端据此区分「无派发」与「旧载荷无此字段」）；夹具无 id →
+    // 空串恒不匹配 → 空数组。
+    snapshot.dispatch = dispatchLedger.recentFor((agent as { id?: string }).id ?? '')
     return snapshot
   }
   /**
@@ -942,6 +958,8 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     latestDecisions.delete(payload.agent)
     latestFlowEvents.delete(payload.agent)
+    // 派发台账（Task 5）：清掉该 agent 作为子代理产生的记账（键 = 字符串 agentId）。
+    dispatchLedger.dropAgent(payload.agent.id)
   })
 
   // 面板取数通道（2026-09-10 换道）：dock 每 8s 轮询一次面板快照。若走命令通道

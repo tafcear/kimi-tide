@@ -4,6 +4,7 @@
  * (string-or-number fields, missing sections degrade instead of throwing).
  */
 import type { RouteTarget } from './config.js'
+import type { DispatchEntry } from './dispatch-ledger.js'
 import type { ReviewEventPayload, ReviewRevisePayload } from './review.js'
 
 /**
@@ -141,6 +142,11 @@ export interface KimiTidePanelProjection {
   imageContext?: ImageContextCounts
   /** 0.6.0 面板 v6：最近一条流执行摘要（≤120 截断，沿用 decision 摘要惯例）。 */
   lastFlowEvent?: string
+  /**
+   * v2.0.0 面板 v7（设计稿 D7）：按父会话聚合的派发台账（每会话最近 20 条，
+   * 新在前）。实时快照恒写（无派发 = 空数组）；旧载荷缺席（可选，向后兼容）。
+   */
+  dispatch?: DispatchEntry[]
 }
 
 /** 一条评审记录 = 评审事件载荷形状（spec §7，直接复用，不另造字段）。 */

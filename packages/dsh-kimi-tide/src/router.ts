@@ -32,6 +32,7 @@ import type {
 } from './config.js'
 import { configKey, isFlowTarget, isV5Plus, KIMI_PROVIDER } from './config.js'
 import { dispatchMetaOf, resolveRoleDecision, type DispatchMeta } from './roles.js'
+import type { DispatchEntry } from './dispatch-ledger.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import { KIMI_TIDE_REVIEW_EVENT, KIMI_TIDE_REVISE_EVENT } from './projection.js'
 import {
@@ -560,6 +561,12 @@ export interface RouterOrchestrationDeps {
    * 服务缺席即 undefined ⇒ role 分支自然不命中（与主会话同形，逐字节不变）。
    */
   teamLookup?: (agent: Agent) => { role: string; name: string } | undefined
+  /**
+   * 派发台账记账回调（v2.0.0 Task 5，设计稿 D7）：请求层在图像护栏之后、槽位
+   * 带 dispatch 元信息（= 子代理轮，pre-step 仅 isChild 写入）时记一条；
+   * index.ts 注入 DispatchLedger.record。缺席 = 不记账（单测与旧宿主直通）。
+   */
+  onDispatch?: (agent: Agent, entry: DispatchEntry) => void
 }
 
 /**
@@ -1061,6 +1068,26 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const slot = slots.get(payload.agent)
       if (slot === undefined) return resolved
       slots.delete(payload.agent)
+      // 记账（设计稿 D7，Task 5）：只在槽位带 dispatch 元信息时记一条——pre-step
+      // 仅 isChild（delegationDepth > 0）写入 dispatch，主会话轮槽位该字段恒
+      // undefined，天然不记。目标取**图像护栏之后**的最终值（护栏可能二次改道），
+      // 故在护栏后的两个 return 路径上各调一次；键相关 id 只取字符串
+      // （parentSession/agentId），不持 Agent 引用。
+      const recordDispatch = (applied: LlmCallConfig): void => {
+        if (slot.dispatch === undefined || deps.onDispatch === undefined) return
+        const header = (payload.agent as unknown as { session?: { header?: { parentSession?: string } } }).session?.header
+        deps.onDispatch(payload.agent, {
+          ...slot.dispatch,
+          target: {
+            provider: applied.provider,
+            model: applied.model,
+            ...(applied.reasoningEffort === undefined ? {} : { effort: applied.reasoningEffort }),
+          },
+          at: Date.now(),
+          parentSession: header?.parentSession,
+          agentId: (payload.agent as unknown as { id?: string }).id,
+        })
+      }
       // B-1a（2026-09-20 缺陷修复，docs/audit/2026-09-20-defect-explicit-model-pin-
       // overridden-by-preset-default.md）：打底让位于**委派子代理**的外部显式目标。
       // 打底之前的语义是「未命中 ≠ keep → 预设默认」，但它只看消息文本；子代理被
@@ -1084,6 +1111,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       if (guard !== null) {
         replaced = router.replaceRoute(replaced, guard.target)
         ctx.logger?.info?.(`kimi-router: ${guard.reason} → ${replaced.provider}/${replaced.model}`)
+        recordDispatch(replaced)
         return replaced
       }
       if (replaced !== resolved) {
@@ -1098,6 +1126,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           : ''
         ctx.logger?.info?.(`kimi-router: agent request → ${replaced.provider}/${replaced.model} (${label})${overridden}`)
       }
+      recordDispatch(replaced)
       return replaced
     }, { prepend: true })
     // llm/stream 智能投影拦截器（S4c，spike 实证生产范式）：仅当 metas 查得目标

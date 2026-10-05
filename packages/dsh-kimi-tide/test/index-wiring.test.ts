@@ -547,6 +547,73 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(skillRegister).toHaveBeenCalledTimes(1)
     expect(skillDisposers[0]).toHaveBeenCalled()
   })
+
+  /**
+   * v2.0.0 派发台账（Task 5）：panelSnapshot 带 dispatch —— 子代理派发行按父会话
+   * 聚合到 Lead；无派发 = 空数组（非 undefined）；agent/disposed 清掉该 agent 的记账。
+   * 请求层「记/不记」的直接断言在 router-wiring.test.ts（onDispatch 组）。
+   */
+  it('panelSnapshot 带 dispatch：子代理派发行按父会话聚合到 Lead，disposed 后清理', async () => {
+    const roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    const settings = makeSettings({ ...v5cfg('saving'), roles })
+    const lead = { id: 'lead-session', session: { append: vi.fn() } }
+    const child = {
+      id: 'child-1',
+      session: { append: vi.fn(), header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
+    }
+    const { ctx, listeners, getCommand } = makeCtx([lead as never, child as never], settings)
+    // agentTeams 服务替身（probeAgentTeams 读 ctx.agentTeams）：child 是认领队友 frontend。
+    ;(ctx as Record<string, unknown>).agentTeams = {
+      tryMembership: (a: unknown) => (a === child ? { role: 'teammate', name: 'frontend' } : undefined),
+    }
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+
+    // 无派发：dispatch 是空数组（不是 undefined）
+    const empty = await lastSnapshot(getCommand, lead as never)
+    expect(Array.isArray(empty.dispatch)).toBe(true)
+    expect(empty.dispatch).toHaveLength(0)
+
+    // 同一代（候选枚举后重挂的末位监听器）驱动 pre-step → request；pre-step 写槽、
+    // request 消费槽并（仅子代理轮）记账。
+    const drive = async (agent: unknown, base: object): Promise<unknown> => {
+      const preStep = listeners.get('agent/pre-step')?.at(-1) as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>
+      const request = listeners.get('agent/request')?.at(-1) as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>
+      expect(preStep).toBeDefined()
+      expect(request).toBeDefined()
+      await preStep(
+        { agent, messages: [{ role: 'user', content: [{ type: 'text', text: '普通任务' }] }], turn: 1, step: 1, signal: new AbortController().signal },
+        () => Promise.resolve({ kind: 'enter' }),
+      )
+      return request({ agent, turn: 1, step: 1, signal: new AbortController().signal }, () => Promise.resolve(base))
+    }
+
+    // 主会话一轮：不产生记账（槽位无 dispatch 元信息）
+    await drive(lead, { provider: 'kimi-coding', model: 'k3' })
+    expect((await lastSnapshot(getCommand, lead as never)).dispatch).toHaveLength(0)
+
+    // 子代理一轮（delegationDepth > 0，槽位带 dispatch）→ 一条记账，聚合到 Lead
+    const applied = await drive(child, { provider: 'kimi-coding', model: 'k3' })
+    expect(applied).toMatchObject({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    const snapshot = await lastSnapshot(getCommand, lead as never)
+    const dispatch = snapshot.dispatch as Array<Record<string, unknown>>
+    expect(dispatch).toHaveLength(1)
+    expect(dispatch[0]).toMatchObject({
+      basis: 'role',
+      teammate: 'frontend',
+      roleLabel: '前端',
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      parentSession: 'lead-session',
+    })
+    expect(typeof dispatch[0]!.at).toBe('number')
+
+    // agent/disposed：清掉该 agent 的记账（Lead 面板回落空数组）
+    for (const listener of listeners.get('agent/disposed') ?? []) listener({ agent: child })
+    expect((await lastSnapshot(getCommand, lead as never)).dispatch).toHaveLength(0)
+  })
 })
 
 describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => {
