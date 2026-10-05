@@ -378,6 +378,25 @@ describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1
     expect(calls).toHaveLength(0)
   })
 
+  it('子代理轮（delegationDepth > 0）⇒ 判官整体不点火（设计稿 §5 点名钉：calls.length === 0）', async () => {
+    // 终审 T4③：设计稿 §5 单测清单点名「子代理 + hitConfirm 判官调用数 = 0」。
+    // router.ts 的守卫是单条款（!skipKeywordRules），删掉没有任何既有测试变红——
+    // 本条就是那根回归钉：子代理轮带关键词命中词，判官探针必须零调用。
+    const calls: string[] = []
+    const { ctx, dispatch } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      hitConfirm: makeGate(calls),
+    })
+    const childAgent = { session: { header: { origin: 'subagent', delegationDepth: 1 } } }
+
+    // Fails if: 子代理零判官守卫（skipKeywordRules 短路）被删——关键词命中轮会点火判官
+    await dispatch.preStep({
+      agent: childAgent, messages: [textMessage('帮我重构这段周报')], turn: 1, step: 1, signal: signal(),
+    })
+    expect(calls).toHaveLength(0)
+  })
+
   // v1.3.0 可观测性补链：判词必须穿到**最终决策对象**上。判否 ⇒ 被否规则出链 ⇒
   // 落打底（via:'default'），而打底按既有 gating 不上报面板——A7 实机失效正是被
   // 这一点掩盖的。本组钉住「注记确实到达最终决策」，回退 withConfirmNote 即红。
@@ -1510,6 +1529,25 @@ describe('v2.0.0 派发台账接线：槽位 dispatch → onDispatch 记账', ()
     await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
     // Fails if: 主会话轮也记账（pre-step 仅 isChild 写 dispatch 的判据失效）
     expect(entries).toHaveLength(0)
+  })
+
+  it('认领队友 + 显式 @ + role 目标可用 ⇒ 台账 basis=explicit（终审 I2：按最终决策记账）', async () => {
+    // 终审 I2：roleHit 成立 ≠ role 决策被套用——显式 @ 是优先级链第 1 档，最终
+    // via:'explicit'。台账若仍记 basis:'role'，面板行「前端 → deepseek-v4-flash ·
+    // role」自相矛盾（该 role 的目标本是 kimi-for-coding）。
+    const { dispatch, entries } = mountWithLedger({ role: 'teammate', name: 'frontend' })
+    await dispatch.preStep({ agent: childWithParent, messages: [textMessage('@deepseek-official 帮忙看看')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: childWithParent, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    expect(config).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    expect(entries).toHaveLength(1)
+    // Fails if: dispatchMetaOf 仍以 roleHit 优先于最终决策——显式轮被误标 role
+    expect(entries[0]).toMatchObject({
+      basis: 'explicit',
+      teammate: 'frontend',
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    // 显式轮不得带 roleLabel（R8 同款约束：渲染歧义面）
+    expect(entries[0]!.roleLabel).toBeUndefined()
   })
 })
 

@@ -44,7 +44,7 @@ describe('roles：队友 → 角色', () => {
 })
 
 describe('roles：派发依据（依据枚举 role|explicit|unclaimed|keep）', () => {
-  it('role 命中优先', () => {
+  it('role 命中且 role 决策被套用（via:role）⇒ role', () => {
     expect(dispatchMetaOf({ role: 'teammate', name: 'frontend' }, { role: role('frontend'), name: 'frontend' }, { kind: 'route', via: 'role' }))
       .toEqual({ basis: 'role', teammate: 'frontend', roleLabel: 'FRONTEND' })
   })
@@ -54,6 +54,26 @@ describe('roles：派发依据（依据枚举 role|explicit|unclaimed|keep）', 
   it('非队友子代理：显式点名 ⇒ explicit；否则 keep', () => {
     expect(dispatchMetaOf(undefined, undefined, { kind: 'route', via: 'explicit' }).basis).toBe('explicit')
     expect(dispatchMetaOf(undefined, undefined, { kind: 'keep' }).basis).toBe('keep')
+  })
+
+  /* 终审 I2（2026-10-06 修复波）：basis 必须由**最终生效的决策**决定——roleHit
+     成立不等于 role 决策被套用（显式 @ 优先级链第 1 档、flow 决策 role 不参与）。
+     误标 role 会让面板行「前端 → deepseek-v4-flash · role」自相矛盾。 */
+  it('终审 I2：认领队友的显式 @ 轮 ⇒ explicit（带队友名，不带 roleLabel）', () => {
+    // Fails if: roleHit 优先于最终决策——显式 @ 轮被误标 basis:'role'
+    expect(dispatchMetaOf({ role: 'teammate', name: 'frontend' }, { role: role('frontend'), name: 'frontend' }, { kind: 'route', via: 'explicit' }))
+      .toEqual({ basis: 'explicit', teammate: 'frontend' })
+  })
+  it('终审 I2：认领队友的 flow 终决策（图像正确性通道，role 不参与）⇒ keep + 队友名（不带 roleLabel）', () => {
+    // Fails if: flow 轮被误标 role；或带上 roleLabel（keep+roleLabel 会被客户端
+    // 渲染成「目标不可用 → 保持继承」护栏文案，与本形态不符）
+    expect(dispatchMetaOf({ role: 'teammate', name: 'frontend' }, { role: role('frontend'), name: 'frontend' }, { kind: 'flow' }))
+      .toEqual({ basis: 'keep', teammate: 'frontend' })
+  })
+  it('终审 I2：未认领队友的显式 @ 轮 ⇒ explicit（最终决策优先于 membership 归属）', () => {
+    // Fails if: membership 分支先于显式判定——未认领队友的显式 @ 被误标 unclaimed
+    expect(dispatchMetaOf({ role: 'teammate', name: 'x' }, undefined, { kind: 'route', via: 'explicit' }))
+      .toEqual({ basis: 'explicit', teammate: 'x' })
   })
 })
 

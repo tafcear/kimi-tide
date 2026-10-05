@@ -2,7 +2,7 @@
  * 分工表纯函数层（设计稿 D2/D5/D7）。
  * 无副作用、不碰宿主服务 —— pre-step 闭包与设置页写通道共用同一套判据。
  */
-import type { RoleEntry, RouterConfigV6 } from './config.js'
+import type { RoleEntry } from './config.js'
 
 /** 派发依据（投影与面板的枚举，设计稿 D7）。 */
 export type DispatchBasis = 'role' | 'explicit' | 'keep' | 'unclaimed'
@@ -52,15 +52,31 @@ export function resolveRoleDecision(
   return role === undefined ? undefined : { role, name: membership.name }
 }
 
-/** 派发依据判定（优先级：role > unclaimed > explicit > keep）。 */
+/**
+ * 派发依据判定（终审 I2，2026-10-06 修复波）：**basis 由最终生效的决策决定**——
+ * roleHit 成立不等于 role 决策被套用（显式 @ 是优先级链第 1 档、flow 决策 role
+ * 不参与改道）。优先级：explicit（最终 via:'explicit'）> role（最终 via:'role'）
+ * > unclaimed（未认领队友）> keep。
+ *
+ * role 命中但终决策非 role（flow/keep 等）⇒ 记 keep + 队友名、**不带 roleLabel**：
+ * 客户端把 keep+roleLabel 渲染成「「前端」目标不可用 → 保持继承」护栏文案，
+ * 与「role 本轮没参与」的形态不符（keep+teammate 渲染「frontend → 目标 · keep」，
+ * 如实说出 role 未驱动本轮）。
+ */
 export function dispatchMetaOf(
   membership: { role: string; name: string } | undefined,
   roleHit: { role: RoleEntry; name: string } | undefined,
   decision: { kind: string; via?: string },
 ): DispatchMeta {
-  if (roleHit !== undefined) return { basis: 'role', teammate: roleHit.name, roleLabel: roleHit.role.label }
+  const teammate = roleHit?.name ?? (membership?.role === 'teammate' ? membership.name : undefined)
+  if (decision.kind === 'route' && decision.via === 'explicit') {
+    return { basis: 'explicit', ...(teammate === undefined ? {} : { teammate }) }
+  }
+  if (roleHit !== undefined && decision.kind === 'route' && decision.via === 'role') {
+    return { basis: 'role', teammate: roleHit.name, roleLabel: roleHit.role.label }
+  }
+  if (roleHit !== undefined) return { basis: 'keep', teammate: roleHit.name }
   if (membership !== undefined && membership.role === 'teammate') return { basis: 'unclaimed', teammate: membership.name }
-  if (decision.kind === 'route' && decision.via === 'explicit') return { basis: 'explicit' }
   return { basis: 'keep' }
 }
 
