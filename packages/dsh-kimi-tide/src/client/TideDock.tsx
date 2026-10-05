@@ -17,8 +17,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { BalanceSnapshot, KimiTidePanelProjection, QuotaSnapshot } from '../types.js'
-import { ReasonPanel } from './ReasonPanel.js'
+import { formatDispatch, ReasonPanel } from './ReasonPanel.js'
 import { Icon } from './icons.js'
+
+// Task 6：摘要格式化纯函数经本模块转出口（定义在 ReasonPanel.tsx，避免组件互引成环）。
+export { formatDispatch }
 
 export interface TideDockProps {
   sessionId: string
@@ -503,6 +506,9 @@ export function TideDock(props: TideDockProps) {
     : weekPct === null
       ? '用量总览（当前目标无配额数据）'
       : `${weekTitle} · 点开用量总览`
+  // Task 6 派发台账（面板 v7）：每父会话最近 20 条、新在前；旧载荷缺席 → 空数组
+  // → 摘要槽与明细区都不渲染（空态不挂锚点，不是渲染空字符串）。
+  const dispatch = panel.dispatch ?? []
 
   return (
     <div className={`kimi-tide-dock ${compact ? 'kt-dock-c' : 'kt-dock-b'}`} ref={dockRef} role="region" aria-label="月汐路由状态">
@@ -690,6 +696,15 @@ export function TideDock(props: TideDockProps) {
           </span>
         )}
 
+        {/* Task 6 派发摘要槽：有派发才渲染（空态不挂锚点）；取最新一条 [0]，
+            明细在决策悬浮层。内层 .kt-ellip 承担截断（评审 A6：flex 容器上
+            text-overflow 无效）。 */}
+        {dispatch.length > 0 && (
+          <span className="kt-slot kt-dispatch" data-kt-el="dispatch" title="最近一次派发">
+            <span className="kt-ellip">{formatDispatch(dispatch[0]!)}</span>
+          </span>
+        )}
+
         <span className="kt-dock-r2-end">
           <button
             type="button"
@@ -768,6 +783,7 @@ export function TideDock(props: TideDockProps) {
             decision={panel.decision}
             presetName={router.presetName}
             lastFlowEvent={panel.lastFlowEvent}
+            dispatch={panel.dispatch}
           />
         </div>,
         document.body,

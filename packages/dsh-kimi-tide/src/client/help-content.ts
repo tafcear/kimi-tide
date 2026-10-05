@@ -28,7 +28,7 @@ export const FALLBACK_HINTS: Record<ImageFallback, string> = {
 export const DOCK_ELEMENTS = [
   'label', 'preset-chip', 'baseline-chip', 'decision-chip', 'decision-toggle',
   'kimi-warning', 'week-quota', 'fivehour-quota', 'balance-slot', 'overview-toggle', 'image-context',
-  'fetched-at', 'refresh', 'notice', 'dock-states',
+  'dispatch', 'fetched-at', 'refresh', 'notice', 'dock-states',
 ] as const
 
 /** 设置页的功能区块 id（说明页必须逐个讲到）。 */
@@ -150,6 +150,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           '本会话图片的三种去向：原生视觉 / 已转述成文字 / 盲答（有图但文本模型看不到）。',
           '盲 > 0 时会追加可见警示——**无图会话不渲染这一行**。',
+        ],
+      },
+      {
+        id: 'dock-dispatch',
+        title: '派发槽（团队派发摘要）',
+        anchors: ['dispatch'],
+        body: [
+          '最近一次把专项活派给哪个角色的模型，以及依据（role=分工表角色 / explicit=显式点名 / keep=保持原样 / unclaimed=未在分工表）。',
+          '展开决策可观测悬浮层可看最近 20 条派发明细（新在前）。',
+          '本会话还没有派发记录时不渲染这一槽。',
         ],
       },
       {

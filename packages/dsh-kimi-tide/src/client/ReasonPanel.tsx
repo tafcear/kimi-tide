@@ -8,6 +8,18 @@
  * 化；本组件由 TideDock 以 portal 悬浮层承载（不再内联推挤布局）。
  */
 import type { ConfigSource, DecisionSummary } from '../types.js'
+import type { DispatchEntry } from '../dispatch-ledger.js'
+
+/**
+ * 派发行摘要（Task 6）：角色/队友 → provider/model · 依据。
+ * who 回退链：roleLabel > teammate > 依据词（explicit=点名 / unclaimed=未在分工表 /
+ * 其余=继承）。纯函数便于单测；dock 摘要槽与本面板明细行共用同一形状，
+ * 由 TideDock 转出口（定义于此而非 TideDock：避免组件互引成环）。
+ */
+export function formatDispatch(entry: DispatchEntry): string {
+  const who = entry.roleLabel ?? entry.teammate ?? (entry.basis === 'explicit' ? '点名' : entry.basis === 'unclaimed' ? '未在分工表' : '继承')
+  return `${who} → ${entry.target.provider}/${entry.target.model} · ${entry.basis}`
+}
 
 export interface ReasonPanelProps {
   configSource: ConfigSource
@@ -17,6 +29,11 @@ export interface ReasonPanelProps {
   presetName: string | null
   /** 0.6.x 池#1：最近流执行摘要（投影 v6 lastFlowEvent）；缺席 = 无流事件。 */
   lastFlowEvent?: string
+  /**
+   * Task 6：派发台账（面板 v7 dispatch，每父会话最近 20 条、新在前，倒序已在
+   * 台账侧完成）。缺席/空数组 = 不渲染明细区（不造空区噪音）。
+   */
+  dispatch?: DispatchEntry[]
 }
 
 const SOURCE_LABELS: Record<ConfigSource, string> = {
@@ -28,7 +45,7 @@ const SOURCE_LABELS: Record<ConfigSource, string> = {
 }
 
 export function ReasonPanel(props: ReasonPanelProps) {
-  const { configSource, decision, presetName, lastFlowEvent } = props
+  const { configSource, decision, presetName, lastFlowEvent, dispatch } = props
   const source = SOURCE_LABELS[configSource] ?? configSource
 
   return (
@@ -50,6 +67,16 @@ export function ReasonPanel(props: ReasonPanelProps) {
       )}
       {/* 0.6.x 池#1：流执行事件行（投影 v6 lastFlowEvent，推送侧 ≤120 截断）。 */}
       {lastFlowEvent !== undefined && <span className="kt-meta">最近流事件：{lastFlowEvent}</span>}
+      {/* Task 6：派发明细，照上行「最近流事件」行式逐行渲染；台账侧已收口 20 条
+          且新在前，slice(0, 20) 是客户端兜底（绕校验的实时载荷也至多 20 行）。 */}
+      {dispatch !== undefined && dispatch.length > 0 && (
+        <>
+          <span className="kt-h">最近派发</span>
+          {dispatch.slice(0, 20).map((entry, i) => (
+            <span key={i} className="kt-meta">派发：{formatDispatch(entry)}</span>
+          ))}
+        </>
+      )}
     </div>
   )
 }

@@ -229,6 +229,9 @@ export const CLIENT_CSS = `
       overflow: hidden; }
     .kimi-tide-dock .kt-dock-r2-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: none; }
     .kimi-tide-dock .kt-slot { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+    /* Task 6 派发摘要槽：字号随 r2 行级 11.5px（同其他 .kt-slot）；超长省略号——
+       截断落在内层 .kt-ellip 文本 span（评审 A6：flex 容器上 text-overflow 无效）。 */
+    .kimi-tide-dock .kt-dispatch { overflow: hidden; }
     .kimi-tide-dock .kt-chip { white-space: nowrap; }
     /* 评审 A6：ellipsis 作用于内层文本 span（flex 容器上 text-overflow 无效） */
     .kimi-tide-dock .kt-ellip { overflow: hidden; text-overflow: ellipsis; min-width: 0; }

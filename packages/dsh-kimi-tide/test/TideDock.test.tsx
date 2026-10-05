@@ -10,8 +10,10 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { fmtRemain, TideDock } from '../src/client/TideDock.js'
+import { fmtRemain, formatDispatch, TideDock } from '../src/client/TideDock.js'
+import { ReasonPanel } from '../src/client/ReasonPanel.js'
 import { DOCK_ELEMENTS } from '../src/client/help-content.js'
+import type { DispatchEntry } from '../src/dispatch-ledger.js'
 import type { KimiTidePanelProjection } from '../src/types.js'
 
 function makePanel(overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePanelProjection {
@@ -373,6 +375,8 @@ describe('说明页 UI 锚（评审 M7）：dock 元素与 DOCK_ELEMENTS 同源'
       quotaProvider: 'kimi-coding',
       decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: '规则命中' },
       imageContext: { native: 1, transcribed: 0, blind: 0 },
+      // Task 6：派发锚点（data-kt-el="dispatch"）只在有派发时渲染，须进并集。
+      dispatch: [{ basis: 'role', teammate: 'frontend', roleLabel: '前端', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 }],
     })))
     const warning = anchorsOf(render(makePanel({ kimi: { route: false, key: false } })))
     const balanceState = anchorsOf(render(makePanel({
@@ -440,5 +444,78 @@ describe('余额槽（用量/余额 spec v2 §6.1）：API 计费源画余额，
     }))
     expect(visible(html)).toContain('¥1.00')
     expect(html).toContain('USD 2.00')
+  })
+})
+
+describe('TideDock 派发区（Task 6：摘要行 + 明细 + 帮助锚点）', () => {
+  const dispatched: DispatchEntry[] = [
+    { basis: 'role', teammate: 'frontend', roleLabel: '前端', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 },
+  ]
+
+  it('派发区：有派发时显示最新一条摘要（角色/队友 → 模型 · 依据）', () => {
+    const html = visible(render(makePanel({ dispatch: dispatched })))
+    // Fails if: r2 未渲染派发摘要槽（data-kt-el="dispatch" 缺失）
+    expect(html).toContain('data-kt-el="dispatch"')
+    expect(html).toContain('前端 → kimi-coding/k3 · role')
+  })
+
+  it('派发区：多条时摘要取最新一条（台账新在前 → 取 [0]）', () => {
+    const html = visible(render(makePanel({
+      dispatch: [
+        { basis: 'explicit', target: { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, at: 2 },
+        ...dispatched,
+      ],
+    })))
+    // Fails if: 摘要取成最旧一条（把台账序当旧在前读反）
+    const slot = html.match(/<span[^>]*data-kt-el="dispatch"[\s\S]*?<\/span>/)
+    expect(slot).not.toBeNull()
+    expect(slot![0]).toContain('点名 → deepseek-official/deepseek-v4-pro · explicit')
+    expect(slot![0]).not.toContain('kimi-coding/k3')
+  })
+
+  it('派发区：无派发时不渲染该锚点（空数组与字段缺席同态，非空字符串占位）', () => {
+    // Fails if: 空态仍挂锚点（渲染空串槽位——三态语义破成两态）
+    expect(render(makePanel({ dispatch: [] }))).not.toContain('data-kt-el="dispatch"')
+    expect(render(makePanel())).not.toContain('data-kt-el="dispatch"')
+  })
+
+  it('formatDispatch 摘要形状：who → provider/model · 依据；who 回退链 roleLabel > teammate > 依据词', () => {
+    expect(formatDispatch(dispatched[0]!)).toBe('前端 → kimi-coding/k3 · role')
+    // Fails if: 无 roleLabel 时不退到 teammate（丢队友身份）
+    expect(formatDispatch({ basis: 'unclaimed', teammate: 'backend', target: { provider: 'p', model: 'm' }, at: 1 }))
+      .toBe('backend → p/m · unclaimed')
+    // Fails if: 两者皆缺时不按依据给中文词（explicit=点名 / unclaimed=未在分工表 / keep=继承）
+    expect(formatDispatch({ basis: 'explicit', target: { provider: 'p', model: 'm' }, at: 1 })).toBe('点名 → p/m · explicit')
+    expect(formatDispatch({ basis: 'unclaimed', target: { provider: 'p', model: 'm' }, at: 1 })).toBe('未在分工表 → p/m · unclaimed')
+    expect(formatDispatch({ basis: 'keep', target: { provider: 'p', model: 'm' }, at: 1 })).toBe('继承 → p/m · keep')
+  })
+
+  it('ReasonPanel 明细：dispatch 逐行渲染（新在前），至多 20 条', () => {
+    const entries: DispatchEntry[] = Array.from({ length: 22 }, (_, i) => ({
+      basis: 'keep', target: { provider: 'p', model: `m${i}` }, at: i,
+    }))
+    const html = visible(renderToString(createElement(ReasonPanel, {
+      configSource: 'settings', decision: null, presetName: '省钱', dispatch: entries,
+    })))
+    // Fails if: 决策悬浮层不渲染派发明细（摘要无处可展开）
+    expect(html).toContain('最近派发')
+    expect(html).toContain('派发：继承 → p/m0 · keep')
+    // 台账序（新在前）原样逐行：首行是 entries[0]
+    expect(html.indexOf('p/m0')).toBeLessThan(html.indexOf('p/m1'))
+    // 客户端兜底收口 20 条：第 21/22 条不上屏
+    expect(html).not.toContain('p/m20')
+    expect(html).not.toContain('p/m21')
+  })
+
+  it('ReasonPanel 明细：无派发（空数组/字段缺席）→ 不渲染明细区', () => {
+    // Fails if: 空态仍渲染「最近派发」区块标题（空区噪音）
+    const empty = renderToString(createElement(ReasonPanel, {
+      configSource: 'settings', decision: null, presetName: '省钱', dispatch: [],
+    }))
+    expect(empty).not.toContain('派发')
+    const absent = renderToString(createElement(ReasonPanel, {
+      configSource: 'settings', decision: null, presetName: '省钱',
+    }))
+    expect(absent).not.toContain('派发')
   })
 })
