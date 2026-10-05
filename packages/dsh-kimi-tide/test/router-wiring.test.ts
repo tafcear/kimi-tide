@@ -3,10 +3,13 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_CONFIG_V4,
   DEFAULT_CONFIG_V5,
+  DEFAULT_CONFIG_V6,
   type CandidateMeta,
+  type RoleEntry,
   type RouteTarget,
   type RouterConfigV4,
   type RouterConfigV5,
+  type RouterConfigV6,
 } from '../src/config.js'
 import { ImageStateStore } from '../src/image-state.js'
 import {
@@ -79,6 +82,24 @@ const FLOW_CONFIG = (): RouterConfigV5 => {
   c.activePreset = 'saving'
   c.presets.saving.rules = [{ id: 'image-flow', when: { kind: 'image' }, target: { flow: 'transcribe' } }]
   return c
+}
+
+/**
+ * v6 夹具（v2.0.0 团队派发）：与 CONFIG() 同款 review 关键词组规则，
+ * 供 rulesApplyToChildren / 分工表 / driverSticky 闭包接线测试覆写分工层字段。
+ * 注意 DEFAULT_CONFIG_V6 内置 driverSticky: true + driver: null——主会话打底
+ * 会变 keep「主驱动跟随宿主默认」；不涉及该断言的用例一律走子代理或显式覆写。
+ */
+const TEAM_CONFIG = (over: Partial<RouterConfigV6> = {}): RouterConfigV6 => {
+  const c = DEFAULT_CONFIG_V6()
+  c.activePreset = 'saving'
+  c.keywordGroups.review = ['审查']
+  c.presets.saving.rules.unshift({
+    id: 'review-k3',
+    when: { kind: 'keywords', group: 'review' },
+    target: { provider: 'kimi-coding', model: 'k3' },
+  })
+  return { ...c, ...over }
 }
 
 // 与省钱预设默认（deepseek-official/deepseek-v4-flash）不同的哨兵路由：
@@ -1308,10 +1329,132 @@ describe('B-1a：打底让位于委派子代理的外部显式目标', () => {
     expect(fixture.decisions.at(-1)?.decision.confirmNote).toBeUndefined()
   })
 
-  it('让位只针对打底：规则命中照常改道子代理', async () => {
+  it('v2.0.0（D6）：子代理默认不参与关键词规则——审查词落打底，外部显式目标被让位保留', async () => {
+    // 行为变更（设计稿 D6）：≤v1.4.1 本用例断言 review 规则命中改道 k3；v2.0.0 起
+    // 关键词规则默认不作用于子代理（rulesApplyToChildren 缺失/false），审查词落
+    // 打底 ⇒ B-1a 让位给外部点名目标（与本 describe 主干语义合流）。
     const { dispatch } = mount()
     await dispatch.preStep({ agent: childAgent, messages: [textMessage('帮我审查这段')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    expect(config).toEqual(EXTERNAL)
+  })
+
+  it('显式 rulesApplyToChildren: true ⇒ 旧行为恢复：规则命中照常改道子代理（让位只针对打底）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    installRouter(
+      ctx as never,
+      new KimiRouter(TEAM_CONFIG({ rulesApplyToChildren: true }), METAS, { info: () => {} }),
+      makeDeps().deps,
+    )
+    await dispatch.preStep({ agent: childAgent, messages: [textMessage('帮我审查这段')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, SAVING_DEFAULT)
-    expect(config).toEqual({ provider: 'kimi-coding', model: 'k3' }) // review 规则命中 ⇒ 改道
+    // Fails if: 开关没传进 pre-step 闭包（skipKeywordRules 恒 true，规则被跳）
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'k3' })
+  })
+})
+
+/**
+ * v2.0.0 团队派发闭包接线（Task 4）：via:'role' 分工表改道 + 主驱动恒定。
+ * 纯函数层（applyRoleDecision / applyDriverSticky / decide 第 5 参）在 router.test.ts
+ * 覆盖；本组钉 pre-step 闭包的接线：teamLookup 注入、R2 字段判据、B-1a 与 role 的
+ * 优先级关系、driverSticky 三变体的请求层落点。
+ */
+describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => {
+  const child = { session: { header: { origin: 'subagent', delegationDepth: 1 } } }
+  /** 外部显式目标（≠ 省钱预设默认，≠ 角色目标 kimi-for-coding）。 */
+  const EXTERNAL: RouteTarget = { provider: 'kimi-coding', model: 'k3' }
+  const ROLE_FRONT: RoleEntry = { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } }
+
+  const mountTeam = (
+    config: RouterConfigV6,
+    membership?: { role: string; name: string },
+  ) => {
+    const { ctx, dispatch, logs } = makeCtx()
+    const fixture = makeDeps()
+    installRouter(ctx as never, new KimiRouter(config, METAS, { info: () => {} }), {
+      ...fixture.deps,
+      // membership 缺席 = teamLookup 缺席（宿主未挂 agentTeams 服务的同形降级）
+      ...(membership === undefined ? {} : { teamLookup: () => membership }),
+    })
+    return { dispatch, fixture, logs }
+  }
+
+  it('认领队友 → 分工表改道（via:role），且不被 B-1a 让位吞掉（role ≠ default）', async () => {
+    const { dispatch, fixture } = mountTeam(
+      TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }),
+      { role: 'teammate', name: 'frontend' },
+    )
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    // 外部显式目标 ≠ 角色目标：via:role 非打底，B-1a 首行守卫直接 false，改道生效
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // Fails if: role 分支没接线（落打底被让位）或被让位吞掉（config 保持 EXTERNAL）
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    const last = fixture.decisions.at(-1)?.decision
+    expect(last?.kind === 'route' && last.via).toBe('role')
+    expect(last?.reason).toContain('分工表「前端」')
+    expect(last?.reason).toContain('队友 frontend')
+  })
+
+  it('显式 @ 不被分工表覆盖（优先级链 1 > 3）', async () => {
+    const { dispatch } = mountTeam(
+      TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }),
+      { role: 'teammate', name: 'frontend' },
+    )
+    await dispatch.preStep({ agent: child, messages: [textMessage('@deepseek-official/deepseek-v4-flash 你好')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // Fails if: role 覆盖了显式 @（config 被改道 kimi-for-coding）
+    expect(config).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+
+  it('未认领队友与 teamLookup 缺席同形：role 不命中 → 落打底 → B-1a 让位外部目标', async () => {
+    for (const membership of [{ role: 'teammate', name: 'ghost' }, undefined]) {
+      const { dispatch } = mountTeam(TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), membership)
+      await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+      const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+      expect(config).toEqual(EXTERNAL)
+    }
+  })
+
+  it('R2 字段判据：version 显式写 5 的旧文档形态，roles 字段照样生效（不以版本号门控）', async () => {
+    // 控制器裁决 R2：线上 profile patch 常显式写 version: 5——判据须为 roles 字段
+    // 本身而非 version === 6。这里把 v6 夹具的 version 强写 5 模拟该形态。
+    const legacyShape = { ...TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), version: 5 } as unknown as RouterConfigV6
+    const { dispatch } = mountTeam(legacyShape, { role: 'teammate', name: 'frontend' })
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // Fails if: 实现用 config.version === 6 门控（分工表静默失效 → 落打底被让位）
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+  })
+
+  it('主驱动恒定：主会话 + sticky + driver 非空 → 打底目标换成 driver', async () => {
+    const { dispatch, fixture } = mountTeam(TEAM_CONFIG({ driverSticky: true, driver: { provider: 'kimi-coding', model: 'k3' } }))
+    await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    // Fails if: sticky 没在闭包接线（落预设默认 deepseek-v4-flash）
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'k3' })
+    expect(fixture.decisions.at(-1)?.decision.reason).toContain('（主驱动）')
+  })
+
+  it('主驱动恒定：driver 为 null → keep「主驱动跟随宿主默认」（请求层不改写）', async () => {
+    const { dispatch } = mountTeam(TEAM_CONFIG({ driverSticky: true, driver: null }))
+    await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    // keep ⇒ applyTo 原样返回——哨兵路由逐字节穿过（跟随宿主默认）
+    expect(config).toEqual(baseConfig)
+  })
+
+  it('driverSticky: false（存量迁移形态）→ 打底 = 预设默认，与 v1.4.1 一致', async () => {
+    const { dispatch } = mountTeam(TEAM_CONFIG({ driverSticky: false, driver: { provider: 'kimi-coding', model: 'k3' } }))
+    await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
+    expect(config).toEqual(SAVING_DEFAULT)
+  })
+
+  it('子代理不受 driverSticky 影响（sticky 只作用于主会话打底）', async () => {
+    const { dispatch } = mountTeam(TEAM_CONFIG({ driverSticky: true, driver: { provider: 'kimi-coding', model: 'k3' } }))
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    // 子代理落打底 ⇒ B-1a 让位外部目标；driver 不得插手子代理路由
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    expect(config).toEqual(EXTERNAL)
   })
 })

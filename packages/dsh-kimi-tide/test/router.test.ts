@@ -1,12 +1,17 @@
 // test/router.test.ts（骨架；消息夹具同 T2）
 import { describe, expect, it, vi } from 'vitest'
 import {
-  DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS,
-  type CandidateMeta, type CollaborationFlow, type RouteTarget, type RouterConfigV5, type RouterPreset,
+  DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS,
+  type CandidateMeta, type CollaborationFlow, type RoleEntry, type RouteTarget, type RouterConfigV5, type RouterConfigV6, type RouterPreset,
 } from '../src/config.js'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ImageStateEntry } from '../src/image-state.js'
 import type { ResolvedImage } from '../src/transcribe.js'
-import { confirmNoteOf, createStreamVisionCaller, effortForTarget, KimiRouter, reasoningEffortFor, resolveImageFallback, withConfirmNote } from '../src/router.js'
+import {
+  applyDriverSticky, applyRoleDecision, confirmNoteOf, createStreamVisionCaller, effortForTarget,
+  KimiRouter, reasoningEffortFor, resolveImageFallback, shouldKeepExternalTarget, withConfirmNote,
+  type RouteDecision,
+} from '../src/router.js'
 
 const log = { info: () => {} }
 const METAS: CandidateMeta[] = [
@@ -573,5 +578,149 @@ describe('confirmNoteOf（v1.3.0 可观测性补链）', () => {
     // 空样本视同没有（不产生空的「原文「」」）
     expect(confirmNoteOf('code-kfc', { omitRuleId: null, outcome: 'fail', durationMs: 900, failDetail: 'parse', rawSample: '' }))
       .toBe('语义闸判词不可解析 900ms（code-kfc）')
+  })
+})
+
+/* ================= v2.0.0 团队派发（Task 4）：via:'role' / driverSticky / 子代理跳关键词规则 ================= */
+
+const cfg6 = (active: string | null, over: Partial<RouterConfigV6> = {}): RouterConfigV6 => {
+  const c = DEFAULT_CONFIG_V6(); c.activePreset = active; return { ...c, ...over }
+}
+/** 极简子代理夹具（宿主子会话 header 实机形：delegationDepth=1）。 */
+const childAgent = () => ({ id: 'c', session: { header: { delegationDepth: 1 } } }) as unknown as Agent
+const ROLE_FRONT: RoleEntry = { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } }
+const roleHitFront = { role: ROLE_FRONT, name: 'frontend' }
+const defaultDecision = (): RouteDecision => ({
+  kind: 'route', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, reason: '预设「省钱」默认', via: 'default',
+})
+
+describe('v2.0.0：via:\'role\' 与 shouldKeepExternalTarget', () => {
+  it('role 决策不被 B-1a 让位吞掉（首行 via !== default 守卫，钉既有不变量）', () => {
+    const d: RouteDecision = { kind: 'route', target: { provider: 'kimi-coding', model: 'k3' }, reason: 'r', via: 'role' }
+    // Fails if: 有人给 via:'role' 加让位例外——分工表改道会被调用方点名目标静默吞掉
+    expect(shouldKeepExternalTarget(d, { provider: 'deepseek-official', model: 'deepseek-v4-pro' }, childAgent())).toBe(false)
+  })
+})
+
+describe('v2.0.0：applyRoleDecision（role 覆盖纯函数，优先级链第 3 档）', () => {
+  it('打底决策 + role 命中 → via:role，目标换成角色目标，原因带分工表与队友名', () => {
+    const d = applyRoleDecision(defaultDecision(), roleHitFront)
+    expect(d).toMatchObject({
+      kind: 'route', via: 'role', target: { provider: 'kimi-coding', model: 'k3' },
+    })
+    expect(d.reason).toBe('分工表「前端」→ kimi-coding/k3（队友 frontend）')
+  })
+  it('规则命中决策同样被覆盖（role 优先于关键词规则与打底）', () => {
+    const rule: RouteDecision = { kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '规则「code」命中 1 词', via: 'rule' }
+    expect(applyRoleDecision(rule, roleHitFront)).toMatchObject({ via: 'role', target: { provider: 'kimi-coding', model: 'k3' } })
+  })
+  it('显式 @ 决策不覆盖（优先级链 1 > 3，原引用返回）', () => {
+    const explicit: RouteDecision = { kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '显式 @kimi-coding/kimi-for-coding 指令', via: 'explicit' }
+    expect(applyRoleDecision(explicit, roleHitFront)).toBe(explicit)
+  })
+  it('flow 决策不覆盖（flow 是图像正确性通道，原引用返回）', () => {
+    const flow: RouteDecision = { kind: 'flow', flowId: 'transcribe', flow: DEFAULT_FLOWS().transcribe, reason: 'r', via: 'rule' }
+    expect(applyRoleDecision(flow, roleHitFront)).toBe(flow)
+  })
+  it('keep 决策不覆盖；roleHit 缺席原样返回（主会话恒走此分支）', () => {
+    const keep: RouteDecision = { kind: 'keep', reason: 'router off' }
+    expect(applyRoleDecision(keep, roleHitFront)).toBe(keep)
+    const d = defaultDecision()
+    expect(applyRoleDecision(d, undefined)).toBe(d)
+  })
+  it('confirmNote 随覆盖保留（判词注记不被 role 改道抹掉）', () => {
+    const noted: RouteDecision = { ...defaultDecision(), confirmNote: '语义闸判否' }
+    expect(applyRoleDecision(noted, roleHitFront)).toMatchObject({ via: 'role', confirmNote: '语义闸判否' })
+  })
+})
+
+describe('v2.0.0：子代理跳关键词规则（D6，decide 第 5 参）', () => {
+  // 自定义规则链：首条 image、次条 keywords（夹具模型一律取既有 METAS 候选）
+  const childCfg = () => cfg6('saving', {
+    presets: {
+      saving: {
+        name: '省钱',
+        default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        rules: [
+          { id: 'image-k3', when: { kind: 'image' }, target: { provider: 'kimi-coding', model: 'k3' } },
+          { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+        ],
+      },
+    },
+  })
+  it('不传 opts（主会话路径）：关键词规则照常命中——既有行为逐字节不变', () => {
+    const r = new KimiRouter(childCfg(), METAS, log)
+    expect(r.decide([textMsg('帮我重构这段代码')], 1)).toMatchObject({ via: 'rule', target: { model: 'kimi-for-coding' } })
+  })
+  it('skipKeywordRules=true：关键词规则被跳过，落打底（via:default）', () => {
+    const r = new KimiRouter(childCfg(), METAS, log)
+    const d = r.decide([textMsg('帮我重构这段代码')], 1, undefined, undefined, { skipKeywordRules: true })
+    // Fails if: decide 不认第 5 参，关键词规则照常命中（子代理被规则劫持）
+    expect(d).toMatchObject({ kind: 'route', via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+  })
+  it('skipKeywordRules=true：图像规则仍生效（图像正确性通道不随关键词一起跳）', () => {
+    const r = new KimiRouter(childCfg(), METAS, log)
+    // 注意：第 3 参必须传 undefined 让 hasImage 从消息计算（brief 骨架字面写 false
+    // 会把图像规则也抑掉——`false ?? x` 恒为 false，现场按语义更正）
+    const d = r.decide([imageMsg()], 1, undefined, undefined, { skipKeywordRules: true })
+    expect(d).toMatchObject({ kind: 'route', via: 'rule', target: { provider: 'kimi-coding', model: 'k3' } })
+  })
+  it('skipKeywordRules=false：与缺省一致（显式 false 不触发跳过）', () => {
+    const r = new KimiRouter(childCfg(), METAS, log)
+    expect(r.decide([textMsg('帮我重构这段代码')], 1, undefined, undefined, { skipKeywordRules: false }))
+      .toMatchObject({ via: 'rule', target: { model: 'kimi-for-coding' } })
+  })
+})
+
+describe('v2.0.0：主驱动恒定（D1，decide 层等价形）', () => {
+  // driverSticky 的生效点在 pre-step 闭包而非 decide（子代理门控需要 delegationDepth，
+  // decide 拿不到 agent）——本组只钉「decide 不被 sticky 污染」的等价形，
+  // 三变体行为由下方 applyDriverSticky 纯函数覆盖，实机验收在任务 8 清单 A1a/A1b/A1c。
+  it('driverSticky=false ⇒ 行为与 v1.4.1 一致（打底 = 预设默认）', () => {
+    const r = new KimiRouter(cfg6('saving', { driverSticky: false }), METAS, log)
+    expect(r.decide([textMsg('随便聊聊')], 1)).toMatchObject({
+      via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+  })
+  it('driverSticky=true ⇒ decide 层不受理（等价形：预设打底已是该目标时与 driver 一致）', () => {
+    // saving 预设默认即 deepseek-v4-flash = driver：decide 原样返回打底即等价
+    const c = cfg6('saving', { driverSticky: true, driver: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(new KimiRouter(c, METAS, log).decide([textMsg('随便聊聊')], 1)).toMatchObject({
+      via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+  })
+})
+
+describe('v2.0.0：applyDriverSticky（主驱动恒定纯函数，优先级链第 5 档）', () => {
+  const DRIVER = { provider: 'kimi-coding', model: 'k3' }
+  it('sticky 非 true → 原引用返回（v1.4.1 行为保持）', () => {
+    const d = defaultDecision()
+    expect(applyDriverSticky(d, false, DRIVER, false)).toBe(d)
+    expect(applyDriverSticky(d, false, DRIVER, undefined)).toBe(d)
+  })
+  it('子代理 → 原引用返回（sticky 只作用于主会话）', () => {
+    const d = defaultDecision()
+    expect(applyDriverSticky(d, true, DRIVER, true)).toBe(d)
+  })
+  it('主会话 + sticky + driver 非空 + 打底决策 → 目标换成 driver，原因带（主驱动）', () => {
+    const d = applyDriverSticky(defaultDecision(), false, DRIVER, true)
+    expect(d).toMatchObject({ kind: 'route', via: 'default', target: DRIVER })
+    expect(d.reason).toBe('预设「省钱」默认（主驱动）')
+  })
+  it('主会话 + sticky + driver 为 null / 缺失 → keep「主驱动跟随宿主默认」（不改道）', () => {
+    expect(applyDriverSticky(defaultDecision(), false, null, true))
+      .toEqual({ kind: 'keep', reason: '主驱动跟随宿主默认' })
+    expect(applyDriverSticky(defaultDecision(), false, undefined, true))
+      .toEqual({ kind: 'keep', reason: '主驱动跟随宿主默认' })
+  })
+  it('非打底决策一律不动（规则/显式/role/flow/keep 均原引用返回）', () => {
+    const rule: RouteDecision = { kind: 'route', target: DRIVER, reason: 'r', via: 'rule' }
+    const explicit: RouteDecision = { kind: 'route', target: DRIVER, reason: 'r', via: 'explicit' }
+    const role: RouteDecision = { kind: 'route', target: DRIVER, reason: 'r', via: 'role' }
+    const flow: RouteDecision = { kind: 'flow', flowId: 'transcribe', flow: DEFAULT_FLOWS().transcribe, reason: 'r', via: 'rule' }
+    const keep: RouteDecision = { kind: 'keep', reason: 'router off' }
+    for (const d of [rule, explicit, role, flow, keep]) {
+      expect(applyDriverSticky(d, false, DRIVER, true)).toBe(d)
+    }
   })
 })

@@ -371,6 +371,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // ctx.skills 探测一次并缓存（cordis 服务缺席时访问即抛 → probeSkills 内 try/catch，
   // 见设计稿 §4）：未挂 dsh-skill 时整链降级为不注入分工表 skill，绝不在热路径复探。
   const skillsService = probeSkills(ctx)
+  // ctx.agentTeams 探测一次并缓存（同款范式，v2.0.0 Task 4）：宿主未挂团队服务时
+  // teamLookup 为 undefined ⇒ pre-step 的 role 分支自然不命中，行为与主会话同形。
+  const agentTeams = probeAgentTeams(ctx)
 
   // The strict persistence reader refuses logs with unknown event types — for
   // READING history (legacy `kimi-tide/panel`) as well as for what we append
@@ -605,6 +608,16 @@ export function apply(ctx: Context, config: Config = {}) {
       return undefined
     }
   }
+  /** ctx.agentTeams 探测（v2.0.0 Task 4，与 probeSkills 同款范式：服务缺席访问即抛）。 */
+  type AgentTeamsProbe = { tryMembership?: (agent: Agent) => { role: string; name: string } | undefined }
+  function probeAgentTeams(ctx: unknown): AgentTeamsProbe | undefined {
+    try {
+      const teams = (ctx as { agentTeams?: AgentTeamsProbe }).agentTeams
+      return typeof teams?.tryMembership === 'function' ? teams : undefined
+    } catch {
+      return undefined
+    }
+  }
   /**
    * 分工表 skill 句柄（插件级状态，与 imageStates 同款范式）：配置变更时先 dispose
    * 旧的、再按新 roles 重挂；roles 为空 / skills 服务缺席 / 宿主拒绝注册 ⇒ 不安装。
@@ -711,6 +724,9 @@ export function apply(ctx: Context, config: Config = {}) {
         // v1.3.0 语义命中确认闸：判官 = **本预设的 default**，走 ctx.llm.stream 直调
         // （不经 decide，无 purpose、纯文本无图块 → 不触发任何既有改写）。
         hitConfirm: confirmGate,
+        // v2.0.0（Task 4）：队友身份查询注入——agentTeams 服务缺席即 undefined，
+        // pre-step 的 role 分支自然不命中（逐字节回到无分工表行为）。
+        teamLookup: agentTeams === undefined ? undefined : (agent) => agentTeams.tryMembership?.(agent),
       })
     }
   }

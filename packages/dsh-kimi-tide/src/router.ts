@@ -28,9 +28,10 @@ import type {
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {
-  CandidateMeta, CollaborationFlow, ReviewFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterConfigV6, RouterPreset, TranscribeFlow,
+  CandidateMeta, CollaborationFlow, ReviewFlow, RoleEntry, RouteTarget, RouterConfigV4, RouterConfigV5, RouterConfigV6, RouterPreset, TranscribeFlow,
 } from './config.js'
 import { configKey, isFlowTarget, isV5Plus, KIMI_PROVIDER } from './config.js'
+import { dispatchMetaOf, resolveRoleDecision, type DispatchMeta } from './roles.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import { KIMI_TIDE_REVIEW_EVENT, KIMI_TIDE_REVISE_EVENT } from './projection.js'
 import {
@@ -63,7 +64,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export type RouteDecision =
-  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default'; confirmNote?: string }
+  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default' | 'role'; confirmNote?: string }
   | { kind: 'flow'; flowId: string; flow: TranscribeFlow; reason: string; via: 'rule'; confirmNote?: string }
   | { kind: 'keep'; reason: string; confirmNote?: string }
 
@@ -105,6 +106,51 @@ export function confirmNoteOf(ruleId: string, result: ConfirmReviewResult): stri
     return why === undefined || why === '' ? '语义闸判否' : `语义闸判否「${why}」`
   }
   return why === undefined || why === '' ? '语义闸确认' : `语义闸确认「${why}」`
+}
+
+/**
+ * 分工表改道（v2.0.0 团队派发，优先级链第 3 档，纯函数）：队友身份命中分工表时，
+ * 把路由决策改道到该角色的目标模型，via 记 'role'。
+ *
+ * 不覆盖两档：**显式 @**（via === 'explicit'，优先级链 1 > 3——用户点名最大）与
+ * **flow 决策**（kind === 'flow'，图像正确性通道，改道会把带图轮送进 text-only
+ * 目标）。keep 决策（router off / 预设缺失）同样不动。roleHit 缺席（主会话、
+ * 未认领队友、lead）原引用返回，既有路径逐字节不变。confirmNote 随覆盖保留——
+ * 判词注记不被 role 改道抹掉（与 withConfirmNote 的可观测性补链同向）。
+ */
+export function applyRoleDecision(
+  decision: RouteDecision,
+  roleHit: { role: RoleEntry; name: string } | undefined,
+): RouteDecision {
+  if (roleHit === undefined || decision.kind !== 'route' || decision.via === 'explicit') return decision
+  const { role, name } = roleHit
+  return {
+    kind: 'route',
+    target: role.target,
+    reason: `分工表「${role.label}」→ ${role.target.provider}/${role.target.model}（队友 ${name}）`,
+    via: 'role',
+    ...(decision.confirmNote === undefined ? {} : { confirmNote: decision.confirmNote }),
+  }
+}
+
+/**
+ * 主驱动恒定（v2.0.0 D1，优先级链第 5 档「打底」，纯函数）：仅作用于**主会话**
+ * （delegationDepth === 0，调用方以 isChild 传入）且仅作用于**打底**决策
+ * （via === 'default'）——规则/显式/role/flow/keep 一律原引用返回。
+ *
+ * sticky !== true 原引用返回（存量迁移显式 false ⇒ 与 v1.4.1 逐字节一致）。
+ * driver 为 null / 缺失 → keep「主驱动跟随宿主默认」（applyTo 对 keep 不改写，
+ * 请求落宿主 agent-default-model）；driver 非空 → 打底目标换成 driver。
+ */
+export function applyDriverSticky(
+  decision: RouteDecision,
+  isChild: boolean,
+  driver: RouteTarget | null | undefined,
+  driverSticky: boolean | undefined,
+): RouteDecision {
+  if (isChild || driverSticky !== true || decision.kind !== 'route' || decision.via !== 'default') return decision
+  if (driver == null) return { kind: 'keep', reason: '主驱动跟随宿主默认' }
+  return { ...decision, target: driver, reason: `${decision.reason}（主驱动）` }
 }
 
 /**
@@ -292,8 +338,17 @@ export class KimiRouter {
    * imageFallback（resolveImageFallback）在 pre-step 内完成，decide 不再承担
    * 布尔锁存。（历史锚点：2026-08-19 实机回归——deepseek 适配器序列化全量
    * 会话时图块曾抛 UNSUPPORTED_CONTENT，rc.2 起改原生占位投影。）
+   *
+   * `opts.skipKeywordRules`（v2.0.0 D6）：子代理跳过关键词规则、保留图像规则
+   * （图像正确性通道不随关键词一起跳）。主会话路径不传 opts，行为逐字节不变。
    */
-  decide(messages: readonly UserMessage[], step: number, hasImageOverride?: boolean, omittedRuleIds?: ReadonlySet<string>): RouteDecision {
+  decide(
+    messages: readonly UserMessage[],
+    step: number,
+    hasImageOverride?: boolean,
+    omittedRuleIds?: ReadonlySet<string>,
+    opts?: { skipKeywordRules?: boolean },
+  ): RouteDecision {
     if (this.config.activePreset === null) return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
     const hasImage = hasImageOverride ?? messagesContainImage(messages)
@@ -350,12 +405,18 @@ export class KimiRouter {
     }
     const flows = flowsOf(this.config)
     const hits = matchingScored(this.config, text, hasImage)
+    // v2.0.0（D6）：子代理跳关键词规则——命中集在进路由链前按 when.kind === 'image'
+    // 过滤，图像规则保留（带图轮的改道正确性不依赖关键词）。过滤发生在 noteBase
+    // 之前，标注基准（routableHits）与被否过滤语义不漂移。
+    const effective = opts?.skipKeywordRules === true
+      ? hits.filter(({ rule }) => rule.when.kind === 'image')
+      : hits
     // 1.1.0 §4 静态抑制 + v2 语义判否：路由链 = 认领过滤 → 判否过滤（两步共用
     // routableHits，避免与 pre-step 的闸各自过滤而漂移）。
     // **noteBase 与路由链解耦**（v2 评审 M3）：标注基准是「认领过滤后、判否过滤**前**」
     // 的列表——被否规则**视同不存在于路由链，但仍占标注位**，故次条不会误标
     // 「特异度最高」（与 0.8.x①「降级不误标」同款不变量）。
-    const noteBase = routableHits(this.config, hits)
+    const noteBase = routableHits(this.config, effective)
     const routable = omittedRuleIds === undefined || omittedRuleIds.size === 0
       ? noteBase
       : noteBase.filter(({ rule }) => !omittedRuleIds.has(rule.id))
@@ -494,6 +555,11 @@ export interface RouterOrchestrationDeps {
    * 判定真伪；判否 ⇒ 该规则视同不存在（跳过继续后续规则）。缺省 = 不过闸。
    */
   hitConfirm?: HitConfirmGate
+  /**
+   * 队友身份查询（v2.0.0 团队派发）：index.ts 从 ctx.agentTeams 探测注入；
+   * 服务缺席即 undefined ⇒ role 分支自然不命中（与主会话同形，逐字节不变）。
+   */
+  teamLookup?: (agent: Agent) => { role: string; name: string } | undefined
 }
 
 /**
@@ -711,7 +777,9 @@ function effectiveVisionTarget(router: KimiRouter, decision: RouteDecision): Rou
  */
 export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrchestrationDeps): () => void {
   const { images, transcriber, resolveImages, onDecision, transcribeTimeoutMs } = deps
-  const slots = new WeakMap<Agent, { decision: RouteDecision; hasImage: boolean }>()
+  // v2.0.0（Task 4）：槽位增 dispatch——子代理派发的元信息（role/unclaimed/explicit/keep），
+  // 请求层记账（dispatch-ledger，Task 5）消费；主会话恒 undefined（不占位）。
+  const slots = new WeakMap<Agent, { decision: RouteDecision; hasImage: boolean; dispatch?: DispatchMeta }>()
   // attachmentId → ResolvedImage：跨轮回取 lazy 转述所需的持久引用。图不可变、
   // attachmentId 全局唯一，进程内一致；插件重挂载前进入会话的历史图无 ref 可
   // 查，按转述失败同等处置（failurePolicy 兜底）。
@@ -772,6 +840,19 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // model never switches mid-loop.
       if (payload.step !== 1) return result
       const agent = payload.agent
+      // v2.0.0 团队派发（Task 4）：子代理判定与跳规则开关（D6）。rulesApplyToChildren
+      // 缺失/false = 子代理不参与关键词规则（v2.0.0 行为变更，评审阻塞 B2 裁定迁移不写）。
+      const isChild = delegationDepthOf(agent) > 0
+      // R2 字段判据：分工层字段只认字段本身（?? / === true），**不以 version 门控**——
+      // 线上 profile patch 与存量配置常显式写 version: 5，版本号门控会让用户写入的
+      // 分工表与开关静默失效（与 index.ts rolesOf 同款形态）。
+      const teamCfg = router.config as {
+        roles?: Record<string, RoleEntry>
+        driver?: RouteTarget | null
+        driverSticky?: boolean
+        rulesApplyToChildren?: boolean
+      }
+      const skipKeywordRules = isChild && teamCfg.rulesApplyToChildren !== true
       // I-2：转述调用的有界信号 = turn 级中止 ⊕ 超时（默认 30s，deps 可注入小值）
       const transcribeSignal = boundedSignal(payload.signal, transcribeTimeoutMs ?? DEFAULT_TRANSCRIBE_TIMEOUT_MS)
       // 1. 本轮图块提取
@@ -803,7 +884,8 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       let confirmNote: string | undefined
       const gatePreset = activePreset()
       const gateCfg = gatePreset?.hitConfirm
-      if (deps.hitConfirm !== undefined && gatePreset !== undefined && gateCfg?.enabled === true) {
+      // v2.0.0（评审 S7）：子代理零判官调用——关键词规则都不参与，语义闸更无理由点火。
+      if (!skipKeywordRules && deps.hitConfirm !== undefined && gatePreset !== undefined && gateCfg?.enabled === true) {
         const turnText = latestUserText(payload.messages)
         // v1.3.0 A7 定向修复：判官（= 本预设的 default）的档位支持集，供闸门判定是否
         // 钉 off。取不到（枚举未完成 / 适配器未暴露）即不下发——绝不猜。
@@ -835,9 +917,19 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
           }
         }
       }
+      // 分工表命中（v2.0.0，优先级链第 3 档）：仅队友查身份（主会话恒 undefined ⇒
+      // role 分支不点火）；R2 字段判据 roles ?? {}（不以 version 门控，同上 teamCfg 注）。
+      const membership = isChild ? deps.teamLookup?.(agent) : undefined
+      const roleHit = resolveRoleDecision(teamCfg.roles ?? {}, membership)
+      // 决策后处理链（顺序不可变）：role 覆盖（不覆盖显式 @ 与 flow）→ 主驱动恒定
+      // （仅主会话、仅打底）。三处 decide 调用点**同带**——转述后的重跑若不过链，
+      // 终决策会丢 role 改道与 sticky（与判否集合/注记三处同传同款理由）。
+      // 注意在 withConfirmNote **之前**过链：注记须前置拼进最终原因串。
+      const postProcess = (d: RouteDecision): RouteDecision =>
+        applyDriverSticky(applyRoleDecision(d, roleHit), isChild, teamCfg.driver, teamCfg.driverSticky)
       // 4. 决策（三处调用**同带判否集合**——转述后的重跑若不传，被判否的规则会复活；
       //    注记同样三处同带，否则重跑会把判词从原因串里抹掉）
-      let decision = withConfirmNote(router.decide(payload.messages, payload.step, hasImage, omitted), confirmNote)
+      let decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, hasImage, omitted, { skipKeywordRules })), confirmNote)
       let flowId: string | undefined
       // 0.6.x池#a：转述成败摘要（ok/total + 败图 id + visionModel）——onDecision
       // extra 透传给投影 lastFlowEvent（≤120 截断在推送侧）。
@@ -855,7 +947,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         flowDigest = flowDigestOf(okCount, total, failedIds, flow.visionModel)
         if (failedIds.length === 0) {
           hasImage = false
-          decision = withConfirmNote(router.decide(payload.messages, payload.step, false, omitted), confirmNote)
+          decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, false, omitted, { skipKeywordRules })), confirmNote)
         } else if (flow.failurePolicy === 'latch-image') {
           decision = {
             kind: 'route',
@@ -867,7 +959,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         } else {
           for (const id of failedIds) images.mark(agent, id, 'blind')
           hasImage = false
-          decision = withConfirmNote(router.decide(payload.messages, payload.step, false, omitted), confirmNote)
+          decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, false, omitted, { skipKeywordRules })), confirmNote)
         }
       }
       // 仍 native 的本轮新图补记 latchTarget（后续轮 latch 改道的目标）
@@ -953,8 +1045,12 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       } else {
         armed.delete(agent)
       }
-      // 7. 槽位 + 观测回调
-      slots.set(agent, { decision, hasImage })
+      // 7. 槽位 + 观测回调（dispatch：子代理派发元信息，请求层记账消费；主会话 undefined）
+      slots.set(agent, {
+        decision,
+        hasImage,
+        dispatch: isChild ? dispatchMetaOf(membership, roleHit, decision) : undefined,
+      })
       onDecision?.(agent, decision, flowId === undefined
         ? undefined
         : { flowId, ...(flowDigest === undefined ? {} : { flowDigest }) })
