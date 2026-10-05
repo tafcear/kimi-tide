@@ -33,6 +33,11 @@
  * 1.4.1（2026-10-03 桌面端实机）：评审行补「档位」下拉（撤销 M7，与转述行对齐）；
  * 档位表取数修复见 client/effort-remote.ts（0.1.7+ 改读本条目 Config 的 volatile
  * 字段）；模型未声明档位时下拉唯一项文案自解释（「跟随默认（该模型未声明档位）」）。
+ *
+ * Task 7 修复轮 1（控制器 R6 漏项补齐）：「路由」页新增主驱动卡——v6 顶层三键
+ * driver（TargetSelect 增可选 nullLabel「跟随宿主默认」档 = null）/ driverSticky /
+ * rulesApplyToChildren 的设置控件，写通道 = card-store 的 saveDriver /
+ * saveDriverSticky / saveRulesApplyToChildren（saveTop 薄封装）。
  */
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
@@ -190,6 +195,12 @@ function TargetSelect(props: {
   groups?: Array<{ label?: string; options: string[] }>
   labels?: Record<string, string>
   flowOptions?: Array<{ id: string; label: string }>
+  /**
+   * 「空值档」文案（Task 7 修复轮 1，主驱动选择器专用）：传入后 value===''
+   * 视为已知档（不弹「未挂载」提示、不落「— 选择目标 —」占位），下拉渲染该
+   * 文案的 option；未传 = 行为与此前逐字节一致（既有调用方零改动）。
+   */
+  nullLabel?: string
   unavailable: boolean
   disabled: boolean
   onChange: (value: string) => void
@@ -197,6 +208,7 @@ function TargetSelect(props: {
   const flowOptions = props.flowOptions ?? []
   const known = props.options.includes(props.value)
     || flowOptions.some((flow) => flowValue(flow.id) === props.value)
+    || (props.nullLabel !== undefined && props.value === '')
   const groups = props.groups ?? [{ options: props.options }]
   return (
     <span className="kt-target-wrap">
@@ -212,7 +224,11 @@ function TargetSelect(props: {
         disabled={props.disabled}
         onChange={(e) => props.onChange(e.target.value)}
       >
+        {/* 占位档须先于 nullLabel 档：存量值未知（!known）时 select value=''
+            命中首个同值 option——先占位档才能如实显示「— 选择目标 —」而非
+            误显空值档文案；已知空值态（nullLabel 档本身）不占位、不撞档。 */}
         {!known && <option value="" disabled>— 选择目标 —</option>}
+        {props.nullLabel !== undefined && <option value="">{props.nullLabel}</option>}
         {groups.map((group, groupIndex) => {
           const options = group.options.map((option) => (
             <option key={option} value={option} title={option}>{props.labels?.[option] ?? option}</option>
@@ -341,6 +357,7 @@ function RoleRow(props: {
     <div className="kt-role-row" ref={rowRef}>
       <input
         aria-label="角色显示名"
+        className="kt-role-label"
         value={draft.label}
         disabled={!props.writable}
         onChange={(e) => setDraft({ ...draft, label: e.target.value })}
@@ -351,6 +368,7 @@ function RoleRow(props: {
       />
       <input
         aria-label="角色 id"
+        className="kt-role-id"
         value={draft.id}
         disabled={!props.writable}
         title="lower-kebab-case；同时是默认认领的队友名"
@@ -382,6 +400,7 @@ function RoleRow(props: {
       />
       <input
         aria-label="队友名"
+        className="kt-role-names"
         value={draft.teammate}
         disabled={!props.writable}
         placeholder="额外认领的队友名，逗号分隔"
@@ -396,6 +415,7 @@ function RoleRow(props: {
       />
       <input
         aria-label="别名"
+        className="kt-role-names"
         value={draft.aliases}
         disabled={!props.writable}
         placeholder="供模型识别的别名，逗号分隔"
@@ -722,6 +742,9 @@ export function SettingsCard(props: SettingsCardProps) {
       saveFlows: wrap('saveFlows'),
       deleteFlow: wrap('deleteFlow'),
       saveRoles: wrap('saveRoles'),
+      saveDriver: wrap('saveDriver'),
+      saveDriverSticky: wrap('saveDriverSticky'),
+      saveRulesApplyToChildren: wrap('saveRulesApplyToChildren'),
       resetField: wrap('resetField'),
     }
     // store 由 useState 惰性初始化，实例恒定；flash 闭包稳定。
@@ -864,6 +887,13 @@ export function SettingsCard(props: SettingsCardProps) {
     // 既有角色保留（同 id 以用户现值为准，示例不覆盖）；三条示例置前便于就地改目标。
     saveRolesRecord({ ...EXAMPLE_ROLES(roleFallbackTarget()), ...roles })
   }
+
+  /* ---- Task 7 修复轮 1 主驱动控件（v6 顶层三键 driver / driverSticky /
+     rulesApplyToChildren）：读取按字段判据（?? null / === true），与运行期
+     router.ts 同口径，不做 version 门控（分工表卡同款纪律）。 ---- */
+  const driver = (config as { driver?: RouteTarget | null }).driver ?? null
+  const driverSticky = (config as { driverSticky?: boolean }).driverSticky === true
+  const rulesApplyToChildren = (config as { rulesApplyToChildren?: boolean }).rulesApplyToChildren === true
 
   // 规则编辑：全部组装 next 后经 store 整段写。
   const updateRules = (presetId: string, rules: RouterRule[]): void => {
@@ -1437,6 +1467,54 @@ export function SettingsCard(props: SettingsCardProps) {
             新建组
           </button>
         </div>
+      </details>
+
+      {/* Task 7 修复轮 1（控制器 R6 漏项补齐）：主驱动卡——v6 顶层三键
+          driver / driverSticky / rulesApplyToChildren 的设置入口（此前只有帮助条目，
+          设计稿 §8-1「设置页可一键打开」无从落地）。写通道 = storeWriter.saveDriver /
+          saveDriverSticky / saveRulesApplyToChildren（saveTop 范式：scope.set/mutate +
+          写后「意图值 vs 实读值」比对）。零新增 useState（改即保存，FlowRow 同款纪律）。 */}
+      <details className="kt-driver kt-card">
+        <summary>主驱动（团队派发）</summary>
+        <p className="kt-hint">
+          主驱动目标 = 主会话打底的常驻模型；选「跟随宿主默认」= 不锁定（driver = null）。
+        </p>
+        <div className="kt-driver-row">
+          <span className="kt-field-label">主驱动目标</span>
+          <TargetSelect
+            label="主驱动目标"
+            value={driver === null ? '' : configKey(driver)}
+            options={modelOptions}
+            groups={optionGroups}
+            labels={modelNames}
+            nullLabel="跟随宿主默认"
+            unavailable={driver !== null && availability?.[configKey(driver)] === false}
+            disabled={!writable}
+            onChange={(value) => void storeWriter.saveDriver(value === '' ? null : parseTarget(value))}
+          />
+        </div>
+        <label className="kt-row">
+          <span className="kt-field-label">主驱动恒定</span>
+          <input
+            type="checkbox"
+            aria-label="主驱动恒定"
+            checked={driverSticky}
+            disabled={!writable}
+            onChange={(e) => void storeWriter.saveDriverSticky(e.target.checked)}
+          />
+          <span className="kt-hint">开启后主会话打底恒定用主驱动目标（目标是「跟随宿主默认」时不改道）</span>
+        </label>
+        <label className="kt-row">
+          <span className="kt-field-label">子代理参与关键词规则</span>
+          <input
+            type="checkbox"
+            aria-label="子代理参与关键词规则"
+            checked={rulesApplyToChildren}
+            disabled={!writable}
+            onChange={(e) => void storeWriter.saveRulesApplyToChildren(e.target.checked)}
+          />
+          <span className="kt-hint">关闭（默认）时子代理请求不参与关键词规则——只有分工表认领的队友会被改道</span>
+        </label>
       </details>
 
       {/* Task 7 分工表（角色 = 领域 → 模型）：照关键词组卡的 details.kt-card 范式放进

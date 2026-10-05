@@ -166,6 +166,57 @@ describe('card-store saveRoles（Task 7：分工表守卫式写通道）', () =>
   })
 })
 
+describe('card-store 主驱动写通道（Task 7 修复轮 1：driver / driverSticky / rulesApplyToChildren）', () => {
+  it('saveDriver：合法 RouteTarget 写入成功并回读一致', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V6())
+    const store = createCardStore(scope, null)
+    const driver = { provider: 'kimi-coding', model: 'k3' }
+    await store.saveDriver(driver)
+    expect(scope.writes).toEqual([['driver', driver]])
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driver).toEqual(driver)
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('saveDriver：null（跟随宿主默认）写入成功并回读一致', async () => {
+    const scope = makeScope({ ...DEFAULT_CONFIG_V6(), driver: { provider: 'kimi-coding', model: 'k3' } })
+    const store = createCardStore(scope, null)
+    await store.saveDriver(null)
+    expect(scope.writes).toEqual([['driver', null]])
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driver).toBeNull()
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('saveDriver：目标不完整 ⇒ 宿主 validate 拒写 ⇒ error 通道上浮且值未污染', async () => {
+    // Fails if: saveTop 的写后「意图值 vs 实读值」比对丢落——宿主 validate-on-write
+    // 静默 recover（set 不抛、落值被拒）时错误无声消失（driver 目标不完整属此列）。
+    const scope = makeScope(DEFAULT_CONFIG_V6())
+    const store = createCardStore(scope, null)
+    await store.saveDriver({ provider: '', model: 'm' })  // v6 validate：driver 目标不完整 → 拒写
+    expect(store.getSnapshot().error).toContain('写入被拒绝')
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driver).toBeNull()  // 值未污染
+  })
+
+  it('saveDriverSticky：开关布尔写入回读一致（新装默认 true → 显式关）', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V6())
+    const store = createCardStore(scope, null)
+    await store.saveDriverSticky(false)
+    expect(scope.writes).toEqual([['driverSticky', false]])
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driverSticky).toBe(false)
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('saveRulesApplyToChildren：缺省（不参与）→ 显式开 → 显式关，写入回读一致', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V6())  // 缺省不写该键（运行期缺省 false = 新语义）
+    const store = createCardStore(scope, null)
+    await store.saveRulesApplyToChildren(true)
+    expect(scope.writes).toEqual([['rulesApplyToChildren', true]])
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.rulesApplyToChildren).toBe(true)
+    await store.saveRulesApplyToChildren(false)
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.rulesApplyToChildren).toBe(false)
+    expect(store.getSnapshot().error).toBeNull()
+  })
+})
+
 describe('card-store effort 档位目录（0.8.0）', () => {
   it('loadEfforts 取数成功 → efforts/mounted 入快照；取数失败 → 双 null（不占 error 通道）', async () => {
     const scope = makeScope(DEFAULT_CONFIG_V4())

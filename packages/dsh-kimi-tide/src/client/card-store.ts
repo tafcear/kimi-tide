@@ -184,6 +184,16 @@ export interface CardStore {
    * teammate[] ∪ { id}，跨 role 重叠）时 fail() 上浮 error 通道且**不写盘**。
    */
   saveRoles(roles: Record<string, RoleEntry>): Promise<void>
+  /**
+   * 主驱动目标（v6 顶层 driver，Task 7 修复轮 1）：RouteTarget 或 null
+   * （null = 跟随宿主默认模型）。写通道 = saveTop；宿主 validate 拒写
+   * （如目标不完整）经 saveTop 的「意图值 vs 实读值」比对上浮 error 通道。
+   */
+  saveDriver(driver: RouteTarget | null): Promise<void>
+  /** 主驱动恒定开关（v6 顶层 driverSticky）：true = 主会话打底恒用 driver。 */
+  saveDriverSticky(sticky: boolean): Promise<void>
+  /** 子代理参与关键词规则开关（v6 顶层 rulesApplyToChildren）：缺省/false = 不参与（v2.0.0 新语义）。 */
+  saveRulesApplyToChildren(apply: boolean): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
   /** 取 per-model 推理档位表与真实挂载表（0.8.0/1.1.0 A8 自有通道）；失败/未提供 → 双 null。 */
@@ -523,6 +533,20 @@ export function createCardStore(
     await saveTop('roles', roles)
   }
 
+  /* Task 7 修复轮 1：主驱动三键写通道——saveTop 薄封装（无前置守卫；driver
+     目标完整性由宿主 validate 把关，拒写经 saveTop 比对上浮 error 通道）。 */
+  const saveDriver = async (driver: RouteTarget | null): Promise<void> => {
+    await saveTop('driver', driver)
+  }
+
+  const saveDriverSticky = async (sticky: boolean): Promise<void> => {
+    await saveTop('driverSticky', sticky)
+  }
+
+  const saveRulesApplyToChildren = async (apply: boolean): Promise<void> => {
+    await saveTop('rulesApplyToChildren', apply)
+  }
+
   const resetField = async (field: string): Promise<void> => {
     try {
       if (scope !== null) await scope.unset(field)
@@ -550,6 +574,9 @@ export function createCardStore(
     saveFlows,
     deleteFlow,
     saveRoles,
+    saveDriver,
+    saveDriverSticky,
+    saveRulesApplyToChildren,
     resetField,
     loadEfforts: async (fetch) => {
       try {

@@ -43,6 +43,10 @@ function makeStore(snapshot: CardSnapshot): CardStore {
     saveFlows: async () => {},
     deleteFlow: async () => {},
     saveRoles: async () => {},
+    // 修复轮 1：主驱动三键写通道（接口完整性空操作；渲染断言不触发写路径）。
+    saveDriver: async () => {},
+    saveDriverSticky: async () => {},
+    saveRulesApplyToChildren: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
     subscribe: () => () => {},

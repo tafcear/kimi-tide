@@ -50,6 +50,9 @@ function makeDeferredStore(overrides: Partial<CardStore> = {}) {
     saveKeywordGroups: async () => {},
     saveFlows: async () => {},
     saveRoles: async () => {},
+    saveDriver: async () => {},
+    saveDriverSticky: async () => {},
+    saveRulesApplyToChildren: async () => {},
     deleteFlow: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
@@ -1403,5 +1406,102 @@ describe('SettingsCard 分工表卡（Task 7：角色编辑器 + 示例一键填
     expect(newIds).toHaveLength(1)
     expect(newIds[0]).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/)
     expect(record[newIds[0]]!.target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+})
+
+describe('SettingsCard 主驱动卡（Task 7 修复轮 1：driver / driverSticky / rulesApplyToChildren 控件）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  /** 修复轮 1 夹具：v6 就绪快照（driver=null / driverSticky=true / rulesApplyToChildren 缺省），激活省钱预设。 */
+  const readyV6Snapshot = (overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
+    status: 'ready',
+    config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' },
+    base: null,
+    user: null,
+    writable: true,
+    error: null,
+    catalog: null,
+    availability: null,
+    efforts: null,
+    ...overrides,
+  })
+
+  it('主驱动卡渲染在「路由」页：driver 选择器含「跟随宿主默认」档（缺省选中），两开关按字段判据回显', async () => {
+    // Fails if: 主驱动卡未渲染 / driver 选择器没有 null 档——v6 三键回到「只有帮助
+    // 条目、没有编辑器」的状态（设计稿 §8-1「设置页可一键打开」的承诺落空）。
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish(readyV6Snapshot()) })
+    expect(container.textContent).toContain('主驱动')
+    const select = container.querySelector('select[aria-label="主驱动目标"]') as HTMLSelectElement | null
+    expect(select).not.toBeNull()
+    const optionTexts = [...select!.options].map((o) => o.textContent)
+    expect(optionTexts).toContain('跟随宿主默认')
+    expect(select!.value).toBe('')  // driver null/缺省 = 跟随宿主默认档
+    const sticky = container.querySelector('input[aria-label="主驱动恒定"]') as HTMLInputElement
+    expect(sticky.checked).toBe(true)  // DEFAULT_CONFIG_V6 新装默认 true
+    const children = container.querySelector('input[aria-label="子代理参与关键词规则"]') as HTMLInputElement
+    expect(children.checked).toBe(false)  // 缺省 = false（v2.0.0 新语义：子代理不参与关键词规则）
+  })
+
+  it('driver 选择器改选：模型档 → saveDriver(RouteTarget)；「跟随宿主默认」档 → saveDriver(null)', async () => {
+    const saveDriver = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveDriver })
+    await mount(store)
+    await act(async () => {
+      publish(readyV6Snapshot({
+        config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', driver: { provider: 'kimi-coding', model: 'k3' } },
+      }))
+    })
+    const select = container.querySelector('select[aria-label="主驱动目标"]') as HTMLSelectElement
+    expect(select.value).toBe('kimi-coding/k3')  // 存量 driver 回显（k3 在内置预设目标池里）
+    await act(async () => { fireSelectChange(select, '') })
+    expect(saveDriver).toHaveBeenCalledWith(null)
+    await act(async () => { fireSelectChange(select, 'deepseek-official/deepseek-v4-flash') })
+    expect(saveDriver).toHaveBeenLastCalledWith({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+
+  it('两开关切换 → saveDriverSticky / saveRulesApplyToChildren 按勾选态写布尔；回读快照勾选态跟随', async () => {
+    const saveDriverSticky = vi.fn(async () => {})
+    const saveRulesApplyToChildren = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveDriverSticky, saveRulesApplyToChildren })
+    await mount(store)
+    await act(async () => { publish(readyV6Snapshot()) })
+    const sticky = container.querySelector('input[aria-label="主驱动恒定"]') as HTMLInputElement
+    await act(async () => { sticky.click() })
+    expect(saveDriverSticky).toHaveBeenCalledWith(false)  // 默认 true → 点击 = 关
+    const children = container.querySelector('input[aria-label="子代理参与关键词规则"]') as HTMLInputElement
+    await act(async () => { children.click() })
+    expect(saveRulesApplyToChildren).toHaveBeenCalledWith(true)  // 缺省 false → 点击 = 开
+    // 回读：发布写入后的快照 → 勾选态跟随权威配置
+    await act(async () => {
+      publish(readyV6Snapshot({
+        config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', driverSticky: false, rulesApplyToChildren: true },
+      }))
+    })
+    expect((container.querySelector('input[aria-label="主驱动恒定"]') as HTMLInputElement).checked).toBe(false)
+    expect((container.querySelector('input[aria-label="子代理参与关键词规则"]') as HTMLInputElement).checked).toBe(true)
   })
 })

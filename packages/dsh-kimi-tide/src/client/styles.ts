@@ -133,6 +133,27 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-groups { display: flex; flex-direction: column; gap: 6px; }
     .kimi-tide-settings .kt-group-row { display: flex; align-items: flex-start; gap: 6px; }
     .kimi-tide-settings .kt-group-row textarea { flex: 1; min-height: 40px; font-family: inherit; resize: vertical; }
+    /* ---- Task 7 修复轮 1：分工表角色行 + 主驱动卡（新增编辑区样式补齐，沿用 kt-* 体系）---- */
+    .kimi-tide-settings .kt-roles, .kimi-tide-settings .kt-driver { display: flex; flex-direction: column; gap: 6px; }
+    .kimi-tide-settings .kt-roles summary, .kimi-tide-settings .kt-driver summary { cursor: pointer; opacity: 0.85; }
+    .kimi-tide-settings .kt-roles > .kt-hint, .kimi-tide-settings .kt-driver > .kt-hint { margin: 0; }
+    /* 角色行：短字段定宽、长字段（队友名/别名）与目标下拉弹性伸展；行间虚线分隔 */
+    .kimi-tide-settings .kt-role-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 5px 0; }
+    .kimi-tide-settings .kt-role-row + .kt-role-row { border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); }
+    .kimi-tide-settings .kt-role-row .kt-role-label { width: 84px; flex: none; }
+    .kimi-tide-settings .kt-role-row .kt-role-id { width: 110px; flex: none; }
+    .kimi-tide-settings .kt-role-row .kt-role-names { flex: 1; min-width: 140px; }
+    .kimi-tide-settings .kt-role-row .kt-target-wrap { flex: 1 1 160px; }
+    /* 分工表行内按钮（删除/新增角色/填入三条示例）：与关键词组按钮同款描边壳 + 紫 hover */
+    .kimi-tide-settings .kt-roles button { font-size: 12px; cursor: pointer;
+      border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
+      background: transparent; color: inherit; border-radius: 6px; padding: 1px 8px;
+      transition: background 0.12s ease, border-color 0.12s ease; }
+    .kimi-tide-settings .kt-roles button:hover:not(:disabled) {
+      background: var(--kt-accent-soft); border-color: var(--kt-accent-line); }
+    /* 主驱动卡：目标行下拉弹性占满余宽；开关行复用 .kt-row / .kt-field-label 既有规则 */
+    .kimi-tide-settings .kt-driver-row { display: flex; align-items: center; gap: 6px; }
+    .kimi-tide-settings .kt-driver-row .kt-target-wrap { flex: 1; min-width: 0; }
     .kimi-tide-settings .kt-target-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
     .kimi-tide-settings .kt-target-wrap select { flex: 1; min-width: 0; }
     .kimi-tide-settings .kt-target-missing { font-variant-numeric: tabular-nums; white-space: nowrap; }
