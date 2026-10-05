@@ -28,7 +28,7 @@
  * （0.4.x 以来既有路径，行为不变）。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { DEFAULT_CONFIG_V6, isV5Plus, type RouterConfigV5Plus } from './config.js'
+import { DEFAULT_CONFIG_V6, isV5Plus, type RouterConfigV5Plus, type RouterConfigV6 } from './config.js'
 import type { SettingsNamespacePort } from './commands.js'
 
 /** ConfigEditor 的最小结构面（避免把宿主服务的深类型带进插件公共面）。 */
@@ -85,13 +85,34 @@ export function readRouterConfig(config: unknown): RouterConfigV5Plus {
   const volatile = face?.router
   if (volatile !== undefined && typeof volatile.get === 'function') {
     const value = volatile.get()
-    return value ?? DEFAULT_CONFIG_V6()
+    return value === null || value === undefined ? DEFAULT_CONFIG_V6() : withDriverStickyDefault(value)
   }
   // 兼容形态：0.1.7 之前的宿主把 Config 原样交给插件（普通对象，无 Volatile 包装）。
   // 两种形态都按「已解析的 v5+ 配置」读取，插件侧读取路径保持一致。
   const plain = (face as unknown as { router?: RouterConfigV5Plus } | undefined)?.router
-  if (plain !== undefined && plain !== null) return plain
+  if (plain !== undefined && plain !== null) return withDriverStickyDefault(plain)
   return DEFAULT_CONFIG_V6()
+}
+
+/**
+ * 终审 I1/F4（2026-10-06 修复波）：**缺席**的 driverSticky 解析为内置默认 true。
+ *
+ * 背景：红线「新增可选字段不带 .default()」使 schema 解析不注入 driverSticky；
+ * 设置卡所有保存都是单字段写，首次保存后 router 段落盘即缺该键 ⇒ 运行期
+ * `=== true` 判 false，「新装默认开」（§8-1）在卡片写通道失活。故默认在读取
+ * 兜底落地——与 mergeResolved 的 DEFAULT_CONFIG_V6 基座同款口径（不给 schema
+ * 加 .default()）。
+ *
+ * 存量口径（务必保住）：显式 version<6 的**未迁移**文档 ⇒ false（迁移路径本就
+ * 显式写 false；schema 解析后 version 恒为 6——.default(6)——故 version 5
+ * 存活即未迁移信号，绝不被静默读成 true）。显式值原样透传，兜底不覆盖。
+ */
+function withDriverStickyDefault(value: RouterConfigV5Plus): RouterConfigV5Plus {
+  if ((value as RouterConfigV6).driverSticky !== undefined) return value
+  const legacy = typeof value.version === 'number' && value.version < 6
+  // as 收窄：V5 分支的类型面无 driverSticky 键，但「version:5 文档携带分工层
+  // 字段」是 R2 后的合法运行期形态（与该字段并存的 roles/driver 同款）。
+  return { ...value, driverSticky: !legacy } as RouterConfigV5Plus
 }
 
 /**

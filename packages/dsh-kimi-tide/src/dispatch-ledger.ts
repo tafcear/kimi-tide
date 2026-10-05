@@ -28,7 +28,9 @@ export class DispatchLedger {
 
   record(entry: DispatchEntry): void {
     this.entries.push(entry)
-    // 按父会话收口：该会话超出 CAP 时淘汰其最旧一条（O(n) 扫描——n ≤ 20×存活会话数，量级可忽略）。
+    // 按父会话收口：该会话超出 CAP 时淘汰其最旧一条（O(n) 扫描——n ≤ 20×会话数
+    // （含历史会话，agent dispose 只按 agentId 清理条目，Lead 销毁后其父会话条目
+    // 仍残留至自然淘汰），量级可忽略）。
     let count = 0
     for (const e of this.entries) if (e.parentSession === entry.parentSession) count++
     if (count > CAP) {

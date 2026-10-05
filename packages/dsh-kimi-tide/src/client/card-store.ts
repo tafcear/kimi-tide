@@ -205,6 +205,19 @@ export interface CardStore {
 const asConfig = (value: unknown): CardConfig | null =>
   typeof value === 'object' && value !== null ? (value as CardConfig) : null
 
+/**
+ * 终审 I1/F4（2026-10-06 修复波）：**缺席**的 driverSticky 解析为内置默认 true
+ * （与 mergeResolved 的 DEFAULT_CONFIG_V6 基座同款口径；红线是不给 schema 加
+ * .default()，故默认在读取兜底落地）。显式 version<6 的未迁移文档 ⇒ false
+ * （存量口径：迁移路径本就显式写 false，未迁移文档绝不被静默读成 true）。
+ * 只作用于解析后的生效值（config），不污染 base/user 分层显示。
+ */
+const withDriverStickyDefault = (config: CardConfig | null): CardConfig | null => {
+  if (config === null || (config as RouterConfigV6).driverSticky !== undefined) return config
+  const legacy = typeof config.version === 'number' && config.version < 6
+  return { ...config, driverSticky: !legacy }
+}
+
 /** 从 entry 级 Config 载荷里取出路由配置（0.1.7：`value.router`；兼容旧扁平形态）。 */
 const asRouterConfig = (value: unknown): CardConfig | null => {
   if (typeof value !== 'object' || value === null) return null
@@ -268,7 +281,7 @@ export function createCardStore(
       status: s.status === 'ready' && s.value !== undefined
         ? 'ready'
         : s.status === 'unavailable' ? 'unavailable' : 'loading',
-      config: s.status === 'ready' ? asConfig(s.value) : null,
+      config: s.status === 'ready' ? withDriverStickyDefault(asConfig(s.value)) : null,
       base: asConfig(s.base),
       user: asConfig(s.user),
       writable: s.writable,
@@ -376,7 +389,7 @@ export function createCardStore(
         const meta = asCatalogMeta(view.value)
         publish({
           status: 'ready',
-          config: asRouterConfig(view.value),
+          config: withDriverStickyDefault(asRouterConfig(view.value)),
           base: asRouterConfig(view.base),
           user: asRouterConfig(view.user),
           writable: r.result.value.writable,

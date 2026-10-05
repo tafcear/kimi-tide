@@ -459,6 +459,12 @@ describe('TideDock 派发区（Task 6：摘要行 + 明细 + 帮助锚点）', (
     expect(html).toContain('前端 → kimi-coding/k3 · role')
   })
 
+  it('派发区：摘要槽 title 含完整文案（截断后 hover 可读全文，终审 M8①）', () => {
+    const html = render(makePanel({ dispatch: dispatched }))
+    // Fails if: title 仍是定值「最近一次派发」——摘要被 .kt-ellip 截断后 hover 看不到全文
+    expect(html).toContain('title="最近一次派发：前端 → kimi-coding/k3 · role"')
+  })
+
   it('派发区：多条时摘要取最新一条（台账新在前 → 取 [0]）', () => {
     const html = visible(render(makePanel({
       dispatch: [

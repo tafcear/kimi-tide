@@ -217,6 +217,37 @@ describe('card-store 主驱动写通道（Task 7 修复轮 1：driver / driverSt
   })
 })
 
+describe('card-store driverSticky 缺席解析（终审 I1/F4 修复波）', () => {
+  it('新装快照缺 driverSticky ⇒ 卡片读到 true；卡片写单个字段后仍是 true', async () => {
+    // 终审 I1：卡片保存全是单字段写——首次保存任何一项后，配置文档 router 段
+    // 变为缺 driverSticky 的形态（schema 红线无 default），「主驱动恒定」勾选框
+    // 此前由默认值显示为开、下次读取自己翻成关（§8-1「新装开」半落空）。
+    const doc = DEFAULT_CONFIG_V6() as Partial<RouterConfigV6>
+    delete doc.driverSticky
+    const scope = makeScope(doc)
+    const store = createCardStore(scope, null)
+    // Fails if: 折叠快照不把缺席解析为内置默认 true（勾选框显示关）
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driverSticky).toBe(true)
+    await store.saveActivePreset('saving')
+    // Fails if: 卡片写单个字段后默认值蒸发（写后回读翻成 false）
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driverSticky).toBe(true)
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('显式 version:5 快照缺 driverSticky ⇒ 卡片读到 false（未迁移存量不被静默读成 true）', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V5())
+    const store = createCardStore(scope, null)
+    // Fails if: 卡片兜底把未迁移 v5 文档读成 true（静默改写存量行为）
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driverSticky).toBe(false)
+  })
+
+  it('迁移后的存量（显式 false）⇒ 卡片读到 false；显式值不被兜底覆盖', async () => {
+    const scope = makeScope({ ...DEFAULT_CONFIG_V6(), driverSticky: false })
+    const store = createCardStore(scope, null)
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.driverSticky).toBe(false)
+  })
+})
+
 describe('card-store effort 档位目录（0.8.0）', () => {
   it('loadEfforts 取数成功 → efforts/mounted 入快照；取数失败 → 双 null（不占 error 通道）', async () => {
     const scope = makeScope(DEFAULT_CONFIG_V4())

@@ -7,7 +7,8 @@
 // 变空、所有「档位」下拉退化禁用（实机现象：设置页改任何一项后档位即灰）。
 import { describe, expect, it } from 'vitest'
 import { createSettingsPort, isLegacyRouterShape, readRouterConfig } from '../src/settings-port.js'
-import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
+import { coerceRouterConfigV6 } from '../src/migrate.js'
 
 /**
  * 端口测试替身：editor.edit 按宿主实测语义**整份覆盖**（candidate 里没有的键
@@ -63,6 +64,49 @@ describe('settings-port：运行期读取兜底（v6 收敛）', () => {
       expect(c.roles).toEqual({})
       expect(c).toEqual(DEFAULT_CONFIG_V6())
     }
+  })
+})
+
+/**
+ * 终审 I1/F4（2026-10-06 修复波）：缺席的 driverSticky 解析为内置默认 true。
+ * 红线是不给 schema 加 .default()，故默认在读取兜底落地（mergeResolved 的
+ * DEFAULT_CONFIG_V6 基座同款口径）。三态：① 新装（无 router 段）⇒ true
+ * （上组已钉）；② 卡片单字段写后（段落存在、driverSticky 缺席）⇒ 仍 true；
+ * ③ 存量：显式 version<6 未迁移文档 ⇒ false，迁移后（显式 false）⇒ 仍 false。
+ */
+describe('settings-port：driverSticky 缺席解析（终审 I1/F4 修复波）', () => {
+  it('已解析快照缺 driverSticky（卡片单字段写后的形态）⇒ 解析为 true', () => {
+    // 卡片保存全是单字段写：首次保存后用户层 = {activePreset:'saving'}，宿主按
+    // schema 重解析补 version:6/presets/roles，driverSticky 因红线无 default 缺席。
+    const doc = DEFAULT_CONFIG_V6() as Partial<RouterConfigV6>
+    delete doc.driverSticky
+    doc.activePreset = 'saving'
+    const c = readRouterConfig({ router: { get: () => doc } }) as RouterConfigV6
+    // Fails if: 缺席 ⇒ 运行期 === true 判 false（「新装默认开」在卡片写通道失活）
+    expect(c.driverSticky).toBe(true)
+  })
+
+  it('plain 兼容形态（无 Volatile 包装的旧宿主）同款解析', () => {
+    const doc = DEFAULT_CONFIG_V6() as Partial<RouterConfigV6>
+    delete doc.driverSticky
+    expect((readRouterConfig({ router: doc }) as RouterConfigV6).driverSticky).toBe(true)
+  })
+
+  it('显式 version:5 的未迁移文档缺 driverSticky ⇒ 兜底 false（不被静默读成 true）', () => {
+    // Fails if: 读取兜底把未迁移 v5 文档读成新装默认 true（静默改写存量行为）
+    expect((readRouterConfig({ router: { get: () => DEFAULT_CONFIG_V5() } }) as RouterConfigV6).driverSticky).toBe(false)
+  })
+
+  it('迁移后的存量（migrateV5 显式写 false）⇒ 仍 false', () => {
+    const migrated = coerceRouterConfigV6(DEFAULT_CONFIG_V5(), () => {})
+    expect(migrated.driverSticky).toBe(false)   // 前置：迁移路径本就显式 false
+    expect((readRouterConfig({ router: { get: () => migrated } }) as RouterConfigV6).driverSticky).toBe(false)
+  })
+
+  it('显式 true / false 的文档 ⇒ 原样透传（兜底不覆盖显式值）', () => {
+    expect((readRouterConfig({ router: { get: () => DEFAULT_CONFIG_V6() } }) as RouterConfigV6).driverSticky).toBe(true)
+    const off = { ...DEFAULT_CONFIG_V6(), driverSticky: false }
+    expect((readRouterConfig({ router: { get: () => off } }) as RouterConfigV6).driverSticky).toBe(false)
   })
 })
 

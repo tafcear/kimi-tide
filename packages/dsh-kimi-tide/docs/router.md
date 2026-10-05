@@ -295,7 +295,10 @@ Models 页全量目录，任何 provider 的任何模型都可作预设默认、
 
 **import-config 双形态**（沿用 0.3.0 裁定）：
 
-- 参数是已存在文件路径 → 整表替换（validate 后落盘；v2/v3 文件走迁移链）。
+- 参数是已存在文件路径 → 整表替换（结构校验 + `validateRouterConfig` 语义
+  **拒写校验**后落盘：分工表认领冲突 / role 目标不完整 ⇒ 明确报错且不落盘，
+  终审 I3/F5，内联路径同判据；v2/v3 文件走迁移链，v5 文件收敛 v6 且**透传
+  文档上已存在的分工层字段**——终审 I3：export→import 往返不再丢分工表）。
 - 参数是内联 YAML 文本（`{`/`-` 开头、含换行，或可解析为 mapping）→
   **合并补丁**：深合并进当前配置（对象按字段合并、数组/标量整体替换），
   未出现的字段保留。
@@ -733,7 +736,7 @@ fail-open（按原关键词结果走）。
 | 键 | 类型 | 默认值口径 | 语义 |
 |---|---|---|---|
 | `driver` | `RouteTarget \| null`（可缺省） | 缺省 / `null` ＝跟随宿主 `agent-default-model`（`DEFAULT_CONFIG_V6()` 显式写 `null`） | 主驱动目标；仅在 `driverSticky: true` 时参与主会话打底（见下） |
-| `driverSticky` | `boolean`（可缺省） | **三口径**：新装（`DEFAULT_CONFIG_V6`）＝`true`；存量迁移（`migrateV5`）**显式写 `false`**（保持 v1.4.1 行为，设置页可一键打开）；运行期判据 `=== true` | `true` ⇒ 主会话（`delegationDepth === 0`）的打底目标 = `driver`，不再等于 `preset.default`；关键词规则仍可改道（规则是用户显式意图） |
+| `driverSticky` | `boolean`（可缺省） | **四口径**：新装（`DEFAULT_CONFIG_V6`）＝`true`；存量迁移（`migrateV5`）**显式写 `false`**（保持 v1.4.1 行为，设置页可一键打开）；**缺席解析**（终审 I1/F4：schema 红线无 `.default()`，`readRouterConfig` 与设置卡快照的读取兜底把**缺席**解析为 `true`——卡片单字段写后默认值不再蒸发；显式 `version<6` 未迁移文档除外 ⇒ `false`）；运行期判据 `=== true` | `true` ⇒ 主会话（`delegationDepth === 0`）的打底目标 = `driver`，不再等于 `preset.default`；关键词规则仍可改道（规则是用户显式意图） |
 | `rulesApplyToChildren` | `boolean`（可缺省） | 缺省 / `false` ＝**子代理不参与关键词规则**（v2.0.0 行为变更）；`true` 恢复旧语义。**迁移不写该字段**（§8-3 裁定：缺省即新语义） | 见「子代理与关键词规则」 |
 | `roles` | `Record<string, RoleEntry>` | 内置 `DEFAULT_ROLES()` ＝**空表**（不替用户做能力判断；设置页提供前端/后端/写作三条可一键填入的示例） | 分工表；键即 `role.id` |
 
@@ -757,8 +760,13 @@ interface RoleEntry {
 - **认领集合 = `teammate[] ∪ { id }`**（`roleClaimSet`）：`role.id` 自动成为
   认领名，杜绝「正文教模型同名起名、匹配却只认 `teammate[]`」的静默失败。
 - **跨 role 冲突写入期拒绝**：任一认领名（含 `role.id`）被他 role 认领 ⇒
-  `claimConflict(roles)` 返回错误串，`validateRouterConfig` 的 v6 块与设置卡片
+  `claimConflict(roles)` 返回错误串，`validateRouterConfig` 的分工层块与设置卡片
   `saveRoles` 同判据**守卫式拒写**（先校验、不合法不发写，配置不落盘）。
+  分工层块按**字段判据**门控（终审 F5：有 `roles`/`driver` 就校验，不以
+  `version === 6` 门控——与运行期读取同款 R2 口径）；`/kimi-tide import-config`
+  的文件与内联两条路径落盘前同样跑 `validateRouterConfig`（终审 I3/F5 接上的
+  生产校验点：冲突/不完整 ⇒ 明确报错且不落盘——宿主 dsh-settings 的写校验
+  不含插件语义，见终审 M2）。
 - 校验同块还查：`label` 非空、`target.provider/model` 非空、`driver` 目标完整。
 
 ### 决策优先级链（五档，`src/router.ts`）
@@ -826,8 +834,11 @@ interface RoleEntry {
 - **收口：每个父会话各保留最近 20 条**（他会话的流量不挤占本会话名额），
   读取最新在前。
 - **依据枚举** `basis: 'role' | 'explicit' | 'keep' | 'unclaimed'`
-  （`dispatchMetaOf` 判定优先级 role > unclaimed > explicit > keep；
-  `unclaimed` ＝队友身份成立但不在任何认领集合）。
+  （终审 I2：basis 由**最终生效的决策**决定——最终 `via:'explicit'` ⇒
+  `explicit`（带 `teammate`）；最终 `via:'role'` ⇒ `role`；role 命中但终决策
+  非 role（flow/keep——图像正确性通道 role 不参与）⇒ `keep`＋`teammate`，
+  **不带 `roleLabel`**（keep+roleLabel 是「目标不可用」护栏形态，见下节）；
+  队友身份成立但不在任何认领集合 ⇒ `unclaimed`）。
 - **面板**：投影 `kimi-tide/panel` **stateVersion 7** 新增 `dispatch` 字段
   （可选——v6 及更早存量载荷无该字段照常通过）；每条含
   `basis / teammate? / roleLabel? / target{provider,model,effort?} / at /
@@ -851,15 +862,21 @@ roles/flows 变更。
 
 ### 迁移（v5 → v6，`src/migrate.ts: migrateV5`）
 
-- **只新增字段**：显式写 `driverSticky: false` ＋ `roles: {}`；`driver` 与
-  `rulesApplyToChildren` **不写**（前者缺失＝跟随宿主默认；后者缺失＝运行期
-  缺省 `false` 即新语义）。既有字段一律原样 ⇒ **主会话路由行为与 v1.4.1 逐
-  字节一致**；唯一行为差来自 D6（子代理不再参与关键词规则）。
-- **为什么存量显式写 `driverSticky: false`**：新装默认 `true` 由
+- **只新增字段；输入已存在的分工层字段一律透传**（终审 I3）：输入文档**已
+  携带** `roles` / `driver` / `rulesApplyToChildren` / `driverSticky` 时原样
+  保留——R2 后「version:5 文档带分工层字段」是合法常态（存量升级用户经设置卡
+  写分工层后正是此形态，`export-config` 原样产出），逐字段重建曾致
+  export→import 往返**静默丢分工表**。**缺席**时才给默认：显式写
+  `driverSticky: false` ＋ `roles: {}`；`driver` 与 `rulesApplyToChildren`
+  **不写**（前者缺失＝跟随宿主默认；后者缺失＝运行期缺省 `false` 即新语义）。
+  既有字段一律原样 ⇒ **主会话路由行为与 v1.4.1 逐字节一致**；唯一行为差来自
+  D6（子代理不再参与关键词规则）。
+- **为什么存量缺席时显式写 `driverSticky: false`**：新装默认 `true` 由
   `DEFAULT_CONFIG_V6()` 供给，若迁移不写、默认基座又带 `true`，存量用户会被
   `deepMerge` 注入 `true`，违背「存量保持旧行为」（§8-1 落地口径；与设计稿
   §4「迁移不写 `driverSticky`」原文的**显式差异①**，已登记于设计稿「实施
-  记录」节）。
+  记录」节）。读取兜底同守此口径（终审 F4）：显式 `version<6` 未迁移文档的
+  缺席 `driverSticky` 解析为 `false`，绝不被静默读成 `true`。
 - 链路：`coerceRouterConfigV6`（v6 直通幂等，其余经 v1/v2/v3→v4→v5 链收敛）；
   命名空间 attach 时 `hasKimiTideResidueV6` 判残留 → 迁移 → 设置文档留档
   `.pre-v6` → 持久化。
@@ -872,6 +889,8 @@ rolesOf` 与 `router.ts` 的 `teamCfg` 同款）、`driverSticky === true`、
 （控制器 Ruling R2）：线上 profile patch 与存量配置常显式写 `version: 5`，
 而 schema 的 version 默认值只在字段缺失时生效；版本号门控会让用户在设置页
 写入的分工表与开关**静默失效**。`version` 字段只服务迁移分派与 schema 兼容。
+`validateRouterConfig` 的分工层校验块同按字段判据（终审 F5）：有 `roles` /
+`driver` 即校验认领冲突与目标完整性，与运行期读取同一套 R2 口径。
 
 ### 设置页（路由页两张新卡）
 

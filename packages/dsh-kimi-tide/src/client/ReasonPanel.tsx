@@ -76,12 +76,13 @@ export function ReasonPanel(props: ReasonPanelProps) {
       {/* 0.6.x 池#1：流执行事件行（投影 v6 lastFlowEvent，推送侧 ≤120 截断）。 */}
       {lastFlowEvent !== undefined && <span className="kt-meta">最近流事件：{lastFlowEvent}</span>}
       {/* Task 6：派发明细，照上行「最近流事件」行式逐行渲染；台账侧已收口 20 条
-          且新在前，slice(0, 20) 是客户端兜底（绕校验的实时载荷也至多 20 行）。 */}
+          且新在前，slice(0, 20) 是客户端兜底（绕校验的实时载荷也至多 20 行）。
+          终审 M8②：明细行用稳定键（at + 归属标签组合），不再用数组下标。 */}
       {dispatch !== undefined && dispatch.length > 0 && (
         <>
           <span className="kt-h">最近派发</span>
-          {dispatch.slice(0, 20).map((entry, i) => (
-            <span key={i} className="kt-meta">派发：{formatDispatch(entry)}</span>
+          {dispatch.slice(0, 20).map((entry) => (
+            <span key={`${entry.at}:${entry.roleLabel ?? entry.teammate ?? entry.basis}`} className="kt-meta">派发：{formatDispatch(entry)}</span>
           ))}
         </>
       )}

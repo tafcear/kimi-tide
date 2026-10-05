@@ -698,9 +698,10 @@ export function TideDock(props: TideDockProps) {
 
         {/* Task 6 派发摘要槽：有派发才渲染（空态不挂锚点）；取最新一条 [0]，
             明细在决策悬浮层。内层 .kt-ellip 承担截断（评审 A6：flex 容器上
-            text-overflow 无效）。 */}
+            text-overflow 无效）。终审 M8①：title 含完整格式化文案——摘要被
+            截断后 hover 仍可读全文（定值「最近一次派发」只有槽位名）。 */}
         {dispatch.length > 0 && (
-          <span className="kt-slot kt-dispatch" data-kt-el="dispatch" title="最近一次派发">
+          <span className="kt-slot kt-dispatch" data-kt-el="dispatch" title={`最近一次派发：${formatDispatch(dispatch[0]!)}`}>
             <span className="kt-ellip">{formatDispatch(dispatch[0]!)}</span>
           </span>
         )}
