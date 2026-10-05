@@ -41,7 +41,7 @@ import {
 } from './router.js'
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
-import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5Plus } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RoleEntry, type RouteTarget, type RouterConfigV5Plus } from './config.js'
 import { routerConfigSchema } from './settings-schema.js'
 import { createSettingsPort, hasActivePreset, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
@@ -51,6 +51,7 @@ import { buildQuotaSources, providerKeyCandidates } from './quota-sources.js'
 import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
 import { buildEffortCatalog, buildMountedModels } from './effort-catalog.js'
+import { installTeamSkill, type SkillsLike, type TeamSkillHandle } from './team-skill.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -367,6 +368,10 @@ export function apply(ctx: Context, config: Config = {}) {
   const log: RouterLog = { info: (message: string) => { ctx.logger.info(message) } }
   const warn = (message: string) => { ctx.logger?.warn?.(message) }
 
+  // ctx.skills 探测一次并缓存（cordis 服务缺席时访问即抛 → probeSkills 内 try/catch，
+  // 见设计稿 §4）：未挂 dsh-skill 时整链降级为不注入分工表 skill，绝不在热路径复探。
+  const skillsService = probeSkills(ctx)
+
   // The strict persistence reader refuses logs with unknown event types — for
   // READING history (legacy `kimi-tide/panel`) as well as for what we append
   // (`kimi-tide/review`). The catalog Set lives on the INSTALLATION's
@@ -589,6 +594,31 @@ export function apply(ctx: Context, config: Config = {}) {
   }
 
   let disposeRouter: (() => void) | null = null
+
+  /** ctx.skills 探测（cordis 服务缺席时访问即抛 → 必须 try/catch 并缓存，见设计稿 §4）。 */
+  type SkillsProbe = { register?: SkillsLike['register'] }
+  function probeSkills(ctx: unknown): SkillsLike | undefined {
+    try {
+      const skills = (ctx as { skills?: SkillsProbe }).skills
+      return typeof skills?.register === 'function' ? (skills as SkillsLike) : undefined
+    } catch {
+      return undefined
+    }
+  }
+  /**
+   * 分工表 skill 句柄（插件级状态，与 imageStates 同款范式）：配置变更时先 dispose
+   * 旧的、再按新 roles 重挂；roles 为空 / skills 服务缺席 / 宿主拒绝注册 ⇒ 不安装。
+   */
+  let teamSkill: TeamSkillHandle | null = null
+  /**
+   * 读分工表（控制器裁决 R2）：只认 roles 字段本身（`?? {}` 兜底），**不以
+   * `config.version === 6` 门控** —— 线上 profile patch 与存量配置文档常显式写
+   * `version: 5`，而 schema 的 version 默认值只在字段缺失时生效；版本号门控会让
+   * 用户在设置页写入的分工表静默失效。
+   */
+  const rolesOf = (router: RouterConfigAny): Record<string, RoleEntry> =>
+    (router as { roles?: Record<string, RoleEntry> }).roles ?? {}
+
   // 0.6.0 协作编排（Task 9 最小接线）：按图状态表 + 转述器随 apply 生命周期
   // 创建一次——配置变更/候选枚举重挂路由器时，转述缓存与图像状态不丢。生产
   // VisionCaller = ctx.llm.stream 直调；0.8.0（D3/M6）：visionModel.effort 经
@@ -698,6 +728,8 @@ export function apply(ctx: Context, config: Config = {}) {
   // 现经 kimi-tide-catalog 设置命名空间推送（inject 块内 syncCatalogNamespace）。
 
   mountRouter()
+  // 启动初挂：与路由器同节拍；roles 空 / skills 缺席 / 注册失败 ⇒ installTeamSkill 内部降级。
+  teamSkill = installTeamSkill(skillsService, rolesOf(routerConfig), log)
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
@@ -730,6 +762,9 @@ export function apply(ctx: Context, config: Config = {}) {
       latestDecisions.clear()
       latestFlowEvents.clear()
       mountRouter()
+      // 配置变更重挂分工表 skill：先 dispose 旧的、再按新 roles 注册（空表则不注册）。
+      teamSkill?.dispose()
+      teamSkill = installTeamSkill(skillsService, rolesOf(routerConfig), log)
       refreshCandidates()
     }
   }
@@ -1040,5 +1075,9 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.effect(() => () => {
     for (const { monitor } of quotaMonitors) monitor?.stop()
   })
-  ctx.effect(() => () => disposeRouter?.())
+  ctx.effect(() => () => {
+    disposeRouter?.()
+    teamSkill?.dispose()
+    teamSkill = null
+  })
 }
