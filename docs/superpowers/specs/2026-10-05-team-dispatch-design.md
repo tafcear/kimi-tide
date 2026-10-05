@@ -29,6 +29,8 @@
 
 **S2 的适用边界（Round-1 评审 S4，v1 曾误述）**：两个探针走的都是**既有机制**（显式 `@` 与打底让位），**`via:'role'` 这条新路径从未被预演** ⇒ A2 是本设计最高优先级的验收项，不能拿 S2 当"已预演"。
 
+**探针命名（评审 E2，v1 未定义导致引用歧义）**：S2 行的两次探针，下文分别称 **探针 A**（提示词仅含「代码」⇒ 落继承值 `deepseek-flash`）与 **探针 B**（提示词含 `@kimi` ⇒ 落 `kimi-coding/k3`）。
+
 ## 2. 设计决策
 
 ### D1 主驱动恒定（**行为变更，待裁定**）
@@ -71,7 +73,7 @@ export interface RouterConfigV6 {
 - 注册 runtime skill `kimi-tide-team`：
   - `description`：一行索引，形如「派活前读我：前端→kimi-coding/k3、后端→zai-coding-cn/glm-5.3、写作→qwen-token-plan-cn/qwen3.8-max」（按当前 roles 生成；**无 roles 时不注册**）。**自检长度 ≤500 字符**（宿主目录 description 上限 `DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500`，`dsh-tool-skill/lib/index.js:40`），超长则退化为"角色数 + 前 N 条"摘要并在面板提示。
   - 正文：完整分工表（角色/别名/目标/备注）＋**派发配方**——①一次性：`workflow` 的 `agent(task, {provider, model})`；②常驻：`spawn_teammate`，**队友名必须取自该 role 的认领集合**，且须满足宿主命名规则（lower-kebab-case、≤64 字符、不可叫 `lead`；`dsh-experimental-agent-team/lib/types/roster.js:420`）；③何时不该派（琐碎任务/无对应角色）。
-- 生命周期：配置变更 → 释放旧注册、注册新的（`ctx.skills.register` 返回 disposer）；宿主 `skills/change` 驱动目录刷新。
+- 生命周期：配置变更 → 释放旧注册、注册新的（`ctx.skills.register` 返回 disposer）。**目录刷新的实际机制**（评审 M3/E4 更正）：`dsh-tool-skill` 在每个 pre-step 做 `snapshot` ＋ digest 比对，惰性替换目录消息（`dsh-tool-skill/lib/index.js:203-235`）；`skills/change` 只是 dsh-skill 侧的 emit（`dsh-skill/lib/index.js:404`）。结果与"变更后下一轮生效"一致，措辞以 tool-skill 机制为准。
 - **成本声明**（评审 O2）：目录内容变化会对**全活会话**做整段替换（`dsh-tool-skill/lib/index.js:231-235`）⇒ 该次变更使 KV 前缀失效一次；建议同批合并 roles/flows 变更，避免连续多次。
 - 降级：`ctx.skills` 不可用（未挂 dsh-skill 或服务缺席）⇒ **不注册** ＋ 面板提示，**不改任何路由行为**。
 - 位置：新增 `src/team-skill.ts`（纯函数 `renderTeamSkill(roles)` + 注册/释放生命周期），便于单测。
@@ -131,7 +133,7 @@ export interface RouterConfigV6 {
 - **兼容口径（诚实声明）**：迁移不改动任何既有字段 ⇒ **主会话路由行为逐字节不变**；唯一的行为差异来自 D6 的新语义（子代理不再参与关键词规则）。若 §8 第 3 项裁定"保持旧语义"，则该开关运行期缺省 = `true`，**连这一处差异也不存在**（完全等价 v1.4.1）。
 - **服务缺席的探测方式**（评审 S2）：cordis 服务代理在服务未提供时**访问即抛**（`cordis/lib/index.js:671-695`）⇒ 装配期必须 `try/catch` 探测 `ctx.agentTeams`／`ctx.skills` 并**缓存布尔**，不得在热路径上反复探。
 - 宿主无 `ctx.agentTeams` ⇒ D5/D7 的队友面自动跳过；无 `ctx.skills` ⇒ D3 跳过；两者都不影响 D1/D2/D4/D6/D8。
-- 投影 `stateVersion` 升级 ⇒ 旧会话缓存按既有惯例重建。
+- 投影 `stateVersion` 升级 ⇒ 旧会话缓存按既有惯例重建；**旧会话的派发区初始为空**（评审 M7：属预期，不是缺陷，先告知）。
 
 ## 5. 验收（判据）
 
@@ -141,13 +143,14 @@ export interface RouterConfigV6 {
 
 | # | 判据 | 方法 |
 |---|---|---|
-| A1 | 主会话打底＝driver | `driverSticky: true` + driver=flash ⇒ 非关键词轮请求头 = `deepseek-official/deepseek-flash` |
+| A1 | 主会话打底＝driver（**三变体**） | A1a `driverSticky: true` + `driver`=flash ⇒ 非关键词轮请求头 = `deepseek-official/deepseek-flash`；A1b `driver=null` ⇒ 打底 = 宿主默认；A1c 关键词轮 ⇒ **规则仍赢**（打底被规则覆盖） |
 | **A2** | **队友按分工表改道（最高优先级——`role` 路径从未预演）** | 建队友，名字取自某 role 的认领集合 ⇒ 其子会话请求头 = 该 role 的 target（与 A5 的"未认领"反例成对） |
 | A3 | 一次性派发不被劫持 | `workflow agent(...,{provider,model})`，**任务描述须含关键词组词**（否则 v1.4.1 也能过、判据失效）⇒ 子会话请求头 = 指定模型 |
-| A4 | 分工表进目录且可加载 | roles 非空时新会话 `<available_skills>` 含 `kimi-tide-team`，其 description ≤500 字符；`skill` 调用返回正文 |
+| A4 | 分工表进目录且可加载 | roles 非空时新会话 `<available_skills>` 含 `kimi-tide-team`，其 description ≤500 字符；`skill` 调用返回正文；**反向**：roles 空 ⇒ 目录中无 `kimi-tide-team`；roles 变更 ⇒ 下一 pre-step 出现目录替换消息 |
 | A5 | 未认领的队友（对照 A2） | 队友名不在任何 role 认领集合 ⇒ 不改道 + 面板标 `unclaimed` |
 | A6 | role 目标不可用 | 按 §8 第 6 项的裁定执行 + 面板提示（无静默换人） |
-| A7 | 存量兼容 | v5 配置迁移后**主会话**路由行为与 v1.4.1 逐字节一致；子代理侧按 §8 第 3 项的裁定核验 |
+| A7 | 存量兼容 | v5 配置迁移后**主会话**路由行为与 v1.4.1 逐字节一致；子代理侧按 §8 第 3 项的裁定核验（前置＝§8 第 3 项裁定落地 ＋ 迁移不写死该字段） |
+| A8 | **多队友并发**（评审新增） | 两个队友分属不同 role 同时跑 ⇒ 两路请求头各自命中各自 role 的目标（per-agent 槽位天然隔离，`src/router.ts:713` WeakMap） |
 
 ## 6. 涉及文件（草案）
 
@@ -192,6 +195,7 @@ v2.0.0（major：新增分工层语义 + 两项行为变更——**D1 需用户�
 |---|---|---|
 | 2026-10-05 | v1 | 初稿：骨架经用户确认（C 档）；三项 spike（S1/S2/S3）全绿并写入 §1.3；两项行为变更（D1/D6）列 §8 待裁定 |
 | 2026-10-05 | v2 | Round-1（kimi-coding/k3）「有条件通过」处置：2 项阻塞全修（D3/D5 认领集合断裂；§4 迁移写死未裁定值）、8 条建议全采纳、6 条可选全并入、8 项缺失决策并入 §8（第 6–13 项）。全表见 §10 |
+| 2026-10-05 | v2（补漏） | 并入评审档案 §5/§7 中未进结构化返回值的项：探针 A/B 命名（E2）、目录刷新机制措辞（M3/E4）、A1 三变体与 A4 反向、新增 A8 并发探针、stateVersion 旧会话预期（M7） |
 
 ## 10. Round-1 评审处置全表
 
@@ -214,3 +218,5 @@ v2.0.0（major：新增分工层语义 + 两项行为变更——**D1 需用户�
 | O5 | 可选 | `subagent/start|end` 按 delegating parent scoped ⇒ 作用域选错会漏记 | **采纳**（D4） |
 | O6 | 可选 | `step===1` 门控已足够 ⇒ 补一行推理 | **采纳**（D5） |
 | M1-M8 | 缺失决策 | role.id 是否自动认领／降级落点／动态 vs 锁定／ledger 寿命／driver 面板／多队友名／上游演进／命名合法性教学 | **采纳**：并入 §8 第 6–13 项 |
+| E1–E4 | 事实偏差 | 探针 A/B 未定义、A2「已预演」论据不成立、B-1a 例外系误判、`skills/change` 机制措辞不准 | **采纳**：§1.3 定义探针 A/B；A2 去论据；删例外改单测；D3 按 tool-skill 机制改措辞 |
+| A-变体 | 判据补全 | A1 缺 `driver=null`／关键词轮变体、A4 缺反向、缺并发探针 | **采纳**：A1 拆三变体、A4 补反向、新增 A8 |
