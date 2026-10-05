@@ -1,6 +1,6 @@
 // test/card-store.test.ts
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import { createCardStore, type SettingsScopeLike } from '../src/client/card-store.js'
 import { validateRouterConfig } from '../src/settings-schema.js'
 
@@ -137,6 +137,32 @@ describe('card-store v4', () => {
     expect(snap.availability?.['kimi-coding/k3']).toBeUndefined()
     expect(snap.availability?.['kimi-coding/kimi-for-coding']).toBeUndefined()
     expect(snap.availability?.['deepseek-official/deepseek-v4-flash']).toBe(true)  // 目录内目标照常判定
+  })
+})
+
+describe('card-store saveRoles（Task 7：分工表守卫式写通道）', () => {
+  it('saveRoles：认领名冲突 ⇒ fail() 拒绝且不落盘（deleteFlow 同款守卫：先校验、不合法不写）', async () => {
+    // Fails if: 「先写后校验」或冲突时仍走 saveTop——非法 roles 要么污染配置、
+    // 要么错误只靠宿主 validate 静默 recover 上浮不了语义明确的认领冲突信息。
+    const scope = makeScope(DEFAULT_CONFIG_V6())
+    const store = createCardStore(scope, null)
+    const bad = {
+      a: { id: 'a', label: 'A', target: { provider: 'p', model: 'm' }, teammate: ['x'] },
+      b: { id: 'b', label: 'B', target: { provider: 'p', model: 'm' }, teammate: ['x'] },
+    }
+    await store.saveRoles(bad)
+    expect(scope.writes).toEqual([])  // 守卫式拒写：一笔都没发
+    expect(store.getSnapshot().error).toContain('认领名')  // 错误上浮 error 通道
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.roles).toEqual({})  // 值未污染
+  })
+
+  it('saveRoles：合法分工表写入成功并回读一致', async () => {
+    const scope = makeScope(DEFAULT_CONFIG_V6())
+    const store = createCardStore(scope, null)
+    const roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    await store.saveRoles(roles)
+    expect((store.getSnapshot().config as RouterConfigV6 | null)?.roles).toEqual(roles)
+    expect(store.getSnapshot().error).toBeNull()
   })
 })
 

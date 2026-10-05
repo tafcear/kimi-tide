@@ -33,7 +33,7 @@ export const DOCK_ELEMENTS = [
 
 /** 设置页的功能区块 id（说明页必须逐个讲到）。 */
 export const SETTINGS_SECTIONS = [
-  'presets', 'preset-editor', 'preset-ops', 'rules', 'keyword-groups', 'image-fallback', 'hit-confirm', 'flows', 'trial',
+  'presets', 'preset-editor', 'preset-ops', 'rules', 'keyword-groups', 'image-fallback', 'hit-confirm', 'flows', 'trial', 'roles',
 ] as const
 
 /**
@@ -62,7 +62,7 @@ export const FEATURE_KEYS = [
   'flows.review.rounds',
   'flows.review.autoRevise',
   'flows.review.recheck',
-  // v6（团队派发）顶层键：先占位满足防腐烂反向闸，完整帮助条目见任务 7。
+  // v6（团队派发）顶层键：说明条目见「路由语义」区的 routing-roles / routing-driver。
   'driver',
   'driverSticky',
   'rulesApplyToChildren',
@@ -314,6 +314,31 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           const mode = preset.imageFallback ?? 'latch'
           return `当前：${mode} —— ${FALLBACK_HINTS[mode]}`
         },
+      },
+      {
+        id: 'routing-roles',
+        title: '分工表（角色 = 领域 → 模型）',
+        anchors: ['roles'],
+        body: [
+          '每个角色一行：显示名 + id（lower-kebab-case，即默认认领的队友名）+ 目标模型 + 额外认领的队友名 + 别名。',
+          '认领名（id 与队友名合起来的集合）不得跨角色重复——重复时保存会被拒绝（守卫式拒写，配置不会落盘）。',
+          '「填入三条示例」一键加入 前端/后端/写作 三个角色（目标先取当前预设的默认模型，可在下拉里改）。',
+        ],
+        live: (c) => {
+          const roles = (c as { roles?: Record<string, unknown> }).roles
+          const n = roles === undefined ? 0 : Object.keys(roles).length
+          return n === 0 ? '当前：分工表为空（专项活不会被派发改道）' : `当前：${n} 个角色`
+        },
+      },
+      {
+        id: 'routing-driver',
+        title: '团队派发的几个开关（driver / driverSticky / rulesApplyToChildren）',
+        anchors: ['dispatch'],
+        body: [
+          'driver = 主驱动目标（null/缺省 = 跟随宿主默认模型）；driverSticky 开启时主会话打底恒用 driver。',
+          'rulesApplyToChildren 关闭（默认）时，子代理的请求不参与关键词规则——只有分工表认领的队友会被改道。',
+          '派发依据见 dock 的派发槽：role=分工表角色 / explicit=显式点名 / unclaimed=未在分工表 / keep=保持原样。',
+        ],
       },
     ],
   },

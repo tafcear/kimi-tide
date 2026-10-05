@@ -42,6 +42,7 @@ function makeStore(snapshot: CardSnapshot): CardStore {
     saveKeywordGroups: async () => {},
     saveFlows: async () => {},
     deleteFlow: async () => {},
+    saveRoles: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
     subscribe: () => () => {},

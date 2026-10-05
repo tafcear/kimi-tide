@@ -16,12 +16,14 @@ import {
   isFlowTarget,
   isV5Plus,
   type CollaborationFlow,
+  type RoleEntry,
   type RouteTarget,
   type RouterConfigV4,
   type RouterConfigV5,
   type RouterConfigV6,
   type RouterPreset,
 } from '../config.js'
+import { claimConflict } from '../roles.js'
 
 /**
  * 卡片读写的设置视图 id（= **profile entry id**）。
@@ -176,6 +178,12 @@ export interface CardStore {
    * 的流拒删——两种拒绝都上浮 error 通道且不写盘。
    */
   deleteFlow(id: string): Promise<void>
+  /**
+   * 整段覆盖分工表（v6 roles）。守卫式拒写（validate-on-write 纪律，与
+   * deleteFlow 同款）：认领名冲突（claimConflict 返回错误串——认领集合 =
+   * teammate[] ∪ { id}，跨 role 重叠）时 fail() 上浮 error 通道且**不写盘**。
+   */
+  saveRoles(roles: Record<string, RoleEntry>): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
   /** 取 per-model 推理档位表与真实挂载表（0.8.0/1.1.0 A8 自有通道）；失败/未提供 → 双 null。 */
@@ -500,6 +508,21 @@ export function createCardStore(
     await saveTop('flows', flows)
   }
 
+  /**
+   * 分工表守卫式写通道（Task 7）：先跑 claimConflict（roles.ts 纯函数层，
+   * 与 settings-schema 的 validate 同一判据），冲突 → fail() 不写盘；
+   * 合法才经 saveTop 整段写 roles（scope.set / mutate + 写后「意图值 vs
+   * 实读值」比对由 saveTop 自带）。
+   */
+  const saveRoles = async (roles: Record<string, RoleEntry>): Promise<void> => {
+    const conflict = claimConflict(roles)
+    if (conflict !== undefined) {
+      fail(new Error(conflict))
+      return
+    }
+    await saveTop('roles', roles)
+  }
+
   const resetField = async (field: string): Promise<void> => {
     try {
       if (scope !== null) await scope.unset(field)
@@ -526,6 +549,7 @@ export function createCardStore(
     saveKeywordGroups,
     saveFlows,
     deleteFlow,
+    saveRoles,
     resetField,
     loadEfforts: async (fetch) => {
       try {

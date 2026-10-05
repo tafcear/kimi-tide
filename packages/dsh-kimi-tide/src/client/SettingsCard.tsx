@@ -50,6 +50,7 @@ import {
   type HitConfirm,
   type ImageFallback,
   type ReviewFlow,
+  type RoleEntry,
   type RouteTarget,
   type RouterRule,
   type RuleCondition,
@@ -130,6 +131,43 @@ const newRuleId = (rules: RouterRule[]): string => {
 /** 词表文本域解析：逗号（中英文）/分号（中英文）/换行分隔，去空白空串。 */
 const parseWords = (text: string): string[] =>
   text.split(/[\n,，;；]+/).map((word) => word.trim()).filter((word) => word !== '')
+
+/**
+ * 角色 id 的 slug 化（Task 7）：trim + 小写 + 非 [a-z0-9] 折叠为 '-'、首尾 '-' 剥掉
+ * （严格 lower-kebab-case——角色 id 同时是默认认领的队友名，须满足宿主队友名规则）；
+ * 空 → `role-<Date.now()%100000>`；与现有角色键冲突 → 递增后缀 `-2/-3…`
+ * （与 presetSlug 同款；竞态冲突由 store.saveRoles 的守卫兜底）。
+ */
+export function roleSlug(name: string, existing: Record<string, unknown>): string {
+  const folded = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const base = folded !== '' ? folded : `role-${Date.now() % 100000}`
+  if (!Object.hasOwn(existing, base)) return base
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}-${n}`
+    if (!Object.hasOwn(existing, candidate)) return candidate
+  }
+}
+
+/**
+ * 三条示例分工（Task 7 brief：前端/后端/写作，一键填入后由用户改目标）。
+ * 占位策略（brief 二选一，按 TargetSelect/宿主 validate 现状定夺并已在测试钉住）：
+ * 宿主 validateRouterConfig 要求 role.target 完整（provider/model 非空），
+ * 空串占位必被拒写——示例目标以 fallback（调用方取激活预设 default）兜底。
+ */
+export function EXAMPLE_ROLES(fallback: RouteTarget): Record<string, RoleEntry> {
+  const target = { provider: fallback.provider, model: fallback.model }
+  return {
+    frontend: { id: 'frontend', label: '前端', target },
+    backend: { id: 'backend', label: '后端', target },
+    writer: { id: 'writer', label: '写作', target },
+  }
+}
+
+/** 逗号分隔文本 → 列表；空文本 → undefined（不落空数组键）。 */
+const listFromText = (text: string): string[] | undefined => {
+  const arr = parseWords(text)
+  return arr.length > 0 ? arr : undefined
+}
 
 const omitKey = (obj: Record<string, string[]>, key: string): Record<string, string[]> => {
   const next = { ...obj }
@@ -257,6 +295,120 @@ function KeywordGroupRow(props: {
         onBlur={() => props.onSave(parseWords(draft))}
       />
       <button type="button" disabled={!props.writable} onClick={props.onDelete}>删除组</button>
+    </div>
+  )
+}
+
+/**
+ * 分工表角色行（Task 7）：显示名/id/队友名/别名文本框（本地草稿、失焦保存——
+ * KeywordGroupRow 同款，避免逐击键写盘）+ 目标/档位下拉（改即保存——FlowRow 同款）
+ * + 删除。id 变更只上交原文，rekey 与去重 slug 由父层算。草稿重同步与关键词组行
+ * 同纪律：外部推送（他端改 roles）且本行未聚焦时重同步，聚焦中不打断编辑。
+ */
+function RoleRow(props: {
+  role: RoleEntry
+  writable: boolean
+  modelOptions: string[]
+  optionGroups: Array<{ label?: string; options: string[] }>
+  modelNames: Record<string, string>
+  availability: Record<string, boolean> | null
+  effortsOf: (target: RouteTarget) => string[] | undefined
+  onSave: (next: RoleEntry) => void
+  onRename: (rawId: string) => void
+  onDelete: () => void
+}) {
+  const { role } = props
+  const [draft, setDraft] = useState(() => ({
+    label: role.label,
+    id: role.id,
+    teammate: (role.teammate ?? []).join(','),
+    aliases: (role.aliases ?? []).join(','),
+  }))
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const joined = `${role.label}\n${role.id}\n${(role.teammate ?? []).join(',')}\n${(role.aliases ?? []).join(',')}`
+  useEffect(() => {
+    if (rowRef.current === null || !rowRef.current.contains(document.activeElement)) {
+      setDraft({
+        label: role.label,
+        id: role.id,
+        teammate: (role.teammate ?? []).join(','),
+        aliases: (role.aliases ?? []).join(','),
+      })
+    }
+    // draft 不入依赖：仅在权威角色变化时重同步，用户击键不触发。
+  }, [joined])
+  return (
+    <div className="kt-role-row" ref={rowRef}>
+      <input
+        aria-label="角色显示名"
+        value={draft.label}
+        disabled={!props.writable}
+        onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+        onBlur={() => {
+          const label = draft.label.trim()
+          if (label !== '' && label !== role.label) props.onSave({ ...role, label })
+        }}
+      />
+      <input
+        aria-label="角色 id"
+        value={draft.id}
+        disabled={!props.writable}
+        title="lower-kebab-case；同时是默认认领的队友名"
+        onChange={(e) => setDraft({ ...draft, id: e.target.value })}
+        onBlur={() => { if (draft.id.trim() !== role.id) props.onRename(draft.id) }}
+      />
+      <TargetSelect
+        label={`${role.label} 目标`}
+        value={configKey(role.target)}
+        options={props.modelOptions}
+        groups={props.optionGroups}
+        labels={props.modelNames}
+        unavailable={props.availability?.[configKey(role.target)] === false}
+        disabled={!props.writable}
+        onChange={(value) => props.onSave({ ...role, target: parseTarget(value) })}
+      />
+      {/* 切换目标天然清空 effort（parseTarget 不产 effort 字段，与规则行同款语义） */}
+      <EffortSelect
+        label={`${role.label} 目标 · 档位`}
+        value={role.target.effort}
+        options={props.effortsOf(role.target)}
+        disabled={!props.writable}
+        onChange={(effort) => {
+          const next: RouteTarget = effort === undefined
+            ? { provider: role.target.provider, model: role.target.model }
+            : { ...role.target, effort }
+          props.onSave({ ...role, target: next })
+        }}
+      />
+      <input
+        aria-label="队友名"
+        value={draft.teammate}
+        disabled={!props.writable}
+        placeholder="额外认领的队友名，逗号分隔"
+        onChange={(e) => setDraft({ ...draft, teammate: e.target.value })}
+        onBlur={() => {
+          const teammate = listFromText(draft.teammate)
+          if ((teammate ?? []).join(',') !== (role.teammate ?? []).join(',')) {
+            const { teammate: _prev, ...rest } = role
+            props.onSave(teammate === undefined ? rest : { ...rest, teammate })
+          }
+        }}
+      />
+      <input
+        aria-label="别名"
+        value={draft.aliases}
+        disabled={!props.writable}
+        placeholder="供模型识别的别名，逗号分隔"
+        onChange={(e) => setDraft({ ...draft, aliases: e.target.value })}
+        onBlur={() => {
+          const aliases = listFromText(draft.aliases)
+          if ((aliases ?? []).join(',') !== (role.aliases ?? []).join(',')) {
+            const { aliases: _prev, ...rest } = role
+            props.onSave(aliases === undefined ? rest : { ...rest, aliases })
+          }
+        }}
+      />
+      <button type="button" aria-label={`删除角色 ${role.id}`} disabled={!props.writable} onClick={props.onDelete}>删除</button>
     </div>
   )
 }
@@ -569,6 +721,7 @@ export function SettingsCard(props: SettingsCardProps) {
       saveKeywordGroups: wrap('saveKeywordGroups'),
       saveFlows: wrap('saveFlows'),
       deleteFlow: wrap('deleteFlow'),
+      saveRoles: wrap('saveRoles'),
       resetField: wrap('resetField'),
     }
     // store 由 useState 惰性初始化，实例恒定；flash 闭包稳定。
@@ -676,6 +829,41 @@ export function SettingsCard(props: SettingsCardProps) {
       || preset.imageFallbackFlow === flowId
       // 缺省级联：transcribe-lazy 未显式指定流时隐式引用预置 transcribe。
       || (preset.imageFallback === 'transcribe-lazy' && preset.imageFallbackFlow === undefined && flowId === 'transcribe'))
+
+  /* ---- Task 7 分工表（roles；运行期按字段判据读取 roles ?? {}，不以 version 门控）---- */
+  const roles = (config as { roles?: Record<string, RoleEntry> }).roles ?? {}
+  const roleEntries = Object.entries(roles)
+  /**
+   * 兜底目标（新增角色/示例的占位策略，测试已钉住）：激活预设 default → 候选池
+   * 首个 → 常量兜底。宿主 validate 要求 role.target 完整（provider/model 非空），
+   * 空串占位必被拒写，故不落空目标、由用户事后在下拉里改。
+   */
+  const roleFallbackTarget = (): RouteTarget =>
+    active?.default
+    ?? (modelOptions.length > 0
+      ? parseTarget(modelOptions[0])
+      : { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  const saveRolesRecord = (next: Record<string, RoleEntry>): void => {
+    void storeWriter.saveRoles(next)
+  }
+  const updateRole = (id: string, next: RoleEntry): void => {
+    saveRolesRecord({ ...roles, [id]: next })
+  }
+  const renameRole = (prevId: string, raw: string): void => {
+    const nextId = roleSlug(raw, roles) // kebab 折叠 + 与现有键去重
+    if (nextId === prevId) return
+    const record = { ...roles }
+    delete record[prevId]
+    saveRolesRecord({ ...record, [nextId]: { ...roles[prevId], id: nextId } })
+  }
+  const addRole = (): void => {
+    const id = roleSlug(`role-${roleEntries.length + 1}`, roles)
+    saveRolesRecord({ ...roles, [id]: { id, label: '新角色', target: roleFallbackTarget() } })
+  }
+  const fillExampleRoles = (): void => {
+    // 既有角色保留（同 id 以用户现值为准，示例不覆盖）；三条示例置前便于就地改目标。
+    saveRolesRecord({ ...EXAMPLE_ROLES(roleFallbackTarget()), ...roles })
+  }
 
   // 规则编辑：全部组装 next 后经 store 整段写。
   const updateRules = (presetId: string, rules: RouterRule[]): void => {
@@ -1247,6 +1435,48 @@ export function SettingsCard(props: SettingsCardProps) {
             onClick={addGroup}
           >
             新建组
+          </button>
+        </div>
+      </details>
+
+      {/* Task 7 分工表（角色 = 领域 → 模型）：照关键词组卡的 details.kt-card 范式放进
+          「路由」页（不新增页签）。写通道 = storeWriter.saveRoles（守卫式：认领名冲突
+          fail() 不写盘，错误经 .kt-status-slot 状态槽上浮）。 */}
+      <details className="kt-roles kt-card" data-kt-section="roles">
+        <summary>分工表（专项活派给谁）</summary>
+        <p className="kt-hint">
+          每个角色 = 一个领域 → 一个模型。角色 id 与「队友名」用 lower-kebab-case（如 frontend）；
+          用这些名字 spawn_teammate，月汐会把它们的请求改道到该角色的目标模型。
+          认领名（id + 队友名）不得跨角色重复——冲突时保存会被拒绝。
+        </p>
+        {roleEntries.map(([id, role]) => (
+          <RoleRow
+            key={id}
+            role={role}
+            writable={writable}
+            modelOptions={modelOptions}
+            optionGroups={optionGroups}
+            modelNames={modelNames}
+            availability={availability}
+            effortsOf={effortsOf}
+            onSave={(next) => updateRole(id, next)}
+            onRename={(raw) => renameRole(id, raw)}
+            onDelete={() => {
+              const next = { ...roles }
+              delete next[id]
+              saveRolesRecord(next)
+            }}
+          />
+        ))}
+        <div className="kt-row">
+          <button type="button" disabled={!writable} onClick={addRole}>新增角色</button>
+          <button
+            type="button"
+            disabled={!writable}
+            title="填入 前端/后端/写作 三条示例（目标先取当前预设默认模型，可再在下拉里改）"
+            onClick={fillExampleRoles}
+          >
+            填入三条示例
           </button>
         </div>
       </details>

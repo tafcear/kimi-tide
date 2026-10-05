@@ -18,7 +18,7 @@ import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import type { CardSnapshot, CardStore } from '../src/client/card-store.js'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV4 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV4 } from '../src/config.js'
 
 declare global {
   // React 18 act 环境开关（react-dom/client 在非测试构建下需要）。
@@ -49,6 +49,7 @@ function makeDeferredStore(overrides: Partial<CardStore> = {}) {
     deletePreset: async () => {},
     saveKeywordGroups: async () => {},
     saveFlows: async () => {},
+    saveRoles: async () => {},
     deleteFlow: async () => {},
     resetField: async () => {},
     getSnapshot: () => snapshot,
@@ -1318,5 +1319,89 @@ describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () =
     // 或冲突列表漏掉规则所属预设（多预设同名规则时无法定位）。
     expect(container.textContent).toContain('下列预设规则将不再参与路由')
     expect(container.textContent).toContain('review-k3（能力）')
+  })
+})
+
+describe('SettingsCard 分工表卡（Task 7：角色编辑器 + 示例一键填入）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  /** Task 7 夹具：v6 就绪快照（含分工层默认：roles={} / driverSticky=true），激活省钱预设。 */
+  const readyV6Snapshot = (overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
+    status: 'ready',
+    config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' },
+    base: null,
+    user: null,
+    writable: true,
+    error: null,
+    catalog: null,
+    availability: null,
+    efforts: null,
+    ...overrides,
+  })
+
+  it('分工表卡渲染在「路由」页；点「填入三条示例」→ saveRoles 收到 frontend/backend/writer，目标兜底 = 激活预设默认模型', async () => {
+    // 钉住的占位策略（brief 步骤 6 二选一）：宿主 validate 要求 role.target 完整
+    // （provider/model 非空），空串占位必被拒写——示例目标取「激活预设 default」
+    // 兜底（无激活预设时取候选池首个），用户可再在下拉里改。
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    await act(async () => { publish(readyV6Snapshot()) })
+    expect(container.textContent).toContain('分工表')
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === '填入三条示例')!.click()
+    })
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0][0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>
+    expect(Object.keys(record)).toEqual(['frontend', 'backend', 'writer'])
+    expect(record.frontend).toEqual({ id: 'frontend', label: '前端', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(record.backend!.label).toBe('后端')
+    expect(record.writer!.label).toBe('写作')
+    // 回读渲染：发布含示例分工表的快照 → 三条角色行（角色显示名输入框逐行可见）
+    await act(async () => {
+      publish(readyV6Snapshot({ config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', roles: record } }))
+    })
+    const labels = [...container.querySelectorAll('input[aria-label="角色显示名"]')] as HTMLInputElement[]
+    expect(labels.map((i) => i.value)).toEqual(['前端', '后端', '写作'])
+    const ids = [...container.querySelectorAll('input[aria-label="角色 id"]')] as HTMLInputElement[]
+    expect(ids.map((i) => i.value)).toEqual(['frontend', 'backend', 'writer'])
+  })
+
+  it('「新增角色」→ saveRoles 合并一条新角色（kebab id、目标兜底 = 激活预设默认）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    await act(async () => { publish(readyV6Snapshot()) })
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === '新增角色')!.click()
+    })
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0][0] as Record<string, { id: string; target: { provider: string; model: string } }>
+    const newIds = Object.keys(record)
+    expect(newIds).toHaveLength(1)
+    expect(newIds[0]).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+    expect(record[newIds[0]]!.target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
   })
 })
