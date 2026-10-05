@@ -94,6 +94,14 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   const effects: Array<() => void> = []
   const listModelsCalls: string[] = []
+  // ctx.skills 替身（Task 3 / R3 门控断言用）：记录注册与释放，不真挂目录。
+  const skillDisposers: Array<ReturnType<typeof vi.fn>> = []
+  const skillRegister = vi.fn((skill: { name: string }) => {
+    const dispose = vi.fn()
+    skillDisposers.push(dispose)
+    void skill
+    return dispose
+  })
   let commandDef: { name: string; handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined
   const effect = (execute: () => unknown) => {
     const cleanup = execute()
@@ -149,6 +157,7 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
       },
     },
     commands: { register: (def: never) => { commandDef = def as never; return () => {} } },
+    skills: { register: skillRegister },
     sessionProjections: { register: () => () => {} },
     setInterval: () => () => {},
     effect,
@@ -168,6 +177,8 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
     ctx,
     listeners,
     listModelsCalls,
+    skillRegister,
+    skillDisposers,
     getCommand: () => commandDef,
     /** 模拟设置通道消失（条目移出 profile / configEditor 卸载）。 */
     detachSettings: () => { for (const cleanup of effects.splice(0)) cleanup() },
@@ -507,6 +518,34 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(snapshot.imageContext).toEqual({ native: 0, transcribed: 1, blind: 0 })
     expect(snapshot.lastFlowEvent).toContain('flow:transcribe')
     expect(snapshot.lastFlowEvent).toContain('deepseek-official/deepseek-v4-flash')
+  })
+
+  /** 控制器裁决 R3：分工表 skill 的注册门控 = roles 非空 **且** 路由开启。 */
+  it('分工表 skill 门控（R3）：路由关不注册；开后注册；由开→关 dispose 且不残留', async () => {
+    // roles 非空 + 路由关（activePreset=null）：逃生舱态，skill 不得注入目录。
+    const roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    const settings = makeSettings({ ...v5cfg(null), roles })
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, getCommand, skillRegister, skillDisposers } = makeCtx([agent], settings)
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    // 关态静默：不注册、不报错、不提示。
+    expect(skillRegister).not.toHaveBeenCalled()
+
+    // 路由开（roles 保留）⇒ 注册一次 runtime skill。
+    await getCommand()!.handler({ rawInput: 'preset capability' })
+    await tick()
+    expect(skillRegister).toHaveBeenCalledTimes(1)
+    expect(skillRegister.mock.calls[0]![0] as { name: string }).toMatchObject({ name: 'kimi-tide-team' })
+
+    // 路由由开→关：已注册的 skill 被 dispose，目录里不再注册新的。
+    await getCommand()!.handler({ rawInput: 'import-config activePreset: null' })
+    await tick()
+    expect(skillRegister).toHaveBeenCalledTimes(1)
+    expect(skillDisposers[0]).toHaveBeenCalled()
   })
 })
 

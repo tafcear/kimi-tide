@@ -611,6 +611,19 @@ export function apply(ctx: Context, config: Config = {}) {
    */
   let teamSkill: TeamSkillHandle | null = null
   /**
+   * 重挂分工表 skill（控制器裁决 R3）：门控 = roles 非空 **且** 路由处于开启态。
+   * 判据用 hasActivePreset（settings-port.ts 注释明确它是「路由开/关」的唯一正确
+   * 判据——宿主对未配置条目解析出 undefined 而非 null，裸 `!== null` 会误判）。
+   * 路由关闭 = 逃生舱：先 dispose 掉已注册的 skill（目录不留残影），随后不注册、
+   * 不报错、不提示——行为回到原生直通，不向上下文注入任何分工表内容。
+   */
+  const remountTeamSkill = () => {
+    teamSkill?.dispose()
+    teamSkill = hasActivePreset(routerConfig)
+      ? installTeamSkill(skillsService, rolesOf(routerConfig), log)
+      : null
+  }
+  /**
    * 读分工表（控制器裁决 R2）：只认 roles 字段本身（`?? {}` 兜底），**不以
    * `config.version === 6` 门控** —— 线上 profile patch 与存量配置文档常显式写
    * `version: 5`，而 schema 的 version 默认值只在字段缺失时生效；版本号门控会让
@@ -728,8 +741,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // 现经 kimi-tide-catalog 设置命名空间推送（inject 块内 syncCatalogNamespace）。
 
   mountRouter()
-  // 启动初挂：与路由器同节拍；roles 空 / skills 缺席 / 注册失败 ⇒ installTeamSkill 内部降级。
-  teamSkill = installTeamSkill(skillsService, rolesOf(routerConfig), log)
+  // 启动初挂（裁决 R3）：路由关闭 ⇒ 不注册（静默）；roles 空 / skills 缺席 /
+  // 注册失败的其余降级在 installTeamSkill 内部完成。
+  remountTeamSkill()
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
@@ -762,9 +776,8 @@ export function apply(ctx: Context, config: Config = {}) {
       latestDecisions.clear()
       latestFlowEvents.clear()
       mountRouter()
-      // 配置变更重挂分工表 skill：先 dispose 旧的、再按新 roles 注册（空表则不注册）。
-      teamSkill?.dispose()
-      teamSkill = installTeamSkill(skillsService, rolesOf(routerConfig), log)
+      // 配置变更重挂分工表 skill（裁决 R3）：路由由开→关 ⇒ dispose 后不再注册。
+      remountTeamSkill()
       refreshCandidates()
     }
   }
