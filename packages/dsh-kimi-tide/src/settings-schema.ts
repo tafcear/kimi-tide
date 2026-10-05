@@ -1,6 +1,7 @@
 // src/settings-schema.ts
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type RoleEntry, type RouterConfigV5, type RouterConfigV6, type RuleTarget } from './config.js'
+import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type RouterConfigV5, type RouterConfigV6, type RuleTarget } from './config.js'
+import { claimConflict } from './roles.js'
 
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
 const D5 = DEFAULT_CONFIG_V5()
@@ -119,24 +120,6 @@ export const routerConfigSchema = Schema.object({
   // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
 })
-
-/**
- * 认领冲突检测（设计稿 D3）：每个 role 认领 {id} ∪ teammate 集合；同一名字被
- * 两个 role 认领即冲突，返回错误串；无冲突返回 undefined。
- * ⚠ Task 2 将抽取到 roles.ts（本任务内联同名逻辑，抽取后这里改 import）。
- */
-function claimConflict(roles: Record<string, RoleEntry>): string | undefined {
-  const claimed = new Map<string, string>()
-  for (const [key, role] of Object.entries(roles)) {
-    const names = [role.id, ...(role.teammate ?? [])].filter((n): n is string => typeof n === 'string' && n.length > 0)
-    for (const name of names) {
-      const holder = claimed.get(name)
-      if (holder !== undefined) return `认领名 '${name}' 被角色 '${holder}' 与 '${key}' 重复认领`
-      claimed.set(name, key)
-    }
-  }
-  return undefined
-}
 
 /** v5/v6 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
@@ -264,7 +247,7 @@ export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6): stri
   // v6 专属校验（团队派发分工层）：认领冲突 → role 字段完整 → driver 目标完整。
   if (raw.version === 6) {
     const roles = raw.roles ?? {}
-    const conflict = claimConflict(roles)                     // roles.ts（任务 2）——本任务先内联同名逻辑，任务 2 抽取后改 import
+    const conflict = claimConflict(roles)                     // roles.ts（任务 2 已抽取为 import）
     if (conflict !== undefined) return conflict
     for (const [id, role] of Object.entries(roles)) {
       if (typeof role.label !== 'string' || role.label.length === 0) return `roles.${id}.label 不能为空`
