@@ -156,6 +156,14 @@ export function hasKimiTideResidueV5(config: unknown): boolean {
  * v5 → v6：只新增字段，存量行为保持。
  * driverSticky 显式 false —— 新装走 DEFAULT_CONFIG_V6()（true），存量留旧行为；
  * driver / rulesApplyToChildren 不写：前者缺失＝跟随宿主默认，后者缺失＝运行期缺省 false（新语义）。
+ *
+ * 终审 I3（2026-10-06 修复波）：**输入已存在**的 v6 分工层字段一律透传保留——
+ * R2 字段判据后「version:5 文档携带 roles/driver/driverSticky」是合法常态
+ * （存量升级用户经设置卡写分工层后正是此形态，export-config 原样产出），
+ * 逐字段重建会把 roles 重置 {}、driver/driverSticky 静默丢弃（export→import
+ * 往返丢分工表）。只有缺失时才给默认（driverSticky 缺席 ⇒ 存量口径显式 false，
+ * 见终审 F4：未迁移文档不得被读成新装默认 true）。形状 sanity 仅防垃圾流入
+ * （语义校验在 validateRouterConfig，import-config 落盘前强制执行）。
  */
 export function migrateV5(raw: unknown): RouterConfigV6 {
   const r = (raw ?? {}) as Record<string, unknown>
@@ -168,9 +176,16 @@ export function migrateV5(raw: unknown): RouterConfigV6 {
     flows: v5.flows,
     keywordGroups: v5.keywordGroups,
     ...(v5.auxTargets === undefined ? {} : { auxTargets: v5.auxTargets }),
-    driverSticky: false,
-    roles: {},
+    ...(isPlainObject(r.roles) ? { roles: r.roles as RouterConfigV6['roles'] } : { roles: {} }),
+    ...(r.driver === null || isPlainObject(r.driver) ? { driver: r.driver as RouterConfigV6['driver'] } : {}),
+    ...(typeof r.rulesApplyToChildren === 'boolean' ? { rulesApplyToChildren: r.rulesApplyToChildren } : {}),
+    driverSticky: typeof r.driverSticky === 'boolean' ? r.driverSticky : false,
   }
+}
+
+/** 透传前的最小形状闸：非 null 非数组的普通对象。 */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
 }
 
 export function coerceRouterConfigV6(raw: unknown, warn: (message: string) => void): RouterConfigV6 {

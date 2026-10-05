@@ -1,6 +1,6 @@
 // src/settings-schema.ts
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type RouterConfigV5, type RouterConfigV6, type RuleTarget } from './config.js'
+import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type RoleEntry, type RouteTarget, type RouterConfigV5, type RouterConfigV6, type RuleTarget } from './config.js'
 import { claimConflict } from './roles.js'
 
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
@@ -128,10 +128,35 @@ export const routerConfigSchema = Schema.object({
  *  effort 形状检查（default/规则 target/visionModel/reviewer 四处，非空 string——M4；
  *  reviewer 自 1.4.1 起收 effort，撤销 0.8.0 M7）。
  *  v6 追加：roles 认领冲突 / role.label 与 role.target 完整 / driver 目标完整（下见尾部）。
- *  legacy version（≤4）直通返回 undefined（迁移兜底，注册期不做语义校验）。 */
+ *  v5 语义主体按版本判据（legacy ≤4 直通跳过：迁移兜底，注册期不做语义校验）；
+ *  v6 分工层块按**字段判据**（终审 F5 / 控制器裁决 R2：有 roles/driver 就校验，
+ *  不以版本号门控——version:5 文档携带分工层字段是 R2 后的合法常态，版本门控
+ *  会让该块永远走不到，见终审 M3）。 */
 export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6): string | undefined {
   const gateVersion = (raw as { version?: unknown }).version
-  if (gateVersion !== 5 && gateVersion !== 6) return undefined
+  if (gateVersion === 5 || gateVersion === 6) {
+    const rejection = validateV5Semantics(raw)
+    if (rejection !== undefined) return rejection
+  }
+  // v6 分工层校验（团队派发）：认领冲突 → role 字段完整 → driver 目标完整。
+  const teamLayer = raw as { roles?: Record<string, RoleEntry>; driver?: RouteTarget | null }
+  if (teamLayer.roles !== undefined || teamLayer.driver !== undefined || gateVersion === 6) {
+    const roles = teamLayer.roles ?? {}
+    const conflict = claimConflict(roles)                     // roles.ts（任务 2 已抽取为 import）
+    if (conflict !== undefined) return conflict
+    for (const [id, role] of Object.entries(roles)) {
+      if (typeof role.label !== 'string' || role.label.length === 0) return `roles.${id}.label 不能为空`
+      if (typeof role.target?.provider !== 'string' || role.target.provider.length === 0) return `roles.${id}.target.provider 不能为空`
+      if (typeof role.target?.model !== 'string' || role.target.model.length === 0) return `roles.${id}.target.model 不能为空`
+    }
+    const d = teamLayer.driver
+    if (d !== undefined && d !== null && (typeof d.provider !== 'string' || d.provider.length === 0 || typeof d.model !== 'string' || d.model.length === 0)) return 'driver 目标不完整'
+  }
+  return undefined
+}
+
+/** v5/v6 语义校验主体（原 validateRouterConfig 版本门控内的全部检查，逐字搬移）。 */
+function validateV5Semantics(raw: RouterConfigV5 | RouterConfigV6): string | undefined {
   if (raw.activePreset !== null && !(raw.activePreset in raw.presets)) {
     return `activePreset '${raw.activePreset}' 不在 presets 中`
   }
@@ -243,19 +268,6 @@ export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6): stri
     if (e !== undefined && (typeof e !== 'string' || (e as string).trim() === '')) {
       return `auxTargets['${purpose}'] 的 effort 必须为非空字符串`
     }
-  }
-  // v6 专属校验（团队派发分工层）：认领冲突 → role 字段完整 → driver 目标完整。
-  if (raw.version === 6) {
-    const roles = raw.roles ?? {}
-    const conflict = claimConflict(roles)                     // roles.ts（任务 2 已抽取为 import）
-    if (conflict !== undefined) return conflict
-    for (const [id, role] of Object.entries(roles)) {
-      if (typeof role.label !== 'string' || role.label.length === 0) return `roles.${id}.label 不能为空`
-      if (typeof role.target?.provider !== 'string' || role.target.provider.length === 0) return `roles.${id}.target.provider 不能为空`
-      if (typeof role.target?.model !== 'string' || role.target.model.length === 0) return `roles.${id}.target.model 不能为空`
-    }
-    const d = raw.driver
-    if (d !== undefined && d !== null && (typeof d.provider !== 'string' || d.provider.length === 0 || typeof d.model !== 'string' || d.model.length === 0)) return 'driver 目标不完整'
   }
   return undefined
 }

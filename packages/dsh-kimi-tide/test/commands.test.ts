@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import YAML from 'yaml'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps, type SettingsNamespacePort } from '../src/commands.js'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import type { RouterConfigAny } from '../src/router.js'
 import { RouterSidecarStore } from '../src/sidecar.js'
 import type { UsageMonitor } from '../src/usage.js'
@@ -375,5 +375,86 @@ describe('applyKimiTideCommand with settings namespace', () => {
     const out = await applyKimiTideCommand(parseKimiTideCommand('preset saving'), deps)
     expect(saveSpy).toHaveBeenCalled()
     expect(out).toContain('saved')
+  })
+})
+
+/**
+ * 终审 I3/F5（修复波）：import-config 文件形态经 migrateV5 不得再丢 v5 文档上
+ * 已存在的分工层字段（export→import 往返保住分工表）；文件与内联两条路径
+ * 落盘前跑分工表拒写校验（认领冲突 / role 目标不完整 ⇒ 明确报错且不落盘，
+ * 与设置卡 saveRoles 的守卫式拒写同款语义）。
+ */
+describe('applyKimiTideCommand import-config 分工层（终审 I3/F5 修复波）', () => {
+  const nsDeps = (current: RouterConfigAny, replaces: object[]): KimiTideCommandDeps =>
+    makeDeps(current, undefined, {
+      settings: { get: () => current, update: async () => {}, replace: async (s) => { replaces.push(s) } },
+    })
+
+  it('文件形态：v5 文件携带分工层字段 ⇒ 收敛 v6 时透传（往返不丢分工表）', async () => {
+    const replaces: object[] = []
+    const deps = nsDeps(v5cfg(null), replaces)
+    const incoming = v5cfg('saving') as RouterConfigV5 & Partial<RouterConfigV6>
+    incoming.roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, teammate: ['fe'] },
+    }
+    incoming.driver = { provider: 'kimi-coding', model: 'k3' }
+    incoming.driverSticky = true
+    const src = join(dir, 'import-v5-team.yml')
+    writeFileSync(src, YAML.stringify(incoming), 'utf8')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
+    expect(out).toMatch(/import/i)
+    expect(replaces).toHaveLength(1)
+    const written = replaces[0] as RouterConfigV6
+    expect(written.version).toBe(6)
+    // Fails if: migrateV5 逐字段重建——roles 被重置 {}、driver/driverSticky 蒸发
+    expect(written.roles).toEqual(incoming.roles)
+    expect(written.driver).toEqual(incoming.driver)
+    expect(written.driverSticky).toBe(true)
+  })
+
+  it('文件形态：分工表认领冲突 ⇒ 明确报错且不落盘', async () => {
+    const replaces: object[] = []
+    const deps = nsDeps(v5cfg(null), replaces)
+    const incoming = v5cfg('saving') as RouterConfigV5 & Partial<RouterConfigV6>
+    incoming.roles = {
+      a: { id: 'a', label: 'A', target: { provider: 'p', model: 'm' }, teammate: ['x'] },
+      b: { id: 'b', label: 'B', target: { provider: 'p', model: 'm' }, teammate: ['x'] },
+    }
+    const src = join(dir, 'import-v5-conflict.yml')
+    writeFileSync(src, YAML.stringify(incoming), 'utf8')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
+    // Fails if: 只做结构校验——冲突分工表落盘（lookupRoleByTeammate 首名命中 ⇒ 静默换人）
+    expect(out).toMatch(/import failed/)
+    expect(out).toContain('认领名')
+    expect(replaces).toHaveLength(0)
+  })
+
+  it('内联形态：分工表认领冲突 ⇒ 明确报错且不落盘', async () => {
+    const replaces: object[] = []
+    const deps = nsDeps({ ...DEFAULT_CONFIG_V6() }, replaces)
+    const text = [
+      'roles:',
+      '  a: { id: a, label: A, target: { provider: p, model: m }, teammate: [x] }',
+      '  b: { id: b, label: B, target: { provider: p, model: m }, teammate: [x] }',
+    ].join('\n')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
+    // Fails if: 内联合并路径不接拒写校验（与文件形态两标准）
+    expect(out).toMatch(/import failed/)
+    expect(out).toContain('认领名')
+    expect(replaces).toHaveLength(0)
+  })
+
+  it('内联形态：role 目标不完整（provider 空串）⇒ 明确报错且不落盘', async () => {
+    const replaces: object[] = []
+    const deps = nsDeps({ ...DEFAULT_CONFIG_V6() }, replaces)
+    const text = [
+      'roles:',
+      '  frontend: { id: frontend, label: 前端, target: { provider: "", model: m } }',
+    ].join('\n')
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: text }, deps)
+    // Fails if: 完整性校验缺席——空目标分工表落盘，运行期改道到空 provider
+    expect(out).toMatch(/import failed/)
+    expect(out).toContain('target.provider')
+    expect(replaces).toHaveLength(0)
   })
 })

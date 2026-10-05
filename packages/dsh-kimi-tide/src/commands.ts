@@ -38,6 +38,7 @@ import type { RouterConfigV4, RouterConfigV5, RouterConfigV6 } from './config.js
 import { isV5Plus } from './config.js'
 import { coerceRouterConfigV4, coerceRouterConfigV6 } from './migrate.js'
 import type { RouterConfigAny } from './router.js'
+import { validateRouterConfig } from './settings-schema.js'
 import type { RouterSidecarStore } from './sidecar.js'
 
 export type KimiTideCommand =
@@ -257,14 +258,25 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
     case 'import-config': {
       const inline = isInlineYamlText(cmd.path)
       let next: RouterConfigAny
+      // 终审 I3/F5（2026-10-06 修复波）：落盘前语义拒写校验——文件与内联两条
+      // 路径同判据（分工表认领冲突 / role 目标不完整 / driver 不完整等 ⇒ 抛错
+      // 进 catch，明确报错且不落盘，与设置卡 saveRoles 的守卫式拒写同款语义）。
+      // 宿主 dsh-settings 的写校验只做 JSON 形状 + schema 重解析，从不跑插件语义
+      // 校验（终审 M2）——本调用点就是 validateRouterConfig 的生产接点。
+      const rejectInvalid = (cfg: RouterConfigAny): void => {
+        const rejection = validateRouterConfig(cfg as RouterConfigV5 | RouterConfigV6)
+        if (rejection !== undefined) throw new Error(rejection)
+      }
       try {
         if (deps.settings != null) {
           // 命名空间是 v6 存储：文件导入沿用「导入即迁移」惯例收敛 v6；
           // 内联合并保留当前版本（mergeInlineText 内保证）。
           next = inline ? mergeInlineText(cmd.path, deps.current()) : coerceRouterConfigV6(parseImportedFile(cmd.path), () => {})
+          rejectInvalid(next)
           await deps.settings.replace(next as unknown as object)
         } else if (inline) {
           next = mergeInlineText(cmd.path, deps.current())
+          rejectInvalid(next)
           deps.sidecar.save(next as RouterConfigV4)
         } else {
           next = parseImportedFile(cmd.path)
@@ -273,6 +285,7 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
           if (isV5Plus(next)) {
             throw new Error('v5+ 配置（flows/imageFallback/roles）需要带设置服务的宿主（设置命名空间）；sidecar 兜底存储仅支持 v4')
           }
+          rejectInvalid(next)
           deps.sidecar.save(next)
         }
       } catch (error) {

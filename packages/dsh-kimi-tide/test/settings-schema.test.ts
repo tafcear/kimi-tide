@@ -1,6 +1,6 @@
 // test/settings-schema.test.ts（v5 重写）
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import { coerceRouterConfigV6 } from '../src/migrate.js'
 import { mergeResolved, routerConfigSchema, validateRouterConfig } from '../src/settings-schema.js'
 
@@ -155,6 +155,41 @@ describe('routerConfigSchema v6（团队派发）', () => {
     const migrated = coerceRouterConfigV6(DEFAULT_CONFIG_V5(), () => {})
     const resolved = mergeResolved(migrated)
     expect(resolved.driverSticky).toBe(false)
+  })
+})
+
+describe('validateRouterConfig 分工层字段判据（终审 F5：去版本号门控）', () => {
+  it('version:5 文档携带冲突 roles ⇒ 拒绝（有 roles 就校验，R2 字段判据）', () => {
+    const c = DEFAULT_CONFIG_V5() as RouterConfigV5 & Partial<RouterConfigV6>
+    c.roles = {
+      a: { id: 'a', label: 'A', target: { provider: 'p', model: 'm' }, teammate: ['x'] },
+      b: { id: 'b', label: 'B', target: { provider: 'p', model: 'm' }, teammate: ['x'] },
+    }
+    // Fails if: v6 校验块仍以 raw.version === 6 门控——version:5 携带的 roles
+    // 永远走不到该块（一旦接上生产校验点即漏，见终审 M3）
+    expect(validateRouterConfig(c)).toContain('认领名')
+  })
+
+  it('version:5 文档携带合法 roles ⇒ 通过', () => {
+    const c = DEFAULT_CONFIG_V5() as RouterConfigV5 & Partial<RouterConfigV6>
+    c.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    expect(validateRouterConfig(c)).toBeUndefined()
+  })
+
+  it('version:5 文档携带不完整 role 目标 / driver ⇒ 拒绝', () => {
+    const badRole = DEFAULT_CONFIG_V5() as RouterConfigV5 & Partial<RouterConfigV6>
+    badRole.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: '', model: 'm' } } }
+    expect(validateRouterConfig(badRole)).toContain('target.provider')
+    const badDriver = DEFAULT_CONFIG_V5() as RouterConfigV5 & Partial<RouterConfigV6>
+    badDriver.driver = { provider: 'p', model: '' }
+    // Fails if: driver 完整性校验同样被版本号门控吞掉
+    expect(validateRouterConfig(badDriver)).toContain('driver')
+  })
+
+  it('无 roles/driver 的 legacy 文档 ⇒ 分工层校验不点火（≤4 直通口径不变）', () => {
+    expect(validateRouterConfig({ version: 3 } as never)).toBeUndefined()
+    const v4 = DEFAULT_CONFIG_V4(); v4.activePreset = 'ghost'
+    expect(validateRouterConfig(v4 as never)).toBeUndefined()
   })
 })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV3 } from '../src/config.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV3, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import { coerceRouterConfig, coerceRouterConfigV4, coerceRouterConfigV5, coerceRouterConfigV6, hasKimiTideResidue, hasKimiTideResidueV5, hasKimiTideResidueV6, migrateV1, migrateV2, migrateV3, migrateV4, migrateV5 } from '../src/migrate.js'
 
 const V1 = {
@@ -215,6 +215,40 @@ describe('migrateV5（v5→v6：存量保持旧行为）', () => {
     expect(v6.driverSticky).toBe(false)          // 存量保持 v1.4.1 行为
     expect(v6).not.toHaveProperty('driver')
     expect(v6).not.toHaveProperty('rulesApplyToChildren')
+  })
+
+  it('终审 I3：v5 输入已带分工层字段 ⇒ 透传保留（export→import 往返不丢分工表）', () => {
+    // R2 常态：存量升级用户经设置卡写 roles/driver 后，文档仍是 version:5 且携带
+    // 分工层字段，export-config 原样产出。migrateV5 逐字段重建 ⇒ import 后 roles
+    // 被重置 {}、driver/driverSticky 静默蒸发（数据丢失，且无任何提示）。
+    const v5 = DEFAULT_CONFIG_V5() as RouterConfigV5 & Partial<RouterConfigV6>
+    v5.activePreset = 'saving'
+    v5.roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, teammate: ['fe'] },
+    }
+    v5.driver = { provider: 'kimi-coding', model: 'k3' }
+    v5.driverSticky = true
+    v5.rulesApplyToChildren = true
+    const v6 = migrateV5(v5)
+    // Fails if: 重建式迁移——roles 恒 {}、driverSticky 恒 false、driver/rulesApplyToChildren 不携带
+    expect(v6.roles).toEqual(v5.roles)
+    expect(v6.driver).toEqual(v5.driver)
+    expect(v6.driverSticky).toBe(true)
+    expect(v6.rulesApplyToChildren).toBe(true)
+  })
+
+  it('终审 I3：v5 输入显式 driver:null ⇒ 透传 null（「跟随宿主默认」的显式选择不丢）', () => {
+    const v5 = DEFAULT_CONFIG_V5() as RouterConfigV5 & { driver?: unknown }
+    v5.driver = null
+    // Fails if: 只在「非空目标」时携带——显式 null 被当成缺席而丢键
+    expect(migrateV5(v5).driver).toBeNull()
+  })
+
+  it('终审 I3/F4 口径接缝：v5 输入缺席 driverSticky ⇒ 仍显式写 false（存量口径不变）', () => {
+    // 透传只针对「输入已存在」的字段；driverSticky 缺席时迁移路径必须保持
+    // 「存量显式 false」裁定（否则未迁移文档会被静默读成新装默认 true）。
+    const v6 = migrateV5(DEFAULT_CONFIG_V5())
+    expect(v6.driverSticky).toBe(false)
   })
 
   it('同引用直通幂等：已是 v6 的输入原样返回', () => {
