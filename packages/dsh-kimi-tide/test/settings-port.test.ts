@@ -7,7 +7,7 @@
 // 变空、所有「档位」下拉退化禁用（实机现象：设置页改任何一项后档位即灰）。
 import { describe, expect, it } from 'vitest'
 import { createSettingsPort, isLegacyRouterShape, readRouterConfig } from '../src/settings-port.js'
-import { DEFAULT_CONFIG_V5, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV5 } from '../src/config.js'
 
 /**
  * 端口测试替身：editor.edit 按宿主实测语义**整份覆盖**（candidate 里没有的键
@@ -48,6 +48,21 @@ const MOUNTED = ['kimi-coding/k3', 'zai-coding-cn/glm-5.3']
 describe('settings-port：legacy 判据（v6 加宽）', () => {
   it('isLegacyRouterShape：v6 不是 legacy（否则每次启动重跑迁移）', () => {
     expect(isLegacyRouterShape({ version: 6 })).toBe(false)
+  })
+})
+
+describe('settings-port：运行期读取兜底（v6 收敛）', () => {
+  it('条目没有 router 段时 readRouterConfig 回落 v6 默认（新装默认 driverSticky: true）', () => {
+    // 三条兜底路径都收敛到同一个 v6 内置真相源：
+    // ① config 无 router 键；② volatile 快照为 undefined；③ config 本身缺失。
+    for (const config of [{}, { router: { get: () => undefined } }, undefined]) {
+      const c = readRouterConfig(config)
+      expect(c.version).toBe(6)
+      if (c.version !== 6) continue   // 收窄到 v6 判别成员：下面断言 v6 专属字段
+      expect(c.driverSticky).toBe(true)
+      expect(c.roles).toEqual({})
+      expect(c).toEqual(DEFAULT_CONFIG_V6())
+    }
   })
 })
 

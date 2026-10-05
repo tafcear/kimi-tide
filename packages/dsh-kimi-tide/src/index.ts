@@ -41,7 +41,7 @@ import {
 } from './router.js'
 import { ImageStateStore } from './image-state.js'
 import { Transcriber } from './transcribe.js'
-import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5 } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RouteTarget, type RouterConfigV5Plus } from './config.js'
 import { routerConfigSchema } from './settings-schema.js'
 import { createSettingsPort, hasActivePreset, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
@@ -553,7 +553,7 @@ export function apply(ctx: Context, config: Config = {}) {
    * 0.1.7 起由宿主解析（schema 默认 + 组合 base + 用户层），插件不再手工合并；
    * 残留迁移链以 rawRouter 为准（见 rawRouterConfig 头注）。
    */
-  const settingsBase: RouterConfigV5 = readRouterConfig(config)
+  const settingsBase: RouterConfigV5Plus = readRouterConfig(config)
 
   // Candidate pool: mounted immediately with config-derived fallback metas,
   // then replaced by the enumerated pool once the llm catalog settles;

@@ -28,7 +28,7 @@
  * （0.4.x 以来既有路径，行为不变）。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { DEFAULT_CONFIG_V5, isV5Plus, type RouterConfigV5 } from './config.js'
+import { DEFAULT_CONFIG_V6, isV5Plus, type RouterConfigV5Plus } from './config.js'
 import type { SettingsNamespacePort } from './commands.js'
 
 /** ConfigEditor 的最小结构面（避免把宿主服务的深类型带进插件公共面）。 */
@@ -46,7 +46,7 @@ interface VolatileFace<T> {
 
 /** 本插件的运行时 Config 结构面：router 为 volatile 快照，其余为普通字段。 */
 interface PluginConfigFace {
-  router?: VolatileFace<RouterConfigV5>
+  router?: VolatileFace<RouterConfigV5Plus>
 }
 
 /**
@@ -76,20 +76,22 @@ export interface SettingsPortDeps {
 
 /**
  * 从本插件的 Config 取路由配置快照。宿主已完成三层合并；缺失（条目未配
- * router 段）时回落 v5 默认值，与旧「base = DEFAULT_CONFIG_V5()」语义一致。
+ * router 段）时回落 v6 内置真相源（DEFAULT_CONFIG_V6()：新装默认
+ * driverSticky: true），与 schema 默认 / mergeResolved 的兜底口径一致。
+ * 返回类型取 v5+ 并集：存量显式 v5 条目解析后仍是 v5，原样透传不升格。
  */
-export function readRouterConfig(config: unknown): RouterConfigV5 {
+export function readRouterConfig(config: unknown): RouterConfigV5Plus {
   const face = asConfigFace(config)
   const volatile = face?.router
   if (volatile !== undefined && typeof volatile.get === 'function') {
     const value = volatile.get()
-    return value ?? DEFAULT_CONFIG_V5()
+    return value ?? DEFAULT_CONFIG_V6()
   }
   // 兼容形态：0.1.7 之前的宿主把 Config 原样交给插件（普通对象，无 Volatile 包装）。
-  // 两种形态都按「已解析的 v5 配置」读取，插件侧读取路径保持一致。
-  const plain = (face as unknown as { router?: RouterConfigV5 } | undefined)?.router
+  // 两种形态都按「已解析的 v5+ 配置」读取，插件侧读取路径保持一致。
+  const plain = (face as unknown as { router?: RouterConfigV5Plus } | undefined)?.router
   if (plain !== undefined && plain !== null) return plain
-  return DEFAULT_CONFIG_V5()
+  return DEFAULT_CONFIG_V6()
 }
 
 /**
@@ -209,7 +211,7 @@ export function createSettingsPort(deps: SettingsPortDeps): SettingsNamespacePor
     catalogSection === null
       ? base
       : { ...base, efforts: writableCopy(catalogSection.efforts), mounted: writableCopy(catalogSection.mounted) }
-  const write = (router: RouterConfigV5): Promise<void> => {
+  const write = (router: RouterConfigV5Plus): Promise<void> => {
     const next: Record<string, unknown> = withCatalog({
       ...tunables(),
       router: writableCopy(router) as unknown as Record<string, unknown>,
@@ -220,7 +222,7 @@ export function createSettingsPort(deps: SettingsPortDeps): SettingsNamespacePor
   return {
     get: () => readRouterConfig(config),
     update: (patch) => write(deepMergeRouter(readRouterConfig(config), patch)),
-    replace: (section) => write(section as RouterConfigV5),
+    replace: (section) => write(section as RouterConfigV5Plus),
     setCatalog: (section) => {
       catalogSection = { efforts: section.efforts, mounted: section.mounted }
       const next: Record<string, unknown> = withCatalog({
@@ -236,8 +238,8 @@ export function createSettingsPort(deps: SettingsPortDeps): SettingsNamespacePor
  * 顶层浅合并（旧 `scope.update(patch)` 语义：dsh-settings 的 update 是「把补丁字段
  * 合并进当前配置」，不递归）。嵌套值整体替换——与旧行为逐字一致。
  */
-function deepMergeRouter(current: RouterConfigV5, patch: object): RouterConfigV5 {
-  return { ...(current as unknown as Record<string, unknown>), ...(patch as Record<string, unknown>) } as unknown as RouterConfigV5
+function deepMergeRouter(current: RouterConfigV5Plus, patch: object): RouterConfigV5Plus {
+  return { ...(current as unknown as Record<string, unknown>), ...(patch as Record<string, unknown>) } as unknown as RouterConfigV5Plus
 }
 
 /**
