@@ -1474,7 +1474,7 @@ export function SettingsCard(props: SettingsCardProps) {
           设计稿 §8-1「设置页可一键打开」无从落地）。写通道 = storeWriter.saveDriver /
           saveDriverSticky / saveRulesApplyToChildren（saveTop 范式：scope.set/mutate +
           写后「意图值 vs 实读值」比对）。零新增 useState（改即保存，FlowRow 同款纪律）。 */}
-      <details className="kt-driver kt-card">
+      <details className="kt-driver kt-card" data-kt-section="driver">
         <summary>主驱动（团队派发）</summary>
         <p className="kt-hint">
           主驱动目标 = 主会话打底的常驻模型；选「跟随宿主默认」= 不锁定（driver = null）。

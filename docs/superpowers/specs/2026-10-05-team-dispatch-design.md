@@ -221,3 +221,22 @@ v2.0.0（major：新增分工层语义 + 两项行为变更。依 §8 裁定：*
 | M1-M8 | 缺失决策 | role.id 是否自动认领／降级落点／动态 vs 锁定／ledger 寿命／driver 面板／多队友名／上游演进／命名合法性教学 | **采纳**：并入 §8 第 6–13 项 |
 | E1–E4 | 事实偏差 | 探针 A/B 未定义、A2「已预演」论据不成立、B-1a 例外系误判、`skills/change` 机制措辞不准 | **采纳**：§1.3 定义探针 A/B；A2 去论据；删例外改单测；D3 按 tool-skill 机制改措辞 |
 | A-变体 | 判据补全 | A1 缺 `driver=null`／关键词轮变体、A4 缺反向、缺并发探针 | **采纳**：A1 拆三变体、A4 补反向、新增 A8 |
+
+## 11. 实施记录（2026-10-05）
+
+本设计已按计划实现（8 个任务：配置 v6 / 分工表纯函数层 / runtime skill /
+路由核心 / 派发台账 / dock 派发区 / 设置页编辑器 / 文档与验收 runbook），
+提交区间 `29b469c..7d4acaf`（main 分支；架构说明见
+`packages/dsh-kimi-tide/docs/router.md` 文末「2.0.0 团队派发」节，实机验收
+runbook 见 `packages/dsh-kimi-tide/docs/team-dispatch-acceptance.md`）。
+
+与设计稿的两处显式差异（其余均按 §8 裁定落地）：
+
+1. **迁移显式写 `driverSticky: false`**（§4 原文「迁移不写 `driverSticky`」）。
+   原因：新装默认 `true` 必须由 `DEFAULT_CONFIG_V6()` 提供，若迁移不写、默认
+   基座又带 `true`，存量用户会被 `deepMerge` 注入 `true`，违背「存量保持
+   旧行为」的裁定；写 `false` 是 §8-1 已裁定的落地口径。
+2. **D4 的 `subagent/start|end` 订阅未进本版**：改由**请求层记账**（`agent/
+   request` 在图像护栏之后记录实际生效模型）覆盖 D4「看得见」的目标——比
+   start 事件的 provider 名更真；`start|end` 订阅留作后续增强（如需「派发
+   耗时/成败」再加）。

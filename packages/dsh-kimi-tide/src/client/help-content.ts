@@ -31,9 +31,10 @@ export const DOCK_ELEMENTS = [
   'dispatch', 'fetched-at', 'refresh', 'notice', 'dock-states',
 ] as const
 
-/** 设置页的功能区块 id（说明页必须逐个讲到）。 */
+/** 设置页的功能区块 id（说明页必须逐个讲到）。`driver` = 主驱动卡（Task 8 补锚点，
+ *  前序 carry②：该条目原先只锚 dock 的 dispatch 元素）。 */
 export const SETTINGS_SECTIONS = [
-  'presets', 'preset-editor', 'preset-ops', 'rules', 'keyword-groups', 'image-fallback', 'hit-confirm', 'flows', 'trial', 'roles',
+  'presets', 'preset-editor', 'preset-ops', 'rules', 'keyword-groups', 'image-fallback', 'hit-confirm', 'flows', 'trial', 'roles', 'driver',
 ] as const
 
 /**
@@ -333,7 +334,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         id: 'routing-driver',
         title: '团队派发的几个开关（driver / driverSticky / rulesApplyToChildren）',
-        anchors: ['dispatch'],
+        anchors: ['driver', 'dispatch'],
         body: [
           'driver = 主驱动目标（null/缺省 = 跟随宿主默认模型）；driverSticky 开启时主会话打底恒用 driver。',
           'rulesApplyToChildren 关闭（默认）时，子代理的请求不参与关键词规则——只有分工表认领的队友会被改道。',
