@@ -1512,3 +1512,73 @@ describe('v2.0.0 派发台账接线：槽位 dispatch → onDispatch 记账', ()
     expect(entries).toHaveLength(0)
   })
 })
+
+/**
+ * §8-6 可用性护栏（R7 修复轮 1）：role 目标不可用（不在候选池 / available:false）
+ * ⇒ 不套用 role 决策——走既有决策路径（子代理落打底，再由 B-1a 让位保持继承值，
+ * 不静默换人），派发元信息记 basis='keep' 且带 roleLabel/teammate（面板据此提示
+ * 「分工表「前端」目标不可用 → 保持继承」）。目标可用 ⇒ 照常改道（回归保护）。
+ */
+describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（保持继承）', () => {
+  const child = {
+    id: 'child-guard',
+    session: { header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
+  }
+  const ROLE_FRONT: RoleEntry = { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } }
+  /** 继承目标（≠ 预设默认，≠ 角色目标）——B-1a 让位后应原样保留。 */
+  const EXTERNAL: RouteTarget = { provider: 'kimi-coding', model: 'k3' }
+
+  const mountGuard = (metas: CandidateMeta[]) => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    const entries: DispatchEntry[] = []
+    installRouter(ctx as never, new KimiRouter(TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), metas, { info: () => {} }), {
+      ...fixture.deps,
+      teamLookup: () => ({ role: 'teammate', name: 'frontend' }),
+      onDispatch: (_agent, entry) => { entries.push(entry) },
+    })
+    return { dispatch, fixture, entries }
+  }
+
+  it('目标可用（池中且 available）⇒ 仍按 role 改道（回归保护）', async () => {
+    const { dispatch, fixture, entries } = mountGuard(METAS)
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // Fails if: 可用性护栏误伤可用目标（不改道 ⇒ 落打底被让位，config 保持 EXTERNAL）
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('role')
+    expect(entries[0]).toMatchObject({ basis: 'role', teammate: 'frontend', roleLabel: '前端' })
+  })
+
+  it('目标不在候选池 ⇒ 不改道：B-1a 保持继承值，派发元信息 basis=keep 带角色名', async () => {
+    // 池中剔除 kimi-for-coding（模拟 provider 未挂载 / 目录无此模型）
+    const metas = METAS.filter((m) => !(m.provider === 'kimi-coding' && m.model === 'kimi-for-coding'))
+    const { dispatch, fixture, entries } = mountGuard(metas)
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // Fails if: 无可用性检查 ⇒ 照常改道到池外目标 kimi-for-coding
+    expect(config).toEqual(EXTERNAL)
+    // 决策落既有路径：打底（随后被 B-1a 让位，保持继承值）
+    expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('default')
+    // 派发元信息：keep ＋ 角色名（面板提示「分工表「前端」目标不可用 → 保持继承」）
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      basis: 'keep',
+      teammate: 'frontend',
+      roleLabel: '前端',
+      target: { provider: 'kimi-coding', model: 'k3' },
+    })
+  })
+
+  it('目标在池中但 available:false ⇒ 同样不改道且 basis=keep 带角色名', async () => {
+    const metas = METAS.map((m) =>
+      m.provider === 'kimi-coding' && m.model === 'kimi-for-coding' ? { ...m, available: false } : m,
+    )
+    const { dispatch, entries } = mountGuard(metas)
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // Fails if: 只查「池中存在」不查 available ⇒ 不可用目标照常改道
+    expect(config).toEqual(EXTERNAL)
+    expect(entries[0]).toMatchObject({ basis: 'keep', teammate: 'frontend', roleLabel: '前端' })
+  })
+})

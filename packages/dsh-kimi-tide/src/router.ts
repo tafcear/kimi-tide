@@ -928,12 +928,21 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       // role 分支不点火）；R2 字段判据 roles ?? {}（不以 version 门控，同上 teamCfg 注）。
       const membership = isChild ? deps.teamLookup?.(agent) : undefined
       const roleHit = resolveRoleDecision(teamCfg.roles ?? {}, membership)
-      // 决策后处理链（顺序不可变）：role 覆盖（不覆盖显式 @ 与 flow）→ 主驱动恒定
-      // （仅主会话、仅打底）。三处 decide 调用点**同带**——转述后的重跑若不过链，
-      // 终决策会丢 role 改道与 sticky（与判否集合/注记三处同传同款理由）。
-      // 注意在 withConfirmNote **之前**过链：注记须前置拼进最终原因串。
+      // §8-6 可用性护栏（R7）：role 目标须在候选池中且可用（available !== false）
+      // 才改道。不可用 ⇒ 不套用 role 决策——走既有决策路径（子代理通常落打底，
+      // 再由 B-1a 让位保持继承值），不静默换人；面板由派发元信息
+      // （basis=keep + roleLabel/teammate，见下方槽位写入）提示。
+      const roleTargetUsable = roleHit === undefined || router.metas.some(
+        (m) => m.provider === roleHit.role.target.provider && m.model === roleHit.role.target.model && m.available !== false,
+      )
+      const effectiveRoleHit = roleTargetUsable ? roleHit : undefined
+      // 决策后处理链（顺序不可变）：role 覆盖（不覆盖显式 @ 与 flow；目标不可用
+      // 时不套用）→ 主驱动恒定（仅主会话、仅打底）。三处 decide 调用点**同带**
+      // ——转述后的重跑若不过链，终决策会丢 role 改道与 sticky（与判否集合/注记
+      // 三处同传同款理由）。注意在 withConfirmNote **之前**过链：注记须前置拼进
+      // 最终原因串。
       const postProcess = (d: RouteDecision): RouteDecision =>
-        applyDriverSticky(applyRoleDecision(d, roleHit), isChild, teamCfg.driver, teamCfg.driverSticky)
+        applyDriverSticky(applyRoleDecision(d, effectiveRoleHit), isChild, teamCfg.driver, teamCfg.driverSticky)
       // 4. 决策（三处调用**同带判否集合**——转述后的重跑若不传，被判否的规则会复活；
       //    注记同样三处同带，否则重跑会把判词从原因串里抹掉）
       let decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, hasImage, omitted, { skipKeywordRules })), confirmNote)
@@ -1056,7 +1065,13 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       slots.set(agent, {
         decision,
         hasImage,
-        dispatch: isChild ? dispatchMetaOf(membership, roleHit, decision) : undefined,
+        // §8-6：role 命中但目标不可用 ⇒ 记 basis='keep'（不新增枚举值）并带上
+        // roleLabel/teammate——面板据此显示「分工表「前端」目标不可用 → 保持继承」。
+        dispatch: isChild
+          ? roleHit !== undefined && !roleTargetUsable
+            ? { basis: 'keep', teammate: roleHit.name, roleLabel: roleHit.role.label }
+            : dispatchMetaOf(membership, roleHit, decision)
+          : undefined,
       })
       onDecision?.(agent, decision, flowId === undefined
         ? undefined
