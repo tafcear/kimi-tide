@@ -7,7 +7,7 @@
  * 中文/混合/短语关键词为大小写不敏感子串匹配。
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { KIMI_PROVIDER, configKey, isFlowTarget, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
+import { KIMI_PROVIDER, configKey, isFlowTarget, isV5Plus, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
 import type { RouterConfigAny } from './router.js'
 
 /** 词法层的 provider 名。
@@ -258,7 +258,7 @@ export function duplicateRuleIds(rules: readonly RouterRule[]): string[] {
  *  非空 → 该组被流认领。v4 无 flows → 空集（行为逐字节保持）。 */
 export function claimedReviewGroups(config: RouterConfigAny): Set<string> {
   const claimed = new Set<string>()
-  if (config.version !== 5) return claimed
+  if (!isV5Plus(config)) return claimed
   for (const flow of Object.values(config.flows)) {
     if (flow.type === 'review' && flow.trigger === 'keywords' && flow.keywordGroup) {
       claimed.add(flow.keywordGroup)
@@ -313,7 +313,7 @@ export function reviewTriggerHit(
   known: ReadonlySet<string> | null = null,
 ): { flowId: string; flow: ReviewFlow } | null {
   if (effectiveExplicitDirective(text, known) !== null) return null
-  if (config.version !== 5) return null
+  if (!isV5Plus(config)) return null
   for (const [flowId, flow] of Object.entries(config.flows)) {
     if (flow.type !== 'review' || flow.trigger !== 'keywords' || !flow.keywordGroup) continue
     const words = config.keywordGroups[flow.keywordGroup] ?? []

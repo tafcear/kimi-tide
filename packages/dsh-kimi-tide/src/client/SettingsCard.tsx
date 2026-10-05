@@ -45,6 +45,7 @@ import {
   configKey,
   DEFAULT_FLOWS,
   isFlowTarget,
+  isV5Plus as isV5PlusConfig,
   type CollaborationFlow,
   type HitConfirm,
   type ImageFallback,
@@ -623,7 +624,7 @@ export function SettingsCard(props: SettingsCardProps) {
         if (!isFlowTarget(rule.target)) configured.push(rule.target)
       }
     }
-    if (config.version === 5) {
+    if (isV5PlusConfig(config)) {
       for (const flow of Object.values(config.flows)) {
         configured.push(flow.type === 'transcribe' ? flow.visionModel : flow.reviewer)
       }
@@ -660,9 +661,9 @@ export function SettingsCard(props: SettingsCardProps) {
     efforts === null || efforts === undefined ? undefined : efforts[configKey(target)]
   const groupNames = Object.keys(config.keywordGroups)
 
-  /* ---- 0.6.0 协作流（v5 门控；v4 配置下本节全部为空/不渲染，行为保持）---- */
-  const isV5 = config.version === 5
-  const flows = isV5 ? config.flows : {}
+  /* ---- 0.6.0 协作流（v5+ 门控；v4 配置下本节全部为空/不渲染，行为保持）---- */
+  const isV5Plus = isV5PlusConfig(config)
+  const flows = isV5Plus ? config.flows : {}
   const flowEntries = Object.entries(flows)
   // P1 边界：仅 transcribe 流可作规则目标（review 流出现在注册表区但不进分组）。
   const transcribeFlowOptions = flowEntries
@@ -837,7 +838,7 @@ export function SettingsCard(props: SettingsCardProps) {
           aria-selected={activeTab === 'route'} tabIndex={activeTab === 'route' ? 0 : -1}
           className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
           onClick={() => setActiveTab('route')}>路由</button>
-        {isV5 && (
+        {isV5Plus && (
           <button type="button" role="tab" id={tabId('flows')} aria-controls={panelId('flows')} data-kt-tab="flows"
             aria-selected={activeTab === 'flows'} tabIndex={activeTab === 'flows' ? 0 : -1}
             className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
@@ -1089,9 +1090,9 @@ export function SettingsCard(props: SettingsCardProps) {
             <button type="button" className="kt-btn-primary" disabled={!writable} onClick={addRule}>新增规则</button>
           </div>
 
-          {/* 带图兜底三态（0.6.0，仅 v5）：锁存/盲答/懒转述 + 一句话后果提示；
+          {/* 带图兜底三态（0.6.0，仅 v5+）：锁存/盲答/懒转述 + 一句话后果提示；
               懒转述流选择器仅 transcribe-lazy 态渲染（缺省指向预置 transcribe）。 */}
-          {isV5 && (
+          {isV5Plus && (
             <div className="kt-card kt-fallback">
               <label className="kt-row">
                 <span className="kt-field-label">带图兜底</span>
@@ -1130,10 +1131,10 @@ export function SettingsCard(props: SettingsCardProps) {
             </div>
           )}
 
-          {/* 语义命中确认闸（v1.3.0，仅 v5；spec §8.1）：默认关闭。开启后关键词命中
+          {/* 语义命中确认闸（v1.3.0，仅 v5+；spec §8.1）：默认关闭。开启后关键词命中
               先由**本预设的打底模型**确认意图真伪，判否跳过该规则、继续后续规则；
               超时/目标不可用/解析失败一律按原关键词结果走（fail-open）。 */}
-          {isV5 && (
+          {isV5Plus && (
             <div className="kt-card kt-hit-confirm">
               <label className="kt-row">
                 <span className="kt-field-label">语义命中确认</span>
@@ -1268,7 +1269,7 @@ export function SettingsCard(props: SettingsCardProps) {
           const preview = previewRoute(config, trialText, {
             catalog: snapshot.catalog,
             availability: snapshot.availability,
-            flows: isV5 ? config.flows : undefined,
+            flows: isV5Plus ? config.flows : undefined,
             mounted: snapshot.mounted,
           })
           return (
@@ -1301,8 +1302,8 @@ export function SettingsCard(props: SettingsCardProps) {
       </details>
       </div>
 
-      {/* 协作流页容器（flows 仅 v5 存在，故容器与内容一起门控） */}
-      {isV5 && (
+      {/* 协作流页容器（flows 仅 v5+ 存在，故容器与内容一起门控） */}
+      {isV5Plus && (
         <div className="kt-tabpanel kt-flows" role="tabpanel" id={panelId('flows')} aria-labelledby={tabId('flows')} tabIndex={0} hidden={activeTab !== 'flows'}>
         <details className="kt-flows kt-card" open>
           <summary>协作流</summary>

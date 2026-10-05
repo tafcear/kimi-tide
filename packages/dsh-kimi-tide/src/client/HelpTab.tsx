@@ -8,6 +8,7 @@
  */
 import { createElement } from 'react'
 import type { ReactNode } from 'react'
+import { isV5Plus } from '../config.js'
 import { HELP_SECTIONS, type HelpConfig, type HelpEntry } from './help-content.js'
 
 export interface HelpTabProps {
@@ -28,7 +29,7 @@ function liveLineOf(entry: HelpEntry, config: HelpConfig | null): string | undef
 
 export function HelpTab(props: HelpTabProps): ReactNode {
   const config = props.config
-  const isV5 = config !== null && config.version === 5
+  const isV5 = config !== null && isV5Plus(config)
   const sections = HELP_SECTIONS.filter((section) => section.v5Only !== true || isV5)
   return createElement(
     'div',

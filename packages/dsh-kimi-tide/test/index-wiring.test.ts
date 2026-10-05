@@ -234,7 +234,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
     expect(getCommand()!.name).toBe('kimi-tide')
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('settings')
-    expect(settings.get().version).toBe(5)
+    expect(settings.get().version).toBe(6)
   })
 
   /**
@@ -257,7 +257,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
     const stored = settings.doc.router as RouterConfigV5
     expect(stored.activePreset).toBe('capability')
-    expect(stored.version).toBe(5)
+    expect(stored.version).toBe(6)
     expect(Object.keys(stored.presets).length).toBeGreaterThan(0)
     expect((settings.get() as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
@@ -404,7 +404,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect((await lastSnapshot(getCommand, agent)).configSource).toBe('sidecar')
   })
 
-  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v5，0.6.0 链）', async () => {
+  it('一次性迁移存量 v2 用户层（kimi-tide → kimi-coding → v6，团队派发链）', async () => {
     // 预置一个「用户编辑过」的 v2 配置节（0.3.0 面板写出来的形状）
     const seed = {
       version: 2, mode: 'capability',
@@ -422,7 +422,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     await tick()
 
     const resolved = settings.get() as RouterConfigV5
-    expect(resolved.version).toBe(5)
+    expect(resolved.version).toBe(6)
     expect(resolved.activePreset).toBe('capability')
     expect(resolved.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })
     // 预置流注册但不绑定：既有规则目标逐字保持（无 flow 引用，全是模型目标）
@@ -433,22 +433,22 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(existsSync(sidecarFile)).toBe(false)
   })
 
-  it('无显式 version 的用户层不触发迁移（随 v5 默认解析，无替换写、无留档）', async () => {
+  it('无显式 version 的用户层不触发迁移（随 v6 默认解析，无替换写、无留档）', async () => {
     const settings = makeSettings({ activePreset: 'saving' })
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const { ctx, getCommand } = makeCtx([agent], settings)
     apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
     const resolved = settings.get() as RouterConfigV5
-    expect(resolved.version).toBe(5)
+    expect(resolved.version).toBe(6)
     expect(resolved.activePreset).toBe('saving')
-    // 无残留 → 不触发 v5 迁移写：无 .pre-v5 留档，生效值仍是用户写的 saving。
+    // 无残留 → 不触发 v6 迁移写：无 .pre-v6 留档，生效值仍是用户写的 saving。
     // （doc 本身会被 volatile 目录写盘刷新——那是 setCatalog 的正常行为，不是迁移。）
     expect((settings.doc.router as RouterConfigV5).activePreset).toBe('saving')
-    expect(existsSync(join(dir, 'cordis.patch.yml.pre-v5'))).toBe(false)
+    expect(existsSync(join(dir, 'cordis.patch.yml.pre-v6'))).toBe(false)
   })
 
-  it('v4 存量配置启动迁移到 v5：行为逐字保持 + 预置流注册不绑定 + .pre-v5 留档', async () => {
+  it('v4 存量配置启动迁移到 v6：行为逐字保持 + 预置流注册不绑定 + .pre-v6 留档', async () => {
     const legacy = v4cfg('saving')
     const docFile = join(dir, 'cordis.patch.yml')
     writeFileSync(docFile, '# 用户配置文档替身（configEditor 的 documentPath）\n', 'utf8')
@@ -460,7 +460,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     await tick()
 
     const resolved = settings.get() as RouterConfigV5
-    expect(resolved.version).toBe(5)
+    expect(resolved.version).toBe(6)
     expect(resolved.activePreset).toBe('saving')
     // 行为保持：presets/keywordGroups 逐字保留（不自动改挂流、不注入 imageFallback）
     expect(resolved.presets).toEqual(legacy.presets)
@@ -468,9 +468,9 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     // 预置流注册但不绑定
     expect(resolved.flows.transcribe?.visionModel.model).toBe('deepseek-v4-flash-vision-exp')
     expect(resolved.presets.saving.rules[0].target).toEqual({ provider: 'kimi-coding', model: 'k3' })
-    // 持久化替换 + 文档留档 .pre-v5
-    expect((settings.doc.router as RouterConfigV5).version).toBe(5)
-    expect(existsSync(docFile + '.pre-v5')).toBe(true)
+    // 持久化替换 + 文档留档 .pre-v6
+    expect((settings.doc.router as RouterConfigV5).version).toBe(6)
+    expect(existsSync(docFile + '.pre-v6')).toBe(true)
   })
 
   it('v5 流接线：eager 转述成功 → 面板推送 imageContext 三态计数与 lastFlowEvent', async () => {

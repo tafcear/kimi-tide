@@ -34,8 +34,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
-import type { RouterConfigV4, RouterConfigV5 } from './config.js'
-import { coerceRouterConfigV4, coerceRouterConfigV5 } from './migrate.js'
+import type { RouterConfigV4, RouterConfigV5, RouterConfigV6 } from './config.js'
+import { isV5Plus } from './config.js'
+import { coerceRouterConfigV4, coerceRouterConfigV6 } from './migrate.js'
 import type { RouterConfigAny } from './router.js'
 import type { RouterSidecarStore } from './sidecar.js'
 
@@ -217,8 +218,8 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       const lines = [
         `kimi-tide: 预设「${p.name}」· 默认 ${p.default.provider}/${p.default.model} · 规则 ${p.rules.length} 条 · 关键词组 ${Object.keys(c.keywordGroups).length} 个`,
       ]
-      // 0.6.0（v5）：flows 注册表段（id/类型/关键参数）——v4 存量无注册表，不输出该段。
-      if (c.version === 5) {
+      // 0.6.0（v5+）：flows 注册表段（id/类型/关键参数）——v4 存量无注册表，不输出该段。
+      if (isV5Plus(c)) {
         lines.push(`flows: ${formatFlows(c.flows)}`)
       }
       // 每预设 imageFallback 行：缺省 = latch（维持 0.5.x 行为）；transcribe-lazy 级联显示目标流。
@@ -258,19 +259,19 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       let next: RouterConfigAny
       try {
         if (deps.settings != null) {
-          // 命名空间是 v5 存储：文件导入沿用「导入即迁移」惯例收敛 v5；
+          // 命名空间是 v6 存储：文件导入沿用「导入即迁移」惯例收敛 v6；
           // 内联合并保留当前版本（mergeInlineText 内保证）。
-          next = inline ? mergeInlineText(cmd.path, deps.current()) : coerceRouterConfigV5(parseImportedFile(cmd.path), () => {})
+          next = inline ? mergeInlineText(cmd.path, deps.current()) : coerceRouterConfigV6(parseImportedFile(cmd.path), () => {})
           await deps.settings.replace(next as unknown as object)
         } else if (inline) {
           next = mergeInlineText(cmd.path, deps.current())
           deps.sidecar.save(next as RouterConfigV4)
         } else {
           next = parseImportedFile(cmd.path)
-          // sidecar 兜底存储仅支持 v4：v5 配置（flows/imageFallback）导入即损毁
+          // sidecar 兜底存储仅支持 v4：v5+ 配置（flows/imageFallback/roles）导入即损毁
           // （load 走 v4 迁移链丢字段）——明确拒绝，不静默写盘。
-          if (next.version === 5) {
-            throw new Error('v5 配置（flows/imageFallback）需要带设置服务的宿主（设置命名空间）；sidecar 兜底存储仅支持 v4')
+          if (isV5Plus(next)) {
+            throw new Error('v5+ 配置（flows/imageFallback/roles）需要带设置服务的宿主（设置命名空间）；sidecar 兜底存储仅支持 v4')
           }
           deps.sidecar.save(next)
         }
@@ -368,24 +369,25 @@ function mergeInlineText(text: string, current: RouterConfigAny): RouterConfigAn
 /**
  * 读取并校验一个 config YAML 文件（不落盘），供设置命名空间与 sidecar 两条
  * import-config 文件形态路径使用——镜像 RouterSidecarStore.validate 的
- * v5/v4/v3/v2 结构检查。v4/v5 直通；v2/v3 经 coerceRouterConfigV4 统一迁移
- * （v5 收敛由调用方按目标存储决定：命名空间 coerceRouterConfigV5，sidecar 拒 v5）。
+ * v5+/v4/v3/v2 结构检查。v4/v5+ 直通；v2/v3 经 coerceRouterConfigV4 统一迁移
+ * （v6 收敛由调用方按目标存储决定：命名空间 coerceRouterConfigV6，sidecar 拒 v5+）。
  */
 function parseImportedFile(path: string): RouterConfigAny {
   const raw = YAML.parse(readFileSync(path, 'utf8')) as unknown
   const r = (raw ?? {}) as Record<string, unknown>
-  if (r.version === 5) {
+  const version = r.version
+  if (typeof version === 'number' && isV5Plus({ version })) {
     const presets = r.presets
     if (typeof presets !== 'object' || presets === null || Array.isArray(presets)) {
-      throw new Error('config v5 结构不合格：presets 缺失或非对象')
+      throw new Error('config v5+ 结构不合格：presets 缺失或非对象')
     }
     if (r.activePreset !== null && typeof r.activePreset !== 'string') {
-      throw new Error('config v5 结构不合格：activePreset 非 string|null')
+      throw new Error('config v5+ 结构不合格：activePreset 非 string|null')
     }
     if (typeof r.flows !== 'object' || r.flows === null || Array.isArray(r.flows)) {
-      throw new Error('config v5 结构不合格：flows 缺失或非对象')
+      throw new Error('config v5+ 结构不合格：flows 缺失或非对象')
     }
-    return raw as RouterConfigV5
+    return raw as RouterConfigV5 | RouterConfigV6
   }
   if (r.version === 4) {
     const presets = r.presets

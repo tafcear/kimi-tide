@@ -270,7 +270,7 @@ describe('applyKimiTideCommand', () => {
     expect((saved[0] as RouterConfigV5).flows.transcribe).toBeDefined()
   })
 
-  it('import-config: v5 文件导入命名空间（flows/imageFallback 字段存活）', async () => {
+  it('import-config: v5 文件导入命名空间（flows/imageFallback 字段存活，收敛 v6）', async () => {
     const replaces: object[] = []
     const deps = makeDeps(v5cfg(null), undefined, {
       settings: { get: () => v5cfg(null), update: async () => {}, replace: async (s) => { replaces.push(s) } },
@@ -283,7 +283,7 @@ describe('applyKimiTideCommand', () => {
     expect(out).toMatch(/import/i)
     expect(replaces).toHaveLength(1)
     const written = replaces[0] as RouterConfigV5
-    expect(written.version).toBe(5)
+    expect(written.version).toBe(6)
     expect(written.activePreset).toBe('capability')
     expect(written.flows.transcribe.visionModel.model).toBe('deepseek-v4-flash-vision-exp')
     expect(written.presets.capability.imageFallback).toBe('transcribe-lazy')
@@ -358,10 +358,10 @@ describe('applyKimiTideCommand with settings namespace', () => {
     const src = join(dir, 'import-src-ns.yml')
     writeFileSync(src, YAML.stringify(incoming), 'utf8')
     const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, deps)
-    // 0.6.0：写入命名空间一律收敛为 v5（presets/activePreset 逐字保持，预置流注册不绑定）
+    // v6（团队派发）：写入命名空间一律收敛为 v6（presets/activePreset 逐字保持，存量行为保持）
     expect(replaces).toHaveLength(1)
     const written = replaces[0] as RouterConfigV5
-    expect(written.version).toBe(5)
+    expect(written.version).toBe(6)
     expect(written.activePreset).toBe('capability')
     expect(written.presets).toEqual(incoming.presets)
     expect(written.flows.transcribe).toBeDefined()

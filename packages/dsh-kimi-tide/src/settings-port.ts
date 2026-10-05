@@ -28,7 +28,7 @@
  * （0.4.x 以来既有路径，行为不变）。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { DEFAULT_CONFIG_V5, type RouterConfigV5 } from './config.js'
+import { DEFAULT_CONFIG_V5, isV5Plus, type RouterConfigV5 } from './config.js'
 import type { SettingsNamespacePort } from './commands.js'
 
 /** ConfigEditor 的最小结构面（避免把宿主服务的深类型带进插件公共面）。 */
@@ -96,8 +96,8 @@ export function readRouterConfig(config: unknown): RouterConfigV5 {
  * **原始**配置形状（未解析）：cordis 交给 `apply(ctx, config)` 的那一份。
  *
  * 用途（关键）：`readRouterConfig` 读的是 **schema 解析后**的快照——存量 v1 词汇
- * （mode/primary/premium）在解析期被 schema 的 `version` 默认值补成 `version: 5`，
- * 于是残留检测 `hasKimiTideResidueV5`（判据：`version !== 5`）**再也认不出**它，
+ * （mode/primary/premium）在解析期被 schema 的 `version` 默认值补成 `version: 6`，
+ * 于是残留检测 `hasKimiTideResidueV6`（判据：`version !== 6`）**再也认不出**它，
  * 迁移链会被整体跳过（实测：`mode:'cost'` 的存量种子不再映射到 saving 预设）。
  * 故启动路径必须用原始值判残留。
  */
@@ -132,29 +132,30 @@ export function hasActivePreset(config: { activePreset?: unknown }): boolean {
 /**
  * 条目是否带**旧词汇**（v1~v4）配置——即需要走 coerce 迁移链的存量形态。
  *
- * v1~v4 的判别标记：`mode` / `primary` / `premium` / `default`（v5 已无这些键）。
- * 无 version 但只有 v5 键（如 `{activePreset:'saving'}`）= 用户按 v5 语义写的，
- * 宿主解析即终态，不需要迁移。
+ * v1~v4 的判别标记：`mode` / `primary` / `premium` / `default`（v5+ 已无这些键）。
+ * 无 version 但只有 v5 键（如 `{activePreset:'saving'}`）= 用户按 v5+ 语义写的，
+ * 宿主解析即终态，不需要迁移。version 判据用 isV5Plus（v5/v6 同列现行）——
+ * 若仍只认 v5，v6 配置会被误判 legacy，每次启动重跑迁移。
  */
 export function isLegacyRouterShape(raw: unknown): boolean {
   if (raw === null || typeof raw !== 'object') return false
   const config = raw as Record<string, unknown>
   const version = config.version
-  if (typeof version === 'number') return version !== 5
+  if (typeof version === 'number') return !isV5Plus({ version })
   return 'mode' in config || 'primary' in config || 'premium' in config || 'default' in config
 }
 
 /**
- * 条目是否携带**用户显式写过的 v5 路由配置**（决定 sidecar 导入的脏检查）。
+ * 条目是否携带**用户显式写过的 v5+ 路由配置**（决定 sidecar 导入的脏检查）。
  *
- * 判据：显式 `version: 5`，或写了 `activePreset` / `presets`——两者都是「用户已经
+ * 判据：显式 `version: 5`/`6`，或写了 `activePreset` / `presets`——两者都是「用户已经
  * 配好了，别拿旧 sidecar 覆盖」的信号。未配置（undefined）、旧词汇种子（v1~v4，
  * 由 isLegacyRouterShape 识别后另走迁移链）都判 false，允许导入。
  */
 export function hasExplicitV5Config(raw: unknown): boolean {
   if (raw === null || typeof raw !== 'object') return false
   const config = raw as { version?: unknown; activePreset?: unknown; presets?: unknown }
-  if (config.version === 5) return true
+  if (typeof config.version === 'number' && isV5Plus({ version: config.version })) return true
   if (config.activePreset !== undefined && config.activePreset !== null) return true
   return config.presets !== undefined && Object.keys(config.presets as object).length > 0
 }

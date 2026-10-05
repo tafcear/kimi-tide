@@ -106,6 +106,73 @@ export interface RouterConfigV5 {
   auxTargets?: Record<string, RouteTarget>
 }
 
+/** 分工表条目（设计稿 D2）：一个角色 = 一个领域 → 一个模型目标。 */
+export interface RoleEntry {
+  /** 稳定 id（配置键；同时是默认认领的队友名，须满足 lower-kebab-case）。 */
+  id: string
+  /** 显示名，如「前端」。 */
+  label: string
+  /** 该角色的路由目标（复用 RouteTarget 与既有降级语义）。 */
+  target: RouteTarget
+  /** 额外认领的队友名（与 id 合并成认领集合；不得与他 role 冲突）。 */
+  teammate?: string[]
+  /** 供模型识别的别名（进分工表 skill 正文）。 */
+  aliases?: string[]
+  /** 给模型的补充说明。 */
+  note?: string
+}
+
+/** v6 配置：v5 之上新增分工层（driver / driverSticky / rulesApplyToChildren / roles）。 */
+export interface RouterConfigV6 {
+  version: 6
+  activePreset: string | null
+  presets: Record<string, RouterPreset>
+  flows: Record<string, CollaborationFlow>
+  keywordGroups: Record<string, string[]>
+  auxTargets?: Record<string, RouteTarget>
+  /** 主驱动目标；null / 缺失 = 跟随宿主 agent-default-model（设计稿 D1）。 */
+  driver?: RouteTarget | null
+  /** true 时主会话打底 = driver（新装默认 true；存量迁移显式 false）。 */
+  driverSticky?: boolean
+  /** 子代理是否参与关键词规则；缺失/false = 不参与（设计稿 D6，v2.0.0 行为变更）。 */
+  rulesApplyToChildren?: boolean
+  /** 分工表；键即 role.id。 */
+  roles: Record<string, RoleEntry>
+}
+
+export type RouterConfigV5Plus = RouterConfigV5 | RouterConfigV6
+
+/** v5 及以上（flows 等字段可用）；版本落点统一的加宽判据。 */
+export function isV5Plus(config: { version: number }): config is RouterConfigV5Plus {
+  return config.version >= 5
+}
+
+/** 内置分工表：空表（不替用户做能力判断；设置页提供三条可一键填入的示例）。 */
+export function DEFAULT_ROLES(): Record<string, RoleEntry> {
+  return {}
+}
+
+/**
+ * v6 内置真相源（新装 / 「重置为默认」路径）。
+ * driverSticky: true = 主驱动恒定（用户 2026-10-05 裁定"开"）；
+ * 存量配置由 migrateV5 显式写 false，保持 v1.4.1 行为。
+ * rulesApplyToChildren 故意缺席：运行期缺省 false 即新语义，迁移不写（评审阻塞 B2）。
+ */
+export function DEFAULT_CONFIG_V6(): RouterConfigV6 {
+  const v5 = DEFAULT_CONFIG_V5()
+  return {
+    version: 6,
+    activePreset: v5.activePreset,
+    presets: v5.presets,
+    flows: v5.flows,
+    keywordGroups: v5.keywordGroups,
+    ...(v5.auxTargets === undefined ? {} : { auxTargets: v5.auxTargets }),
+    driver: null,
+    driverSticky: true,
+    roles: DEFAULT_ROLES(),
+  }
+}
+
 /* ---- @legacy v4（0.5.x）形状：迁移输入专用（后续迁移任务消费），新代码禁止消费 ---- */
 export interface RouterConfigV4 {
   version: 4

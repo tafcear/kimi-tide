@@ -28,6 +28,17 @@ function fullSample(): RouterConfigV5 {
     autoRevise: false,
     recheck: true,
   }
+  // v6（团队派发）顶层键：FEATURE_KEYS 首段占位闸要求样例含全部可选字段。
+  const v6 = c as RouterConfigV5 & {
+    driver?: { provider: string; model: string } | null
+    driverSticky?: boolean
+    rulesApplyToChildren?: boolean
+    roles?: Record<string, unknown>
+  }
+  v6.driver = { provider: 'kimi-coding', model: 'k3' }
+  v6.driverSticky = true
+  v6.rulesApplyToChildren = false
+  v6.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
   return c
 }
 

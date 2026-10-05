@@ -14,10 +14,12 @@ import {
   configKey,
   DEFAULT_FLOWS,
   isFlowTarget,
+  isV5Plus,
   type CollaborationFlow,
   type RouteTarget,
   type RouterConfigV4,
   type RouterConfigV5,
+  type RouterConfigV6,
   type RouterPreset,
 } from '../config.js'
 
@@ -38,8 +40,8 @@ export const CARD_NAMESPACE = 'dsh-kimi-tide'
  */
 export const CARD_CONFIG_PATH = 'router'
 
-/** 卡片消费的配置过渡形（Task 11）：v4 存量与 v5 协作编排配置皆可渲染。 */
-export type CardConfig = RouterConfigV4 | RouterConfigV5
+/** 卡片消费的配置过渡形（Task 11）：v4 存量与 v5+ 协作编排配置皆可渲染。 */
+export type CardConfig = RouterConfigV4 | RouterConfigV5 | RouterConfigV6
 
 /** 卡片渲染用的单一快照：resolved 值 + base/user 分层（继承/覆盖显示）+ 错误态。 */
 export interface CardSnapshot {
@@ -308,7 +310,7 @@ export function createCardStore(
           if (!isFlowTarget(rule.target)) targets.push(rule.target)
         }
       }
-      if (config.version === 5) {
+      if (isV5Plus(config)) {
         for (const flow of Object.values(config.flows)) {
           targets.push(flow.type === 'transcribe' ? flow.visionModel : flow.reviewer)
         }
@@ -466,7 +468,7 @@ export function createCardStore(
    */
   const deleteFlow = async (id: string): Promise<void> => {
     const config = snapshot.config
-    if (config === null || config.version !== 5) {
+    if (config === null || !isV5Plus(config)) {
       fail(new Error('协作流注册表不可用（配置尚未迁移到 v5）'))
       return
     }

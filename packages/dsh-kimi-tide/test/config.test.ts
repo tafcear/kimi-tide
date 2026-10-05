@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_CONFIG_V4,
   DEFAULT_CONFIG_V5,
+  DEFAULT_CONFIG_V6,
   DEFAULT_FLOWS,
   DEFAULT_KEYWORD_GROUPS,
   configKey,
   isFlowTarget,
+  isV5Plus,
 } from '../src/config.js'
 import type { RuleTarget } from '../src/config.js'
 
@@ -126,6 +128,25 @@ describe('DEFAULT_CONFIG_V5', () => {
       autoRevise: false,
       recheck: true,
     })
+  })
+})
+
+describe('RouterConfigV6（团队派发）', () => {
+  it('内置真相源：version 6 / driverSticky true / driver null / roles 空 / 无 rulesApplyToChildren', () => {
+    const c = DEFAULT_CONFIG_V6()
+    expect(c.version).toBe(6)
+    expect(c.driverSticky).toBe(true)
+    expect(c.driver).toBeNull()
+    expect(c.roles).toEqual({})
+    expect(c).not.toHaveProperty('rulesApplyToChildren')
+    expect(c.presets).toEqual(DEFAULT_CONFIG_V5().presets)
+    expect(c.flows).toEqual(DEFAULT_FLOWS())
+  })
+
+  it('isV5Plus：v4 否、v5/v6 是', () => {
+    expect(isV5Plus({ version: 4 })).toBe(false)
+    expect(isV5Plus({ version: 5 })).toBe(true)
+    expect(isV5Plus({ version: 6 })).toBe(true)
   })
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV3 } from '../src/config.js'
-import { coerceRouterConfig, coerceRouterConfigV4, coerceRouterConfigV5, hasKimiTideResidue, hasKimiTideResidueV5, migrateV1, migrateV2, migrateV3, migrateV4 } from '../src/migrate.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV3 } from '../src/config.js'
+import { coerceRouterConfig, coerceRouterConfigV4, coerceRouterConfigV5, coerceRouterConfigV6, hasKimiTideResidue, hasKimiTideResidueV5, hasKimiTideResidueV6, migrateV1, migrateV2, migrateV3, migrateV4, migrateV5 } from '../src/migrate.js'
 
 const V1 = {
   mode: 'cost',
@@ -199,5 +199,38 @@ describe('migrateV4（v4→v5 行为保持）', () => {
     expect(hasKimiTideResidueV5(DEFAULT_CONFIG_V5())).toBe(false)
     const dirty = DEFAULT_CONFIG_V5(); dirty.presets.saving.name = 'kimi-tide 遗留'
     expect(hasKimiTideResidueV5(dirty)).toBe(true)
+  })
+})
+
+describe('migrateV5（v5→v6：存量保持旧行为）', () => {
+  it('自定义 v5 输入：预设/流/词组逐字保持；driverSticky 显式 false；不写 driver / rulesApplyToChildren', () => {
+    const v5 = DEFAULT_CONFIG_V5()
+    v5.activePreset = 'saving'
+    const v6 = migrateV5(v5)
+    expect(v6.version).toBe(6)
+    expect(v6.presets).toEqual(v5.presets)
+    expect(v6.flows).toEqual(v5.flows)
+    expect(v6.keywordGroups).toEqual(v5.keywordGroups)
+    expect(v6.roles).toEqual({})
+    expect(v6.driverSticky).toBe(false)          // 存量保持 v1.4.1 行为
+    expect(v6).not.toHaveProperty('driver')
+    expect(v6).not.toHaveProperty('rulesApplyToChildren')
+  })
+
+  it('同引用直通幂等：已是 v6 的输入原样返回', () => {
+    const v6 = migrateV5(DEFAULT_CONFIG_V5())
+    expect(migrateV5(v6)).toBe(v6)
+    expect(coerceRouterConfigV6(v6, () => {})).toBe(v6)
+  })
+
+  it('v1 → v6 端到端：走完整链路不抛错，且 flows 为内置流', () => {
+    const v6 = coerceRouterConfigV6(V1, () => {})
+    expect(v6.version).toBe(6)
+    expect(v6.flows).toEqual(DEFAULT_FLOWS())
+  })
+
+  it('hasKimiTideResidueV6：v6 无残留为 false；v5 残留为 true', () => {
+    expect(hasKimiTideResidueV6(DEFAULT_CONFIG_V6())).toBe(false)
+    expect(hasKimiTideResidueV6(DEFAULT_CONFIG_V5())).toBe(true)
   })
 })

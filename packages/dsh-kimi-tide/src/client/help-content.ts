@@ -11,10 +11,11 @@
  * `FALLBACK_HINTS` 在此定义并由设置卡片与说明页**共用**（单一内容源，
  * 杜绝「两处真理」——原定义在 SettingsCard.tsx，2026-09-15 迁移）。
  */
-import type { ImageFallback, RouterConfigV4, RouterConfigV5 } from '../config.js'
+import type { ImageFallback, RouterConfigV4, RouterConfigV5, RouterConfigV5Plus, RouterConfigV6 } from '../config.js'
+import { isV5Plus } from '../config.js'
 
 /** 卡片配置过渡形（与 card-store 的 CardConfig 同形；此处不引入 store 依赖）。 */
-export type HelpConfig = RouterConfigV4 | RouterConfigV5
+export type HelpConfig = RouterConfigV4 | RouterConfigV5 | RouterConfigV6
 
 /** imageFallback 三态的一句话后果提示（原 SettingsCard 常量，说明页与规则行共用）。 */
 export const FALLBACK_HINTS: Record<ImageFallback, string> = {
@@ -61,6 +62,11 @@ export const FEATURE_KEYS = [
   'flows.review.rounds',
   'flows.review.autoRevise',
   'flows.review.recheck',
+  // v6（团队派发）顶层键：先占位满足防腐烂反向闸，完整帮助条目见任务 7。
+  'driver',
+  'driverSticky',
+  'rulesApplyToChildren',
+  'roles',
 ] as const
 
 /** schema 里有、但不承载「用户可理解特性」的遗留键（反向闸豁免）。 */
@@ -87,7 +93,7 @@ export interface HelpSection {
   v5Only?: boolean
 }
 
-const v5 = (config: HelpConfig): RouterConfigV5 | null => (config.version === 5 ? config : null)
+const v5 = (config: HelpConfig): RouterConfigV5Plus | null => (isV5Plus(config) ? config : null)
 const presetOf = (config: HelpConfig) => (config.activePreset === null ? undefined : config.presets[config.activePreset])
 const targetKey = (t: { provider: string; model: string } | undefined): string =>
   t === undefined ? '—' : `${t.provider}/${t.model}`

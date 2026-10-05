@@ -28,7 +28,7 @@ import Schema from '@deepseek-ai/schemastery'
 import YAML from 'yaml'
 import { REVISE_UNMOUNTED_MESSAGE, REVIEW_UNMOUNTED_MESSAGE, registerKimiTideCommands, type SettingsNamespacePort } from './commands.js'
 import { claimedReviewGroups } from './rules.js'
-import { coerceRouterConfigV5, hasKimiTideResidueV5 } from './migrate.js'
+import { coerceRouterConfigV6, hasKimiTideResidueV6 } from './migrate.js'
 import { KIMI_TIDE_PANEL_EVENT, KIMI_TIDE_REVIEW_EVENT, KIMI_TIDE_REVISE_EVENT, kimiReviewProjectionDefinition, kimiReviseProjectionDefinition, kimiTideProjectionDefinition } from './projection.js'
 import {
   createStreamVisionCaller,
@@ -525,13 +525,13 @@ export function apply(ctx: Context, config: Config = {}) {
    *
    * 0.1.7（2026-09-28）：`config.router` 现在是本条目 Config 的 **volatile 快照**。
    * 取「原始值优先、快照兜底」两级（rawRouterConfig）：残留判定必须看原始词汇
-   * （v1 的 mode/primary/premium 会在解析期被 schema 补成 version:5，解析后再判就
+   * （v1 的 mode/primary/premium 会在解析期被 schema 补成 version:6，解析后再判就
    * 永远认不出存量）；无 router 段时退回 patch 静态块（v1 词汇），只为存量迁移路径保留。
    */
   const rawRouter = rawRouterConfig(config, (ctx as unknown as { fiber?: { entry?: { options?: { config?: unknown } } } }).fiber?.entry?.options?.config)
   // 启动种子（决定是否走 coerce 迁移链）：仅当原始配置**是旧词汇形态**（v1~v4）时
-  // 用它——那种形态在 schema 解析期会被补成 version:5，解析后就认不出来了。
-  // 其余情形（v5 形态、或条目未配置）一律用宿主解析值，避免把 v5 用户配置再搬一遍。
+  // 用它——那种形态在 schema 解析期会被补成 version:6，解析后就认不出来了。
+  // 其余情形（v5+ 形态、或条目未配置）一律用宿主解析值，避免把 v5+ 用户配置再搬一遍。
   const legacySeed = isLegacyRouterShape(rawRouter)
   const seedRaw: unknown = legacySeed
     ? rawRouter
@@ -543,7 +543,7 @@ export function apply(ctx: Context, config: Config = {}) {
   })
   const loaded = sidecar.load()
   // sidecar 链路终态恒为 v4（sidecar 是 v4-only 存储，行为逐字节保持）；
-  // 命名空间链路（attach 时 applyConfig 喂入）恒为 v5。内存形态 = RouterConfigAny。
+  // 命名空间链路（attach 时 applyConfig 喂入）恒为 v6。内存形态 = RouterConfigAny。
   let routerConfig: RouterConfigAny = loaded.config ?? DEFAULT_CONFIG_V4()
   let configSource: ConfigSource =
     loaded.source === 'sidecar' ? 'sidecar' : loaded.source === 'patch' ? 'patch' : 'default'
@@ -964,28 +964,29 @@ export function apply(ctx: Context, config: Config = {}) {
   })
   if (port !== null) {
     // 1) 首个生效值：存量残留（v1/v4 词汇）走 coerce 链，否则直接用快照。
-    let applied = readRouterConfig(config)
-    // 2) v5 一次性迁移：存量条目若还是 v1/v4 词汇则搬到 v5 并落盘；写失败只降级
+    //    声明面用 RouterConfigAny（as 加宽防赋值窄化回 v5）：迁移后升为 v6。
+    let applied: RouterConfigAny = readRouterConfig(config) as RouterConfigAny
+    // 2) v6 一次性迁移：存量条目若还是 v1/v4 词汇则搬到 v6 并落盘；写失败只降级
     //    （本次运行用迁移值，下次启动重试），绝不抛回启动路径。
-    //    ⚠ 判残留用原始值（rawRouter）——解析后的快照已被 schema 补成 version:5。
-    if (legacySeed && hasKimiTideResidueV5(rawRouter)) {
+    //    ⚠ 判残留用原始值（rawRouter）——解析后的快照已被 schema 补成 version:6。
+    if (legacySeed && hasKimiTideResidueV6(rawRouter)) {
       try {
-        const migrated = coerceRouterConfigV5(applied, warn)
+        const migrated = coerceRouterConfigV6(applied, warn)
         if (migrated !== applied) {
           const docPath = (ctx.get('configEditor') as { documentPath?: string } | undefined)?.documentPath
           if (typeof docPath === 'string' && docPath.length > 0) {
-            try { copyFileSync(docPath, docPath + '.pre-v5') } catch (error) {
-              warn(`dsh-kimi-tide: 配置文档 .pre-v5 快照失败（${(error as Error).message}）`)
+            try { copyFileSync(docPath, docPath + '.pre-v6') } catch (error) {
+              warn(`dsh-kimi-tide: 配置文档 .pre-v6 快照失败（${(error as Error).message}）`)
             }
           }
           void port.replace(migrated as unknown as object)
-            .then(() => warn('dsh-kimi-tide: 插件配置的 router 段已迁移至 v5（协作流注册表挂载，行为保持）'))
+            .then(() => warn('dsh-kimi-tide: 插件配置的 router 段已迁移至 v6（团队派发分工层挂载，行为保持）'))
             .catch((error: unknown) =>
-              warn(`dsh-kimi-tide: v5 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
+              warn(`dsh-kimi-tide: v6 迁移持久化失败（${(error as Error).message}）；本次运行已应用迁移值，下次启动将重试`))
           applied = migrated
         }
       } catch (error) {
-        warn(`dsh-kimi-tide: v5 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
+        warn(`dsh-kimi-tide: v6 迁移失败（${(error as Error).message}）；本次运行保留旧形状`)
       }
     }
     settingsScope = port
@@ -1019,7 +1020,7 @@ export function apply(ctx: Context, config: Config = {}) {
       .then(({ migrateSidecarIntoScope }) => migrateSidecarIntoScope({
         sidecarFile,
         scope: port,
-        // 脏检查：只有「用户在 v5 语义下编辑过」才拒绝导入（口径见 hasExplicitV5Config）。
+        // 脏检查：只有「用户在 v5+ 语义下编辑过」才拒绝导入（口径见 hasExplicitV5Config）。
         hasExplicitEntryConfig: hasExplicitV5Config(rawRouter),
         entry: settingsBase,
         onError: warn,

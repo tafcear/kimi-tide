@@ -1,6 +1,6 @@
 // src/settings-schema.ts
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_CONFIG_V5, isFlowTarget, type RouterConfigV5, type RuleTarget } from './config.js'
+import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type RoleEntry, type RouterConfigV5, type RouterConfigV6, type RuleTarget } from './config.js'
 
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
 const D5 = DEFAULT_CONFIG_V5()
@@ -82,10 +82,25 @@ const flowSchema = Schema.union([
 // - flows 是 dict 必注 {} —— 不放 .default()，预置流默认值靠 mergeResolved 的
 //   deepMerge(DEFAULT_CONFIG_V5()) 供给。
 // 本 schema 一律非 strict 直接调用，不经 intersect/config 包装。
+// v6（团队派发）新增顶层字段同理（红线：新增可选字段一律不带 .default()）：
+// - driver 用「无默认 union（target | null）」——缺失省略不注入，保住「默认往返相等」；
+// - driverSticky/rulesApplyToChildren 标量无 default —— 缺失省略；语义缺省在消费侧
+//   （driverSticky 的新装 true / 存量 false 由 DEFAULT_CONFIG_V6 / migrateV5 分别供给）；
+// - roles 是 dict 必注 {}（flows 同款）——分工表默认值靠 mergeResolved 的 deepMerge 供给。
+const roleSchema = Schema.object({
+  id: Schema.string(),
+  label: Schema.string(),
+  target: targetSchema,
+  teammate: Schema.array(Schema.string()),
+  aliases: Schema.array(Schema.string()),
+  note: Schema.string(),
+})
 export const routerConfigSchema = Schema.object({
   // 宽松读取存量 v2/v3/v4 用户层（dsh-settings 契约：存量节校验失败会拒绝整个
-  // 命名空间注册）；迁移后整段 replace 覆盖为纯 v5。
-  version: Schema.union([Schema.const(2), Schema.const(3), Schema.const(4), Schema.const(5)]).default(5),
+  // 命名空间注册）；迁移后整段 replace 覆盖为纯 v6。
+  version: Schema.union([
+    Schema.const(2), Schema.const(3), Schema.const(4), Schema.const(5), Schema.const(6),
+  ]).default(6),
   activePreset: Schema.union([Schema.string(), Schema.const(null)]).default(D5.activePreset),
   // schemastery ObjectT 输出形把运行期可缺省字段（imageFallback/imageFallbackFlow）
   // 标为必选，与 RouterPreset 存在类型差——仅以 ReturnType 收窄 .default() 入参，
@@ -96,19 +111,44 @@ export const routerConfigSchema = Schema.object({
   // 0.8.x⑧：辅助请求改道表（purpose → target）。dict 缺失注入 {}（flows 同款）；
   // 语义校验（键非空/目标完整/effort 形状）在 validateRouterConfig。空表 = 不改道。
   auxTargets: Schema.dict(targetSchema),
+  // v6（团队派发）分工层：
+  driver: Schema.union([targetSchema, Schema.const(null)]),
+  driverSticky: Schema.boolean(),
+  rulesApplyToChildren: Schema.boolean(),
+  roles: Schema.dict(roleSchema),
   // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
 })
 
-/** v5 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
+/**
+ * 认领冲突检测（设计稿 D3）：每个 role 认领 {id} ∪ teammate 集合；同一名字被
+ * 两个 role 认领即冲突，返回错误串；无冲突返回 undefined。
+ * ⚠ Task 2 将抽取到 roles.ts（本任务内联同名逻辑，抽取后这里改 import）。
+ */
+function claimConflict(roles: Record<string, RoleEntry>): string | undefined {
+  const claimed = new Map<string, string>()
+  for (const [key, role] of Object.entries(roles)) {
+    const names = [role.id, ...(role.teammate ?? [])].filter((n): n is string => typeof n === 'string' && n.length > 0)
+    for (const name of names) {
+      const holder = claimed.get(name)
+      if (holder !== undefined) return `认领名 '${name}' 被角色 '${holder}' 与 '${key}' 重复认领`
+      claimed.set(name, key)
+    }
+  }
+  return undefined
+}
+
+/** v5/v6 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
  *  级联（transcribe-lazy 的 imageFallbackFlow 缺省解析到预置 transcribe，显式引用须
  *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup /
  *  effort 形状检查（default/规则 target/visionModel/reviewer 四处，非空 string——M4；
  *  reviewer 自 1.4.1 起收 effort，撤销 0.8.0 M7）。
+ *  v6 追加：roles 认领冲突 / role.label 与 role.target 完整 / driver 目标完整（下见尾部）。
  *  legacy version（≤4）直通返回 undefined（迁移兜底，注册期不做语义校验）。 */
-export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
-  if ((raw as { version?: unknown }).version !== 5) return undefined
+export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6): string | undefined {
+  const gateVersion = (raw as { version?: unknown }).version
+  if (gateVersion !== 5 && gateVersion !== 6) return undefined
   if (raw.activePreset !== null && !(raw.activePreset in raw.presets)) {
     return `activePreset '${raw.activePreset}' 不在 presets 中`
   }
@@ -221,6 +261,19 @@ export function validateRouterConfig(raw: RouterConfigV5): string | undefined {
       return `auxTargets['${purpose}'] 的 effort 必须为非空字符串`
     }
   }
+  // v6 专属校验（团队派发分工层）：认领冲突 → role 字段完整 → driver 目标完整。
+  if (raw.version === 6) {
+    const roles = raw.roles ?? {}
+    const conflict = claimConflict(roles)                     // roles.ts（任务 2）——本任务先内联同名逻辑，任务 2 抽取后改 import
+    if (conflict !== undefined) return conflict
+    for (const [id, role] of Object.entries(roles)) {
+      if (typeof role.label !== 'string' || role.label.length === 0) return `roles.${id}.label 不能为空`
+      if (typeof role.target?.provider !== 'string' || role.target.provider.length === 0) return `roles.${id}.target.provider 不能为空`
+      if (typeof role.target?.model !== 'string' || role.target.model.length === 0) return `roles.${id}.target.model 不能为空`
+    }
+    const d = raw.driver
+    if (d !== undefined && d !== null && (typeof d.provider !== 'string' || d.provider.length === 0 || typeof d.model !== 'string' || d.model.length === 0)) return 'driver 目标不完整'
+  }
   return undefined
 }
 
@@ -232,18 +285,18 @@ function deepMerge(base: unknown, patch: unknown): unknown {
   return out
 }
 
-export function mergeResolved(entry: unknown): RouterConfigV5 {
-  const defaults = DEFAULT_CONFIG_V5()
+export function mergeResolved(entry: unknown): RouterConfigV6 {
+  const defaults = DEFAULT_CONFIG_V6()
   const e = (entry ?? {}) as Record<string, unknown>
   const resolved = deepMerge(defaults, e) as Record<string, unknown>
   // 显式 legacy 节（version ≤4 且无 flows 键）不供给 flows 预置默认：命名空间
   // schema 解析存量节时 dict 只注 {}，若此处 deepMerge 注入 DEFAULT_FLOWS，
   // settings-migration 的 clean 谓词（deepEqualJson(scope.get(), mergeResolved(entry))，
   // entry=v4 形 base）会误判 dirty 而跳过 sidecar 导入——index-wiring 两条迁移
-  // 测试实证。空 entry/无 version 视为新装（v5 默认全量供给）；Task 12 v5 接线后
+  // 测试实证。空 entry/无 version 视为新装（v6 默认全量供给）；Task 12 v5 接线后
   // base 自带 flows，两式恒等，本收窄保持 v4 存量迁移行为逐字节不变。
-  if (typeof e.version === 'number' && e.version !== 5 && !('flows' in e)) delete resolved.flows
-  // ObjectT 输出形与 RouterConfigV5 的类型差同上（version union 宽于 5、可缺省字段
-  // 被标必选）——schema 输出在运行期即 RouterConfigV5 形，仅类型层需 unknown 过渡。
-  return routerConfigSchema(resolved) as unknown as RouterConfigV5
+  if (typeof e.version === 'number' && !isV5Plus({ version: e.version }) && !('flows' in e)) delete resolved.flows
+  // ObjectT 输出形与 RouterConfigV6 的类型差同上（version union 宽于 6、可缺省字段
+  // 被标必选）——schema 输出在运行期即 RouterConfigV6 形，仅类型层需 unknown 过渡。
+  return routerConfigSchema(resolved) as unknown as RouterConfigV6
 }

@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_FLOWS, KIMI_PROVIDER, type RouterConfigV3, type RouterConfigV4, type RouterConfigV5, type RouteTarget } from './config.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_FLOWS, KIMI_PROVIDER, type RouterConfigV3, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6, type RouteTarget } from './config.js'
 
 function target(v: unknown): RouteTarget | null {
   const r = (v ?? {}) as Record<string, unknown>
@@ -150,4 +150,41 @@ export function hasKimiTideResidueV5(config: unknown): boolean {
   const v = (config as { version?: unknown } | null)?.version
   if (v !== 5) return true
   return JSON.stringify(config).includes('kimi-tide')
+}
+
+/**
+ * v5 → v6：只新增字段，存量行为保持。
+ * driverSticky 显式 false —— 新装走 DEFAULT_CONFIG_V6()（true），存量留旧行为；
+ * driver / rulesApplyToChildren 不写：前者缺失＝跟随宿主默认，后者缺失＝运行期缺省 false（新语义）。
+ */
+export function migrateV5(raw: unknown): RouterConfigV6 {
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 6) return raw as RouterConfigV6
+  const v5 = coerceRouterConfigV5(raw, () => {})
+  return {
+    version: 6,
+    activePreset: v5.activePreset,
+    presets: v5.presets,
+    flows: v5.flows,
+    keywordGroups: v5.keywordGroups,
+    ...(v5.auxTargets === undefined ? {} : { auxTargets: v5.auxTargets }),
+    driverSticky: false,
+    roles: {},
+  }
+}
+
+export function coerceRouterConfigV6(raw: unknown, warn: (message: string) => void): RouterConfigV6 {
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 6) return raw as RouterConfigV6
+  return migrateV5(coerceRouterConfigV5(raw, warn))
+}
+
+/** v6 残留判据（照 hasKimiTideResidueV5）。 */
+export function hasKimiTideResidueV6(config: unknown): boolean {
+  if ((config as { version?: unknown } | null | undefined)?.version !== 6) return true
+  try {
+    return JSON.stringify(config).includes('kimi-tide')
+  } catch {
+    return true
+  }
 }

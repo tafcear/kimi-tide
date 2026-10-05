@@ -1,11 +1,12 @@
 // test/settings-schema.test.ts（v5 重写）
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV5 } from '../src/config.js'
+import { coerceRouterConfigV6 } from '../src/migrate.js'
 import { mergeResolved, routerConfigSchema, validateRouterConfig } from '../src/settings-schema.js'
 
 describe('routerConfigSchema v5', () => {
-  it('v5 默认往返相等（单一真相源）', () => {
-    expect(routerConfigSchema(DEFAULT_CONFIG_V5() as never)).toEqual(DEFAULT_CONFIG_V5())
+  it('v5 节往返：version 保持 5，roles 注入 {}（dict 隐式默认，flows 同款；单一真相源）', () => {
+    expect(routerConfigSchema(DEFAULT_CONFIG_V5() as never)).toEqual({ ...DEFAULT_CONFIG_V5(), roles: {} })
   })
   it('v5 节缺 flows → 注入 {}（dict 隐式默认；预置流默认值由 mergeResolved deepMerge 供给）', () => {
     const { flows: _, ...rest } = DEFAULT_CONFIG_V5()
@@ -134,14 +135,26 @@ describe('validateRouterConfig v5', () => {
 })
 
 describe('mergeResolved v5', () => {
-  it('空 entry → v5 默认（flows 预置由 deepMerge(DEFAULT_CONFIG_V5()) 供给）', () => {
-    expect(mergeResolved(undefined)).toEqual(DEFAULT_CONFIG_V5())
+  it('空 entry → v6 默认（flows 预置与 roles 由 deepMerge(DEFAULT_CONFIG_V6()) 供给）', () => {
+    expect(mergeResolved(undefined)).toEqual(DEFAULT_CONFIG_V6())
   })
   it('部分覆盖深合并', () => {
     const merged = mergeResolved({ activePreset: 'saving' })
     expect(merged.activePreset).toBe('saving')
     expect(merged.presets.capability.rules).toHaveLength(8)
     expect(merged.flows).toEqual(DEFAULT_FLOWS())
+  })
+})
+
+describe('routerConfigSchema v6（团队派发）', () => {
+  it('v6 默认往返相等（含 driverSticky: true）', () => {
+    expect(routerConfigSchema(DEFAULT_CONFIG_V6())).toEqual(DEFAULT_CONFIG_V6())
+  })
+
+  it('mergeResolved 不把 driverSticky 注入到存量配置（迁移后仍为 false）', () => {
+    const migrated = coerceRouterConfigV6(DEFAULT_CONFIG_V5(), () => {})
+    const resolved = mergeResolved(migrated)
+    expect(resolved.driverSticky).toBe(false)
   })
 })
 
@@ -164,9 +177,9 @@ describe('validateRouterConfig minHits（0.7.0）', () => {
 })
 
 describe('effort 形状（0.8.0）', () => {
-  it('effort 缺省不注入（v5 默认往返相等保持）；提供则存活', () => {
+  it('effort 缺省不注入（v5 节往返保持：仅 dict 隐式注入 roles:{}）；提供则存活', () => {
     const c = DEFAULT_CONFIG_V5()
-    expect(routerConfigSchema(c as never)).toEqual(DEFAULT_CONFIG_V5())  // 默认无 effort
+    expect(routerConfigSchema(c as never)).toEqual({ ...DEFAULT_CONFIG_V5(), roles: {} })  // 默认无 effort
     ;(c.presets.saving.rules[0].target as { effort?: string }).effort = 'max'
     const parsed = routerConfigSchema(c as never) as RouterConfigV5
     expect(parsed.presets.saving.rules[0].target).toMatchObject({ effort: 'max' })
@@ -260,8 +273,8 @@ describe('auxTargets 辅助请求改道配置（0.8.x⑧）', () => {
 })
 
 describe('v1.3.0 语义确认闸：hitConfirm 不入 schema（评审 S1）', () => {
-  it('默认往返仍逐字节相等（若 hitConfirm 进了 presetSchema，会被注入 {} 而破坏）', () => {
-    expect(routerConfigSchema(DEFAULT_CONFIG_V5() as never)).toEqual(DEFAULT_CONFIG_V5())
+  it('v5 节往返仍逐字节相等（除 dict 隐式注入 roles:{}——若 hitConfirm 进了 presetSchema，会被注入 {} 而破坏）', () => {
+    expect(routerConfigSchema(DEFAULT_CONFIG_V5() as never)).toEqual({ ...DEFAULT_CONFIG_V5(), roles: {} })
   })
 
   it('用户显式配置的 hitConfirm 经 schema 往返后仍在（未知键透传保活）', () => {

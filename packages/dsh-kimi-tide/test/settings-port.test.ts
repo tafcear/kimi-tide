@@ -6,7 +6,7 @@
 // （serialized === lastSyncedCatalog）此时恰好命中、不会再补写 ⇒ 客户端档位表
 // 变空、所有「档位」下拉退化禁用（实机现象：设置页改任何一项后档位即灰）。
 import { describe, expect, it } from 'vitest'
-import { createSettingsPort, readRouterConfig } from '../src/settings-port.js'
+import { createSettingsPort, isLegacyRouterShape, readRouterConfig } from '../src/settings-port.js'
 import { DEFAULT_CONFIG_V5, type RouterConfigV5 } from '../src/config.js'
 
 /**
@@ -44,6 +44,12 @@ const makePort = () => {
 
 const TABLE = { 'kimi-coding/k3': ['low', 'high', 'max'] }
 const MOUNTED = ['kimi-coding/k3', 'zai-coding-cn/glm-5.3']
+
+describe('settings-port：legacy 判据（v6 加宽）', () => {
+  it('isLegacyRouterShape：v6 不是 legacy（否则每次启动重跑迁移）', () => {
+    expect(isLegacyRouterShape({ version: 6 })).toBe(false)
+  })
+})
 
 describe('settings-port：volatile 档位表跨写保留（1.4.1 回归）', () => {
   it('setCatalog 发布 → 落进文档（efforts/mounted 可读回）', async () => {

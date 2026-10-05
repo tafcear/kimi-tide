@@ -28,9 +28,9 @@ import type {
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {
-  CandidateMeta, CollaborationFlow, ReviewFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterPreset, TranscribeFlow,
+  CandidateMeta, CollaborationFlow, ReviewFlow, RouteTarget, RouterConfigV4, RouterConfigV5, RouterConfigV6, RouterPreset, TranscribeFlow,
 } from './config.js'
-import { configKey, isFlowTarget, KIMI_PROVIDER } from './config.js'
+import { configKey, isFlowTarget, isV5Plus, KIMI_PROVIDER } from './config.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
 import { KIMI_TIDE_REVIEW_EVENT, KIMI_TIDE_REVISE_EVENT } from './projection.js'
 import {
@@ -108,16 +108,17 @@ export function confirmNoteOf(ruleId: string, result: ConfirmReviewResult): stri
 }
 
 /**
- * 路由器配置的过渡形（Task 8）：v4 存量与 v5 协作编排配置皆可挂载。
+ * 路由器配置的过渡形（Task 8）：v4 存量与 v5+ 协作编排配置皆可挂载。
  * v4 无 flows 注册表——flow 规则目标按「flow 不存在」跳过，与 0.5.x 行为
  * 逐字节一致；settings/index 面的全量 V5 迁移已交付（0.6.0，spec §6：
- * 命名空间 v5 存储 + 一次性迁移 + sidecar 写回留档）。
+ * 命名空间 v5 存储 + 一次性迁移 + sidecar 写回留档）。v6（团队派发）并入：
+ * 分工层字段不影响本文件决策逻辑，flows 判据统一走 isV5Plus。
  */
-export type RouterConfigAny = RouterConfigV4 | RouterConfigV5
+export type RouterConfigAny = RouterConfigV4 | RouterConfigV5 | RouterConfigV6
 
-/** v5 配置取 flows 注册表；v4 无注册表 → 空表（flow 目标恒按「不存在」降级，行为保持）。 */
+/** v5+ 配置取 flows 注册表；v4 无注册表 → 空表（flow 目标恒按「不存在」降级，行为保持）。 */
 function flowsOf(config: RouterConfigAny): Record<string, CollaborationFlow> {
-  return config.version === 5 ? config.flows : {}
+  return isV5Plus(config) ? config.flows : {}
 }
 
 /**
@@ -1375,7 +1376,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       if (last === undefined || (last.userText === '' && last.output === '')) {
         return { ok: false, message: '无可评审的上一轮' }
       }
-      const flows = router.config.version === 5 ? router.config.flows : {}
+      const flows = isV5Plus(router.config) ? router.config.flows : {}
       const manual = Object.entries(flows).find(([, f]) => f.type === 'review' && reviewerAvailable(f.reviewer))
       if (manual === undefined) return { ok: false, message: '没有可用的评审流（reviewer 不可用）' }
       finishReview(agent, { flowId: manual[0], flow: manual[1] as ReviewFlow, turn: -1, userText: last.userText, output: last.output })
@@ -1391,7 +1392,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const review = lastReview.get(agent)
       if (review === undefined) return { ok: false, message: '还没有可退回的评审结论（先评一轮：/kimi-tide review）' }
       if (review.ok !== true) return { ok: false, message: '最近一次评审失败，没有可退回的结论' }
-      const flows = router.config.version === 5 ? router.config.flows : {}
+      const flows = isV5Plus(router.config) ? router.config.flows : {}
       const flow = flows[review.flowId]
       if (flow === undefined || flow.type !== 'review') {
         return { ok: false, message: `评审流 '${review.flowId}' 已不存在（配置改过？）` }

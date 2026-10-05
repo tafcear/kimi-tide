@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import Schema from 'schemastery'
+import { routerConfigSchema as Config } from '../src/settings-schema.js'
 
 describe('schemastery 未知键行为探测（spec 待核实 1）', () => {
   it('Schema.object 对 schema 外未知键：记录实际行为（透传）', () => {
@@ -29,12 +30,20 @@ describe('schemastery v5 兼容层行为钉桩（Task 5，2026-08-22 实测）',
     expect(s({ imageFallback: 'latch' } as never)).toEqual({ imageFallback: 'latch' })
     expect(() => s({ imageFallback: 'bogus' } as never)).toThrow(/imageFallback/)
   })
-  it('version union 收 2/3/4/5：各 const 原样保留，缺省落 5，表外值拒绝', () => {
+  it('version union 收 2/3/4/5/6：各 const 原样保留，缺省落 6，表外值拒绝', () => {
     const s = Schema.object({
-      version: Schema.union([Schema.const(2), Schema.const(3), Schema.const(4), Schema.const(5)]).default(5),
+      version: Schema.union([Schema.const(2), Schema.const(3), Schema.const(4), Schema.const(5), Schema.const(6)]).default(6),
     })
-    expect(s({} as never)).toEqual({ version: 5 })
-    for (const v of [2, 3, 4, 5]) expect(s({ version: v } as never)).toEqual({ version: v })
-    expect(() => s({ version: 6 } as never)).toThrow(/version/)
+    expect(s({} as never)).toEqual({ version: 6 })
+    for (const v of [2, 3, 4, 5, 6]) expect(s({ version: v } as never)).toEqual({ version: v })
+    expect(() => s({ version: 7 } as never)).toThrow(/version/)
+  })
+})
+
+describe('routerConfigSchema 生产 schema 版本闸（Task 1：v6）', () => {
+  it('version 6 被接受，默认 6', () => {
+    const parsed = Config({ version: 6 })
+    expect(parsed.version).toBe(6)
+    expect(Config({}).version).toBe(6)
   })
 })
