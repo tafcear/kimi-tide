@@ -1514,10 +1514,12 @@ describe('v2.0.0 派发台账接线：槽位 dispatch → onDispatch 记账', ()
 })
 
 /**
- * §8-6 可用性护栏（R7 修复轮 1）：role 目标不可用（不在候选池 / available:false）
- * ⇒ 不套用 role 决策——走既有决策路径（子代理落打底，再由 B-1a 让位保持继承值，
- * 不静默换人），派发元信息记 basis='keep' 且带 roleLabel/teammate（面板据此提示
- * 「分工表「前端」目标不可用 → 保持继承」）。目标可用 ⇒ 照常改道（回归保护）。
+ * §8-6 可用性护栏（R7 修复轮 1；R8 修复轮 2 补显式轮记账优先级）：role 目标
+ * 不可用（不在候选池 / available:false）⇒ 不套用 role 决策——走既有决策路径
+ * （子代理落打底，再由 B-1a 让位保持继承值，不静默换人），派发元信息记
+ * basis='keep' 且带 roleLabel/teammate（面板据此逐字显示
+ * 「「前端」目标不可用 → 保持继承（…）」）。队友显式 @ 轮例外：记 basis='explicit'
+ * 不记 keep。目标可用 ⇒ 照常改道（回归保护）。
  */
 describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（保持继承）', () => {
   const child = {
@@ -1560,7 +1562,7 @@ describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（�
     expect(config).toEqual(EXTERNAL)
     // 决策落既有路径：打底（随后被 B-1a 让位，保持继承值）
     expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('default')
-    // 派发元信息：keep ＋ 角色名（面板提示「分工表「前端」目标不可用 → 保持继承」）
+    // 派发元信息：keep ＋ 角色名（面板逐字显示「「前端」目标不可用 → 保持继承（kimi-coding/k3）」）
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({
       basis: 'keep',
@@ -1580,5 +1582,26 @@ describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（�
     // Fails if: 只查「池中存在」不查 available ⇒ 不可用目标照常改道
     expect(config).toEqual(EXTERNAL)
     expect(entries[0]).toMatchObject({ basis: 'keep', teammate: 'frontend', roleLabel: '前端' })
+  })
+
+  it('队友显式 @ 轮 + role 目标不可用 ⇒ 记账 basis=explicit（R8：兜底 keep 不抢显式语义）', async () => {
+    // 池中剔除 kimi-for-coding（role 目标不可用）——但本轮队友消息带显式 @，
+    // 路由决策与 role 目标可用性无关（显式 @ 优先级链第 1 档，applyRoleDecision 不覆盖）。
+    const metas = METAS.filter((m) => !(m.provider === 'kimi-coding' && m.model === 'kimi-for-coding'))
+    const { dispatch, entries } = mountGuard(metas)
+    await dispatch.preStep({ agent: child, messages: [textMessage('@deepseek-official 帮忙看看')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // 显式 @ 生效：路由到显式选中的目标（预设内已配置的 deepseek-v4-flash），非继承值
+    expect(config).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    expect(entries).toHaveLength(1)
+    // Fails if: R7 兜底只看 roleHit/可用性、不看最终决策——显式轮被误记
+    // basis=keep+roleLabel（丢 explicit 语义，且客户端会误渲染「目标不可用」）
+    expect(entries[0]).toMatchObject({
+      basis: 'explicit',
+      teammate: 'frontend',
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    // 显式轮不得带 roleLabel——否则满足「keep+roleLabel」外的渲染歧义面
+    expect(entries[0]!.roleLabel).toBeUndefined()
   })
 })

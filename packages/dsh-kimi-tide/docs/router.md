@@ -893,5 +893,10 @@ rolesOf` 与 `router.ts` 的 `teamCfg` 同款）、`driverSticky === true`、
   false`）⇒ **不套用 role 决策**，走既有决策路径（子代理通常落打底，再由
   B-1a 让位**保持继承值**，不静默换人）。该情形下派发元信息记
   `basis: 'keep'` 并带 `roleLabel` 与 `teammate`（不新增 basis 枚举值），
-  面板据此显示「分工表「〈角色名〉」目标不可用 → 保持继承」。可用时行为、
+  面板派发行（dock 摘要槽与决策悬浮层明细共用同一 `formatDispatch`）据此
+  逐字显示「**「〈角色名〉」目标不可用 → 保持继承（〈实际生效目标〉）**」
+  ——形如「「前端」目标不可用 → 保持继承（kimi-coding/k3）」。**例外**
+  （R8）：队友**显式 `@`** 轮（最终决策 `via: 'explicit'`）不记 keep——
+  显式点名与 role 目标可用性无关，台账保持 `basis: 'explicit'`（带
+  `teammate`、不带 `roleLabel`），面板不误渲染「目标不可用」。可用时行为、
   优先级链、confirmNote 机制一律不变。

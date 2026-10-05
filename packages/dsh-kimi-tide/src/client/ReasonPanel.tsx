@@ -15,8 +15,16 @@ import type { DispatchEntry } from '../dispatch-ledger.js'
  * who 回退链：roleLabel > teammate > 依据词（explicit=点名 / unclaimed=未在分工表 /
  * 其余=继承）。纯函数便于单测；dock 摘要槽与本面板明细行共用同一形状，
  * 由 TideDock 转出口（定义于此而非 TideDock：避免组件互引成环）。
+ *
+ * §8-6 护栏形态（R8 修复轮 2）：role 目标不可用的兜底记账（basis='keep' 且带
+ * roleLabel）渲染成明确的「「〈角色名〉」目标不可用 → 保持继承（实际生效目标）」
+ * 文案——与无角色的普通 keep（「继承 → … · keep」）区分开，面板才能如实说出
+ * 「没改道」。判据只用既有字段：不新增 basis 枚举值、不改投影 schema。
  */
 export function formatDispatch(entry: DispatchEntry): string {
+  if (entry.basis === 'keep' && entry.roleLabel !== undefined) {
+    return `「${entry.roleLabel}」目标不可用 → 保持继承（${entry.target.provider}/${entry.target.model}）`
+  }
   const who = entry.roleLabel ?? entry.teammate ?? (entry.basis === 'explicit' ? '点名' : entry.basis === 'unclaimed' ? '未在分工表' : '继承')
   return `${who} → ${entry.target.provider}/${entry.target.model} · ${entry.basis}`
 }

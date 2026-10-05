@@ -490,6 +490,26 @@ describe('TideDock 派发区（Task 6：摘要行 + 明细 + 帮助锚点）', (
     expect(formatDispatch({ basis: 'keep', target: { provider: 'p', model: 'm' }, at: 1 })).toBe('继承 → p/m · keep')
   })
 
+  it('formatDispatch：basis=keep 且带 roleLabel ⇒ 渲染「目标不可用 → 保持继承」护栏形态（§8-6 / R8）', () => {
+    // Fails if: keep+roleLabel 仍走普通 who→target·basis 形状——面板说不出
+    // 「目标不可用」，与 router.md 护栏节 / runbook A6 承诺的提示文案不符
+    expect(formatDispatch({ basis: 'keep', teammate: 'frontend', roleLabel: '前端', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 }))
+      .toBe('「前端」目标不可用 → 保持继承（kimi-coding/k3）')
+  })
+
+  it('摘要槽与明细共用同一 formatDispatch：keep+roleLabel 在 dock 摘要同样渲染护栏文案', () => {
+    const entry: DispatchEntry = { basis: 'keep', teammate: 'frontend', roleLabel: '前端', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 }
+    // 摘要槽（TideDock 派发区）
+    const dockHtml = visible(render(makePanel({ dispatch: [entry] })))
+    // Fails if: 摘要槽渲染与 formatDispatch 分叉（两处形态不一致）
+    expect(dockHtml).toContain('「前端」目标不可用 → 保持继承（kimi-coding/k3）')
+    // 明细行（ReasonPanel 派发区）
+    const panelHtml = visible(renderToString(createElement(ReasonPanel, {
+      configSource: 'settings', decision: null, presetName: '省钱', dispatch: [entry],
+    })))
+    expect(panelHtml).toContain('「前端」目标不可用 → 保持继承（kimi-coding/k3）')
+  })
+
   it('ReasonPanel 明细：dispatch 逐行渲染（新在前），至多 20 条', () => {
     const entries: DispatchEntry[] = Array.from({ length: 22 }, (_, i) => ({
       basis: 'keep', target: { provider: 'p', model: `m${i}` }, at: i,

@@ -1066,10 +1066,16 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         decision,
         hasImage,
         // §8-6：role 命中但目标不可用 ⇒ 记 basis='keep'（不新增枚举值）并带上
-        // roleLabel/teammate——面板据此显示「分工表「前端」目标不可用 → 保持继承」。
+        // roleLabel/teammate——面板据此显示「「前端」目标不可用 → 保持继承（…）」。
+        // R8（修复轮 2）：该兜底**只在最终决策不是 explicit 时**生效——队友显式
+        // @ 轮（decision.via === 'explicit'，role 改道本就不参与）若也记 keep，
+        // 既丢 explicit 语义、又让客户端误渲染「目标不可用」；故显式轮改记
+        // basis='explicit'（带 teammate，不带 roleLabel）。
         dispatch: isChild
           ? roleHit !== undefined && !roleTargetUsable
-            ? { basis: 'keep', teammate: roleHit.name, roleLabel: roleHit.role.label }
+            ? decision.kind === 'route' && decision.via === 'explicit'
+              ? { basis: 'explicit', teammate: roleHit.name }
+              : { basis: 'keep', teammate: roleHit.name, roleLabel: roleHit.role.label }
             : dispatchMetaOf(membership, roleHit, decision)
           : undefined,
       })
