@@ -196,6 +196,20 @@ Routing decides *who runs this step*; review decides *whether this step is good 
 
 ---
 
+## Team dispatch (hand focused work to specialist models)
+
+Routing decides "who runs this step" and the review flow decides "was this step good enough"; the **roster** decides "who owns this kind of work from now on". Kimi Tide ships the roster as a **skill card the model reads** — the main model follows it when delegating, so you never hand-copy model names into a prompt.
+
+- **Write a roster** (Settings → Kimi Tide → Roster): one row per role — id (also the teammate-name claim key), label and target model, e.g. "frontend → `kimi-coding/k3`", "backend → `zai-coding-cn/glm-5.3`". Two roles claiming the same teammate name are **rejected at save time**.
+- **The teammate name is the claim**: create a teammate named after the role id (or its alias) and every request from it is re-routed to the target model; unknown names are left untouched (they keep the model they were created with), and child-agent turns are never re-routed by keywords in the task text.
+- **The model can read the roster**: while routing is on and the roster is non-empty, the plugin registers a runtime skill (`kimi-tide-team`) — read before delegating, then follow one of two recipes: a **one-shot task** (`workflow`, naming the model) or a **persistent teammate** (`spawn_teammate`, name taken from the claim column). Edit the roster and the card in live sessions is replaced on the next turn; empty the roster and the card disappears.
+- **Pinned baseline**: if you want the main session's **baseline** to always be one model instead of the preset default, turn on "pin the baseline" and name the target — keyword rules and explicit `@kimi` still win. Leave it empty to follow the host's default model.
+- **Every dispatch leaves a trace**: the decision panel's "recent dispatches" lists the basis (`role` / `unclaimed` / `explicit` / `keep`), the teammate, the role label and the **effective** model (latest 20 per parent session); when a role target is unavailable the plugin **never swaps anyone silently** — the panel states, word for word, "「<role>」target unavailable → keeping the inherited model (<effective target>)".
+
+Config fields (`roles` / `driver` / `driverSticky` / `rulesApplyToChildren`), the five-step decision priority and the migration rules live in the [router architecture](packages/dsh-kimi-tide/docs/router.md) "2.0.0 team dispatch" section; the live acceptance criteria and results are in [team-dispatch-acceptance.md](packages/dsh-kimi-tide/docs/team-dispatch-acceptance.md).
+
+---
+
 ## FAQ
 
 **Q: Where did the old OAuth access go?**
@@ -217,11 +231,11 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v1.4.1 (2026-10-03)**
+> Current version: **v2.0.0 (2026-10-06)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
-- Planned: subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
+- Planned: live re-verification of the v2.0.0 "role × image" combination (once the host GUI allows image attachments in teammate sessions), subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
 
 ---
 
