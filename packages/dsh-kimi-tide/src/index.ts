@@ -358,6 +358,53 @@ function registerSessionEventTypes(): boolean {
   return hostReached
 }
 
+/** ctx.get('skills') 探测形状（acceptance-fix-1）：只看 register 这一个面。 */
+type SkillsProbe = { register?: SkillsLike['register'] }
+
+/**
+ * skills 服务探测（acceptance-fix-1）：**必须经 `ctx.get('skills')` 读取**。
+ *
+ * cordis 的数组形 `inject` 是**必需依赖**声明，而本插件的 inject 只有
+ * llm/timer/commands/sessionProjections —— 对未声明 inject 的服务，上下文
+ * 代理的**属性访问直接抛错**（`cordis/lib/index.js:676` ——
+ * `cannot get property "skills" without inject`）。旧写法
+ * `try { ctx.skills } catch { return undefined }` 把那次抛错静默吞成 undefined，
+ * 导致分工表 skill 在生产宿主**永不注册**（实机验收 A4）。`ctx.get(name)` 是
+ * cordis 给的无 inject 要求读法（reflect.d.ts:6-16，缺席返回 undefined），
+ * 本文件读 configEditor/connection/agents 已是同款先例。
+ *
+ * ⚠ 绝不能把 skills 加进 inject 数组：那会变必需依赖，未挂 dsh-skill 的
+ * profile 将直接加载不了本插件（设计稿 §4 明确要避免）。
+ * 保留 try/catch 兜底（get 自身抛错也不冒泡）与 typeof 形状校验。
+ */
+export function probeSkills(ctx: unknown): SkillsLike | undefined {
+  try {
+    const skills = (ctx as { get?: (name: string) => unknown }).get?.('skills') as SkillsProbe | undefined
+    return typeof skills?.register === 'function' ? (skills as SkillsLike) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** ctx.get('agentTeams') 探测形状（v2.0.0 Task 4）：只看 tryMembership 这一个面。 */
+type AgentTeamsProbe = { tryMembership?: (agent: Agent) => { role: string; name: string } | undefined }
+
+/**
+ * agentTeams 服务探测（acceptance-fix-1，与 probeSkills 同款范式）：经
+ * `ctx.get('agentTeams')` 读取 —— 旧的属性访问形态在 cordis 代理下必抛，被
+ * try/catch 静默吞成 undefined，导致认领队友的 role 改道在生产宿主**永不生效**
+ * （实机验收 A2/A8）。agentTeams 同样**不得**进 inject 数组（未启用 Agent Teams
+ * 组合包的 profile 必须能加载本插件）。
+ */
+export function probeAgentTeams(ctx: unknown): AgentTeamsProbe | undefined {
+  try {
+    const teams = (ctx as { get?: (name: string) => unknown }).get?.('agentTeams') as AgentTeamsProbe | undefined
+    return typeof teams?.tryMembership === 'function' ? teams : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function apply(ctx: Context, config: Config = {}) {
   // The shipped cordis.patch.yml documents every knob as a comment, so a
   // profile applying that layer as-is composes `config: null` (YAML null) —
@@ -369,12 +416,31 @@ export function apply(ctx: Context, config: Config = {}) {
   const log: RouterLog = { info: (message: string) => { ctx.logger.info(message) } }
   const warn = (message: string) => { ctx.logger?.warn?.(message) }
 
-  // ctx.skills 探测一次并缓存（cordis 服务缺席时访问即抛 → probeSkills 内 try/catch，
-  // 见设计稿 §4）：未挂 dsh-skill 时整链降级为不注入分工表 skill，绝不在热路径复探。
-  const skillsService = probeSkills(ctx)
-  // ctx.agentTeams 探测一次并缓存（同款范式，v2.0.0 Task 4）：宿主未挂团队服务时
+  // ctx.get('skills') 探测并缓存（acceptance-fix-1：经 ctx.get，cordis 代理下属性
+  // 访问必抛——旧写法因此被静默吞成 undefined，见 probeSkills 注释）：未挂 dsh-skill
+  // 时整链降级为不注入分工表 skill，绝不在热路径复探。let：applyConfig 会重探测
+  // （晚挂载兜底，见 refreshHostServices）。
+  let skillsService = probeSkills(ctx)
+  // ctx.get('agentTeams') 探测并缓存（同款范式，v2.0.0 Task 4）：宿主未挂团队服务时
   // teamLookup 为 undefined ⇒ pre-step 的 role 分支自然不命中，行为与主会话同形。
-  const agentTeams = probeAgentTeams(ctx)
+  let agentTeams = probeAgentTeams(ctx)
+
+  /**
+   * 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：cordis 组合包按 profile 装配，
+   * skills/agentTeams 可能在本插件 apply 之后才挂载。applyConfig 是插件的常态
+   * 重入点（attach / volatile 提交 / 命令保存，同值保存也会走到），在那里以
+   * 可忽略的成本重探一次；服务出现/消失/换实例 ⇒ 返回 true，由调用方重挂
+   * 路由器与分工表 skill。择此而非「服务出现后重挂」：cordis 没有面向插件的
+   * 「服务出现」通用订阅面，重探测零订阅成本且与既有重挂路径完全同构。
+   */
+  const refreshHostServices = (): boolean => {
+    const nextSkills = probeSkills(ctx)
+    const nextTeams = probeAgentTeams(ctx)
+    const changed = nextSkills !== skillsService || nextTeams !== agentTeams
+    skillsService = nextSkills
+    agentTeams = nextTeams
+    return changed
+  }
 
   // The strict persistence reader refuses logs with unknown event types — for
   // READING history (legacy `kimi-tide/panel`) as well as for what we append
@@ -599,26 +665,6 @@ export function apply(ctx: Context, config: Config = {}) {
 
   let disposeRouter: (() => void) | null = null
 
-  /** ctx.skills 探测（cordis 服务缺席时访问即抛 → 必须 try/catch 并缓存，见设计稿 §4）。 */
-  type SkillsProbe = { register?: SkillsLike['register'] }
-  function probeSkills(ctx: unknown): SkillsLike | undefined {
-    try {
-      const skills = (ctx as { skills?: SkillsProbe }).skills
-      return typeof skills?.register === 'function' ? (skills as SkillsLike) : undefined
-    } catch {
-      return undefined
-    }
-  }
-  /** ctx.agentTeams 探测（v2.0.0 Task 4，与 probeSkills 同款范式：服务缺席访问即抛）。 */
-  type AgentTeamsProbe = { tryMembership?: (agent: Agent) => { role: string; name: string } | undefined }
-  function probeAgentTeams(ctx: unknown): AgentTeamsProbe | undefined {
-    try {
-      const teams = (ctx as { agentTeams?: AgentTeamsProbe }).agentTeams
-      return typeof teams?.tryMembership === 'function' ? teams : undefined
-    } catch {
-      return undefined
-    }
-  }
   /**
    * 分工表 skill 句柄（插件级状态，与 imageStates 同款范式）：配置变更时先 dispose
    * 旧的、再按新 roles 重挂；roles 为空 / skills 服务缺席 / 宿主拒绝注册 ⇒ 不安装。
@@ -732,7 +778,12 @@ export function apply(ctx: Context, config: Config = {}) {
         hitConfirm: confirmGate,
         // v2.0.0（Task 4）：队友身份查询注入——agentTeams 服务缺席即 undefined，
         // pre-step 的 role 分支自然不命中（逐字节回到无分工表行为）。
-        teamLookup: agentTeams === undefined ? undefined : (agent) => agentTeams.tryMembership?.(agent),
+        // 快照到局部常量：let 重探测（refreshHostServices）下闭包无法窄化，且本次
+        // 挂载必须钉死挂载时刻的服务实例。
+        teamLookup: (() => {
+          const teams = agentTeams
+          return teams === undefined ? undefined : (agent: Agent) => teams.tryMembership?.(agent)
+        })(),
         // v2.0.0（Task 5）：派发台账记账注入——请求层仅在子代理轮（槽位带
         // dispatch 元信息）回调；台账本体插件级，重挂路由器不丢。
         onDispatch: (_agent, entry) => dispatchLedger.record(entry),
@@ -792,18 +843,23 @@ export function apply(ctx: Context, config: Config = {}) {
    * reported by the panel snapshot.
    */
   const applyConfig = (next: RouterConfigAny) => {
+    // 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：skills/agentTeams 可能在
+    // apply 之后才挂上；服务出现/消失 ⇒ 与配置变更同款重挂（成本可忽略）。
+    const servicesChanged = refreshHostServices()
     const source: ConfigSource = settingsScope !== null ? 'settings' : 'sidecar'
     const changed = !sameJson(routerConfig, next)
-    if (!changed && configSource === source) return
+    if (!changed && configSource === source && !servicesChanged) return
     routerConfig = next
     configSource = source
     if (changed) {
       latestDecisions.clear()
       latestFlowEvents.clear()
-      mountRouter()
       // 配置变更重挂分工表 skill（裁决 R3）：路由由开→关 ⇒ dispose 后不再注册。
-      remountTeamSkill()
       refreshCandidates()
+    }
+    if (changed || servicesChanged) {
+      mountRouter()
+      remountTeamSkill()
     }
   }
 

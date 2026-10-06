@@ -170,6 +170,10 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
     get: (name: string) => {
       if (name === 'agents') return { list: () => agents }
       if (name === 'configEditor') return configEditor
+      // 可选宿主服务（acceptance-fix-1）：与生产 cordis 的 ctx.get 同语义——按名
+      // 现查 store（调用时读，而非注册时快照），测试可在 apply 前往 ctx 挂
+      // agentTeams 替身，或在 apply 后挂以模拟「晚挂载」。
+      if (name === 'skills' || name === 'agentTeams') return ctx[name]
       return undefined
     },
   }
@@ -564,7 +568,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
       session: { append: vi.fn(), header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
     }
     const { ctx, listeners, getCommand } = makeCtx([lead as never, child as never], settings)
-    // agentTeams 服务替身（probeAgentTeams 读 ctx.agentTeams）：child 是认领队友 frontend。
+    // agentTeams 服务替身（probeAgentTeams 经 ctx.get('agentTeams') 现查）：child 是认领队友 frontend。
     ;(ctx as Record<string, unknown>).agentTeams = {
       tryMembership: (a: unknown) => (a === child ? { role: 'teammate', name: 'frontend' } : undefined),
     }
@@ -613,6 +617,112 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     // agent/disposed：清掉该 agent 的记账（Lead 面板回落空数组）
     for (const listener of listeners.get('agent/disposed') ?? []) listener({ agent: child })
     expect((await lastSnapshot(getCommand, lead as never)).dispatch).toHaveLength(0)
+  })
+
+  /**
+   * acceptance-fix-1 生产形态 1:1 复现：cordis 上下文代理下，**未声明 inject 的
+   * 服务属性访问直接抛错**（cordis/lib/index.js:676），只有 ctx.get 能读到。
+   * 用 Proxy 把 makeCtx 的 skills/agentTeams 属性访问变成抛错：探测若仍走属性
+   * 访问（旧写法），A4（skill 不注册）与 A2（队友不改道）在这里同时红。
+   */
+  it('cordis 代理形态（属性访问即抛）：skill 注册 + 认领队友改道仍生效（经 ctx.get）', async () => {
+    const roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    // 路由关起步（与 R3 测试同款）：排除启动期双次 apply 的注册计数干扰，
+    // 路由由关→开的那次 applyConfig 恰好注册一次。
+    const settings = makeSettings({ ...v5cfg(null), roles })
+    const child = {
+      id: 'child-1',
+      session: { append: vi.fn(), header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
+    }
+    const { ctx, listeners, skillRegister, getCommand } = makeCtx([child as never], settings)
+    ;(ctx as Record<string, unknown>).agentTeams = {
+      tryMembership: (a: unknown) => (a === child ? { role: 'teammate', name: 'frontend' } : undefined),
+    }
+    // cordis 语义：未 inject 的服务，属性访问抛错；ctx.get 无 inject 要求，照常放行。
+    const proxied = new Proxy(ctx as Record<string, unknown>, {
+      get(target, prop, receiver) {
+        if (prop === 'skills' || prop === 'agentTeams') {
+          throw new Error(`cannot get property "${String(prop)}" without inject`)
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+
+    apply(proxied as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    // 关态静默：不注册、不报错、不提示。
+    expect(skillRegister).not.toHaveBeenCalled()
+
+    // A4：路由开（roles 保留）⇒ 经 ctx.get('skills') 取到服务，分工表 skill 注册成功
+    await getCommand()!.handler({ rawInput: 'preset saving' })
+    await tick()
+    expect(skillRegister).toHaveBeenCalledTimes(1)
+    expect(skillRegister.mock.calls[0]![0] as { name: string }).toMatchObject({ name: 'kimi-tide-team' })
+
+    // A2：认领队友 frontend 的子代理 request 被改道到 role 目标
+    const preStep = listeners.get('agent/pre-step')?.at(-1) as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    const request = listeners.get('agent/request')?.at(-1) as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    expect(preStep).toBeDefined()
+    expect(request).toBeDefined()
+    await preStep(
+      { agent: child, messages: [{ role: 'user', content: [{ type: 'text', text: '写个组件' }] }], turn: 1, step: 1, signal: new AbortController().signal },
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+    const applied = await request(
+      { agent: child, turn: 1, step: 1, signal: new AbortController().signal },
+      () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-flash' }),
+    )
+    expect(applied).toMatchObject({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+  })
+
+  /**
+   * acceptance-fix-1 晚挂载兜底：agentTeams 在 apply 之后才挂上（cordis 组合包按
+   * profile 装配，服务挂载顺序不保证）。applyConfig 是插件的常态重入点——同值
+   * 保存也会走到——在那里重探测一次，服务出现即重挂路由器，队友改道随之生效。
+   */
+  it('晚挂载兜底：apply 后挂上的 agentTeams 在下一次 applyConfig 重探测生效', async () => {
+    const roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    const settings = makeSettings({ ...v5cfg('saving'), roles })
+    const child = {
+      id: 'child-1',
+      session: { append: vi.fn(), header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
+    }
+    const { ctx, listeners, getCommand } = makeCtx([child as never], settings)
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+
+    const drive = async (): Promise<unknown> => {
+      const preStep = listeners.get('agent/pre-step')?.at(-1) as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>
+      const request = listeners.get('agent/request')?.at(-1) as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>
+      expect(preStep).toBeDefined()
+      expect(request).toBeDefined()
+      await preStep(
+        { agent: child, messages: [{ role: 'user', content: [{ type: 'text', text: '写个组件' }] }], turn: 1, step: 1, signal: new AbortController().signal },
+        () => Promise.resolve({ kind: 'enter' }),
+      )
+      return request(
+        { agent: child, turn: 1, step: 1, signal: new AbortController().signal },
+        () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-flash' }),
+      )
+    }
+
+    // 服务未挂：子代理不改道（直通 deepseek-flash）
+    expect(await drive()).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-flash' })
+
+    // 宿主晚挂载 agentTeams；随后一次**同值**配置保存（config 无 diff）触发
+    // applyConfig ⇒ 重探测发现服务出现 ⇒ 重挂路由器。
+    ;(ctx as Record<string, unknown>).agentTeams = {
+      tryMembership: (a: unknown) => (a === child ? { role: 'teammate', name: 'frontend' } : undefined),
+    }
+    await getCommand()!.handler({ rawInput: 'import-config activePreset: saving' })
+    await tick()
+
+    // 重挂后：认领队友 frontend 的子代理被改道到 role 目标
+    expect(await drive()).toMatchObject({ provider: 'kimi-coding', model: 'kimi-for-coding' })
   })
 })
 
