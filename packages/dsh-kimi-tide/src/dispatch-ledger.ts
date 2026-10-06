@@ -29,8 +29,8 @@ export class DispatchLedger {
   record(entry: DispatchEntry): void {
     this.entries.push(entry)
     // 按父会话收口：该会话超出 CAP 时淘汰其最旧一条（O(n) 扫描——n ≤ 20×会话数
-    // （含历史会话，agent dispose 只按 agentId 清理条目，Lead 销毁后其父会话条目
-    // 仍残留至自然淘汰），量级可忽略）。
+    // （含历史会话，父会话 dispose 时经 dropSession 即清名下条目，无残留），
+    // 量级可忽略）。
     let count = 0
     for (const e of this.entries) if (e.parentSession === entry.parentSession) count++
     if (count > CAP) {
@@ -44,7 +44,14 @@ export class DispatchLedger {
     return this.entries.filter((e) => e.parentSession === sessionId).reverse()
   }
 
-  dropAgent(agentId: string): void {
-    for (let i = this.entries.length - 1; i >= 0; i--) if (this.entries[i]!.agentId === agentId) this.entries.splice(i, 1)
+  /**
+   * 父会话销毁时清掉其名下全部条目（agent/disposed 接线用，入参 = 被销毁 agent 的 id）。
+   * 口径按 **parentSession** 而非 agentId：记账的 agentId 是子代理自身 id，而面板按
+   * 父会话过滤——子代理「干完即销毁」若按 agentId 清，会把它刚写进父会话面板的行
+   * 一并删掉（实机缺陷：派发区永远为空）。子代理销毁时其 id 不等于任何 parentSession
+   * （除非它自己又派发了孙代理，彼时清掉孙代理行正合语义），父会话行自然保留。
+   */
+  dropSession(sessionId: string): void {
+    for (let i = this.entries.length - 1; i >= 0; i--) if (this.entries[i]!.parentSession === sessionId) this.entries.splice(i, 1)
   }
 }

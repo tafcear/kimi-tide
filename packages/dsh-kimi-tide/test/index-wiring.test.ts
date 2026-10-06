@@ -554,10 +554,11 @@ describe('apply() settings namespace wiring (Task 4)', () => {
 
   /**
    * v2.0.0 派发台账（Task 5）：panelSnapshot 带 dispatch —— 子代理派发行按父会话
-   * 聚合到 Lead；无派发 = 空数组（非 undefined）；agent/disposed 清掉该 agent 的记账。
+   * 聚合到 Lead；无派发 = 空数组（非 undefined）；agent/disposed 按父会话收口——
+   * 子代理销毁不动父会话可见行，父会话销毁才清掉其名下记账。
    * 请求层「记/不记」的直接断言在 router-wiring.test.ts（onDispatch 组）。
    */
-  it('panelSnapshot 带 dispatch：子代理派发行按父会话聚合到 Lead，disposed 后清理', async () => {
+  it('panelSnapshot 带 dispatch：子代理派发行按父会话聚合到 Lead，父会话 disposed 后清理', async () => {
     const roles = {
       frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
     }
@@ -614,8 +615,13 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     })
     expect(typeof dispatch[0]!.at).toBe('number')
 
-    // agent/disposed：清掉该 agent 的记账（Lead 面板回落空数组）
+    // agent/disposed（按父会话收口）：子代理「干完即销毁」不得删掉父会话可见行——
+    // 实机缺陷修复前这里按 agentId 清，行随子代理销毁一并消失（派发区永远为空）。
     for (const listener of listeners.get('agent/disposed') ?? []) listener({ agent: child })
+    expect((await lastSnapshot(getCommand, lead as never)).dispatch).toHaveLength(1)
+
+    // 父会话（Lead）销毁：清掉其名下记账，面板回落空数组。
+    for (const listener of listeners.get('agent/disposed') ?? []) listener({ agent: lead })
     expect((await lastSnapshot(getCommand, lead as never)).dispatch).toHaveLength(0)
   })
 

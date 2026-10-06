@@ -16,11 +16,20 @@ describe('DispatchLedger', () => {
     expect(ledger.recentFor('s2')).toHaveLength(1)
   })
 
-  it('dropAgent 清掉该 agent 的记账（agent/disposed 用）', () => {
+  it('子代理 dispose 不得删掉父会话可见的行（一次性派发干完即销毁）', () => {
     const ledger = new DispatchLedger()
-    ledger.record({ ...entry(1), agentId: 'a1' })
-    ledger.record({ ...entry(2), agentId: 'a2' })
-    ledger.dropAgent('a1')
-    expect(ledger.recentFor('s1').every((e) => e.agentId !== 'a1')).toBe(true)
+    ledger.record({ ...entry(1), agentId: 'child-1' })
+    ledger.record({ ...entry(2), agentId: 'child-2' })
+    ledger.dropSession('child-1') // 子代理自身销毁
+    expect(ledger.recentFor('s1').map((e) => e.at)).toEqual([2, 1])
+  })
+
+  it('父会话 dispose 清掉其名下条目，不影响他会话', () => {
+    const ledger = new DispatchLedger()
+    ledger.record({ ...entry(1), agentId: 'child-1' })
+    ledger.record({ ...entry(2, 's2'), agentId: 'child-2' })
+    ledger.dropSession('s1') // 父会话（Lead）销毁
+    expect(ledger.recentFor('s1')).toHaveLength(0)
+    expect(ledger.recentFor('s2')).toHaveLength(1)
   })
 })

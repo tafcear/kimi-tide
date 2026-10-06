@@ -1014,8 +1014,10 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     latestDecisions.delete(payload.agent)
     latestFlowEvents.delete(payload.agent)
-    // 派发台账（Task 5）：清掉该 agent 作为子代理产生的记账（键 = 字符串 agentId）。
-    dispatchLedger.dropAgent(payload.agent.id)
+    // 派发台账（Task 5）：被销毁的 agent 若是**某会话的父**，清掉其名下记账
+    // （键 = 字符串 parentSession）；子代理销毁不动父会话可见的行（实机缺陷修复：
+    // 一次性派发「干完即销毁」，按 agentId 清会把刚写进父会话面板的行一并删掉）。
+    dispatchLedger.dropSession(payload.agent.id)
   })
 
   // 面板取数通道（2026-09-10 换道）：dock 每 8s 轮询一次面板快照。若走命令通道
