@@ -21,9 +21,13 @@
   node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --grep 'request/header'
   ```
 
-- **面板取证**（Lead 会话内执行，或 dock 目视）：`/kimi-tide panel --json` —
-  — 看 `dispatch` 数组（`basis/teammate/roleLabel/target/at/parentSession`，
-  每会话最近 20 条、最新在前）。
+- **面板取证**（2026-10-06 实机更正）：**单击 dock 最左的月亮图标**展开「决策可观测」，
+  看「最近派发」块（与 r2 派发槽摘要同形；r2 槽只在 dock 非紧凑态渲染）。
+  注意：`/kimi-tide panel --json` 是**客户端（dock）取数命令**，宿主侧不产出输出
+  （会话日志只有 `command/run`、无 `command/done`）；真实通道是 HTTP 只读路由
+  `/api/kimi-tide/panel?sessionId=…`，带宿主 browser-trust fence（宿主窗口外 401），
+  故取证只能窗口内目视或窗口内取路由。
+  字段：`basis/teammate/roleLabel/target/at/parentSession`，每父会话最近 20 条、最新在前。
 - **基线配置**（A1 组通用，按条覆写差异项）：
 
   ```yaml
@@ -194,6 +198,31 @@
 
 ## 收尾核对
 
-- [ ] A1a / A1b / A1c / A2 / A3 / A4 / A5 / A6 / A7 / A8 全绿；
-- [ ] P1 两个变体的请求头与派发行 target 已留证；
-- [ ] 所有证据（会话目录路径 ＋ 关键请求头行）已归档。
+- [x] A1a / A1b / A1c / A2 / A3 / A4 / A5 / A6 / A7 / A8 全绿（2026-10-06 实机，见下）；
+- [ ] P1 两个变体的请求头与派发行 target 已留证 —— **未执行**（需在队友会话内发图；发版前补）；
+- [x] 所有证据（会话目录路径 ＋ 关键请求头行）已归档（见下表）。
+
+## 实机结果（2026-10-06，宿主 0.1.7-rc.2 桌面端 ＋ Agent Teams 组合包）
+
+| 判据 | 结果 | 证据（会话目录 / 关键行） |
+|---|---|---|
+| A1a 主驱动恒定 | ✅ | `session-07f5eff2-…` seq=12 `deepseek-official/deepseek-flash`（当班预设 capability 打底 `qwen3.8-max`） |
+| A1b `driver=null` 跟随宿主默认 | ✅ | `session-5f70b85a-…` seq=12 `deepseek-flash`（≠ 预设打底） |
+| A1c 关键词轮规则赢 | ✅ | `session-07f5eff2-…` seq=168/178 `zai-coding-cn/glm-5.3` |
+| A2 队友改道＋面板行 | ✅ | `e750a6de-…` seq=26/39 `kimi-coding/k3`；悬浮层「派发：前端 → kimi-coding/k3 · role」 |
+| A3 一次性派发不被劫持 | ✅ | `b2f1d28f-…`（点名 k3）与 `b2e33129-…`（点名 glm-5.3＋含 code 词 ⇒ 仍 glm-5.3，可鉴别） |
+| A4 分工表进目录且可加载 | ✅ | 技能目录出现 `kimi-tide-team` 且 `skill` 可加载正文；roles 变更后存活会话目录整段替换（描述随之变为新目标） |
+| A5 未认领不改道＋面板行 | ✅ | `773d2bdd-…` seq=27/38 `deepseek-flash`（含 code 词、规则未点火）；悬浮层「probe-x → … · unclaimed」 |
+| A6 目标不可用不改道＋面板行 | ✅ | `e750a6de-…` seq=50 `deepseek-flash`（目标 `kimi-coding/nonexistent-model` 不可用）；悬浮层逐字「「前端」目标不可用 → 保持继承（deepseek-official/deepseek-flash）」 |
+| A7 存量兼容 | ✅ | `session-b0c30b21-…` seq=20 `qwen-token-plan-cn/qwen3.8-max`（`driverSticky:false` ⇒ 预设打底＝v1.4.1 行为）。注：本机线上配置源是 profile patch 静态块（v5 形），迁移路径（`.pre-v6` 留档）只对 settings 文档形态生效，未在本部署形态触发 |
+| A8 多队友并发 | ✅ | 同轮唤醒 `frontend`/`backend`：`e750a6de-…`→k3、`e9b068d4-…`→glm-5.3 |
+| P1 角色×带图 | ⏳ 未执行 | 发版前补（需在队友会话内发图） |
+
+**实机抓到并修复的两个真缺陷**（单测全绿但实机失效，均已修＋回归钉）：
+
+1. `c54b2b3`：宿主服务探测必须经 `ctx.get(name)`——cordis 对**未声明 inject 的服务访问即抛**，
+   旧写法 try/catch 吞成 `undefined` ⇒ 分工表 skill 与队友查表**静默失效**（A2/A4/A8 全废）。
+2. `ed0e065`：派发台账收口按**父会话**（`dropSession`）——旧 `dropAgent` 按 `agentId` 清，
+   子代理"干完即销毁"会把父会话面板那一行立刻删掉 ⇒ 派发区永远空（A2②/A5② 失效）。
+
+另更正本 runbook 的面板取证写法（见 §0）：`/kimi-tide panel --json` 不产出宿主侧输出。
