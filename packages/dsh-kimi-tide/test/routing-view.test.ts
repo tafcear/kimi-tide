@@ -169,3 +169,62 @@ describe('C1：describeRouting 摘要单源', () => {
     expect(summary).toContain('前端')
   })
 })
+
+describe('C1 修复（2026-10-07 复核⑥）：路由关闭时第 3 档与派发面不得报「生效」', () => {
+  // 事实：activePreset=null 时 installRouter 不挂载（index.ts hasActivePreset 门控），
+  // 任何改道（含分工表）都不会发生——视图模型必须如实表达「路由已关闭」。
+  const view = buildRoutingView(v6({
+    activePreset: null,
+    presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3)] satisfies RouterPreset } },
+    roles: { backend: { id: 'backend', label: '后端', target: GLM } },
+  }))
+
+  it('第 3 档 off 且 detail 说明分工表不生效（不再按 dispatch.length 报 ready）', () => {
+    const tier3 = view.precedence.find((p) => p.tier === 3)!
+    expect(tier3.state).toBe('off')
+    expect(tier3.active).toBe(false)
+    expect(tier3.detail).toContain('路由已关闭')
+  })
+
+  it('全视图不出现「参与派发改道」这类肯定表述（含摘要与各档 detail）', () => {
+    expect(JSON.stringify(view)).not.toContain('参与派发改道')
+    expect(view.summary).toContain('路由已关闭')
+  })
+})
+
+describe('C1 修复（2026-10-07 复核⑦）：overlaps 口径对齐 summarize', () => {
+  it('被协作流认领（claimed-by-flow）的 session 行不参与重叠解释', () => {
+    const cfg = v6({
+      presets: { main: { name: '主力', default: FLASH, rules: [rule('review-k3', 'review', K3)] satisfies RouterPreset } },
+      flows: reviewFlow('review'),
+      roles: { backend: { id: 'backend', label: '后端', target: GLM, aliases: ['审查'] } },
+    })
+    const view = buildRoutingView(cfg)
+    // 该规则行已被流认领（wiring=claimed-by-flow），summarize 不把它列入生效规则，
+    // overlaps 也不得为它产出「主会话说『审查』走 …」的解释条。
+    expect(view.session.find((r) => r.id === 'review-k3')?.wiring).toBe('claimed-by-flow')
+    expect(view.overlaps).toEqual([])
+  })
+
+  it('未被认领的行照常产出解释条（对齐过滤不误伤）', () => {
+    const cfg = v6({
+      presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3)] satisfies RouterPreset } },
+      flows: reviewFlow('review'),   // 认领的是 review 组，code 不受影响
+      roles: { backend: { id: 'backend', label: '后端', target: GLM, aliases: ['代码'] } },
+    })
+    expect(buildRoutingView(cfg).overlaps).toHaveLength(1)
+  })
+
+  it('minHits>1 的行 ⇒ 解释条携带 minHits（供文案渲染「说 X（≥N 词）」）；缺省不落键', () => {
+    const cfg = v6({
+      presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3, 2)] satisfies RouterPreset } },
+      roles: { backend: { id: 'backend', label: '后端', target: GLM, aliases: ['代码'] } },
+    })
+    const hit = buildRoutingView(cfg).overlaps[0]!
+    expect(hit.minHits).toBe(2)
+    expect('minHits' in buildRoutingView(v6({
+      presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3)] satisfies RouterPreset } },
+      roles: { backend: { id: 'backend', label: '后端', target: GLM, aliases: ['代码'] } },
+    })).overlaps[0]!).toBe(false)
+  })
+})

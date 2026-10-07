@@ -6,7 +6,7 @@
 // ③ 只改 routes、旧字段陈旧 ⇒ 投影后运行期按 routes 走（本任务的关键新行为）。
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_CONFIG_V6, DEFAULT_KEYWORD_GROUPS, projectRoutesToLegacy,
+  DEFAULT_CONFIG_V6, DEFAULT_KEYWORD_GROUPS, projectRoutesToLegacy, rowsFromConfig, rowsFromLegacy,
   type RouteRowV7, type RouteTarget, type RouterConfigV6, type RouterPreset, type RouterRule,
 } from '../src/config.js'
 import { migrateV6 } from '../src/migrate.js'
@@ -166,6 +166,54 @@ describe('C2b：projectRoutesToLegacy 纯函数', () => {
     expect(out.presets.main!.rules).not.toBe(cfg.presets.main!.rules)
   })
 
+describe('C2b：读边界对畸形 routes 的防御（S1，2026-10-07 复核）', () => {
+  // 手改 cordis.patch.yml 的用户可能写出 routes: 后跟空项（YAML 解析为 null）等
+  // 畸形行——写入期 validateRoutes 会拒，但读路径（attach / volatile-update /
+  // persist 投影）不经过校验，必须不因畸形行崩溃。口径：非对象/非法 scope 的行
+  // **保守丢弃**并 warn（沿用「悬空 preset 行保守丢弃」的既有口径）。
+  const valid = migrateV6(v6())
+
+  it('routes 含 null 行 ⇒ 不抛、null 被丢弃、合法行照常投影，并 warn', () => {
+    const warnings: string[] = []
+    const cfg = { ...valid, routes: [null, ...valid.routes] } as never
+    const out = projectRoutesToLegacy(cfg, (m) => warnings.push(m))
+    expect(out.presets.main!.rules.map((r) => r.id)).toEqual(['image-k3', 'code-kfc', 'review-k3'])
+    expect(warnings.join('\n')).toContain('畸形')
+  })
+
+  it('routes 为 [{}]（空对象行，scope 非法）⇒ 不抛、全部丢弃（投影为空表）', () => {
+    const cfg = { ...valid, routes: [{}] as never }
+    const out = projectRoutesToLegacy(cfg, () => {})
+    expect(out.presets.main!.rules).toEqual([])
+    expect(out.roles).toEqual({})
+  })
+
+  it('行 scope 为非法值（如 \'weird\'）⇒ 该行丢弃、其余行不受影响', () => {
+    const cfg = {
+      ...valid,
+      routes: [...valid.routes, { id: 'x', scope: 'weird', when: { kind: 'role' }, target: K3 }],
+    } as never
+    const out = projectRoutesToLegacy(cfg, () => {})
+    expect(out.presets.main!.rules.map((r) => r.id)).not.toContain('x')
+    expect(Object.keys(out.roles)).toEqual(['frontend', 'backend'])
+  })
+
+  it('rowsFromConfig 对畸形行同样不抛：过滤后返回；非数组 routes 回落旧字段投影', () => {
+    expect(rowsFromConfig({ ...valid, routes: [null] } as never, () => {})).toEqual([])
+    // 非数组（如 routes: {}）⇒ 回落 legacy 投影（字段判据的失败面不吞掉合法配置）
+    expect(rowsFromConfig({ ...valid, routes: {} } as never, () => {})).toEqual(rowsFromLegacy(valid))
+  })
+
+  it('buildRoutingView 吃畸形 routes ⇒ 不抛（读边界兜底传导到视图）', () => {
+    expect(() => buildRoutingView({ ...valid, routes: [null, { id: 'x' }] } as never)).not.toThrow()
+  })
+
+  it('干净 routes ⇒ rowsFromConfig 仍原引用返回（既有零开销路径不变）', () => {
+    expect(rowsFromConfig(valid)).toBe(valid.routes)
+  })
+})
+
+describe('C2b：projectRoutesToLegacy 纯函数（续）', () => {
   it('无 session 行的 preset ⇒ rules 还原为空数组；悬空 preset 行被丢弃', () => {
     const cfg = migrateV6(v6())
     cfg.routes = cfg.routes.filter((r) => r.preset !== 'spare')
@@ -177,4 +225,5 @@ describe('C2b：projectRoutesToLegacy 纯函数', () => {
     } as never)
     expect(dangling.presets.main!.rules.map((r) => r.id)).not.toContain('ghost')
   })
+})
 })

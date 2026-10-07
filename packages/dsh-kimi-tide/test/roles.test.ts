@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { RoleEntry } from '../src/config.js'
+import type { RoleEntry, RouterConfigV6 } from '../src/config.js'
+import { DEFAULT_CONFIG_V6 } from '../src/config.js'
+import { describeRouting } from '../src/routing-view.js'
 import {
   claimConflict, dispatchMetaOf, lookupRoleByTeammate, renderTeamSkill, resolveRoleDecision, roleClaimSet,
 } from '../src/roles.js'
@@ -93,5 +95,30 @@ describe('roles：分工表 skill 正文', () => {
   it('角色很多时描述退化为摘要（不超 480）', () => {
     const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`r${i}`, role(`r${i}`)]))
     expect(renderTeamSkill(many)!.description.length).toBeLessThanOrEqual(480)
+  })
+})
+
+describe('roles：分工表 skill description 消费 describeRouting 单源（复核⑤ M5）', () => {
+  // 跨模块判据：传入路由配置时，description 必须包含 describeRouting 的同源输出
+  // （主会话打底 + 命中走哪 + 派发到哪）。若 renderTeamSkill 回退到自拼文案
+  // （不含主会话片段），或 describeRouting 改了措辞而此处未跟随，本测试变红。
+  const roles = { frontend: role('frontend', { label: '前端' }) }
+  const cfg: RouterConfigV6 = {
+    ...DEFAULT_CONFIG_V6(),
+    activePreset: 'saving',
+    roles: { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } },
+  }
+
+  it('传入路由配置 ⇒ description 包含 describeRouting 同源片段且不超预算', () => {
+    const rendered = renderTeamSkill(roles, cfg)!
+    expect(rendered.description).toContain(describeRouting(cfg))
+    expect(rendered.description).toContain('派活前读我')
+    expect(rendered.description.length).toBeLessThanOrEqual(480)
+  })
+
+  it('路由摘要超预算时仍回落到计数摘要（≤480 红线不破）', () => {
+    const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`r${i}`, role(`r${i}`)]))
+    const rendered = renderTeamSkill(many, cfg)!
+    expect(rendered.description.length).toBeLessThanOrEqual(480)
   })
 })

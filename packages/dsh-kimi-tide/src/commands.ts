@@ -40,6 +40,7 @@ import { coerceRouterConfigV4, coerceRouterConfigV6 } from './migrate.js'
 import type { RouterConfigAny } from './router.js'
 import { validateRouterConfig } from './settings-schema.js'
 import type { RouterSidecarStore } from './sidecar.js'
+import { describeRouting } from './routing-view.js'
 
 export type KimiTideCommand =
   | { kind: 'preset'; preset: string | null }
@@ -219,6 +220,9 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       const lines = [
         `kimi-tide: 预设「${p.name}」· 默认 ${p.default.provider}/${p.default.model} · 规则 ${p.rules.length} 条 · 关键词组 ${Object.keys(c.keywordGroups).length} 个`,
       ]
+      // M5（2026-10-07 复核⑤）：生效摘要行走 describeRouting 单源（与设置页顶部
+      // 摘要、分工表 skill description 三处同源——设计稿 §3 单源约定），不再自拼。
+      lines.push(describeRouting(c))
       // 0.6.0（v5+）：flows 注册表段（id/类型/关键参数）——v4 存量无注册表，不输出该段。
       if (isV5Plus(c)) {
         lines.push(`flows: ${formatFlows(c.flows)}`)

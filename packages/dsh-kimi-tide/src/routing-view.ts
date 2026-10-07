@@ -72,6 +72,11 @@ export interface OverlapInfo {
   roleId: string
   sessionTarget: string
   dispatchTarget: string
+  /**
+   * 行门槛 >1 时透出（复核⑦）：客户端解释条文案据此渲染「说 X（≥N 词）」，
+   * 否则用户按字面一词命中却发现规则不生效（minHits 门槛不可见）。
+   */
+  minHits?: number
 }
 
 /**
@@ -214,10 +219,17 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
   })
 
   /* ---- 重叠解释（§5.2）：词表词 ∈ 角色身份词（id/label/aliases）且激活作用域中
-     该组规则目标 ≠ 角色目标。只看激活预设的 session 行（非激活的不生效）。 ---- */
+     该组规则目标 ≠ 角色目标。只看激活预设的 session 行（非激活的不生效）。
+     口径对齐 summarize（复核⑦）：wiring 为 claimed-by-flow 的行被协作流静态
+     抑制、不产生「主会话说 X」的改道 ⇒ 不参与重叠解释（否则解释条在描述一条
+     不生效的规则）。
+     已知小漏（复核⑦ 标注，不改行为）：① 目标比较只看 provider/model（configKey，
+     不含 effort——两侧仅 effort 不同会被当成「目标相同」不算重叠）；② 词匹配
+     大小写敏感（identity.has(word) 精确等，'Code' 与 'code' 不互 match）。 ---- */
   const overlaps: OverlapInfo[] = []
   for (const row of activeSession) {
     if (row.when.kind !== 'keywords' || isFlowTarget(row.target)) continue
+    if (claimed.has(row.when.group)) continue
     const words = config.keywordGroups[row.when.group] ?? []
     const sessionKey = configKey(row.target as RouteTarget)
     for (const dispatchRow of rows) {
@@ -226,7 +238,10 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
       const dispatchKey = configKey(dispatchRow.target as RouteTarget)
       if (sessionKey === dispatchKey) continue
       for (const word of words) {
-        if (identity.has(word)) overlaps.push({ group: row.when.group, word, roleId: dispatchRow.id, sessionTarget: sessionKey, dispatchTarget: dispatchKey })
+        if (identity.has(word)) overlaps.push({
+          group: row.when.group, word, roleId: dispatchRow.id, sessionTarget: sessionKey, dispatchTarget: dispatchKey,
+          ...(row.when.minHits !== undefined && row.when.minHits > 1 ? { minHits: row.when.minHits } : {}),
+        })
       }
     }
   }
@@ -242,14 +257,28 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
   } else fallback = { target: { ...preset.default }, reason: `预设「${preset.name}」默认` }
 
   /* ---- 决策链五档（§4.2）：与 router.ts 优先级链逐档对齐。
-     三态语义见 TierState：按需档（1/2）不置灰，只有当前配置下真的不参与的档才算 off。 ---- */
-  const tier3: TierState = dispatch.length > 0 ? 'ready' : 'off'
+     三态语义见 TierState：按需档（1/2）不置灰，只有当前配置下真的不参与的档才算 off。
+     复核⑥（2026-10-07）：activePreset 为 null/空（判据镜像 settings-port.hasActivePreset
+     ——本模块零宿主依赖不能 import）时 index.ts 的 hasActivePreset 门控根本不挂载
+     installRouter，**任何改道（含分工表）都不会发生**——第 3 档必须如实 off，
+     不得按 dispatch.length 报 ready；dispatch 行仍列出（分工表内容是真实的配置
+     数据，供「派给谁」预览），但界面与 detail 都不得声称其参与改道。 ---- */
+  const routerOn = typeof config.activePreset === 'string' && config.activePreset.length > 0
+  const tier3: TierState = routerOn && dispatch.length > 0 ? 'ready' : 'off'
   const tier4: TierState = preset !== undefined && session.length > 0 ? 'ready' : 'off'
   const tier5: TierState = preset !== undefined ? 'ready' : 'off'
   const precedence: PrecedenceTier[] = [
     { tier: 1, title: '显式 @指令', state: 'on-demand', active: false, detail: '按需：消息里写 @provider 或 @provider/model 时才参与裁决' },
     { tier: 2, title: '调用方点名', state: 'on-demand', active: false, detail: '按需：仅子代理；调用方点名的模型与打底不同时保持该模型不变' },
-    { tier: 3, title: '分工表角色', state: tier3, active: tier3 === 'ready', detail: dispatch.length > 0 ? `${dispatch.length} 个角色参与派发改道` : '未配置分工表（队友不改道）' },
+    {
+      tier: 3,
+      title: '分工表角色',
+      state: tier3,
+      active: tier3 === 'ready',
+      detail: !routerOn
+        ? (dispatch.length > 0 ? `路由已关闭：分工表 ${dispatch.length} 个角色不发生任何改道（仅存档）` : '路由已关闭（未配置分工表）')
+        : dispatch.length > 0 ? `${dispatch.length} 个角色参与派发改道` : '未配置分工表（队友不改道）',
+    },
     {
       tier: 4,
       title: '关键词规则',

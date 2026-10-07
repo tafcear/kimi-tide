@@ -680,7 +680,9 @@ export function apply(ctx: Context, config: Config = {}) {
   const remountTeamSkill = () => {
     teamSkill?.dispose()
     teamSkill = hasActivePreset(routerConfig)
-      ? installTeamSkill(skillsService, rolesOf(routerConfig), log)
+      // M5（2026-10-07 复核⑤）：传入路由配置——分工表 skill 的 description 消费
+      // describeRouting 单源摘要，与设置页 / /kimi-tide show 三处同源。
+      ? installTeamSkill(skillsService, rolesOf(routerConfig), log, routerConfig)
       : null
   }
   /**
@@ -847,7 +849,9 @@ export function apply(ctx: Context, config: Config = {}) {
     // routes 存在时按其重建 presets[*].rules 与 roles，下游（matchingRules /
     // roleClaimSet / renderTeamSkill / 台账）不改一行即按 routes 走；无 routes
     // 的配置原引用返回（v6 及更早零行为变更）。attach 与 volatile 变更共用本口。
-    const next = projectRoutesToLegacy(incoming)
+    // S1（2026-10-07 复核）：读路径不经过写入期校验——畸形 routes 行（手改 YAML
+    // 常见产物）在此保守丢弃并 warn，不沿 apply 抛穿插件 apply。
+    const next = projectRoutesToLegacy(incoming, warn)
     // 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：skills/agentTeams 可能在
     // apply 之后才挂上；服务出现/消失 ⇒ 与配置变更同款重挂（成本可忽略）。
     const servicesChanged = refreshHostServices()

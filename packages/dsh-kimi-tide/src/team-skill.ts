@@ -4,6 +4,7 @@
  */
 import type { RoleEntry } from './config.js'
 import { renderTeamSkill } from './roles.js'
+import type { RoutingConfigLike } from './routing-view.js'
 
 export const TEAM_SKILL_NAME = 'kimi-tide-team'
 
@@ -33,9 +34,10 @@ export function installTeamSkill(
   skills: SkillsLike | undefined,
   roles: Record<string, RoleEntry>,
   log: { info: (message: string) => void },
+  routing?: RoutingConfigLike,
 ): TeamSkillHandle {
   if (skills === undefined) return NOOP
-  const rendered = renderTeamSkill(roles)
+  const rendered = renderTeamSkill(roles, routing)
   if (rendered === undefined) return NOOP
 
   let disposeInner: (() => void) | undefined

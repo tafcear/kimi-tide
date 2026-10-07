@@ -177,6 +177,10 @@ export function migrateV5(raw: unknown): RouterConfigV6 {
     keywordGroups: v5.keywordGroups,
     ...(v5.auxTargets === undefined ? {} : { auxTargets: v5.auxTargets }),
     ...(isPlainObject(r.roles) ? { roles: r.roles as RouterConfigV6['roles'] } : { roles: {} }),
+    // M2（2026-10-07 复核）：routes（v7 统一路由表）同款 Array.isArray 直通——
+    // 「version:5 文档携带 v6/v7 字段」是 R2 字段判据后的合法常态，逐字段重建
+    // 会在校验之前把 routes 抹掉（10-06 migrateV5 丢分工表的同型事故），纯静默。
+    ...(Array.isArray(r.routes) ? { routes: r.routes } : {}),
     ...(r.driver === null || isPlainObject(r.driver) ? { driver: r.driver as RouterConfigV6['driver'] } : {}),
     ...(typeof r.rulesApplyToChildren === 'boolean' ? { rulesApplyToChildren: r.rulesApplyToChildren } : {}),
     driverSticky: typeof r.driverSticky === 'boolean' ? r.driverSticky : false,
@@ -196,9 +200,11 @@ export function coerceRouterConfigV6(raw: unknown, warn: (message: string) => vo
   return migrateV5(coerceRouterConfigV5(raw, warn))
 }
 
-/** v6 残留判据（照 hasKimiTideResidueV5）。 */
+/** v6 残留判据（照 hasKimiTideResidueV5）。v7 与 v6 同列现行（C2 后现行版本），
+ *  不算残留——否则每次启动都空转一条死迁移路径（复核⑦，2026-10-07）。 */
 export function hasKimiTideResidueV6(config: unknown): boolean {
-  if ((config as { version?: unknown } | null | undefined)?.version !== 6) return true
+  const version = (config as { version?: unknown } | null | undefined)?.version
+  if (version !== 6 && version !== 7) return true
   try {
     return JSON.stringify(config).includes('kimi-tide')
   } catch {

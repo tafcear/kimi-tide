@@ -248,6 +248,7 @@ function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): 
   }
   // 冲突检测：routes 与旧字段同时存在且语义冲突（同一规则/角色两处不一致）⇒ 报错。
   for (const row of routes as RouteRowV7[]) {
+    if (!isRouteRowShaped(row)) continue
     if (row.scope === 'session') {
       const legacy = raw.presets[row.preset!]?.rules.find((r) => r.id === row.id)
       if (legacy !== undefined
@@ -260,7 +261,10 @@ function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): 
         const claimsOf = (ids: readonly string[]): string => [...new Set(ids)].sort().join(',')
         const same = JSON.stringify(legacy.target) === JSON.stringify(row.target)
           && claimsOf([...(legacy.teammate ?? []), legacy.id]) === claimsOf([...(row.teammate ?? []), row.id])
-          && legacy.label === row.label
+          // M1（2026-10-07 复核）：投影侧 label 取 row.label ?? row.id 合成落键，
+          // 校验侧须同款回落——否则手写 dispatch 行缺 label 时，首验通过、persist
+          // 投影出 roles.x.label = x、下一轮把自己造的镜像误报成冲突（自伤）。
+          && legacy.label === (row.label ?? row.id)
           && JSON.stringify(legacy.aliases ?? []) === JSON.stringify(row.aliases ?? [])
           && (legacy.note ?? '') === (row.note ?? '')
         if (!same) {
@@ -269,7 +273,35 @@ function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): 
       }
     }
   }
+  // M3（2026-10-07 复核）：顺序分叉也算冲突——§6.1 明示排序即语义（平手按列表序；
+  // dispatch 行序 = roles 插入序）。只按 id 比 when/target 放过了「同预设两行对调、
+  // 旧字段不动」的形态：两处语义不同却放行。比较两侧**共有的 id 子序列**的相对序
+  // （routes 独有的新增行不算冲突，保持既有放行语义）。
+  const orderDiverges = (routesOrder: readonly string[], legacyOrder: readonly string[]): boolean => {
+    const inRoutes = new Set(routesOrder)
+    const inLegacy = new Set(legacyOrder)
+    return JSON.stringify(routesOrder.filter((id) => inLegacy.has(id)))
+      !== JSON.stringify(legacyOrder.filter((id) => inRoutes.has(id)))
+  }
+  for (const [presetId, preset] of Object.entries(raw.presets)) {
+    const routesOrder = (routes as RouteRowV7[]).filter(isRouteRowShaped)
+      .filter((r) => r.scope === 'session' && r.preset === presetId).map((r) => r.id)
+    if (orderDiverges(routesOrder, preset.rules.map((r) => r.id))) {
+      return `routes 与 presets.'${presetId}'.rules 冲突：规则相对顺序不一致（排序即语义：命中平手按列表序；请改回一致或清理旧字段）`
+    }
+  }
+  const dispatchOrder = (routes as RouteRowV7[]).filter(isRouteRowShaped)
+    .filter((r) => r.scope === 'dispatch').map((r) => r.id)
+  if (orderDiverges(dispatchOrder, Object.keys(roles))) {
+    return 'routes 与 roles 冲突：角色顺序不一致（dispatch 行序与 roles 键序语义等价；请改回一致或清理旧字段）'
+  }
   return undefined
+}
+
+/** 冲突检测的行判据：只对形状合格的行做逐项比较（畸形行在逐行校验段已报错）。 */
+function isRouteRowShaped(row: unknown): row is RouteRowV7 {
+  return row !== null && typeof row === 'object' && !Array.isArray(row)
+    && ((row as { scope?: unknown }).scope === 'session' || (row as { scope?: unknown }).scope === 'dispatch')
 }
 
 /** v5/v6/v7 语义校验主体（原 validateRouterConfig 版本门控内的全部检查，逐字搬移）。 */

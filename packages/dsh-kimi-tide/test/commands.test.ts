@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import YAML from 'yaml'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps, type SettingsNamespacePort } from '../src/commands.js'
+import { describeRouting } from '../src/routing-view.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import { migrateV6 } from '../src/migrate.js'
 import type { RouterConfigAny } from '../src/router.js'
@@ -156,6 +157,19 @@ describe('applyKimiTideCommand', () => {
     // 0.8.0：saving 规则 3 条（+translate）、关键词组 7 个
     expect(out).toContain('规则 3 条')
     expect(out).toContain('关键词组 7 个')
+  })
+
+  it('/kimi-tide show → 摘要行走 describeRouting 单源（复核⑤ M5：不再自拼文案）', async () => {
+    // 跨模块判据：show 输出必须包含 describeRouting(当前配置) 的逐字输出——
+    // 若 show 回退到自拼摘要、或 describeRouting 改措辞而 show 未跟随，本测试变红。
+    const cfg: RouterConfigV6 = {
+      ...DEFAULT_CONFIG_V6(),
+      activePreset: 'saving',
+      roles: { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } },
+    }
+    const deps = makeDeps(cfg)
+    const out = await applyKimiTideCommand(parseKimiTideCommand('show'), deps)
+    expect(out).toContain(describeRouting(cfg))
   })
 
   it('/kimi-tide show（v5）→ 补 flows 注册表段与每预设 imageFallback 行（0.6.0）', async () => {

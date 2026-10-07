@@ -198,11 +198,35 @@ export function DEFAULT_CONFIG_V7(): RouterConfigV7 {
  * 形态）：config.routes 存在 ⇒ 直接采用（唯一真源）；否则从旧字段
  * （presets[*].rules → session 行、roles → dispatch 行）投影。v6 与 v7 都必须
  * 投影出正确行集。
+ *
+ * S1 防御（2026-10-07 复核）：读路径不经过写入期 validateRoutes 校验，而本项目的
+ * 用户正是手改 cordis.patch.yml 的人——YAML 里 `routes:` 后跟空项（解析为 null）
+ * 等畸形行不得让读边界崩溃。口径：非对象 / scope 非法（∉ session|dispatch）的行
+ * **保守丢弃**并 warn（沿用「悬空 preset 行保守丢弃」的既有口径）；干净数组仍
+ * **原引用返回**（既有零开销路径不变）；routes 非数组（如误写成映射）⇒ 回落
+ * 旧字段投影（字段判据的失败面不吞掉合法配置）。
  */
-export function rowsFromConfig(config: RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7): RouteRowV7[] {
+export function rowsFromConfig(
+  config: RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7,
+  warn: (message: string) => void = () => {},
+): RouteRowV7[] {
   const routes = (config as { routes?: unknown }).routes
-  if (routes !== undefined) return routes as RouteRowV7[]
+  if (routes !== undefined) {
+    if (Array.isArray(routes)) {
+      const firstBad = routes.findIndex((row) => !isWellFormedRouteRow(row))
+      if (firstBad === -1) return routes as RouteRowV7[]
+      warn(`dsh-kimi-tide: routes 第 ${firstBad + 1} 行畸形（非对象或 scope 非法），读路径保守丢弃该行`)
+      return routes.filter(isWellFormedRouteRow) as RouteRowV7[]
+    }
+    warn('dsh-kimi-tide: routes 非数组（读路径视为缺失，回落 presets[*].rules / roles 投影）')
+  }
   return rowsFromLegacy(config)
+}
+
+/** 读边界畸形行判据：普通对象且 scope ∈ session|dispatch（写入期校验见 validateRoutes）。 */
+function isWellFormedRouteRow(row: unknown): row is RouteRowV7 {
+  return row !== null && typeof row === 'object' && !Array.isArray(row)
+    && ((row as { scope?: unknown }).scope === 'session' || (row as { scope?: unknown }).scope === 'dispatch')
 }
 
 /** 旧字段 → v7 行集投影（rowsFromConfig 的 legacy 支路，迁移 migrateV6 共用；
@@ -249,9 +273,14 @@ export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; 
  *   「routes ≡ 旧字段」的迁移产物因此逐字节还原）；
  * - dispatch 行还原 id / label / target / teammate / aliases / note 逐字段等价，
  *   缺省字段**不落键**；label 缺省回落 id（RoleEntry.label 必填）；
- * - 悬空 preset 引用的 session 行保守丢弃（写入期 validateRoutes 已拒，读边界不抛错）。
+ * - 悬空 preset 引用的 session 行保守丢弃（写入期 validateRoutes 已拒，读边界不抛错）；
+ * - 畸形行（null / 非对象 / scope 非法——手改 YAML 的常见产物）同样保守丢弃并
+ *   warn，读路径不因畸形行崩溃（S1，2026-10-07 复核；读边界不经过写入期校验）。
  */
-export function projectRoutesToLegacy<T extends RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7>(config: T): T {
+export function projectRoutesToLegacy<T extends RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7>(
+  config: T,
+  warn: (message: string) => void = () => {},
+): T {
   const routes = (config as { routes?: unknown }).routes
   if (!Array.isArray(routes) || routes.length === 0) return config
   const source = config as unknown as RouterConfigV7
@@ -260,7 +289,12 @@ export function projectRoutesToLegacy<T extends RouterConfigV4 | RouterConfigV5P
     presets[presetId] = { ...preset, rules: [] }
   }
   const roles: Record<string, RoleEntry> = {}
-  for (const row of routes as RouteRowV7[]) {
+  for (const [index, entry] of routes.entries()) {
+    if (!isWellFormedRouteRow(entry)) {
+      warn(`dsh-kimi-tide: routes 第 ${index + 1} 行畸形（非对象或 scope 非法），投影时保守丢弃该行`)
+      continue
+    }
+    const row = entry
     if (row.scope === 'session') {
       const preset = typeof row.preset === 'string' ? presets[row.preset] : undefined
       if (preset === undefined) continue

@@ -7,6 +7,7 @@ import {
   type RouteRowV7, type RouteTarget, type RouterConfigV6, type RouterConfigV7, type RouterPreset, type RouterRule,
 } from '../src/config.js'
 import { coerceRouterConfigV7, migrateV6 } from '../src/migrate.js'
+import { projectRoutesToLegacy } from '../src/config.js'
 import { matchingScored } from '../src/rules.js'
 import { buildRoutingView, describeRouting, previewDispatch } from '../src/routing-view.js'
 import { routerConfigSchema, validateRouterConfig } from '../src/settings-schema.js'
@@ -275,5 +276,74 @@ describe('C2：schema 透传（v7 文档经命名空间 schema 不丢 routes）'
     const out = routerConfigSchema(JSON.parse(JSON.stringify(cfg)) as never) as unknown as RouterConfigV7
     expect(out.version).toBe(7)
     expect(out.routes).toEqual(cfg.routes)
+  })
+})
+
+describe('C2 修复（2026-10-07 复核）：镜像产物必须过自家冲突校验（M1 label 对称）', () => {
+  it('手写 dispatch 行缺 label ⇒ 首验通过 → 投影 → 再校验仍通过（往返幂等）', () => {
+    // 场景：用户在 routes 里新增一个不带 label 的 dispatch 行（roles 无同名旧角色，
+    // 首验通过）；persist 投影出 roles.devops.label = 'devops'（label 回落 id）。
+    // 校验侧若严格比 legacy.label === row.label，下一轮就会把自己投影出的镜像
+    // 误报成冲突——用户按报错改不回去。
+    const cfg = migrateV6(v6())
+    const fresh: RouteRowV7 = { id: 'devops', scope: 'dispatch', when: { kind: 'role' }, target: GLM }
+    cfg.routes = [...cfg.routes, fresh]
+    expect(validateRouterConfig(cfg)).toBeUndefined()          // 首验：缺 label 不拒（回落 id）
+    const projected = projectRoutesToLegacy(cfg)
+    expect(projected.roles.devops).toEqual({ id: 'devops', label: 'devops', target: GLM })
+    expect(validateRouterConfig(projected)).toBeUndefined()    // 复核点：镜像产物必须再验通过
+  })
+})
+
+describe('C2 修复（2026-10-07 复核）：冲突检测覆盖顺序分叉（M3，§6.1 排序即语义）', () => {
+  it('同预设两行 session 对调（when/target 不动）⇒ 报冲突', () => {
+    const cfg = migrateV6(v6())
+    const idx = cfg.routes.map((r) => r.id).indexOf('code-kfc')
+    const idxReview = cfg.routes.map((r) => r.id).indexOf('review-k3')
+    const routes = [...cfg.routes]
+    ;[routes[idx], routes[idxReview]] = [routes[idxReview]!, routes[idx]!]
+    cfg.routes = routes
+    const err = validateRouterConfig(cfg)
+    expect(err).toBeTruthy()
+    expect(err).toContain('顺序')
+  })
+
+  it('原序（迁移产物）⇒ 通过（顺序判据不误报）', () => {
+    expect(validateRouterConfig(migrateV6(v6()))).toBeUndefined()
+  })
+
+  it('dispatch 行序与 roles 键序对调 ⇒ 报冲突', () => {
+    const cfg = migrateV6(v6())
+    // roles 键序 = frontend, backend（插入序）；routes 里 dispatch 行倒排
+    const dispatch = cfg.routes.filter((r) => r.scope === 'dispatch').reverse()
+    const session = cfg.routes.filter((r) => r.scope === 'session')
+    cfg.routes = [...session, ...dispatch]
+    const err = validateRouterConfig(cfg)
+    expect(err).toBeTruthy()
+    expect(err).toContain('顺序')
+  })
+
+  it('routes 新增旧字段没有的行 ⇒ 仍不算顺序冲突（既有放行语义保持）', () => {
+    const cfg = migrateV6(v6())
+    const extra: RouteRowV7 = { id: 'fresh', scope: 'session', when: { kind: 'keywords', group: 'writing' }, target: K3, preset: 'spare' }
+    cfg.routes = [...cfg.routes, extra]
+    expect(validateRouterConfig(cfg)).toBeUndefined()
+  })
+})
+
+describe('C2 修复（2026-10-07 复核）：version=5 带 routes 经 migrateV5 链不丢（M2）', () => {
+  it('v6 形状但 version=5 且带 routes ⇒ coerceRouterConfigV7 后 routes 仍在且内容不变', () => {
+    const src = v6()
+    const v7 = migrateV6(src)
+    // 关键：让 routes（真源）与旧字段刻意不同——若 migrateV5 把 routes 抹掉，
+    // migrateV6 会从旧字段重投影，改过的目标就被静默回滚（这才是「丢」的实害）。
+    const edited = v7.routes.map((r) => r.id === 'code-kfc' && r.preset === 'main'
+      ? { ...r, target: GLM } : r)
+    const forged = { ...v7, version: 5, routes: edited }
+    const out = coerceRouterConfigV7(forged, () => {})
+    expect(out.version).toBe(7)
+    expect(out.routes).toEqual(edited)
+    // 行集逐行不变（含 dispatch 元数据）
+    expect(out.routes.filter((r) => r.scope === 'dispatch').map((r) => r.id)).toEqual(['frontend', 'backend'])
   })
 })

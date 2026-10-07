@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV3, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_CONFIG_V7, DEFAULT_FLOWS, type RouterConfigV3, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import { coerceRouterConfig, coerceRouterConfigV4, coerceRouterConfigV5, coerceRouterConfigV6, hasKimiTideResidue, hasKimiTideResidueV5, hasKimiTideResidueV6, migrateV1, migrateV2, migrateV3, migrateV4, migrateV5 } from '../src/migrate.js'
 
 const V1 = {
@@ -266,5 +266,9 @@ describe('migrateV5（v5→v6：存量保持旧行为）', () => {
   it('hasKimiTideResidueV6：v6 无残留为 false；v5 残留为 true', () => {
     expect(hasKimiTideResidueV6(DEFAULT_CONFIG_V6())).toBe(false)
     expect(hasKimiTideResidueV6(DEFAULT_CONFIG_V5())).toBe(true)
+  })
+
+  it('hasKimiTideResidueV6：v7 是现行版本，不是残留（复核⑦：每次启动空转一条死迁移路径）', () => {
+    expect(hasKimiTideResidueV6(DEFAULT_CONFIG_V7())).toBe(false)
   })
 })

@@ -3,6 +3,7 @@
  * 无副作用、不碰宿主服务 —— pre-step 闭包与设置页写通道共用同一套判据。
  */
 import type { RoleEntry } from './config.js'
+import { describeRouting, type RoutingConfigLike } from './routing-view.js'
 
 /** 派发依据（投影与面板的枚举，设计稿 D7）。 */
 export type DispatchBasis = 'role' | 'explicit' | 'keep' | 'unclaimed'
@@ -87,11 +88,20 @@ const DESCRIPTION_BUDGET = 480
  * 生成分工表 skill 的目录摘要与正文（设计稿 D3）。
  * 空表返回 undefined —— 调用方据此不注册（无角色不注入）。
  */
-export function renderTeamSkill(roles: Record<string, RoleEntry>): { description: string; body: string } | undefined {
+export function renderTeamSkill(
+  roles: Record<string, RoleEntry>,
+  routing?: RoutingConfigLike,
+): { description: string; body: string } | undefined {
   const list = Object.values(roles)
   if (list.length === 0) return undefined
   const one = (r: RoleEntry): string => `${r.label}→${r.target.provider}/${r.target.model}`
-  const full = `派活前读我：${list.map(one).join('、')}`
+  // M5（2026-10-07 复核）：传入路由配置（宿主挂载侧恒传）时 description 消费
+  // describeRouting 的**同源片段**（主会话打底 + 命中走哪 + 派发到哪）——摘要
+  // 的「派发：」段即旧角色索引，信息不丢；不再自拼文案防跨模块漂移。routing
+  // 缺席（旧调用方）维持旧文案，零行为变更。
+  const summary = routing === undefined ? undefined : describeRouting(routing)
+  const head = summary ?? list.map(one).join('、')
+  const full = `派活前读我：${head}`
   const description = full.length <= DESCRIPTION_BUDGET
     ? full
     : `派活前读我：共 ${list.length} 个角色（${list.slice(0, 3).map(one).join('、')}…）`
