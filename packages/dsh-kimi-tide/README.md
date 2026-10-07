@@ -2,7 +2,7 @@
 
 DeepSeek Harness（DSH）的「每一步自动选模型」插件：命名预设 + 有序规则 + 协作流——贴图自动走能看图的模型，代码自动走编码模型，闲聊翻译自动走便宜模型；没有规则命中时使用默认目标（预设默认模型）。带图像护栏、图像转述流、多 plan 配额显示，每次选了谁、为什么，面板上看得见。
 
-> **当前状态**：v2.1.0（2026-10-07，[Releases](https://github.com/tafcear/kimi-tide/releases)），1036/1036 测试绿。本版把路由页从「四个并列控件」重排成**一条五档决策链**（显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 默认目标）＋顶部摘要说明，并新增作用域徽标（主会话 / 派发时）、重叠解释条、测试场「派给谁」与统一路由表 `routes`（v7 配置）。**路由决策语义零变更**——配置里没有 `routes` 的文档行为逐字节不变。版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)；项目介绍与快速开始见[根 README](../../README.md)。匹配语义（词边界/特异度排序/最少命中词数）、effort 推理档位、v7 配置全字段与迁移口径，见 [docs/router.md](docs/router.md)；v2.1.0 实机验收清单见 [docs/routing-ia-acceptance.md](docs/routing-ia-acceptance.md)。
+> **当前状态**：v2.1.0（2026-10-07，[Releases](https://github.com/tafcear/kimi-tide/releases)），**1071/1071 测试绿**。本版把路由页从「四个并列控件」重排成**一条五档决策链**（显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 默认目标）＋顶部摘要说明，并新增作用域徽标（主会话 / 派发时）、重叠解释条、测试场「派给谁」与统一路由表 `routes`（v7 配置）；同时完成**文案 locale 化**（536 键 × 2 语言，英文界面可用，中文逐字不变）。**路由决策语义零变更**——配置里没有 `routes` 的文档行为逐字节不变。版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)；项目介绍与快速开始见[根 README](../../README.md)。匹配语义（词边界/特异度排序/最少命中词数）、effort 推理档位、v7 配置全字段与迁移口径，见 [docs/router.md](docs/router.md)；v2.1.0 实机验收清单见 [docs/routing-ia-acceptance.md](docs/routing-ia-acceptance.md)。
 
 0.4.x 起插件**零接入层代码**——Kimi 模型经官方 pi-ai 原生 `kimi-coding` 路由（设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层（约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、协作编排、观测**。
 
@@ -116,6 +116,17 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 | **图像转述流** | 省钱姿态的根解：`image` 规则改挂 `flow:transcribe` → vision-exp 读图转文字（eager，缓存+30s 超时+失败不重打）→ 文本模型凭转述文字接力作答；`failurePolicy=latch-image` 转述失败回退原生视觉 |
 | **⚠️ 死锁场景（历史）** | 0.5.x 布尔锁存下多模态模型额度/Key 失效后会话无法切文本模型——0.6.0 起按图三态 + 转述流提供盲答/转述两条出路（存量含图会话仍只能新开会话） |
 | **面板图像上下文行** | dock 第二行显示「图 原N·述N」，盲答图 >0 时告警色 |
+
+## 文案 locale 化
+
+全部用户可见文案住在 `src/locales/{zh,en}/{shared,settings,panel,help,view}.ts`，按界面分表，**536 键 × 2 语言**。zh 是唯一真源；en 用 `Record<keyof typeof zh, string>` 在类型层钉死键集（`npm run typecheck` 会红）。键命名约定：`<surface>.<area>.<name>`（如 `settings.route.tierExplicitTitle`），占位符用 `{0}` / `{name}`。
+
+- **组件内**：`const t = useCopy()`（来自 `src/client/locale.ts`），写在组件函数顶部（hook 规则）；JSX 文本与可见属性走 `t('key')` 或 `t('key', { 0: value })`。
+- **非组件上下文**（事件处理器、模块级拼接）：用模块级 `copy()`（同一份表）。
+- **服务缺席回落**：locale 服务不存在时 `copy()` / `t()` 回落中文表，`apply()` 不抛错——旧宿主上中文界面逐字不变。
+- **展示元数据**：`locale/zh.json` / `locale/en.json` 提供 `meta.title` / `meta.description`，Plugin Manager 与设置页插件行据此显示标题与描述。
+- **门禁**：`scripts/check-client-i18n.mjs`（接进根 `npm run check`）AST 级扫 `src/client/**` 与 `src/routing-view.ts` 的硬编码文案（汉字 / 中文标点 / 全角字符 / `——` / `…`，注释豁免），并校验表结构（zh/en 键集相等、跨表无重复键、值非空、占位符一致）与展示元数据完整。
+- **边界**：宿主侧拼好的中文串（`/kimi-tide …` 命令输出、工具结果、团队技能描述、`decision.reason` / `configSource` / 评审结论标签等）不在本轮范围——上游只提供浏览器侧 locale 服务，宿主没有对应机制。
 
 ## 使用合规提示
 

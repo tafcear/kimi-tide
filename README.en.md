@@ -22,6 +22,7 @@
 - **Save money** — don't pay where you don't need to. Chat, translation, copy edits and tidying up keep using your cheapest AI; **the good steel goes only where the blade is**.
 - **No weak links** — the critical parts are backed by a strong model: coding, code review and math each go to the stronger one, and output that matters can be checked by a strong model first (issues by severity + advice + a pass/fail verdict) before it reaches you.
 - **No more switching back** — after a screenshot, only that turn moves to a vision AI; the next turn returns to the one you were using. **The pricey AI is billed by the slice, not by the whole session.**
+- **English UI built in** — when the host language is English, the settings card, dock and decision panel, review and send-back cards, and the help tab all render in English; the Chinese UI stays byte-identical. The Plugin Manager and the plugin row in Settings also gain a title and description (previously absent).
 
 (In the rest of this document, "AI" and "model" mean the same thing — DSH calls them models.)
 
@@ -300,7 +301,7 @@ npm run build       # tsc host build + esbuild browser bundle
 
 Quality bar: full test suite green + zero typecheck errors + successful build before committing. This repository practices an "implement → independent review → fix → re-check" dual-model loop (see [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)).
 
-**Doc gates**: `npm run check` runs three machine gates — CHANGELOG / README / package version consistency, no broken doc links, and README pair parity (version line / section skeleton / badges / local doc-link set; rules: [`docs/agents/readme-pair.md`](docs/agents/readme-pair.md)). Any user-visible change must update both READMEs (Chinese and English) in the same commit.
+**Doc gates**: `npm run check` runs five machine gates — CHANGELOG / README / package version consistency, no broken doc links, README pair parity (version line / section skeleton / badges / local doc-link set; rules: [`docs/agents/readme-pair.md`](docs/agents/readme-pair.md)), terminology banned-word scan ([`docs/agents/terminology.md`](docs/agents/terminology.md)), and client hardcoded-copy plus locale-table structure validation ([`scripts/check-client-i18n.mjs`](scripts/check-client-i18n.mjs)). Any user-visible change must update both READMEs (Chinese and English) in the same commit. Copy register follows the gold-standard samples in [`docs/agents/style-samples.md`](docs/agents/style-samples.md) (samples outrank prose descriptions).
 
 **Bilingual four-section release page**: every new version's Release body (= the annotated tag message) must be **bilingual** — a 简体中文 block first, an English block below — with four sections inside each language: ① one-line positioning ② `本次更新` / `What's new` ③ `安装与升级` / `Install & upgrade` ④ `验证与验收` / `Verification & acceptance`. Self-check with `node scripts/check-release-notes.mjs --file <draft>` before tagging; Actions enforces it again before `gh release create` (template and rules: [`docs/agents/release-notes.md`](docs/agents/release-notes.md)).
 

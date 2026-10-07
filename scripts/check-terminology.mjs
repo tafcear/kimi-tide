@@ -10,7 +10,8 @@
 // 语体样例与复核任务书里那一条），但能挡住"旧词回流"。
 //
 // 受扫面（**刻意是显式清单**，历史档案不在其中——改了历史就是篡改记录）：
-//   packages/dsh-kimi-tide/src/**（用户可见文案与注释）
+//   packages/dsh-kimi-tide/src/**（用户可见文案与注释，含 src/locales/** 分表）
+//   packages/dsh-kimi-tide/locale/zh.json、locale/en.json（Plugin Manager 展示元数据）
 //   根 README.md / README.en.md、包 README.md
 //   packages/dsh-kimi-tide/docs/router.md、docs/routing-ia-acceptance.md
 //   CHANGELOG.md、当前版本 release-notes-v<package.json version>.md
@@ -57,6 +58,8 @@ function scanTargets() {
   }
   walk(join(root, 'packages', 'dsh-kimi-tide', 'src'))
   for (const rel of [
+    'packages/dsh-kimi-tide/locale/zh.json',
+    'packages/dsh-kimi-tide/locale/en.json',
     'README.md',
     'README.en.md',
     'packages/dsh-kimi-tide/README.md',
@@ -81,11 +84,15 @@ for (const file of scanTargets()) {
   const isEnglishDoc = rel.endsWith('.en.md')
   const lines = readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n')
   lines.forEach((line, index) => {
+    // 表里的禁用词（locale 分表 / 展示元数据）：提示语指向词表本体，避免只改字符串不改词
+    const inTable =
+      /^packages\/dsh-kimi-tide\/src\/locales\//.test(rel) || /^packages\/dsh-kimi-tide\/locale\/(zh|en)\.json$/.test(rel)
+    const tableHint = inTable ? '；表里禁用词：改词表 docs/agents/terminology.md §1 与 src/locales/**' : ''
     const zhHit = BANNED.find((entry) => line.includes(entry.word))
-    if (zhHit) findings.push({ file: rel, line: index + 1, word: zhHit.word, hint: zhHit.hint, text: line.trim() })
+    if (zhHit) findings.push({ file: rel, line: index + 1, word: zhHit.word, hint: zhHit.hint + tableHint, text: line.trim() })
     if (isEnglishDoc && !EN_ALLOW.some((allow) => line.includes(allow))) {
       const enHit = BANNED_EN.find((entry) => new RegExp(`\\b${entry.word}\\b`).test(line))
-      if (enHit) findings.push({ file: rel, line: index + 1, word: enHit.word, hint: enHit.hint, text: line.trim() })
+      if (enHit) findings.push({ file: rel, line: index + 1, word: enHit.word, hint: enHit.hint + tableHint, text: line.trim() })
     }
   })
 }

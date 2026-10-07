@@ -38,6 +38,13 @@ jobs:
           node scripts/check-readme-sync.mjs
       - run: npm ci
         working-directory: packages/dsh-kimi-tide
+      # 术语闸与文案闸（2026-10-07 起）：都必须跑在 `npm ci` 之后——check-client-i18n
+      # 经 createRequire 从 packages/dsh-kimi-tide 解析 typescript/esbuild 做 AST 扫描，
+      # 依赖未装时会直接崩（本地 `npm run check` 里它们排在最后，此处同序）。
+      - name: Terminology & client i18n
+        run: |
+          node scripts/check-terminology.mjs
+          node scripts/check-client-i18n.mjs
       - name: Typecheck
         working-directory: packages/dsh-kimi-tide
         run: npm run typecheck
