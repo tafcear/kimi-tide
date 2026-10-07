@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import YAML from 'yaml'
 import { apply, Config, defaultPatchFile } from '../src/index.js'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
+import { migrateV6 } from '../src/migrate.js'
 
 function v4cfg(activePreset: string | null): RouterConfigV4 {
   return { ...DEFAULT_CONFIG_V4(), activePreset }
@@ -891,5 +892,89 @@ describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => 
     await command.handler({ rawInput: 'import-config flows:\n  review:\n    trigger: manual' })
     await tick()
     expect(await show()).not.toContain('认领')
+  })
+})
+
+/**
+ * C2b（设计稿 2026-10-07 §6.4）：v7 的 routes 在运行期真正生效——applyConfig
+ * 读边界在 coercion 之后套 projectRoutesToLegacy，下游（matchingRules → 决策链）
+ * 不改一行即按 routes 走。关键新行为：**只改 routes、旧字段陈旧** ⇒ 运行期按
+ * routes（旧字段被覆盖）；routes ≡ 旧字段的迁移产物则逐字节保持（见
+ * routes-runtime.test.ts 的纯函数判据）。
+ */
+describe('apply() C2b：routes 运行期生效（applyConfig 读边界投影）', () => {
+  let dir: string
+  let patchFile: string
+  let sidecarFile: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kimi-tide-c2b-'))
+    patchFile = join(dir, 'cordis.patch.yml')
+    sidecarFile = join(dir, 'kimi-tide-router.yml')
+    writeFileSync(patchFile, '- insert:\n    - id: some-other\n      config: { foo: 1 }\n', 'utf8')
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  /** 只改 routes 的 v7 原文（旧字段陈旧）：capability 的 code 规则目标被改道。 */
+  const staleLegacyV7 = (): unknown => {
+    const raw = migrateV6(DEFAULT_CONFIG_V6()) as unknown as {
+      activePreset: string
+      routes: Array<{ id?: string; preset?: string; target?: { provider: string; model: string } }>
+    }
+    raw.activePreset = 'capability'
+    raw.routes = raw.routes.map((row) =>
+      row.id === 'code-kfc' && row.preset === 'capability'
+        ? { ...row, target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
+        : row)
+    return raw
+  }
+
+  it('只改 routes、旧字段陈旧 ⇒ pre-step 决策按 routes 目标改道（kimi-for-coding → flash）', async () => {
+    const settings = makeSettings(staleLegacyV7())
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners, getCommand } = makeCtx([agent], settings)
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+
+    const step = listeners.get('agent/pre-step')?.[0]
+    expect(step).toBeDefined()
+    await (step as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      {
+        agent,
+        messages: [{ role: 'user', content: [{ type: 'text', text: '帮我实现一个函数' }] } as never],
+        turn: 1, step: 1, signal: new AbortController().signal,
+      },
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+
+    const result = await getCommand()!.handler({ rawInput: 'panel --json', agent }) as { kind: string; text: string }
+    const snapshot = JSON.parse(result.text) as { decision: { chosen: { provider: string; model: string } } | null }
+    // Fails if: applyConfig 未投影——决策会落在陈旧的 kimi-coding/kimi-for-coding 上
+    expect(snapshot.decision?.chosen).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  })
+
+  it('routes ≡ 旧字段（迁移产物）⇒ 决策与 v6 原文逐字节一致（零行为变更）', async () => {
+    const raw = migrateV6(DEFAULT_CONFIG_V6()) as unknown as { activePreset: string }
+    raw.activePreset = 'capability'
+    const settings = makeSettings(raw)
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners, getCommand } = makeCtx([agent], settings)
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+
+    const step = listeners.get('agent/pre-step')?.[0]
+    await (step as (p: unknown, next: () => Promise<unknown>) => Promise<unknown>)(
+      {
+        agent,
+        messages: [{ role: 'user', content: [{ type: 'text', text: '帮我实现一个函数' }] } as never],
+        turn: 1, step: 1, signal: new AbortController().signal,
+      },
+      () => Promise.resolve({ kind: 'enter' }),
+    )
+    const result = await getCommand()!.handler({ rawInput: 'panel --json', agent }) as { kind: string; text: string }
+    const snapshot = JSON.parse(result.text) as { decision: { chosen: { provider: string; model: string } } | null }
+    // 迁移产物的 routes 与旧字段一致 ⇒ 决策仍落 capability 的内置 code 规则目标
+    expect(snapshot.decision?.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
   })
 })

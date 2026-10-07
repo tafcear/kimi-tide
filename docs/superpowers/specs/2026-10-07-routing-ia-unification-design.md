@@ -148,7 +148,25 @@ export interface RouterConfigV7 {
 不动存储：新增 `toRoutingRows(config)` / `applyRoutingRows(config, rows)` 双向投影，UI 编辑走统一模型、存储仍是 v6 两处结构。
 **取舍**：零迁移风险；但**手改配置的用户（本用户正是）在文件里仍看到两处结构**，"单表"只存在于界面。**本稿推荐 C2**——理由是用户直接手写 `cordis.patch.yml`，配置面的单表收益是实的；风险由"迁移不丢字段 + 往返测试 + 冲突即报错"三条锁住。
 
-### 6.4 文档面（同一提交，四处）
+### 6.4 集成口径（C2b，2026-10-07 C2 落地后补记）
+
+**C2 落地暴露的缺口**：`routes` 目前只有形状与校验，**运行期仍只读旧字段**（`RouterConfigAny = V4|V5|V6`，`index.ts:621` 内存形态恒 v6）。若不补这一步，UI 写 `routes` 不会生效，v7 是一层死结构。
+
+**口径：一个纯函数、两个调用边界**——`projectRoutesToLegacy(config)`：
+
+```ts
+/** routes 存在时按其重建 presets[*].rules 与 roles（浅拷贝，不改原对象）；routes 缺失原引用返回。 */
+export function projectRoutesToLegacy<T extends { routes?: RouteRowV7[]; presets?: …; roles?: … }>(config: T): T
+```
+
+| 边界 | 调用点 | 效果 |
+|---|---|---|
+| **读**（运行期） | `index.ts` attach / `applyConfig` 路径、`commands.ts` import / persist 路径，**在 coercion 之后** | 下游 `matchingRules` / `roleClaimSet` / `renderTeamSkill` / 台账全部不改一行即按 `routes` 走 |
+| **写**（客户端，B 项） | `card-store` 的写操作改为一笔 mutate 同时下发 `routes` 与镜像后的旧字段 | 文件里两处永远一致 ⇒ 冲突检测永不误报、旧版插件可回退 |
+
+**零行为变更保证**：`routes ≡ 旧字段`（迁移产物 + 校验强制）时，投影前后 `matchingRules` 全矩阵 / `previewRoute` / `buildRoutingView` **逐字节相等**——这是本步的验收判据。
+
+### 6.5 文档面（同一提交，四处）
 
 `docs/router.md`（新增「统一路由表」节 + v7 配置参考）· 仓库根 `README.md` **与** `README.en.md`（配置示例 + 路由决策说明，双语同提交）· `packages/dsh-kimi-tide/README.md` · `CHANGELOG.md` + 版本号（发版由用户裁定）。
 

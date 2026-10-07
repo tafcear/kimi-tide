@@ -142,6 +142,141 @@ export interface RouterConfigV6 {
 
 export type RouterConfigV5Plus = RouterConfigV5 | RouterConfigV6
 
+/* ---- v7（C2 统一路由表，设计稿 2026-10-07 §6）：关键词规则与分工表合成一张带 scope 的路由表 ---- */
+
+/** v7 统一路由表的一行：scope 区分主会话规则（session）与分工表派发（dispatch）。 */
+export interface RouteRowV7 {
+  id: string
+  scope: 'session' | 'dispatch'
+  when: { kind: 'image' } | { kind: 'keywords'; group: string; minHits?: number } | { kind: 'role' }
+  target: RuleTarget
+  /** session 行必填：归属预设 id。 */
+  preset?: string
+  /** dispatch 行专用（= v6 RoleEntry 元数据：显示名/额外认领队友/别名/备注）。 */
+  label?: string
+  teammate?: string[]
+  aliases?: string[]
+  note?: string
+}
+
+/**
+ * v7 配置：v6 之上新增 routes（**唯一真源**）。旧字段（presets[*].rules / roles）
+ * 迁移后**保留原值不删**（可回退、可 diff）；运行期读取按字段判据
+ * `config.routes ?? 旧字段投影`（rowsFromConfig），**禁止版本号门控**（R2 裁定）。
+ * 运行期写只写 routes（本任务只立形状；写通道切换由 A/B/D2 接管）。
+ */
+export interface RouterConfigV7 {
+  version: 7
+  activePreset: string | null
+  presets: Record<string, RouterPreset>
+  flows: Record<string, CollaborationFlow>
+  keywordGroups: Record<string, string[]>
+  auxTargets?: Record<string, RouteTarget>
+  driver?: RouteTarget | null
+  driverSticky?: boolean
+  rulesApplyToChildren?: boolean
+  /** 旧字段镜像（迁移保留；新装为空表——不预置模型判断，D2 裁定）。 */
+  roles: Record<string, RoleEntry>
+  /** 统一路由表（唯一真源）。 */
+  routes: RouteRowV7[]
+}
+
+/**
+ * v7 内置真相源（新装 / 「重置为默认」路径）：routes = 内置预设的 session 行
+ * （保序，先 saving 后 capability）；dispatch 行空（不预置模型判断，D2 裁定）。
+ * presets 的 rules 迁出为空（§6.1：v7 形状下规则只活在 routes）。
+ */
+export function DEFAULT_CONFIG_V7(): RouterConfigV7 {
+  const v6 = DEFAULT_CONFIG_V6()
+  const presets: Record<string, RouterPreset> = {}
+  for (const [key, preset] of Object.entries(v6.presets)) presets[key] = { ...preset, rules: [] }
+  return { ...v6, version: 7, presets, roles: DEFAULT_ROLES(), routes: deriveFromLegacy(v6) }
+}
+
+/**
+ * 运行期行集投影（**字段判据，禁止版本号门控**——R2 裁定，沿用 v6 分工层同款
+ * 形态）：config.routes 存在 ⇒ 直接采用（唯一真源）；否则从旧字段
+ * （presets[*].rules → session 行、roles → dispatch 行）投影。v6 与 v7 都必须
+ * 投影出正确行集。
+ */
+export function rowsFromConfig(config: RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7): RouteRowV7[] {
+  const routes = (config as { routes?: unknown }).routes
+  if (routes !== undefined) return routes as RouteRowV7[]
+  return deriveFromLegacy(config)
+}
+
+/** 旧字段 → v7 行集投影（rowsFromConfig 的 legacy 支路，迁移 migrateV6 共用）：
+ *  预设序 × 规则序保序填 preset；roles 键序保序搬 label/teammate/aliases/note。
+ *  when/target 直接共享原引用（纯投影，不改写不克隆）。 */
+function deriveFromLegacy(config: RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7): RouteRowV7[] {
+  const rows: RouteRowV7[] = []
+  for (const [presetId, preset] of Object.entries(config.presets)) {
+    for (const rule of preset.rules) {
+      rows.push({ id: rule.id, scope: 'session', when: rule.when, target: rule.target, preset: presetId })
+    }
+  }
+  const roles = (config as { roles?: Record<string, RoleEntry> }).roles ?? {}
+  for (const role of Object.values(roles)) {
+    rows.push({
+      id: role.id,
+      scope: 'dispatch',
+      when: { kind: 'role' },
+      target: role.target,
+      label: role.label,
+      ...(role.teammate === undefined ? {} : { teammate: role.teammate }),
+      ...(role.aliases === undefined ? {} : { aliases: role.aliases }),
+      ...(role.note === undefined ? {} : { note: role.note }),
+    })
+  }
+  return rows
+}
+
+/**
+ * routes → 旧字段反投影（C2b 运行期接线，设计稿 §6.4）：routes 存在且非空时按其
+ * 重建 `presets[*].rules`（session 行，按**在本数组中的相对顺序**落回所属 preset）
+ * 与 `roles`（dispatch 行 → v6 RoleEntry），使只读旧字段的下游（matchingRules /
+ * roleClaimSet / renderTeamSkill / 台账）不改一行即按 routes 走——routes 是唯一
+ * 真源，重建结果**覆盖**陈旧的旧字段。
+ *
+ * 不变量：
+ * - routes 缺失或空数组 ⇒ **原引用返回**（v6 及更早配置零开销、零行为变更）；
+ * - 不修改入参：浅拷贝 config，只重建 presets 与 roles 两处；其余字段
+ *   （flows / keywordGroups / driver / … 及 routes 自身）原引用保留；
+ * - presets 逐项浅拷贝（name / default / imageFallback 等原引用保留），仅 rules 重建；
+ * - session 行的 when / target 与行内共享原引用（与 deriveFromLegacy 投影方向互逆，
+ *   「routes ≡ 旧字段」的迁移产物因此逐字节还原）；
+ * - dispatch 行还原 id / label / target / teammate / aliases / note 逐字段等价，
+ *   缺省字段**不落键**；label 缺省回落 id（RoleEntry.label 必填）；
+ * - 悬空 preset 引用的 session 行保守丢弃（写入期 validateRoutes 已拒，读边界不抛错）。
+ */
+export function projectRoutesToLegacy<T extends RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7>(config: T): T {
+  const routes = (config as { routes?: unknown }).routes
+  if (!Array.isArray(routes) || routes.length === 0) return config
+  const source = config as unknown as RouterConfigV7
+  const presets: Record<string, RouterPreset> = {}
+  for (const [presetId, preset] of Object.entries(source.presets)) {
+    presets[presetId] = { ...preset, rules: [] }
+  }
+  const roles: Record<string, RoleEntry> = {}
+  for (const row of routes as RouteRowV7[]) {
+    if (row.scope === 'session') {
+      const preset = typeof row.preset === 'string' ? presets[row.preset] : undefined
+      if (preset === undefined) continue
+      preset.rules.push({ id: row.id, when: row.when as RouterRule['when'], target: row.target })
+    } else {
+      roles[row.id] = {
+        id: row.id,
+        label: row.label ?? row.id,
+        target: row.target as RouteTarget,
+        ...(row.teammate === undefined ? {} : { teammate: row.teammate }),
+        ...(row.aliases === undefined ? {} : { aliases: row.aliases }),
+        ...(row.note === undefined ? {} : { note: row.note }),
+      }
+    }
+  }
+  return { ...source, presets, roles } as T
+}
+
 /** v5 及以上（flows 等字段可用）；版本落点统一的加宽判据。 */
 export function isV5Plus(config: { version: number }): config is RouterConfigV5Plus {
   return config.version >= 5

@@ -1,6 +1,6 @@
 // src/settings-schema.ts
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type RoleEntry, type RouteTarget, type RouterConfigV5, type RouterConfigV6, type RuleTarget } from './config.js'
+import { DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, isFlowTarget, isV5Plus, type CollaborationFlow, type RoleEntry, type RouteRowV7, type RouteTarget, type RouterConfigV5, type RouterConfigV6, type RouterConfigV7, type RuleTarget } from './config.js'
 import { claimConflict } from './roles.js'
 
 // 单一真相源：schema 默认值全部从 DEFAULT_CONFIG_V5 派生，不另抄一份（防漂移）。
@@ -100,7 +100,7 @@ export const routerConfigSchema = Schema.object({
   // 宽松读取存量 v2/v3/v4 用户层（dsh-settings 契约：存量节校验失败会拒绝整个
   // 命名空间注册）；迁移后整段 replace 覆盖为纯 v6。
   version: Schema.union([
-    Schema.const(2), Schema.const(3), Schema.const(4), Schema.const(5), Schema.const(6),
+    Schema.const(2), Schema.const(3), Schema.const(4), Schema.const(5), Schema.const(6), Schema.const(7),
   ]).default(6),
   activePreset: Schema.union([Schema.string(), Schema.const(null)]).default(D5.activePreset),
   // schemastery ObjectT 输出形把运行期可缺省字段（imageFallback/imageFallbackFlow）
@@ -121,26 +121,27 @@ export const routerConfigSchema = Schema.object({
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
 })
 
-/** v5/v6 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
+/** v5/v6/v7 语义校验：activePreset 存在性 / 预设名非空 / 规则引用组存在 / 模型 target 完整 /
  *  规则流引用存在且为 transcribe 型（P1 仅 transcribe 可作规则目标）/ imageFallback
  *  级联（transcribe-lazy 的 imageFallbackFlow 缺省解析到预置 transcribe，显式引用须
  *  存在且为 transcribe 型）/ review 流 rounds 1..3 / trigger=keywords 必填 keywordGroup /
  *  effort 形状检查（default/规则 target/visionModel/reviewer 四处，非空 string——M4；
  *  reviewer 自 1.4.1 起收 effort，撤销 0.8.0 M7）。
  *  v6 追加：roles 认领冲突 / role.label 与 role.target 完整 / driver 目标完整（下见尾部）。
+ *  v7 追加（C2）：routes 块校验（行形状/界/认领唯一 + 与旧字段的冲突检测），见 validateRoutes。
  *  v5 语义主体按版本判据（legacy ≤4 直通跳过：迁移兜底，注册期不做语义校验）；
- *  v6 分工层块按**字段判据**（终审 F5 / 控制器裁决 R2：有 roles/driver 就校验，
+ *  v6 分工层与 v7 routes 块按**字段判据**（终审 F5 / 控制器裁决 R2：有字段就校验，
  *  不以版本号门控——version:5 文档携带分工层字段是 R2 后的合法常态，版本门控
  *  会让该块永远走不到，见终审 M3）。 */
-export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6): string | undefined {
+export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): string | undefined {
   const gateVersion = (raw as { version?: unknown }).version
-  if (gateVersion === 5 || gateVersion === 6) {
+  if (gateVersion === 5 || gateVersion === 6 || gateVersion === 7) {
     const rejection = validateV5Semantics(raw)
     if (rejection !== undefined) return rejection
   }
   // v6 分工层校验（团队派发）：认领冲突 → role 字段完整 → driver 目标完整。
   const teamLayer = raw as { roles?: Record<string, RoleEntry>; driver?: RouteTarget | null }
-  if (teamLayer.roles !== undefined || teamLayer.driver !== undefined || gateVersion === 6) {
+  if (teamLayer.roles !== undefined || teamLayer.driver !== undefined || gateVersion === 6 || gateVersion === 7) {
     const roles = teamLayer.roles ?? {}
     const conflict = claimConflict(roles)                     // roles.ts（任务 2 已抽取为 import）
     if (conflict !== undefined) return conflict
@@ -152,11 +153,114 @@ export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6): stri
     const d = teamLayer.driver
     if (d !== undefined && d !== null && (typeof d.provider !== 'string' || d.provider.length === 0 || typeof d.model !== 'string' || d.model.length === 0)) return 'driver 目标不完整'
   }
+  // v7 routes 块（C2 统一路由表）：字段判据——routes 存在即校验，不以版本号门控。
+  if ((raw as { routes?: unknown }).routes !== undefined) {
+    const rejection = validateRoutes(raw)
+    if (rejection !== undefined) return rejection
+  }
   return undefined
 }
 
-/** v5/v6 语义校验主体（原 validateRouterConfig 版本门控内的全部检查，逐字搬移）。 */
-function validateV5Semantics(raw: RouterConfigV5 | RouterConfigV6): string | undefined {
+/**
+ * routes 块校验（C2，设计稿 §6.2「一致性校验」）。检查项：
+ * - 行形状：id 非空且在（scope × preset）命名空间内唯一（内置 saving/capability
+ *   合法地跨预设复用规则 id——id 唯一性按 v6 现实收窄为分域唯一，见报告偏差）；
+ *   scope ∈ session|dispatch；session 行必带 preset 且该预设存在；when 档位与
+ *   scope 匹配（session → image|keywords，dispatch → role）；
+ * - 界：keywords 行的 group 须存在于 keywordGroups、minHits ≥1 整数；
+ * - target 形状完整（模型目标 provider/model 非空，或存在的 transcribe 流引用——
+ *   仅限 session 带图行；dispatch 行只收模型目标）；effort 非空字符串；
+ * - dispatch 行认领名（teammate[] ∪ {id}）跨行唯一；
+ * - **冲突检测**：routes 与旧字段（presets[*].rules / roles）同时存在且同一
+ *   规则/角色两处不一致 ⇒ 返回错误串（不静默择一）。
+ */
+function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): string | undefined {
+  const routes = (raw as { routes?: unknown }).routes
+  if (!Array.isArray(routes)) return 'routes 必须为数组（RouteRowV7[]）'
+  const flows = (raw as { flows?: Record<string, CollaborationFlow> }).flows ?? {}
+  const roles = (raw as { roles?: Record<string, RoleEntry> }).roles ?? {}
+  const seen = new Set<string>()
+  const claimOwner = new Map<string, string>()
+  for (const [index, entry] of routes.entries()) {
+    const row = (entry ?? {}) as RouteRowV7
+    const where = `routes 第 ${index + 1} 行`
+    if (typeof row.id !== 'string' || row.id.length === 0) return `${where} id 不能为空`
+    if (row.scope !== 'session' && row.scope !== 'dispatch') return `${where}（id '${row.id}'）scope 必须为 'session' 或 'dispatch'`
+    // 分域唯一键：session 行在预设内唯一（内置预设跨预设复用规则 id 是 v6 合法形态），dispatch 行全局唯一。
+    const uniqueKey = `${row.scope}:${row.scope === 'session' ? row.preset ?? '' : ''}:${row.id}`
+    if (seen.has(uniqueKey)) {
+      return `${where} id '${row.id}' 重复（${row.scope === 'session' ? `预设 '${row.preset}' 内` : 'dispatch 层'}必须唯一）`
+    }
+    seen.add(uniqueKey)
+    const when = (row.when ?? {}) as { kind?: unknown; group?: string; minHits?: number }
+    if (row.scope === 'session') {
+      if (typeof row.preset !== 'string' || row.preset.length === 0) return `routes '${row.id}'（session 行）缺少 preset`
+      if (!(row.preset in raw.presets)) return `routes '${row.id}' 引用的 preset '${row.preset}' 不在 presets 中`
+      if (when.kind !== 'image' && when.kind !== 'keywords') {
+        return `routes '${row.id}' 的 when.kind '${String(when.kind)}' 与 scope 'session' 不匹配（须为 image|keywords）`
+      }
+    } else if (when.kind !== 'role') {
+      return `routes '${row.id}' 的 when.kind '${String(when.kind)}' 与 scope 'dispatch' 不匹配（须为 role）`
+    }
+    // target 形状（口径对齐 validateV5Semantics 的规则 target 检查）。
+    const target = (row.target ?? {}) as RuleTarget
+    if (isFlowTarget(target)) {
+      if (row.scope === 'dispatch') return `routes '${row.id}'（dispatch 行）目标必须是模型目标，不接受协作流引用`
+      if (when.kind !== 'image') return `routes '${row.id}' 的流目标仅限带图条件（keywords 规则不能挂协作流）`
+      const flow = flows[target.flow]
+      if (flow === undefined) return `routes '${row.id}' 引用的协作流 '${target.flow}' 不存在于 flows`
+      if (flow.type !== 'transcribe') return `routes '${row.id}' 引用的协作流 '${target.flow}' 是 ${flow.type} 流（P1 仅 transcribe 可作规则目标）`
+    } else if (typeof target.provider !== 'string' || target.provider === '' || typeof target.model !== 'string' || target.model === '') {
+      return `routes '${row.id}' 的 target 不完整（provider/model 必须为非空字符串）`
+    }
+    const effort = (target as { effort?: unknown }).effort
+    if (effort !== undefined && (typeof effort !== 'string' || (effort as string).trim() === '')) {
+      return `routes '${row.id}' 的 target.effort 必须为非空字符串`
+    }
+    if (when.kind === 'keywords') {
+      if (typeof when.group !== 'string' || !(when.group in raw.keywordGroups)) return `routes '${row.id}' 引用的关键词组 '${String(when.group)}' 不存在于 keywordGroups`
+      const minHits = when.minHits
+      if (minHits !== undefined && (!Number.isInteger(minHits) || minHits < 1)) {
+        return `routes '${row.id}' 的 minHits 越界（须为 ≥1 的整数）`
+      }
+    }
+    // dispatch 认领名跨行唯一（teammate[] ∪ {id}，D2 裁定）。
+    if (row.scope === 'dispatch') {
+      for (const name of [row.id, ...(row.teammate ?? [])]) {
+        const prev = claimOwner.get(name)
+        if (prev !== undefined && prev !== row.id) return `认领名「${name}」同时属于 dispatch 行「${prev}」与「${row.id}」`
+        claimOwner.set(name, row.id)
+      }
+    }
+  }
+  // 冲突检测：routes 与旧字段同时存在且语义冲突（同一规则/角色两处不一致）⇒ 报错。
+  for (const row of routes as RouteRowV7[]) {
+    if (row.scope === 'session') {
+      const legacy = raw.presets[row.preset!]?.rules.find((r) => r.id === row.id)
+      if (legacy !== undefined
+        && (JSON.stringify(legacy.when) !== JSON.stringify(row.when) || JSON.stringify(legacy.target) !== JSON.stringify(row.target))) {
+        return `routes 与 presets.'${row.preset}'.rules 冲突：规则 '${row.id}' 两处条件/目标不一致（routes 为真源；请改回一致或清理旧字段）`
+      }
+    } else {
+      const legacy = roles[row.id]
+      if (legacy !== undefined) {
+        const claimsOf = (ids: readonly string[]): string => [...new Set(ids)].sort().join(',')
+        const same = JSON.stringify(legacy.target) === JSON.stringify(row.target)
+          && claimsOf([...(legacy.teammate ?? []), legacy.id]) === claimsOf([...(row.teammate ?? []), row.id])
+          && legacy.label === row.label
+          && JSON.stringify(legacy.aliases ?? []) === JSON.stringify(row.aliases ?? [])
+          && (legacy.note ?? '') === (row.note ?? '')
+        if (!same) {
+          return `routes 与 roles 冲突：角色 '${row.id}' 两处元数据/目标不一致（routes 为真源；请改回一致或清理旧字段）`
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+/** v5/v6/v7 语义校验主体（原 validateRouterConfig 版本门控内的全部检查，逐字搬移）。 */
+function validateV5Semantics(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): string | undefined {
   if (raw.activePreset !== null && !(raw.activePreset in raw.presets)) {
     return `activePreset '${raw.activePreset}' 不在 presets 中`
   }

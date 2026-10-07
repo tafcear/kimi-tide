@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_FLOWS, KIMI_PROVIDER, type RouterConfigV3, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6, type RouteTarget } from './config.js'
+import { DEFAULT_CONFIG_V3, DEFAULT_CONFIG_V4, DEFAULT_FLOWS, KIMI_PROVIDER, rowsFromConfig, type RouterConfigV3, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6, type RouterConfigV7, type RouteTarget } from './config.js'
 
 function target(v: unknown): RouteTarget | null {
   const r = (v ?? {}) as Record<string, unknown>
@@ -190,7 +190,9 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 export function coerceRouterConfigV6(raw: unknown, warn: (message: string) => void): RouterConfigV6 {
   const r = (raw ?? {}) as Record<string, unknown>
-  if (r.version === 6) return raw as RouterConfigV6
+  // C2（2026-10-07）：v7 是 v6 的超集（只多 routes），字段判据消费——直通保住
+  // routes/roles 不被下面 v5→v6 链的 v1 兜底摧毁（10-06「迁移丢分工表」同型事故）。
+  if (r.version === 6 || r.version === 7) return raw as RouterConfigV6
   return migrateV5(coerceRouterConfigV5(raw, warn))
 }
 
@@ -202,4 +204,29 @@ export function hasKimiTideResidueV6(config: unknown): boolean {
   } catch {
     return true
   }
+}
+
+/**
+ * v6 → v7（C2 统一路由表，设计稿 §6.2）：投影迁移——presets[*].rules → session
+ * 行（保序，填 preset）；roles → dispatch 行（保序，搬 label/teammate/aliases/note）。
+ *
+ * 不变量（10-06 事故的写法级防复发）：
+ * - **浅拷贝 + 只改需要改的字段**（version / routes）——presets / roles / flows 等
+ *   一律原引用保留，绝不逐字段重建（migrateV5 丢分工表事故即此因）；
+ * - **旧字段保留原值不删**（presets[*].rules / roles 原样在档：可回退、可 diff）；
+ * - 幂等：v7 输入原引用直通。
+ */
+export function migrateV6(raw: unknown): RouterConfigV7 {
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (r.version === 7) return raw as RouterConfigV7
+  const v6 = coerceRouterConfigV6(raw, () => {})
+  return { ...v6, version: 7, routes: rowsFromConfig(v6) }
+}
+
+/** 版本分派到 v7：7 直通；其余走 v1…v5→v6 链后 migrateV6。 */
+export function coerceRouterConfigV7(raw: unknown, warn: (message: string) => void): RouterConfigV7 {
+  const v = (raw as { version?: unknown } | null)?.version
+  if (v === 7) return raw as RouterConfigV7
+  const warned = warn
+  return migrateV6(coerceRouterConfigV6(raw, warned))
 }

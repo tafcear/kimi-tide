@@ -5,6 +5,7 @@ import YAML from 'yaml'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { applyKimiTideCommand, parseKimiTideCommand, type KimiTideCommandDeps, type SettingsNamespacePort } from '../src/commands.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
+import { migrateV6 } from '../src/migrate.js'
 import type { RouterConfigAny } from '../src/router.js'
 import { RouterSidecarStore } from '../src/sidecar.js'
 import type { UsageMonitor } from '../src/usage.js'
@@ -456,5 +457,113 @@ describe('applyKimiTideCommand import-config 分工层（终审 I3/F5 修复波�
     expect(out).toMatch(/import failed/)
     expect(out).toContain('target.provider')
     expect(replaces).toHaveLength(0)
+  })
+})
+
+/**
+ * C2 配置面 v7（设计稿 2026-10-07 §6.2）：export-config / import-config 往返
+ * 不得丢 routes（10-06「migrateV5 逐字段重建丢分工表」回归钉扩到 v7）。
+ */
+describe('applyKimiTideCommand import/export × routes v7（C2）', () => {
+  const v7cfg = (): RouterConfigV6 & { version: number; routes: unknown[] } => {
+    const base = migrateV6(DEFAULT_CONFIG_V6())
+    return JSON.parse(JSON.stringify(base)) as never
+  }
+  const nsDeps = (current: RouterConfigAny, replaces: object[]): KimiTideCommandDeps =>
+    makeDeps(current, undefined, {
+      settings: { get: () => current, update: async () => {}, replace: async (s) => { replaces.push(s) } },
+    })
+
+  it('export-config（v7 当前配置）→ 内联 import-config ⇒ version 7 与 routes 全字段往返不丢', async () => {
+    const cfg = v7cfg()
+    const text = await applyKimiTideCommand({ kind: 'export-config' }, nsDeps(cfg, []))
+    const replaces: object[] = []
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: text }, nsDeps(cfg, replaces))
+    // Fails if: 内联合并丢 routes / version 被压回
+    expect(out).toMatch(/import/i)
+    expect(replaces).toHaveLength(1)
+    const written = replaces[0] as typeof cfg
+    expect(written.version).toBe(7)
+    expect(written.routes).toEqual(cfg.routes)
+    expect(written.roles).toEqual(cfg.roles)
+    expect(written.presets).toEqual(cfg.presets)
+  })
+
+  it('文件形态：v7 文件导入命名空间 ⇒ 直通保住 version 7 与 routes（不被 v6 迁移链兜底摧毁）', async () => {
+    const cfg = v7cfg()
+    const src = join(dir, 'import-v7-routes.yml')
+    writeFileSync(src, YAML.stringify(cfg), 'utf8')
+    const replaces: object[] = []
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, nsDeps(DEFAULT_CONFIG_V6(), replaces))
+    // Fails if: v7 文件落进 coerceRouterConfigV6 的 v1 兜底链——routes/roles 全灭（10-06 事故同型）
+    expect(out).toMatch(/import/i)
+    expect(replaces).toHaveLength(1)
+    const written = replaces[0] as typeof cfg
+    expect(written.version).toBe(7)
+    expect(written.routes).toEqual(cfg.routes)
+    expect(written.roles).toEqual(cfg.roles)
+  })
+
+  it('文件形态：v7 文件 routes 与旧字段冲突 ⇒ 拒写不落盘', async () => {
+    const cfg = v7cfg()
+    // 摸黑改一条 session 行目标，制造 routes × presets[*].rules 冲突
+    cfg.routes = cfg.routes.map((r) =>
+      (r as { id?: string; preset?: string }).id === 'code-kfc' && (r as { preset?: string }).preset === 'capability'
+        ? { ...(r as object), target: { provider: 'zai-coding-cn', model: 'glm-5.3' } }
+        : r)
+    const src = join(dir, 'import-v7-conflict.yml')
+    writeFileSync(src, YAML.stringify(cfg), 'utf8')
+    const replaces: object[] = []
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, nsDeps(DEFAULT_CONFIG_V6(), replaces))
+    expect(out).toMatch(/import failed/)
+    expect(out).toContain('冲突')
+    expect(replaces).toHaveLength(0)
+  })
+})
+
+/**
+ * C2b（设计稿 2026-10-07 §6.4）persist 边界：import / persist 在语义校验之后
+ * 套 projectRoutesToLegacy——落盘文档的旧字段与 routes 镜像一致（旧版插件可
+ * 回退、后续保存不误报冲突）；无 routes 的配置原引用返回（零行为变更）。
+ */
+describe('applyKimiTideCommand × projectRoutesToLegacy（C2b persist 边界）', () => {
+  const v7cfg = (): RouterConfigV6 & { version: number; routes: unknown[] } => {
+    const base = migrateV6(DEFAULT_CONFIG_V6())
+    return JSON.parse(JSON.stringify(base)) as never
+  }
+  const freshRow = {
+    id: 'fresh-writing', scope: 'session', when: { kind: 'keywords', group: 'writing' },
+    target: { provider: 'kimi-coding', model: 'k3' }, preset: 'capability',
+  }
+
+  it('v7 文件 routes 新增规则（旧字段无此行，不冲突）⇒ 落盘 presets.rules 已镜像新规则', async () => {
+    const cfg = v7cfg()
+    cfg.routes = [...cfg.routes, freshRow]
+    const src = join(dir, 'import-v7-mirror.yml')
+    writeFileSync(src, YAML.stringify(cfg), 'utf8')
+    const replaces: object[] = []
+    const out = await applyKimiTideCommand({ kind: 'import-config', path: src }, makeDeps(DEFAULT_CONFIG_V6(), undefined, {
+      settings: { get: () => DEFAULT_CONFIG_V6(), update: async () => {}, replace: async (s) => { replaces.push(s) } },
+    }))
+    expect(out).toMatch(/import/i)
+    const written = replaces[0] as typeof cfg
+    // Fails if: persist 边界漏投影——落盘文档的 presets.capability.rules 没有 fresh 行
+    expect(written.presets.capability!.rules.map((r) => r.id)).toContain('fresh-writing')
+    expect(written.routes).toHaveLength(cfg.routes.length)
+  })
+
+  it('set 保存（persist 边界）⇒ 旧字段与 routes 镜像（写入前统一投影）', async () => {
+    const cfg = v7cfg()
+    cfg.routes = [...cfg.routes, freshRow]
+    const updates: object[] = []
+    const deps = makeDeps(cfg as never, undefined, {
+      settings: { get: () => cfg, update: async (s) => { updates.push(s) }, replace: async () => {} },
+    })
+    const out = await applyKimiTideCommand({ kind: 'set', value: 'saving' }, deps)
+    expect(out).toMatch(/saved/)
+    const written = updates[0] as typeof cfg
+    expect(written.activePreset).toBe('saving')
+    expect(written.routes).toEqual(cfg.routes)
+    expect(written.presets.capability!.rules.map((r) => r.id)).toContain('fresh-writing')
   })
 })

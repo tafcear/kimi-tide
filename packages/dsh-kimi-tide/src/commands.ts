@@ -35,7 +35,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import YAML from 'yaml'
 import type { RouterConfigV4, RouterConfigV5, RouterConfigV6 } from './config.js'
-import { isV5Plus } from './config.js'
+import { isV5Plus, projectRoutesToLegacy } from './config.js'
 import { coerceRouterConfigV4, coerceRouterConfigV6 } from './migrate.js'
 import type { RouterConfigAny } from './router.js'
 import { validateRouterConfig } from './settings-schema.js'
@@ -273,10 +273,15 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
           // 内联合并保留当前版本（mergeInlineText 内保证）。
           next = inline ? mergeInlineText(cmd.path, deps.current()) : coerceRouterConfigV6(parseImportedFile(cmd.path), () => {})
           rejectInvalid(next)
+          // C2b（设计稿 §6.4）persist 边界：语义校验（含 routes × 旧字段冲突检测）
+          // 之后再投影——routes 为真源，落盘文档的旧字段与 routes 镜像一致
+          // （旧版插件可回退；后续保存不会误报冲突）。
+          next = projectRoutesToLegacy(next)
           await deps.settings.replace(next as unknown as object)
         } else if (inline) {
           next = mergeInlineText(cmd.path, deps.current())
           rejectInvalid(next)
+          next = projectRoutesToLegacy(next)
           deps.sidecar.save(next as RouterConfigV4)
         } else {
           next = parseImportedFile(cmd.path)
@@ -320,7 +325,10 @@ function formatImageFallbacks(c: RouterConfigAny): string {
   }).join(' · ')
 }
 
-async function persist(config: RouterConfigAny, deps: KimiTideCommandDeps, what: string): Promise<string> {
+async function persist(incoming: RouterConfigAny, deps: KimiTideCommandDeps, what: string): Promise<string> {
+  // C2b（设计稿 §6.4）persist 边界：写入前统一投影——无 routes 的配置原引用
+  // 返回（v4/v5 零行为变更）；带 routes 的配置落盘时旧字段同步镜像。
+  const config = projectRoutesToLegacy(incoming)
   if (deps.settings != null) {
     try { await deps.settings.update(config as unknown as object) } catch (error) {
       return `kimi-tide: save failed — ${(error as Error).message}`

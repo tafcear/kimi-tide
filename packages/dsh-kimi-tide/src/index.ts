@@ -42,7 +42,7 @@ import {
 import { ImageStateStore } from './image-state.js'
 import { DispatchLedger } from './dispatch-ledger.js'
 import { Transcriber } from './transcribe.js'
-import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, type CandidateMeta, type RoleEntry, type RouteTarget, type RouterConfigV5Plus } from './config.js'
+import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, projectRoutesToLegacy, type CandidateMeta, type RoleEntry, type RouteTarget, type RouterConfigV5Plus } from './config.js'
 import { routerConfigSchema } from './settings-schema.js'
 import { createSettingsPort, hasActivePreset, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
@@ -842,7 +842,12 @@ export function apply(ctx: Context, config: Config = {}) {
    * flip alone (sidecar → settings at attach) still swaps the effective source
    * reported by the panel snapshot.
    */
-  const applyConfig = (next: RouterConfigAny) => {
+  const applyConfig = (incoming: RouterConfigAny) => {
+    // C2b（设计稿 §6.4）读边界：coercion 之后套一层 routes → 旧字段投影——
+    // routes 存在时按其重建 presets[*].rules 与 roles，下游（matchingRules /
+    // roleClaimSet / renderTeamSkill / 台账）不改一行即按 routes 走；无 routes
+    // 的配置原引用返回（v6 及更早零行为变更）。attach 与 volatile 变更共用本口。
+    const next = projectRoutesToLegacy(incoming)
     // 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：skills/agentTeams 可能在
     // apply 之后才挂上；服务出现/消失 ⇒ 与配置变更同款重挂（成本可忽略）。
     const servicesChanged = refreshHostServices()
