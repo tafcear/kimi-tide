@@ -15,6 +15,15 @@
  * plugin that registers the type at apply() makes it readable again.
  *
  * Plain ESM, no dependencies: this runs inside the booted harness process.
+ *
+ * 2026-10 v4 世代改造（中文说明见 scripts/e2e/README.md）：
+ * - 目录证据：探针的裸 `import('@deepseek-ai/dsh-session')` 经隔离 profile 的
+ *   node_modules junction 解析到部署的真实 dsh-session——与宿主校验用的是
+ *   同一物理模块（扁平区那份本身就是指向 dsh 嵌套副本的 junction），所以
+ *   `resolvedFrom` 记下的就是宿主自己那份实例，不是探针私有的副本。
+ * - 快速收敛：v3 带自定义类型 ⇒ 上游 RELEASED_V3_EVENT_TYPES 冻结拒载（注册
+ *   救不回，属设计使然），命中该拒绝消息即视为终态不再重试；v4 的同款拒绝
+ *   在 15s 宽限后也视为终态（插件 apply() 早已完成，重试无意义）。
  */
 import { writeFileSync } from 'node:fs'
 
@@ -27,8 +36,14 @@ export function apply(ctx, config) {
   if (sessionIds.length === 0 || out === '') return
 
   const startedAt = Date.now()
-  const sessions = new Map(sessionIds.map((id) => [id, { ok: false, error: 'not observed yet', attempts: 0 }]))
+  const sessions = new Map(sessionIds.map((id) => [id, { ok: false, error: 'not observed yet', attempts: 0, frozen: false }]))
   let catalog = { checked: false }
+
+  // 上游拒绝路径的消息特征（命中即终态——这类拒绝与插件注册时序无关，重试
+  // 不可能翻盘）：v3 冻结判据（RELEASED_V3_EVENT_TYPES）与 v4 未注册判据
+  // （dsh-session 校验层 "unknown to this harness and not marked ignorable"）。
+  const FROZEN_REFUSAL = /format v[34] contains unknown event type |unknown to this harness and not marked ignorable/
+  const V4_GRACE_MS = 15_000
 
   const checkCatalog = async () => {
     if (catalog.checked) return
@@ -39,7 +54,10 @@ export function apply(ctx, config) {
         checked: true,
         hasPanel: known.has('kimi-tide/panel'),
         hasReview: known.has('kimi-tide/review'),
+        hasRevise: known.has('kimi-tide/review-revise'),
         size: known.size,
+        // 宿主自己那份 dsh-session 的解析地址（同源性直接证据，进 verdict 供编排器打印）
+        resolvedFrom: import.meta.resolve('@deepseek-ai/dsh-session'),
       }
     } catch (error) {
       catalog = { checked: true, importFailed: String(error?.message ?? error).slice(0, 200) }
@@ -63,7 +81,7 @@ export function apply(ctx, config) {
       elapsedMs: Date.now() - startedAt,
       catalog,
       settingsNamespaces: settingsNamespaces(),
-      sessions: Object.fromEntries([...sessions.entries()].map(([id, value]) => [id, { ok: value.ok, events: value.events ?? null, error: value.ok ? null : value.error, attempts: value.attempts }])),
+      sessions: Object.fromEntries([...sessions.entries()].map(([id, value]) => [id, { ok: value.ok, events: value.events ?? null, error: value.ok ? null : value.error, attempts: value.attempts, frozen: value.frozen }])),
     }
     try {
       writeFileSync(out, JSON.stringify(payload, null, 2), 'utf8')
@@ -81,7 +99,8 @@ export function apply(ctx, config) {
     }
     let allOk = true
     for (const [id, entry] of sessions) {
-      if (entry.ok) continue
+      // 已加载、或已命中上游冻结拒绝（v3 立即终态；v4 过宽限期后终态）的条目不再重试。
+      if (entry.ok || entry.frozen) continue
       entry.attempts += 1
       let observation
       try {
@@ -92,6 +111,8 @@ export function apply(ctx, config) {
       } catch (error) {
         entry.ok = false
         entry.error = String(error?.message ?? error).slice(0, 500)
+        const elapsed = Date.now() - startedAt
+        if (FROZEN_REFUSAL.test(entry.error) && (/format v3 /.test(entry.error) || elapsed >= V4_GRACE_MS)) entry.frozen = true
         allOk = false
       } finally {
         try {
@@ -100,6 +121,7 @@ export function apply(ctx, config) {
           /* lease disposal is best-effort in a probe */
         }
       }
+      if (!entry.ok && !entry.frozen) allOk = false
     }
     return allOk
   }

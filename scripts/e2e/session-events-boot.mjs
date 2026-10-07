@@ -10,10 +10,18 @@
  * product's history load uses, and the one that produced
  * "历史加载失败: failed to observe session … unknown to this harness".
  *
- * Fixtures (both v3, current generation):
- *   control   — permission/sandbox/approval events only → must always load
- *   custom    — same, plus a `kimi-tide/panel` event WITHOUT `ignorable: true`
- *               → loads only while the plugin registers that type at apply()
+ * 夹具（两代格式 × 对照/自定义，2026-10 v4 世代改造，详见 scripts/e2e/README.md）：
+ *   v3 control — 仅 permission/sandbox/approval 等已发布类型 → 永远可加载；
+ *   v3 custom  — 同上外加一条 `kimi-tide/panel` → **上游按设计拒载**：
+ *                v3 读取判据是 dsh-session-format-v3-to-v4 里冻结的字面量
+ *                Set RELEASED_V3_EVENT_TYPES，任何插件注册都救不回 ⇒ 这条
+ *                检查钉的是上游冻结行为（拒绝消息必须点名该类型），不是本
+ *                插件的能力；保留它是为了守住「v3 历史带自定义类型 ⇒ 拒载」
+ *                这一事实的可见性。
+ *   v4 control — 同 v3 control 的事件集，当前格式（v4）落盘 → 必须可加载；
+ *   v4 custom  — 同上外加一条 `kimi-tide/panel` → **只有插件在 apply() 时把
+ *                该类型注册进宿主 KNOWN_SESSION_EVENT_TYPES 才能加载**——这才
+ *                是本 E2E 原本要守的承诺（注册成功 ⇒ v4 历史可读）。
  *
  * Usage:
  *   node scripts/e2e/session-events-boot.mjs --expect ok                 # fixed build
@@ -98,6 +106,13 @@ if (arg('pre-fix', false) === true) {
   pluginDir = vendorRoot
 }
 
+// 命名空间断言取稳定语义：期望值来自本插件 package.json 的 name（0.2 世代
+// 表单命名空间 = profile 条目 id = 包名），不写死任何命名空间字符串——
+// `kimi-tide-router` 是 0.1.x 旧名，写死它就是 2026-09-10 那次静默腐烂的根因。
+// 注意在 --pre-fix 之后读取（vendor 拷贝携带同一份 package.json，name 不变）。
+const pluginName = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8')).name
+if (typeof pluginName !== 'string' || pluginName.length === 0) throw new Error(`cannot read the plugin package name from ${pluginDir}`)
+
 symlinkSync(pluginDir, join(profileModules, 'dsh-kimi-tide'), 'junction')
 writeFileSync(join(profileDir, 'cordis.yml'), '# isolated E2E profile root\n[]\n', 'utf8')
 writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
@@ -106,21 +121,27 @@ writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
   dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-kimi-tide'] } },
 }, null, 2) + '\n', 'utf8')
 
-// --- 2. fixtures: synthetic v3 sessions -------------------------------------
+// --- 2. fixtures: synthetic v3 + v4 sessions ---------------------------------
 // The storage derives the session's project directory from the header `cwd`, so
 // the fixture must live under that exact encoded directory name.
+// 行格式两代同形（{type,seq,time,data}，逐行 JSONL，多 zstd 帧追加）；文件名
+// 按 generation 命名：session.v3.jsonl.zstd / session.v4.jsonl.zstd。
+// v4 夹具合法性依据：与真实生产 v4 会话逐行同构（本机 111 份 v4 实测），
+// 且 v3 control 经 v3→v4 迁移加载成功本身就证明该事件集能过 v4 校验。
 const CWD = 'E:\\kimi-tide-e2e'
 const WORKSPACE = '--E-kimi-tide-e2e--'
 const controlId = 'session-e2e-control'
 const customId = 'session-e2e-custom-event'
+const v4ControlId = 'session-e2e-v4-control'
+const v4CustomId = 'session-e2e-v4-custom-event'
 
 function frame(events) {
   return events.map((event) => JSON.stringify(event)).join('\n') + '\n'
 }
 
-function writeSession(id, { custom }) {
+function writeSession(id, { custom, version }) {
   const now = Date.now()
-  const header = { type: 'session', version: 3, id, createdAt: now, cwd: CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'cordis' }
+  const header = { type: 'session', version, id, createdAt: now, cwd: CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'cordis' }
   const events = [
     { type: 'permission/preset', seq: 0, time: now, data: { preset: 'workspace-write' } },
     { type: 'sandbox/mode', seq: 1, time: now, data: { mode: 'workspace-write' } },
@@ -144,11 +165,13 @@ function writeSession(id, { custom }) {
     zstdCompressSync(Buffer.from(`${JSON.stringify(header)}\n`, 'utf8'), CHECKSUM),
     zstdCompressSync(Buffer.from(frame(events), 'utf8'), CHECKSUM),
   ]
-  writeFileSync(join(dir, 'session.v3.jsonl.zstd'), Buffer.concat(frames))
+  writeFileSync(join(dir, `session.v${version}.jsonl.zstd`), Buffer.concat(frames))
 }
 
-writeSession(controlId, { custom: false })
-writeSession(customId, { custom: true })
+writeSession(controlId, { custom: false, version: 3 })
+writeSession(customId, { custom: true, version: 3 })
+writeSession(v4ControlId, { custom: false, version: 4 })
+writeSession(v4CustomId, { custom: true, version: 4 })
 
 // --- 3. probe row in the isolated profile -----------------------------------
 const probeSource = join(HERE, 'probe-plugin.mjs')
@@ -164,6 +187,8 @@ writeFileSync(join(profileDir, 'cordis.patch.yml'), [
   '        sessionIds:',
   `          - ${controlId}`,
   `          - ${customId}`,
+  `          - ${v4ControlId}`,
+  `          - ${v4CustomId}`,
   '',
 ].join('\n'), 'utf8')
 
@@ -198,7 +223,9 @@ while (Date.now() < deadline) {
 }
 
 // --- 5. teardown ------------------------------------------------------------
-spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+// 平台无关收尾：Windows 用 taskkill 杀整棵进程树；POSIX 直接 SIGKILL 主进程。
+if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+else child.kill('SIGKILL')
 await new Promise((done) => setTimeout(done, 500))
 
 if (verdict === null) {
@@ -213,36 +240,83 @@ if (verdict === null) {
 // --- 6. assertions ----------------------------------------------------------
 const boot = readFileSync(logPath, 'utf8')
 const banner = boot.split('\n').find((line) => line.includes('dsh web: http')) ?? null
-const control = verdict.sessions[controlId]
-const custom = verdict.sessions[customId]
+const control3 = verdict.sessions[controlId]
+const custom3 = verdict.sessions[customId]
+const control4 = verdict.sessions[v4ControlId]
+const custom4 = verdict.sessions[v4CustomId]
 
+// 拒绝消息判据（上游实际文案，必须点名类型本身）：
+// - v3：dsh-session-format-v3-to-v4 的 `format v3 contains unknown event type "…" at seq N`；
+// - v4（未注册时）：dsh-session 校验层的历史名句 `contains event type "…" (seq N)
+//   unknown to this harness and not marked ignorable`（即 2026-09-10 实机事故原话）。
+const V3_REFUSAL = /format v3 contains unknown event type "kimi-tide\/panel"/
+const V4_REFUSAL = /contains event type "kimi-tide\/panel" \(seq \d+\) unknown to this harness and not marked ignorable/
+
+// 每条 check 附失败详情（detail），FAIL 时原样打印，避免「红而无证据」。
 const rows = [
-  ['plugin mounted (settings namespace kimi-tide-router)', verdict.settingsNamespaces.includes('kimi-tide-router')],
-  [`catalog has kimi-tide/panel = ${expect === 'ok'}`, verdict.catalog.hasPanel === (expect === 'ok')],
-  ['catalog has kimi-tide/review', verdict.catalog.hasReview === true],
-  ['control session loads', control?.ok === true],
-  [`custom-event session ${expect === 'ok' ? 'loads' : 'refused on the custom type'}`, expect === 'ok'
-    ? custom?.ok === true
-    : custom?.ok === false && /kimi-tide\/panel/.test(String(custom?.error ?? ''))],
+  {
+    label: `plugin mounted (settings namespace ${pluginName})`,
+    passed: verdict.settingsNamespaces.includes(pluginName),
+    detail: `实际命名空间列表: ${JSON.stringify(verdict.settingsNamespaces)}`,
+  },
+  {
+    label: `host catalog has kimi-tide/panel = ${expect === 'ok'}`,
+    passed: verdict.catalog.hasPanel === (expect === 'ok'),
+    detail: `catalog: ${JSON.stringify(verdict.catalog)}`,
+  },
+  {
+    label: 'host catalog has kimi-tide/review',
+    passed: verdict.catalog.hasReview === true,
+    detail: `catalog: ${JSON.stringify(verdict.catalog)}`,
+  },
+  {
+    label: 'v3 control session loads',
+    passed: control3?.ok === true,
+    detail: control3?.ok ? '' : `error: ${control3?.error}`,
+  },
+  {
+    // 上游设计使然：RELEASED_V3_EVENT_TYPES 是冻结字面量 Set，注册救不回。
+    // 这条不是能力断言，而是把「v3 历史带自定义类型 ⇒ 按设计拒载」钉成显式
+    // 事实：必须拒载、且拒绝消息必须点名 kimi-tide/panel（不许静默放过）。
+    label: 'v3 custom-type session ⇒ 上游按设计拒载（RELEASED_V3_EVENT_TYPES 冻结），消息点名 kimi-tide/panel',
+    passed: custom3?.ok === false && custom3?.frozen === true && V3_REFUSAL.test(String(custom3?.error ?? '')),
+    detail: custom3?.ok ? '意外加载成功（上游冻结判据被突破？需复核）' : `error: ${custom3?.error} | frozen=${custom3?.frozen}`,
+  },
+  {
+    label: 'v4 control session loads',
+    passed: control4?.ok === true,
+    detail: control4?.ok ? '' : `error: ${control4?.error}`,
+  },
+  {
+    // 本 E2E 真正守的承诺：插件注册 ⇒ v4 历史可读；剥掉注册 ⇒ 拒载且点名类型。
+    label: expect === 'ok'
+      ? 'v4 custom-type session loads（注册生效 ⇒ v4 历史可读）'
+      : 'v4 custom-type session refused，消息点名 kimi-tide/panel',
+    passed: expect === 'ok'
+      ? custom4?.ok === true
+      : custom4?.ok === false && V4_REFUSAL.test(String(custom4?.error ?? '')),
+    detail: custom4?.ok ? `OPENS (${custom4.events} events)` : `error: ${custom4?.error} | frozen=${custom4?.frozen}`,
+  },
 ]
-if (expect === 'refused') {
-  rows.push(['refusal names the unknown type + ignorable rule', /unknown to this harness and not marked ignorable/.test(String(custom?.error ?? ''))])
-}
 
 console.log('\n[e2e] evidence')
 console.log(`  plugin source  : ${pluginDir}`)
-console.log(`  catalog        : panel=${verdict.catalog.hasPanel} review=${verdict.catalog.hasReview} size=${verdict.catalog.size}`)
+console.log(`  catalog        : panel=${verdict.catalog.hasPanel} review=${verdict.catalog.hasReview} revise=${verdict.catalog.hasRevise} size=${verdict.catalog.size}`)
+console.log(`  catalog source : ${verdict.catalog.resolvedFrom ?? '(unavailable)'}`)
 console.log(`  settings ns    : ${verdict.settingsNamespaces.join(', ') || '(none reported)'}`)
-console.log(`  control        : ${control?.ok ? `OPENS (${control.events} events)` : `REFUSED -> ${control?.error}`}`)
-console.log(`  custom event   : ${custom?.ok ? `OPENS (${custom.events} events)` : `REFUSED -> ${custom?.error}`}`)
-console.log(`  probe attempts : ${custom?.attempts} (elapsed ${verdict.elapsedMs} ms)`)
+console.log(`  v3 control     : ${control3?.ok ? `OPENS (${control3.events} events)` : `REFUSED -> ${control3?.error}`}`)
+console.log(`  v3 custom      : ${custom3?.ok ? `OPENS (${custom3.events} events)` : `REFUSED (upstream frozen) -> ${custom3?.error}`}`)
+console.log(`  v4 control     : ${control4?.ok ? `OPENS (${control4.events} events)` : `REFUSED -> ${control4?.error}`}`)
+console.log(`  v4 custom      : ${custom4?.ok ? `OPENS (${custom4.events} events)` : `REFUSED -> ${custom4?.error}`}`)
+console.log(`  probe attempts : v3c=${custom3?.attempts} v4c=${custom4?.attempts} (elapsed ${verdict.elapsedMs} ms)`)
 if (banner) console.log(`  boot banner    : ${banner.trim()}`)
 
 console.log('\n[e2e] checks')
 let failed = 0
-for (const [label, passed] of rows) {
+for (const { label, passed, detail } of rows) {
   if (!passed) failed += 1
   console.log(`  ${passed ? 'PASS' : 'FAIL'}  ${label}`)
+  if (!passed && detail) console.log(`       ↳ ${detail}`)
 }
 
 if (keep) console.log(`\n[e2e] artifacts kept at ${home}`)
