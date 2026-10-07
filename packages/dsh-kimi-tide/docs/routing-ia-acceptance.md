@@ -14,8 +14,19 @@
    cd packages/dsh-kimi-tide ; npm run build
    ```
 
-2. **重启宿主**（桌面端 `dsh web`）。
-3. **⚠ 写通道待核实（本清单第 0 条要判的事）**：设置卡写操作走双通道——
+2. **先跑预检（不用重启）**——用真实配置把「设置页应该显示什么」算出来，
+   验收时逐字对照，省掉来回试：
+
+   ```pwsh
+   node scripts/acceptance/routing-view-preview.mjs          # 仓库根执行
+   ```
+
+   输出含：A-1 摘要行应显示的原文、A-3 五档链（每档「已就绪 / 按需 / 未启用」三态）、
+   打底档、A-4 词表接线、B-2 重叠、派发面行。**退出码 0 = 配置校验通过**；
+   非 0 会打印校验错误串（先修配置再验收）。`--json` 可出机器可读结果。
+
+3. **重启宿主**（桌面端 `dsh web`）。
+4. **⚠ 写通道待核实（本清单第 0 条要判的事）**：设置卡写操作走双通道——
    `settingsScope` 可用时走 `scope.set`，否则走 `connection.api.settings.mutate`。
    官方 0.2 文档中 `settingsScope` 已不在列（设计稿 §7），因此**先判本机实际走哪条**：
    在设置页改任意一个字段 → 看 `C:\Users\tafce\.dsh\profiles\desktop\cordis.patch.yml`

@@ -1638,11 +1638,15 @@ export function SettingsCard(props: SettingsCardProps) {
       {routingView !== null ? (
         <ol className="kt-chain">
           {routingView.precedence.map((tier) => (
-            <li key={tier.tier} className={tier.active ? 'kt-tier' : 'kt-tier kt-tier-off'}>
+            <li key={tier.tier} className={tier.state === 'off' ? 'kt-tier kt-tier-off' : 'kt-tier'}>
               <div className="kt-tier-head">
                 <span className="kt-tier-no" aria-hidden="true">{tier.tier}</span>
                 <span className="kt-tier-title">{tier.title}</span>
-                {!tier.active && <span className="kt-tier-state">未生效</span>}
+                {/* A-② 三态徽标（2026-10-07 修）：off ⇒ 未启用；on-demand ⇒ 按需。
+                    「按需」**不置灰**——该档可用，只是要满足条件才参与（写 @ / 子代理点名）；
+                    只有真正不参与的档位才走 kt-tier-off 的语义分层（§9.2 禁边框/阴影分组）。 */}
+                {tier.state === 'off' && <span className="kt-tier-state">未启用</span>}
+                {tier.state === 'on-demand' && <span className="kt-tier-state">按需</span>}
               </div>
               <p className="kt-tier-line"><span className="kt-tier-tag">什么时候轮到它</span>{TIER_WHEN[tier.tier] ?? '—'}</p>
               <p className="kt-tier-line">

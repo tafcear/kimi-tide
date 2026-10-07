@@ -65,7 +65,7 @@ export interface RoutingView {
   groups: Array<{ name: string; words: number; wiring: WiringState; referencedBy: string[] }>
   overlaps: Array<{ group: string; word: string; roleId: string; sessionTarget: string; dispatchTarget: string }>
   summary: string                                     // 人话摘要（见 §4）
-  precedence: Array<{ tier: number; title: string; active: boolean; detail: string }>  // §4 决策链数据
+  precedence: Array<{ tier: number; title: string; state: 'ready' | 'on-demand' | 'off'; active: boolean; detail: string }>  // §4 决策链数据（state 为三态真源，active = state === 'ready'）
 }
 
 export function buildRoutingView(config: RouterConfigAny, deps: ViewDeps): RoutingView
@@ -259,3 +259,4 @@ settings.section 的逐字段契约（需 Client inspect catalog）· `__ModuleL
 | 日期 | 版本 | 说明 |
 |---|---|---|
 | 2026-10-07 | v1 | 初稿：A/B/C1/C2 四块、v7 形状与迁移口径、宿主写通道待核实项、验收判据 |
+| 2026-10-07 | v1.1 | C2 落地后补 §6.4 集成口径（读边界投影 + 写边界双写、零行为变更判据）；**档位状态由布尔改三态**（`ready`/`on-demand`/`off`）——用真实配置预检时发现第 1、2 档写死 `active: true` 会让界面「五档里四档都亮着」、看不出谁在决定这一轮 |

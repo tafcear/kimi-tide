@@ -121,11 +121,17 @@ describe('C1：precedence 决策链五档', () => {
     }))
     expect(view.precedence.map((p) => p.tier)).toEqual([1, 2, 3, 4, 5])
     expect(view.precedence.map((p) => p.title)).toEqual(['显式 @指令', '调用方点名', '分工表角色', '关键词规则', '打底'])
-    expect(view.precedence.map((p) => p.active)).toEqual([true, true, true, true, true])
+    // 三态（2026-10-07 修）：1/2 档是按需触发，不得再写死 active=true
+    // ——否则界面出现「5 档里 4 档都亮着」，看不出谁在决定这一轮。
+    expect(view.precedence.map((p) => p.state)).toEqual(['on-demand', 'on-demand', 'ready', 'ready', 'ready'])
+    expect(view.precedence.map((p) => p.active)).toEqual([false, false, true, true, true])
   })
 
-  it('空分工表 / 空规则 ⇒ 对应档 active=false', () => {
+  it('空分工表 / 空规则 ⇒ 对应档 off（不再用 active 布尔区分）', () => {
     const view = buildRoutingView(v6())
+    expect(view.precedence.find((p) => p.tier === 3)?.state).toBe('off')
+    expect(view.precedence.find((p) => p.tier === 4)?.state).toBe('off')
+    expect(view.precedence.find((p) => p.tier === 5)?.state).toBe('ready')
     expect(view.precedence.find((p) => p.tier === 3)?.active).toBe(false)
     expect(view.precedence.find((p) => p.tier === 4)?.active).toBe(false)
     expect(view.precedence.find((p) => p.tier === 5)?.active).toBe(true)

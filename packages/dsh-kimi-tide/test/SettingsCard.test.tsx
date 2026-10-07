@@ -705,6 +705,10 @@ describe('SettingsCard 路由决策链（A 项，2026-10-07 设计稿 §4）', (
       expect(next).toBeGreaterThan(pos)
       pos = next
     }
+    // 三态徽标（2026-10-07 修）：1/2 档是按需触发、3 档在 v4 夹具里无角色 ⇒ 未启用。
+    // Fails if: 有人再把档位状态退回布尔——界面会重新出现「五档里四档都亮着」。
+    expect(html).toContain('kt-tier-state">按需<')
+    expect(html).toContain('kt-tier-state">未启用<')
   })
 
   it('③ 空规则 + 有词表 ⇒「全部走打底」与「现在都不生效」（空状态说人话）', () => {

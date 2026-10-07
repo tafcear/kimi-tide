@@ -74,10 +74,23 @@ export interface OverlapInfo {
   dispatchTarget: string
 }
 
+/**
+ * 档位状态（§4.2）：**三态而非布尔**。
+ * - `ready`     本档此刻真的会参与裁决（已配置）
+ * - `on-demand` 按需触发：只有满足条件时才参与（显式 `@` / 子代理调用方点名）
+ * - `off`       本档在当前配置下不参与（无角色 / 无规则 / 路由关闭）
+ *
+ * 为什么不是布尔：第 1、2 档曾写死 `true`，界面于是出现「5 档里 4 档都亮着」，
+ * 反而看不出谁在决定这一轮（2026-10-07 用真实配置预检时发现）。
+ */
+export type TierState = 'ready' | 'on-demand' | 'off'
+
 /** 决策链一档（§4.2）：与 router.ts 优先级链逐档对齐。 */
 export interface PrecedenceTier {
   tier: number
   title: string
+  state: TierState
+  /** 便捷布尔（= `state === 'ready'`）：保留给既有消费者，语义 = 「已就绪」。 */
   active: boolean
   detail: string
 }
@@ -228,21 +241,27 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
       : { target: { ...team.driver }, reason: `主驱动恒定（${configKey(team.driver)}）` }
   } else fallback = { target: { ...preset.default }, reason: `预设「${preset.name}」默认` }
 
-  /* ---- 决策链五档（§4.2）：与 router.ts 优先级链逐档对齐。 ---- */
+  /* ---- 决策链五档（§4.2）：与 router.ts 优先级链逐档对齐。
+     三态语义见 TierState：按需档（1/2）不置灰，只有当前配置下真的不参与的档才算 off。 ---- */
+  const tier3: TierState = dispatch.length > 0 ? 'ready' : 'off'
+  const tier4: TierState = preset !== undefined && session.length > 0 ? 'ready' : 'off'
+  const tier5: TierState = preset !== undefined ? 'ready' : 'off'
   const precedence: PrecedenceTier[] = [
-    { tier: 1, title: '显式 @指令', active: true, detail: '@provider 或 @provider/model 点名，直接生效' },
-    { tier: 2, title: '调用方点名', active: true, detail: '子代理调用方指定的模型与打底不同时，保持该模型不变' },
-    { tier: 3, title: '分工表角色', active: dispatch.length > 0, detail: dispatch.length > 0 ? `${dispatch.length} 个角色参与派发改道` : '未配置分工表（队友不改道）' },
+    { tier: 1, title: '显式 @指令', state: 'on-demand', active: false, detail: '按需：消息里写 @provider 或 @provider/model 时才参与裁决' },
+    { tier: 2, title: '调用方点名', state: 'on-demand', active: false, detail: '按需：仅子代理；调用方点名的模型与打底不同时保持该模型不变' },
+    { tier: 3, title: '分工表角色', state: tier3, active: tier3 === 'ready', detail: dispatch.length > 0 ? `${dispatch.length} 个角色参与派发改道` : '未配置分工表（队友不改道）' },
     {
       tier: 4,
       title: '关键词规则',
-      active: preset !== undefined && session.length > 0,
+      state: tier4,
+      active: tier4 === 'ready',
       detail: preset === undefined ? '路由未激活' : session.length > 0 ? `预设「${preset.name}」共 ${session.length} 条规则（仅主会话参与）` : `预设「${preset.name}」无规则，未命中即走打底`,
     },
     {
       tier: 5,
       title: '打底',
-      active: preset !== undefined,
+      state: tier5,
+      active: tier5 === 'ready',
       detail: fallback.target === null ? fallback.reason : `${configKey(fallback.target)}（${fallback.reason}）`,
     },
   ]
