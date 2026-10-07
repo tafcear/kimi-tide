@@ -177,6 +177,19 @@ export function validateRouterConfig(raw: RouterConfigV5 | RouterConfigV6 | Rout
 function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): string | undefined {
   const routes = (raw as { routes?: unknown }).routes
   if (!Array.isArray(routes)) return 'routes 必须为数组（RouteRowV7[]）'
+  // 空 routes 判据收紧（1.4.x 正确性修补）：rowsFromConfig 认「空数组」为 routes
+  // 存在 ⇒ 视图渲染为「无规则、全部走打底」，而 projectRoutesToLegacy 对空数组
+  // 原引用返回 ⇒ 运行期仍读旧字段——两边静默背离。空数组 × 旧字段非空必须报错；
+  // 旧字段同样为空（UI 删光规则与角色）是合法形态，放行。
+  if (routes.length === 0) {
+    const hasLegacyRules = Object.values(raw.presets).some((p) => (p.rules ?? []).length > 0)
+    const hasLegacyRoles = Object.keys((raw as { roles?: Record<string, RoleEntry> }).roles ?? {}).length > 0
+    if (hasLegacyRules || hasLegacyRoles) {
+      return `routes 与旧字段冲突：routes 为空数组，但旧字段（${hasLegacyRules ? 'presets[*].rules' : 'roles'}）仍非空`
+        + '（routes 为真源；请删除 routes 键或清空对应旧字段使两边一致）'
+    }
+    return undefined
+  }
   const flows = (raw as { flows?: Record<string, CollaborationFlow> }).flows ?? {}
   const roles = (raw as { roles?: Record<string, RoleEntry> }).roles ?? {}
   const seen = new Set<string>()

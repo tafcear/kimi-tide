@@ -179,6 +179,39 @@ describe('C2：validateRouterConfig routes 块', () => {
     expect(validateRouterConfig(cfg)).toBeUndefined()
   })
 
+  it('空 routes（[]）× 非空 presets[*].rules ⇒ 报冲突（界面按 routes 渲染为空、运行期仍读旧字段的静默背离）', () => {
+    const cfg = { ...v6(), routes: [] } as unknown as RouterConfigV7
+    const err = validateRouterConfig(cfg)
+    expect(err).toContain('routes')
+    expect(err).toContain('旧字段')
+  })
+
+  it('空 routes（[]）× 非空 roles（rules 全空）⇒ 报冲突', () => {
+    // 只留 roles 非空：rules 全空，确保两条旧字段判据各自独立触发
+    const cfg: RouterConfigV7 = {
+      ...DEFAULT_CONFIG_V7(),
+      routes: [],
+      roles: { backend: { id: 'backend', label: '后端', target: GLM } } as never,
+    }
+    expect(validateRouterConfig(cfg)).toContain('旧字段')
+  })
+
+  it('空 routes（[]）× 旧字段全空 ⇒ 通过（UI 删光规则与角色的合法形态）', () => {
+    const cfg: RouterConfigV7 = { ...DEFAULT_CONFIG_V7(), routes: [], roles: {} }
+    expect(validateRouterConfig(cfg)).toBeUndefined()
+  })
+
+  it('无 routes 键 × 非空旧字段 ⇒ 通过（既有行为零变更）', () => {
+    expect(validateRouterConfig(v6())).toBeUndefined()
+  })
+
+  it('非空 routes × 与之不一致的旧字段 ⇒ 仍报既有冲突错（回归钉）', () => {
+    const cfg = migrateV6(v6())
+    cfg.routes = cfg.routes.map((r) => r.id === 'code-kfc' && r.preset === 'main'
+      ? { ...r, target: GLM } : r)
+    expect(validateRouterConfig(cfg)).toContain('冲突')
+  })
+
   it('形状与界：同一预设内 id 重复 / session 缺 preset / preset 不存在 / minHits 越界 / 认领名跨行重复 / 目标不完整 / dispatch 收流引用', () => {
     const base = DEFAULT_CONFIG_V7()
     const dupId = { ...base, routes: [...base.routes, { ...base.routes[0]! }] }
