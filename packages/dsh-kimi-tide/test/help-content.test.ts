@@ -1,15 +1,17 @@
 /**
  * help-content 结构与防腐烂闸（说明页签 spec v2 §7/§11.1-M6）。
  *
- * 两类断言：
+ * 三类断言：
  * - 结构完整性 + 覆盖双向闸（DOCK_ELEMENTS / SETTINGS_SECTIONS 与条目互查）；
  * - 防腐烂闸：FEATURE_KEYS 全路径在「含全部可选字段」的样例配置上必须走通，
- *   且 schema 顶层键集反向 ⊆ FEATURE_KEYS 首段集合（新增配置字段而不补说明条目 → 红）。
+ *   且 schema 顶层键集反向 ⊆ FEATURE_KEYS 首段集合（新增配置字段而不补说明条目 → 红）；
+ * - WHATS_NEW（「本次新版」导览）的**结构完整性**：它与 HELP_SECTIONS 分开（时效文案、
+ *   无锚点、不参与覆盖闸），但空条目/重复 id 同样要拦住。
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V5, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V5, rowsFromLegacy, type RouterConfigV5 } from '../src/config.js'
 import { routerConfigSchema } from '../src/settings-schema.js'
-import { DOCK_ELEMENTS, FEATURE_KEYS, HELP_SECTIONS, LEGACY_CONFIG_KEYS, SETTINGS_SECTIONS } from '../src/client/help-content.js'
+import { DOCK_ELEMENTS, FEATURE_KEYS, HELP_SECTIONS, LEGACY_CONFIG_KEYS, SETTINGS_SECTIONS, WHATS_NEW } from '../src/client/help-content.js'
 
 /** 含全部可选字段的样例配置（可选字段不在 DEFAULT_CONFIG_V5 里，须单独构造）。 */
 function fullSample(): RouterConfigV5 {
@@ -34,11 +36,17 @@ function fullSample(): RouterConfigV5 {
     driverSticky?: boolean
     rulesApplyToChildren?: boolean
     roles?: Record<string, unknown>
+    version?: number
+    routes?: unknown[]
   }
   v6.driver = { provider: 'kimi-coding', model: 'k3' }
   v6.driverSticky = true
   v6.rulesApplyToChildren = false
   v6.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+  // v7（统一路由表）：真源字段。schemastery 对未声明键是**透传保留**（实测往返不丢），
+  // 故反向闸扫不到 `routes`；这里靠 FEATURE_KEYS 正向闸保证「样例能走通 routes.* 路径」。
+  v6.version = 7
+  v6.routes = rowsFromLegacy(c as never) as unknown[]
   return c
 }
 
@@ -85,6 +93,27 @@ describe('help-content：结构完整性', () => {
     }
     // 漏写：声明了却在说明里找不到
     for (const id of declared) expect(referenced.has(id)).toBe(true)
+  })
+})
+
+describe('help-content：本次新版导览（WHATS_NEW）', () => {
+  it('条目非空、id 唯一、标题与每行正文非空', () => {
+    expect(WHATS_NEW.length).toBeGreaterThan(0)
+    const ids = new Set<string>()
+    for (const entry of WHATS_NEW) {
+      expect(entry.id).not.toBe('')
+      expect(entry.title).not.toBe('')
+      expect(entry.body.length).toBeGreaterThan(0)
+      expect(entry.body.every((line) => line.trim() !== '')).toBe(true)
+      expect(ids.has(entry.id)).toBe(false)
+      ids.add(entry.id)
+    }
+  })
+
+  it('导览 id 与 HELP_SECTIONS 的条目 id 不冲突（两套 key 同处一棵 React 树）', () => {
+    const sectionIds = new Set<string>()
+    for (const section of HELP_SECTIONS) for (const entry of section.entries) sectionIds.add(entry.id)
+    for (const entry of WHATS_NEW) expect(sectionIds.has(entry.id)).toBe(false)
   })
 })
 
