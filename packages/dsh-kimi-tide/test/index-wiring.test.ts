@@ -193,6 +193,32 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 /**
+ * 条件轮询：等待一次性的 sidecar → Config 迁移落地（index.ts 的迁移是
+ * fire-and-forget：冷动态 import('./settings-migration.js') + scope.replace
+ * 的 promise 链，全量并发跑测时可能超过单次 tick() 的 20ms —— 2026-10-07
+ * 实测全量 4 跑 2 红、均红在「activePreset 尚为 undefined」）。固定延时是
+ * 竞态根源，这里改为轮询「归档文件出现 + 配置已收到迁移值」，超时才失败
+ * 并打印当时状态。断言项一个不少，全部保留在等待之后。
+ */
+const waitForSidecarMigration = async (
+  sidecarFile: string,
+  readPreset: () => string | undefined,
+  describeState: () => string,
+  timeoutMs = 2000,
+  intervalMs = 15,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs
+  // 迁移的原子可见序：scope.replace(config) → renameSync(*.legacy-imported)。
+  // 归档文件出现即两步都已发生；配置值再由调用方判（dirty-skip 时两者不同时成立）。
+  while (!(existsSync(sidecarFile + '.legacy-imported') && readPreset() !== undefined)) {
+    if (Date.now() > deadline) {
+      throw new Error(`sidecar migration did not land within ${timeoutMs}ms: ${describeState()}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+}
+
+/**
  * apply() 第二参的构造器：把测试传入的 router 包成 **Volatile**（`.get()` 快照），
  * 与生产一致（干跑树实测：`apply(ctx, config)` 的 `config.router` 是带 get 的 volatile）。
  * 不包的话 port 会判「Config 未声明 volatile router」而整条降级到 sidecar——那是旧宿主
@@ -313,7 +339,11 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
-    await tick()
+    await waitForSidecarMigration(
+      sidecarFile,
+      () => (settings.get() as RouterConfigV4).activePreset,
+      () => `activePreset=${JSON.stringify((settings.get() as RouterConfigV4).activePreset)}, sidecar=${existsSync(sidecarFile)}, archived=${existsSync(sidecarFile + '.legacy-imported')}`,
+    )
 
     expect((settings.get() as RouterConfigV4).activePreset).toBe('capability')
     expect(existsSync(sidecarFile)).toBe(false)
@@ -335,7 +365,11 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const { ctx, getCommand } = makeCtx([agent], settings)
 
     apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
-    await tick()
+    await waitForSidecarMigration(
+      sidecarFile,
+      () => (settings.get() as RouterConfigV4).activePreset,
+      () => `activePreset=${JSON.stringify((settings.get() as RouterConfigV4).activePreset)}, doc.router=${settings.doc.router !== undefined}, sidecar=${existsSync(sidecarFile)}, archived=${existsSync(sidecarFile + '.legacy-imported')}`,
+    )
 
     const resolved = settings.get() as RouterConfigV4
     expect(resolved.activePreset).toBe('capability')
