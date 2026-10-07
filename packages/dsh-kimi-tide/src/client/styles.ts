@@ -353,4 +353,55 @@ export const CLIENT_CSS = `
       background: rgb(148 163 184 / 0.10); }
     .kt-revise-card-stopped .kt-revise-badge { color: var(--dsw-alias-label-secondary, #8b93a7); }
     .kt-revise-summary { font-size: 11px; opacity: 0.85; }
+
+    /* ---- A 项路由决策链（2026-10-07 设计稿 §4/§9）：顶部摘要 + 五档竖直链 +
+       空状态 + 词表接线徽标。§9.2 硬规则：档位区分只靠布局与语义分层（底色/透明
+       度/状态字），禁第二道边框与阴影；圆角消费 --dsw-radius-* token、描边/文字
+       色消费 --dsw-alias-* token（沿用本文件 var(token, 回退) 惯例）。 ---- */
+    /* 路由页面板本体改 flex 列：链/摘要/操作行之间保持 8px 节奏（[hidden] 兜底
+       规则带 !important，页签切换不受影响） */
+    .kimi-tide-settings > .kt-tabpanel.kt-route { display: flex; flex-direction: column; gap: 8px; }
+    .kimi-tide-settings .kt-route-summary { margin: 0; font-size: 12px; line-height: 1.6;
+      color: var(--dsw-alias-label-secondary, #8b93a7); }
+    .kimi-tide-settings .kt-chain { list-style: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column; gap: 4px; }
+    .kimi-tide-settings .kt-tier { display: flex; flex-direction: column; gap: 3px;
+      padding: 6px 8px; border-radius: var(--dsw-radius-md, 12px); }
+    /* 激活档位：品牌紫微底（语义分层的主手段；未激活档靠降透明度 + 状态字区分，
+       不加边框、不加阴影——§9.2） */
+    .kimi-tide-settings .kt-tier:not(.kt-tier-off) { background: var(--kt-accent-soft); }
+    .kimi-tide-settings .kt-tier-off { opacity: 0.55; }
+    .kimi-tide-settings .kt-tier-head { display: flex; align-items: center; gap: 6px; }
+    .kimi-tide-settings .kt-tier-no { flex: none; width: 16px; height: 16px; font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: var(--dsw-radius-xs, 4px); background: var(--kt-accent);
+      color: #fff; font-variant-numeric: tabular-nums; }
+    .kimi-tide-settings .kt-tier-title { font-size: 12.5px; font-weight: 600;
+      color: var(--dsw-alias-label-primary, #2b3245); }
+    .kimi-tide-settings .kt-tier-state { font-size: 11px;
+      color: var(--dsw-alias-label-tertiary, #8b93a7); }
+    .kimi-tide-settings .kt-tier-line { margin: 0; font-size: 11.5px; display: flex; gap: 6px;
+      color: var(--dsw-alias-label-secondary, #8b93a7); }
+    .kimi-tide-settings .kt-tier-tag { flex: none; opacity: 0.7; }
+    /* A-④ 空状态：rules 为空不再是空表——明示「全部走打底」与悬空词表数量 */
+    .kimi-tide-settings .kt-rules-empty { display: flex; flex-direction: column; gap: 2px;
+      font-size: 12px; color: var(--dsw-alias-label-secondary, #8b93a7);
+      border-top: 1px dashed var(--dsw-alias-border-l1, #e4e7ee); padding-top: 4px; }
+    /* A-⑤ 词表接线徽标：三态色调（被引用=中性描边、被流认领=品牌紫、悬空=警示色） */
+    .kimi-tide-settings .kt-wire { flex: none; font-size: 11px; padding: 0 6px;
+      border-radius: var(--dsw-radius-sm, 8px);
+      border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
+      color: var(--dsw-alias-label-secondary, #8b93a7); }
+    .kimi-tide-settings .kt-wire-flow { color: var(--kt-accent-strong);
+      border-color: var(--kt-accent-line); background: var(--kt-accent-soft); }
+    .kimi-tide-settings .kt-wire-warn { color: var(--dsw-alias-warning-strong, #d97706);
+      border-color: var(--dsw-alias-warning-strong, #d97706); }
+    /* B 项（2026-10-07 §5）：行容器（词表行/角色行 + 其下挂的重叠解释条） */
+    .kimi-tide-settings .kt-group-item { display: flex; flex-direction: column; gap: 4px; }
+    /* B-③ 重叠解释条：解释不是报错——中性虚线描边 + 次级文字（区别于
+       kt-conflict-banner 的警示色实底）；圆角消费 token，禁本地字面量（§9.2） */
+    .kimi-tide-settings .kt-overlap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      font-size: 11px; color: var(--dsw-alias-label-secondary, #8b93a7);
+      border: 1px dashed var(--dsw-alias-border-l1, #e4e7ee);
+      border-radius: var(--dsw-radius-sm, 8px); padding: 4px 8px; }
   `

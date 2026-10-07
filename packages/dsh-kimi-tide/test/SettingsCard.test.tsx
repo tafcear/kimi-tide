@@ -16,7 +16,11 @@ import { createCardStore } from '../src/client/card-store.js'
 import type { CardSnapshot, CardStore, ConnectionLike, SettingsScopeLike } from '../src/client/card-store.js'
 import { presetSlug, SettingsCard } from '../src/client/SettingsCard.js'
 import { apply } from '../src/client/index.js'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5 } from '../src/config.js'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
+import { describeRouting } from '../src/routing-view.js'
+
+/** A 项（2026-10-07）：决策链用例需要 v6 分工层（driverSticky）夹具——快照配置并集。 */
+type AnyCfg = RouterConfigV4 | RouterConfigV5 | RouterConfigV6
 
 /** brief 夹具：v4 配置工厂（activePreset 注入到内置默认配置）。 */
 const v4cfg = (active: string | null): RouterConfigV4 => ({ ...DEFAULT_CONFIG_V4(), activePreset: active })
@@ -53,7 +57,7 @@ function makeStore(snapshot: CardSnapshot): CardStore {
   }
 }
 
-const baseSnapshot = (config: RouterConfigV4 | RouterConfigV5, overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
+const baseSnapshot = (config: AnyCfg, overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
   status: 'ready',
   config,
   base: null,
@@ -67,10 +71,10 @@ const baseSnapshot = (config: RouterConfigV4 | RouterConfigV5, overrides: Partia
 })
 
 /** brief 夹具：storeWith(config) → storeFactory（ready + 全量目录 + 无灰态）。 */
-const storeWith = (config: RouterConfigV4 | RouterConfigV5) => () => makeStore(baseSnapshot(config))
+const storeWith = (config: AnyCfg) => () => makeStore(baseSnapshot(config))
 
 /** brief 夹具：storeWithAvailability(config, availability) → storeFactory（带灰态映射）。 */
-const storeWithAvailability = (config: RouterConfigV4 | RouterConfigV5, availability: Record<string, boolean>) => () =>
+const storeWithAvailability = (config: AnyCfg, availability: Record<string, boolean>) => () =>
   makeStore(baseSnapshot(config, { availability }))
 
 /** 一个 settingsScope.bind(...) 返回的 scope 结构面 mock（store 写路径用例用）。 */
@@ -659,8 +663,7 @@ describe('模型显示名（2026-09-11 与官方 Models 页/模型选择器一�
   })
 })
 
-describe('v1.3.0 语义命中确认闸：设置页开关（spec §8.1）', () => {
-  it('默认关闭：复选框存在且未勾选，数字项不渲染', () => {
+describe('v1.3.0 语义命中确认闸：设置页开关（spec §8.1）', () => {  it('默认关闭：复选框存在且未勾选，数字项不渲染', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v5cfg('saving')) }))
     // Fails if: 开关缺失（用户只能手写配置才能开闸）
     expect(html).toContain('aria-label="语义命中确认"')
@@ -680,5 +683,139 @@ describe('v1.3.0 语义命中确认闸：设置页开关（spec §8.1）', () =>
     // 说明写清 fail-open 与前置短路（用户不必读源码才知道边界）
     expect(html).toContain('问不到')
     expect(html).toContain('显式 @ 轮')
+  })
+})
+
+describe('SettingsCard 路由决策链（A 项，2026-10-07 设计稿 §4）', () => {
+  it('① 顶部人话摘要 = describeRouting 单源输出（不自己拼文案）', () => {
+    const cfg = v4cfg('saving')
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 摘要行缺失，或卡片自己拼文案与 describeRouting 漂移（§3 单源约定——
+    // 设置页/技能描述/show 命令三处共用）。
+    expect(html).toContain(describeRouting(cfg))
+  })
+
+  it('② 五档标题按优先级顺序出现（显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 打底）', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    // Fails if: 决策链缺档或档位顺序漂移（§4.2：与 router.ts 优先级链逐档对齐）。
+    const titles = ['显式 @指令', '调用方点名', '分工表角色', '关键词规则', '打底']
+    let pos = -1
+    for (const title of titles) {
+      const next = html.indexOf(`kt-tier-title">${title}<`, pos + 1)
+      expect(next).toBeGreaterThan(pos)
+      pos = next
+    }
+  })
+
+  it('③ 空规则 + 有词表 ⇒「全部走打底」与「现在都不生效」（空状态说人话）', () => {
+    const cfg = v4cfg('saving')
+    // 视图模型跨**全部预设**扫规则引用——只清激活预设的规则，词表仍被另一预设
+    // 引用而不算悬空；两预设全清才是「7 组词表全部悬空」的实机形态（§1.1 症状 1）。
+    for (const [id, preset] of Object.entries(cfg.presets)) cfg.presets[id] = { ...preset, rules: [] }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: rules 为空仍是一张空表（§4.4：未命中 ⇒ 全部走打底），或已备词表
+    // 无规则引用时不点名「现在都不生效」。
+    expect(html).toContain('全部走打底')
+    expect(html).toContain('现在都不生效')
+    expect(html).toContain('⚠ 悬空')
+  })
+
+  it('④ 词表接线三态：被 N 条规则引用（列 id）/ 被协作流认领 / ⚠ 悬空各一例', () => {
+    const cfg = v5cfg('saving')
+    // review 流改 keywords 认领 chitchat 组 → 该组「被协作流认领」；math 组仅被
+    // capability 预设的 math-v4p 引用（code/translate 被两预设同名规则引用，不是
+    // 单条实例）；内置 7 组全部被引用/认领，故另备一组 spare 作「⚠ 悬空」实例。
+    const review = cfg.flows.review
+    if (review.type === 'review') {
+      review.trigger = 'keywords'
+      review.keywordGroup = 'chitchat'
+    }
+    cfg.keywordGroups = { ...cfg.keywordGroups, spare: ['闲置词'] }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 三组接线徽标任一缺失或文案漂移（§4.5）。
+    expect(html).toContain('被 1 条规则引用（math-v4p）')
+    expect(html).toContain('被协作流认领')
+    expect(html).toContain('⚠ 悬空')
+  })
+
+  it('⑤ driverSticky 开/关 ⇒ 打底档文案变化（来源 = 主驱动 / 预设默认）', () => {
+    const base = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', driver: { provider: 'kimi-coding', model: 'k3' } }
+    const on = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith({ ...base, driverSticky: true }) }))
+    // Fails if: driverSticky 开时打底档不取主驱动来源（§4.3：driverSticky ⇒ driver）。
+    expect(on).toContain('主驱动恒定（kimi-coding/k3）')
+    const off = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith({ ...base, driverSticky: false }) }))
+    // Fails if: driverSticky 关时打底档不回落激活预设默认（§4.3：否则取预设默认）。
+    expect(off).toContain('预设「省钱」默认')
+  })
+})
+
+describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重叠解释 / 派发预览 / 词表接线）', () => {
+  /** B 项夹具：v6 配置工厂（含分工层），激活预设可注入。 */
+  const v6cfg = (active: string | null): RouterConfigV6 => ({ ...DEFAULT_CONFIG_V6(), activePreset: active })
+
+  /** 重叠形态夹具：角色「代码工」别名『代码』∈ code 词表，角色目标 ≠ code-kfc 规则目标。 */
+  const overlapCfg = (): RouterConfigV6 => {
+    const cfg = v6cfg('saving')
+    cfg.roles = {
+      coder: { id: 'coder', label: '代码工', target: { provider: 'zai-coding-cn', model: 'glm-5.3' }, aliases: ['代码'] },
+    }
+    return cfg
+  }
+
+  it('B2 作用域徽标：规则表每行一枚「主会话」，分工表每个角色行一枚「派发时」（kt-wire 样式）', () => {
+    const cfg = v6cfg('saving')
+    cfg.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 规则行/角色行缺作用域徽标（§5.1——两个词一贴，"冲突"即变"分工"）；
+    // 或徽标不沿用 A 项 kt-wire 徽标样式。
+    expect(html.match(/kt-wire"[^>]*>主会话</g)?.length).toBe(3)  // saving 三条规则 = 三枚
+    expect(html.match(/kt-wire"[^>]*>派发时</g)?.length).toBe(1)  // 一个角色 = 一枚
+  })
+
+  it('B3 重叠解释条：词表行与角色行两侧各一条（解释条不是报错），文案点名两侧目标，附一键动作', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(overlapCfg()) }))
+    // renderToString 在 JSX 文本节点间插 <!-- --> 注释——剥掉再做整句比对。
+    const plain = html.replace(/<!-- -->/g, '')
+    // Fails if: ① 解释条缺一侧（§5.2：词表行与角色行两侧各挂一条）；② 文案不点名
+    // 「主会话说『词』走 X；派给『角色』做走 Y」；③ 缺一键动作；④ 误用报错样式
+    // （kt-conflict-banner/kt-warn——机制上两者本就不冲突，§1.3）。
+    expect(html.match(/设计使然/g)?.length).toBe(2)
+    expect(plain).toContain('主会话说『代码』走 kimi-coding/kimi-for-coding；派给『代码工』做走 zai-coding-cn/glm-5.3')
+    expect(html.match(/规则跟随该角色/g)?.length).toBe(2)
+    expect(html.match(/kt-overlap/g)?.length).toBe(2)
+  })
+
+  it('B3 目标相同不算重叠：角色目标 = 规则目标 ⇒ 不挂解释条', () => {
+    const cfg = v6cfg('saving')
+    cfg.roles = {
+      coder: { id: 'coder', label: '代码工', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, aliases: ['代码'] },
+    }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 目标一致也挂解释条（无歧可解，解释条变噪音）。
+    expect(html).not.toContain('设计使然')
+  })
+
+  it('B4 测试场「派给谁」：输入框 + datalist 认领候选 + D6 两套作用域声明', () => {
+    const cfg = v6cfg('saving')
+    cfg.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: ① 测试场缺「派给谁」一节（§5.3）；② 文案不点明 D6（子代理不参与
+    // 关键词规则 ⇒ 与「试一句」是两套作用域）；③ datalist 缺角色认领名候选。
+    expect(html).toContain('aria-label="派给谁"')
+    expect(html).toContain('子代理不参与关键词规则（D6）')
+    expect(html).toContain('两套作用域')
+    expect(html).toContain('value="frontend"')
+  })
+
+  it('B5 「从词表生成角色」：有悬空词表组时可用；全部被引用时禁用', () => {
+    const withSpare = v6cfg('saving')
+    withSpare.keywordGroups = { ...withSpare.keywordGroups, spare: ['闲置词'] }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(withSpare) }))
+    // Fails if: 分工表区块缺「从词表生成角色」动作（§5.4——7 组词表不再悬空）。
+    expect(html).toContain('从词表生成角色')
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>从词表生成角色<\/button>/)
+    // v6 默认 7 组词表全部被内置两预设规则引用（无 orphan）⇒ 动作禁用（无可生成）。
+    const html2 = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v6cfg('saving')) }))
+    expect(html2).toMatch(/<button[^>]*disabled[^>]*>从词表生成角色<\/button>/)
   })
 })

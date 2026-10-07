@@ -9,18 +9,27 @@
  * Ruling 2（控制器预检裁决）：ConnectionLike / SettingsScopeLike 两个结构面
  * 类型定义在本文件，SettingsCard.tsx 从这里 import（而非本文件反向 import
  * 组件），避免类型环。
+ *
+ * B1（2026-10-07 设计稿 §6.4）：读边界投影（withRoutesProjection——routes
+ * 存在时编辑模型 = routes 反投影，与宿主运行期同口径）+ 写边界双写
+ * （writeRoutesAndLegacy——presets/roles 的写操作同笔下发 routes 镜像，
+ * 文件里两处永远一致，杜绝「文件有 routes 后卡片写旧字段静默失效」）。
  */
 import {
   configKey,
   DEFAULT_FLOWS,
   isFlowTarget,
   isV5Plus,
+  projectRoutesToLegacy,
+  rowsFromLegacy,
   type CollaborationFlow,
   type RoleEntry,
+  type RouteRowV7,
   type RouteTarget,
   type RouterConfigV4,
   type RouterConfigV5,
   type RouterConfigV6,
+  type RouterConfigV7,
   type RouterPreset,
 } from '../config.js'
 import { claimConflict } from '../roles.js'
@@ -42,8 +51,10 @@ export const CARD_NAMESPACE = 'dsh-kimi-tide'
  */
 export const CARD_CONFIG_PATH = 'router'
 
-/** 卡片消费的配置过渡形（Task 11）：v4 存量与 v5+ 协作编排配置皆可渲染。 */
-export type CardConfig = RouterConfigV4 | RouterConfigV5 | RouterConfigV6
+/** 卡片消费的配置过渡形（Task 11）：v4 存量与 v5+ 协作编排配置皆可渲染；
+ *  B1 起 v7（routes 统一路由表）亦可——读边界经 projectRoutesToLegacy 投影成
+ *  旧字段形态后，编辑器对版本无感（见 withRoutesProjection）。 */
+export type CardConfig = RouterConfigV4 | RouterConfigV5 | RouterConfigV6 | RouterConfigV7
 
 /** 卡片渲染用的单一快照：resolved 值 + base/user 分层（继承/覆盖显示）+ 错误态。 */
 export interface CardSnapshot {
@@ -162,11 +173,13 @@ export interface CardStore {
   saveTop(field: string, value: unknown): Promise<void>
   /** 切换激活预设（null = 关闭路由，逃生舱）。 */
   saveActivePreset(id: string | null): Promise<void>
-  /** 整体覆盖单个预设（组装下一个完整 presets 对象后整段写）。 */
+  /** 整体覆盖单个预设（组装下一个完整 presets 对象后整段写）。
+   *  B1：同一笔写同时下发 routes 镜像（写边界双写，见 writeRoutesAndLegacy）。 */
   savePreset(presetId: string, preset: RouterPreset): Promise<void>
-  /** 新建预设；id 冲突 → error 通道，不写。 */
+  /** 新建预设；id 冲突 → error 通道，不写。B1：双写同 savePreset。 */
   createPreset(id: string, preset: RouterPreset): Promise<void>
-  /** 删除预设；删激活预设时先写 activePreset: null 再删预设（两次顺序写入）。 */
+  /** 删除预设；删激活预设时先写 activePreset: null 再删预设（两次顺序写入）。
+   *  B1：presets 删除同样带 routes 镜像双写。 */
   deletePreset(id: string): Promise<void>
   /** 整段覆盖关键词组表。 */
   saveKeywordGroups(groups: Record<string, string[]>): Promise<void>
@@ -182,6 +195,7 @@ export interface CardStore {
    * 整段覆盖分工表（v6 roles）。守卫式拒写（validate-on-write 纪律，与
    * deleteFlow 同款）：认领名冲突（claimConflict 返回错误串——认领集合 =
    * teammate[] ∪ { id}，跨 role 重叠）时 fail() 上浮 error 通道且**不写盘**。
+   * B1：合法写入带 routes 镜像双写（写边界双写，见 writeRoutesAndLegacy）。
    */
   saveRoles(roles: Record<string, RoleEntry>): Promise<void>
   /**
@@ -238,6 +252,17 @@ const asCatalogMeta = (value: unknown): { efforts?: Record<string, string[]>; mo
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
+/**
+ * B1 读边界投影（设计稿 2026-10-07 §6.4「读边界投影」的客户端侧，与宿主运行期
+ * 同口径）：配置文件一旦带 routes（v7 导入 / 此前双写落盘），运行期即按 routes
+ * 走——卡片的编辑模型必须与运行期同源，否则 ① 编辑的是不生效的旧字段（静默
+ * 失效）；② 双写重推 routes 时会把 routes 独有的行集冲掉（数据丢失）。
+ * routes 缺失/空数组 ⇒ 原引用返回（v6 及更早零行为变更）；routes ≡ 旧字段 ⇒
+ * 投影逐字节等价。只作用于解析后的生效值（config），不污染 base/user 分层。
+ */
+const withRoutesProjection = (config: CardConfig | null): CardConfig | null =>
+  config === null ? null : projectRoutesToLegacy(config)
+
 export function createCardStore(
   scope: SettingsScopeLike | null,
   connection: ConnectionLike | null,
@@ -281,7 +306,7 @@ export function createCardStore(
       status: s.status === 'ready' && s.value !== undefined
         ? 'ready'
         : s.status === 'unavailable' ? 'unavailable' : 'loading',
-      config: s.status === 'ready' ? withDriverStickyDefault(asConfig(s.value)) : null,
+      config: s.status === 'ready' ? withDriverStickyDefault(withRoutesProjection(asConfig(s.value))) : null,
       base: asConfig(s.base),
       user: asConfig(s.user),
       writable: s.writable,
@@ -389,7 +414,7 @@ export function createCardStore(
         const meta = asCatalogMeta(view.value)
         publish({
           status: 'ready',
-          config: withDriverStickyDefault(asRouterConfig(view.value)),
+          config: withDriverStickyDefault(withRoutesProjection(asRouterConfig(view.value))),
           base: asRouterConfig(view.base),
           user: asRouterConfig(view.user),
           writable: r.result.value.writable,
@@ -452,13 +477,81 @@ export function createCardStore(
     await saveTop('activePreset', id)
   }
 
+  /**
+   * B1 写边界双写（设计稿 2026-10-07 §6.4「写边界双写」）：presets / roles 的写
+   * 操作必须把 routes 一并镜像下发——文件里一旦出现 routes，运行期即按 routes
+   * 走（读边界字段判据），只写旧字段 = 编辑静默失效（本项目最忌讳的事故形态）。
+   * version 字段不动（运行期走字段判据，不靠版本号门控，R2 裁定）；routes 与
+   * 旧字段同源（rowsFromLegacy 单源，由「将要写入的 presets/roles」推出）。
+   *
+   * scope 路径无法单笔原子，用三笔序列（顺序是硬约束，不是风格）：
+   *   ① unset routes —— 宿主 validate-on-write 每笔都跑 routes×旧字段冲突
+   *      检测：「改既有规则/角色」时无论先写哪一边，中间态两处都不一致 ⇒
+   *      两笔皆被拒、编辑永不落盘（死锁）。先摘掉 routes，中间态回退旧字段
+   *      投影，恒合法；
+   *   ② set 旧字段新值 —— 此刻运行期按旧字段读，行为立即等于用户意图
+   *      （即使 ③ 中断/被拒，文件也是「无 routes + 新旧字段」的自洽态）；
+   *   ③ set routes 镜像（与 ② 同源）—— 最终态两处一致，冲突检测永不误报，
+   *      旧版插件可回退。
+   * mutate 路径单笔多 ops 同序下发（unset routes → set 旧字段 → set routes）：
+   * 宿主逐 op 校验时每个中间态都合法，整笔合并校验时最终态一致，两种校验
+   * 模型下都安全。
+   * 写后仍走「意图值 vs 实读值」比对（scope 路径）：routes 与旧字段任一落值
+   * 被拒都上浮 error 通道，不静默。
+   */
+  const writeRoutesAndLegacy = async (
+    field: 'presets' | 'roles',
+    value: Record<string, RouterPreset> | Record<string, RoleEntry>,
+  ): Promise<void> => {
+    // 另一半取当前生效值（读边界已投影：routes 存在时 = routes 反投影结果，
+    // 重推行集不丢 routes 独有的内容）。
+    const presets = (field === 'presets' ? value : snapshot.config?.presets ?? {}) as Record<string, RouterPreset>
+    const roles = (field === 'roles' ? value : (snapshot.config as { roles?: Record<string, RoleEntry> } | null)?.roles ?? {}) as Record<string, RoleEntry>
+    const routes: RouteRowV7[] = rowsFromLegacy({ presets, roles })
+    try {
+      if (scope !== null) {
+        await scope.unset('routes')
+        await scope.set(field, value)
+        await scope.set('routes', routes)
+      } else if (connection !== null) {
+        const r = (await connection.api.settings.mutate({
+          ns: CARD_NAMESPACE,
+          ops: [
+            { op: 'unset', path: [CARD_CONFIG_PATH, 'routes'] },
+            { op: 'set', path: [CARD_CONFIG_PATH, field], value },
+            { op: 'set', path: [CARD_CONFIG_PATH, 'routes'], value: routes },
+          ],
+          ...(revision === undefined ? {} : { expectedRevision: revision }),
+        })) as { result?: SettingsRpcResult<unknown> } | undefined
+        // 与 saveTop 同款拆箱：宿主校验拒绝经 result 通道返回（不抛），必须上浮。
+        if (r !== null && typeof r === 'object' && r.result !== undefined && !r.result.ok) {
+          fail(new Error(r.result.error.message))
+          return
+        }
+      }
+      await load()
+      // scope 路径的宿主 validate-on-write 静默 recover（set 不抛、落值被拒）——
+      // load 后对比「意图写入值」与「实际值」，routes 或旧字段任一不一致即视为
+      // 写入被拒，上浮 error 通道（saveTop 同款纪律）。
+      if (scope !== null) {
+        const actual = snapshot.config as Record<string, unknown> | null
+        if (JSON.stringify(actual?.[field]) !== JSON.stringify(value)
+          || JSON.stringify(actual?.routes) !== JSON.stringify(routes)) {
+          fail(new Error('写入被拒绝（校验失败？）'))
+        }
+      }
+    } catch (error) {
+      fail(error)
+    }
+  }
+
   /** 组装「下一个完整 presets 对象」：当前快照 presets 的浅拷贝。 */
   const nextPresets = (): Record<string, RouterPreset> => ({
     ...(snapshot.config?.presets ?? {}),
   })
 
   const savePreset = async (presetId: string, preset: RouterPreset): Promise<void> => {
-    await saveTop('presets', { ...nextPresets(), [presetId]: preset })
+    await writeRoutesAndLegacy('presets', { ...nextPresets(), [presetId]: preset })
   }
 
   const createPreset = async (id: string, preset: RouterPreset): Promise<void> => {
@@ -466,7 +559,7 @@ export function createCardStore(
       fail(new Error(`预设 id 冲突：${id} 已存在`))
       return
     }
-    await saveTop('presets', { ...nextPresets(), [id]: preset })
+    await writeRoutesAndLegacy('presets', { ...nextPresets(), [id]: preset })
   }
 
   const deletePreset = async (id: string): Promise<void> => {
@@ -474,13 +567,14 @@ export function createCardStore(
     // 「先删 presets 再清 activePreset」会产生 activePreset 指向已删预设的
     // 非法中间态（首笔被拒 → 预设没删、路由被静默关闭）。顺序反转：先清
     // activePreset（若激活的就是待删预设），再写删除后的 presets 整段——
-    // 两个中间态各自合法。
+    // 两个中间态各自合法。B1：presets 的删除同样带 routes 镜像双写（该预设
+    // 的 session 行随行集重推一并消失，两处永远一致）。
     if (snapshot.config?.activePreset === id) {
       await saveTop('activePreset', null)
     }
     const presets = nextPresets()
     delete presets[id]
-    await saveTop('presets', presets)
+    await writeRoutesAndLegacy('presets', presets)
   }
 
   const saveKeywordGroups = async (groups: Record<string, string[]>): Promise<void> => {
@@ -534,8 +628,8 @@ export function createCardStore(
   /**
    * 分工表守卫式写通道（Task 7）：先跑 claimConflict（roles.ts 纯函数层，
    * 与 settings-schema 的 validate 同一判据），冲突 → fail() 不写盘；
-   * 合法才经 saveTop 整段写 roles（scope.set / mutate + 写后「意图值 vs
-   * 实读值」比对由 saveTop 自带）。
+   * 合法才写。B1：与 presets 同款双写——roles 与镜像 routes 同源下发
+   * （writeRoutesAndLegacy），写后「意图值 vs 实读值」比对自带。
    */
   const saveRoles = async (roles: Record<string, RoleEntry>): Promise<void> => {
     const conflict = claimConflict(roles)
@@ -543,7 +637,7 @@ export function createCardStore(
       fail(new Error(conflict))
       return
     }
-    await saveTop('roles', roles)
+    await writeRoutesAndLegacy('roles', roles)
   }
 
   /* Task 7 修复轮 1：主驱动三键写通道——saveTop 薄封装（无前置守卫；driver

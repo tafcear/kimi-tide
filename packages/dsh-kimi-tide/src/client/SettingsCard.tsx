@@ -38,6 +38,13 @@
  * driver（TargetSelect 增可选 nullLabel「跟随宿主默认」档 = null）/ driverSticky /
  * rulesApplyToChildren 的设置控件，写通道 = card-store 的 saveDriver /
  * saveDriverSticky / saveRulesApplyToChildren（saveTop 薄封装）。
+ *
+ * B 项（2026-10-07 设计稿 §5，C1 视图模型消费侧）：B2 作用域徽标（规则行
+ * 「主会话」/ 角色行「派发时」，kt-wire 样式）；B3 重叠解释器（view.overlaps
+ * ⇒ 词表行与角色行两侧各挂解释条 + 「规则跟随该角色」一键动作，走
+ * storeWriter 既有写通道）；B4 测试场「派给谁」（previewDispatch 预判队友
+ * 改道目标与依据 role/unclaimed，文案点明 D6 两套作用域）；B5 词表 → 角色
+ * 接线（orphan 词表组批量生成角色，目标兜底同「填入三条示例」）。
  */
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
@@ -46,6 +53,7 @@ import { FALLBACK_HINTS } from './help-content.js'
 import { HelpTab } from './HelpTab.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
+import { buildRoutingView, previewDispatch, type GroupInfo, type OverlapInfo, type RoutingConfigLike, type RoutingView } from '../routing-view.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -180,6 +188,52 @@ const omitKey = (obj: Record<string, string[]>, key: string): Record<string, str
   return next
 }
 
+/**
+ * A 项（2026-10-07 设计稿 §3/§4）：统一视图模型的防御性构建——§9.3 硬规则
+ * 「render 路径抛错会把 slot 条目整块搞白」，buildRoutingView 任何异常都回落
+ * null（决策链/摘要/接线徽标整组跳过，预设选择行与编辑控件不受影响）。
+ */
+const safeBuildRoutingView = (config: RoutingConfigLike, availability: Record<string, boolean> | null): RoutingView | null => {
+  try {
+    return buildRoutingView(config, { availability })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A-② 决策链档位说明文案（实现锚点 = src/router.ts 优先级链）：档位序号/标题/
+ * active/detail 由 view.precedence 单源给出，本表只补「什么时候轮到它 / 关掉它
+ * 会怎样」两行静态说明——纯展示层文案，不参与任何决策。
+ */
+const TIER_WHEN: Record<number, string> = {
+  1: '消息里显式写了 @provider 或 @provider/model',
+  2: '调用方（宿主/子代理）点名了模型，且与打底不同',
+  3: '请求派给被分工表认领的队友',
+  4: '主会话消息命中激活预设的某条规则',
+  5: '以上各档都没接住',
+}
+const TIER_OFF: Record<number, string> = {
+  1: '无开关——始终最先裁决',
+  2: '无开关——随调用方约定',
+  3: '清空分工表 ⇒ 队友请求落到下一档（关键词规则/打底）',
+  4: '关闭路由或清空规则 ⇒ 主会话全部走打底',
+  5: '关闭路由 ⇒ 所有请求保持宿主当前模型',
+}
+
+/**
+ * A-⑤ 词表接线徽标（§4.5）：三态文案 + 色调。流认领优先于规则引用（与
+ * buildRoutingView 的徽标单值口径一致）；视图缺该组数据 → null（行不渲染徽标）。
+ */
+const wiringBadge = (group: GroupInfo | undefined): { text: string; tone: 'ok' | 'flow' | 'warn' } | null => {
+  if (group === undefined) return null
+  if (group.wiring === 'claimed-by-flow') return { text: '被协作流认领', tone: 'flow' }
+  if (group.wiring === 'referenced') {
+    return { text: `被 ${group.referencedBy.length} 条规则引用（${group.referencedBy.join('、')}）`, tone: 'ok' }
+  }
+  return { text: '⚠ 悬空', tone: 'warn' }
+}
+
 /** 目标下拉：只列可用（已挂载）模型；当前值未挂载时不作为 option 兜底，改灰字提示
  *  （用户裁定 2026-08-21：未接入的模型不应出现在下拉选择里）。
  *  flowOptions（0.6.0）：规则目标下拉追加「协作流」optgroup（调用方只传
@@ -281,11 +335,14 @@ function EffortSelect(props: {
   )
 }
 
-/** 关键词组行：组名 + 词表 textarea（失焦整段保存）+ 删除组。 */
+/** 关键词组行：组名 + 接线徽标（A-⑤，可选）+ 词表 textarea（失焦整段保存）+ 删除组。 */
 function KeywordGroupRow(props: {
   name: string
   words: string[]
   writable: boolean
+  /** A-⑤ 接线徽标（§4.5）：被 N 条规则引用 / 被协作流认领 / ⚠ 悬空；缺省不渲染。 */
+  badge?: string
+  badgeTone?: 'ok' | 'flow' | 'warn'
   onSave: (words: string[]) => void
   onDelete: () => void
 }) {
@@ -302,6 +359,9 @@ function KeywordGroupRow(props: {
   return (
     <div className="kt-group-row">
       <span className="kt-field-label">{props.name}</span>
+      {props.badge !== undefined && (
+        <span className={`kt-wire kt-wire-${props.badgeTone ?? 'ok'}`}>{props.badge}</span>
+      )}
       <textarea
         ref={taRef}
         aria-label={`${props.name} 词表`}
@@ -375,6 +435,9 @@ function RoleRow(props: {
         onChange={(e) => setDraft({ ...draft, id: e.target.value })}
         onBlur={() => { if (draft.id.trim() !== role.id) props.onRename(draft.id) }}
       />
+      {/* B2 作用域徽标（§5.1）：分工表行 = 「派发时」——只对派给该队友/角色的
+          请求改道，主会话不看分工表（与规则行的「主会话」相对）。 */}
+      <span className="kt-wire" title="作用域：仅在请求派给该队友/角色时改道（主会话不受分工表影响）">派发时</span>
       <TargetSelect
         label={`${role.label} 目标`}
         value={configKey(role.target)}
@@ -663,6 +726,8 @@ export function SettingsCard(props: SettingsCardProps) {
   const [newPresetName, setNewPresetName] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
   const [trialText, setTrialText] = useState('')
+  // B4（2026-10-07 §5.3）：测试场「派给谁」输入（角色/队友名 → previewDispatch 预判改道）。
+  const [dispatchClaim, setDispatchClaim] = useState('')
   // 0.6.x池#7：新建协作流表单（预置流模板 + slug 化 id 去重）。
   const [newFlowId, setNewFlowId] = useState('')
   const [newFlowType, setNewFlowType] = useState<'transcribe' | 'review'>('transcribe')
@@ -750,6 +815,15 @@ export function SettingsCard(props: SettingsCardProps) {
     // store 由 useState 惰性初始化，实例恒定；flash 闭包稳定。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A 项（2026-10-07 设计稿 §3/§4）：统一视图模型——顶部摘要、五档决策链、
+  // 词表接线徽标、打底档全部单源消费 buildRoutingView，不自己拼摘要文案。
+  // 防御：构建异常回落 null（§9.3：render 抛错会把 slot 条目整块搞白）——
+  // 链区/徽标/空状态整组跳过，预设选择行与编辑控件照常（见渲染处兜底分支）。
+  const routingView = useMemo(
+    () => (config === null ? null : safeBuildRoutingView(config, snapshot.availability)),
+    [config, snapshot.availability],
+  )
 
   if (config === null) {
     // 现状不可用态原样保留。
@@ -887,6 +961,67 @@ export function SettingsCard(props: SettingsCardProps) {
     // 既有角色保留（同 id 以用户现值为准，示例不覆盖）；三条示例置前便于就地改目标。
     saveRolesRecord({ ...EXAMPLE_ROLES(roleFallbackTarget()), ...roles })
   }
+
+  /**
+   * B3 重叠解释器的一键动作（§5.2）：把激活预设中引用该词表组的规则目标改为
+   * 跟随该角色目标——走 storeWriter 既有写通道（savePreset → B1 双写），不新增
+   * 写语义。找不到对应规则/角色时静默无操作（视图与配置同源，正常不会走到）。
+   */
+  const followRoleTarget = (overlap: OverlapInfo): void => {
+    if (activeId === null || active === null) return
+    const role = roles[overlap.roleId]
+    if (role === undefined) return
+    const index = active.rules.findIndex(
+      (rule) => rule.when.kind === 'keywords' && rule.when.group === overlap.group,
+    )
+    if (index < 0) return
+    updateRules(activeId, active.rules.map((rule, i) => (i === index ? { ...rule, target: { ...role.target } } : rule)))
+  }
+
+  /**
+   * B3 重叠解释条（§5.2）：词表的词与某角色身份词（id/label/aliases）重叠且
+   * 目标不同 ⇒ 词表行与角色行两侧各挂一条——解释条，不是报错（机制上两者本就
+   * 不冲突：关键词规则只服务主会话、分工表只服务队友，§1.3）。
+   */
+  const renderOverlapBar = (overlap: OverlapInfo) => {
+    const roleLabel = roles[overlap.roleId]?.label ?? overlap.roleId
+    return (
+      <div className="kt-overlap" key={`${overlap.group}:${overlap.word}:${overlap.roleId}`}>
+        <span>
+          设计使然：主会话说『{overlap.word}』走 {overlap.sessionTarget}；派给『{roleLabel}』做走 {overlap.dispatchTarget}。
+        </span>
+        <button
+          type="button"
+          disabled={!writable}
+          title="把引用该词表组的规则目标改为跟随该角色目标"
+          onClick={() => followRoleTarget(overlap)}
+        >
+          规则跟随该角色
+        </button>
+      </div>
+    )
+  }
+
+  /**
+   * B5 词表 → 角色接线（§5.4）：把「已备但没有任何规则引用」的词表组
+   * （view.groups 中 wiring=orphan 的组）批量生成分工角色；目标先取当前预设
+   * 默认模型（与「填入三条示例」同款兜底策略，roleFallbackTarget）。生成仍走
+   * 既有写入期校验（saveRoles 守卫：认领名跨角色唯一，冲突拒写并上浮）。
+   */
+  const orphanGroups = (routingView?.groups ?? []).filter((group) => group.wiring === 'orphan')
+  const generateRolesFromGroups = (): void => {
+    const next = { ...roles }
+    for (const group of orphanGroups) {
+      const id = roleSlug(group.name, next)
+      next[id] = { id, label: group.name, target: roleFallbackTarget() }
+    }
+    if (Object.keys(next).length > roleEntries.length) saveRolesRecord(next)
+  }
+
+  // B4：datalist 候选 = 全部 dispatch 行的认领集合（teammate[] ∪ {id}，视图单源）。
+  const dispatchClaims = [...new Set(
+    (routingView?.dispatch ?? []).flatMap((row) => (row.condition.kind === 'role' ? row.condition.claims : [])),
+  )]
 
   /* ---- Task 7 修复轮 1 主驱动控件（v6 顶层三键 driver / driverSticky /
      rulesApplyToChildren）：读取按字段判据（?? null / === true），与运行期
@@ -1043,79 +1178,10 @@ export function SettingsCard(props: SettingsCardProps) {
     setNewGroupName('')
   }
 
-  return (
-    <div className="kimi-tide-settings" data-tab={activeTab}>
-      {/* ⑥-B：页签导航。2026-09-15 v2（评审 M1/M2）：可见性改由**容器 + hidden**
-          驱动（styles.ts 有作者级 [hidden] 兜底）；旧 data-tab :not() 链退役——
-          那套写法正是「测试场藏错误横幅 / 藏已保存」两起 bug 的成因。
-          键盘：←/→ 循环、Home/End 跳首尾（还 UI 评审 C11/N5 的债）。
-          id：**实例级**（useId，评审 #8）——静态 `kt-tab-*`/`kt-panel-*` 在同页两张卡时撞车，
-          aria-controls 会指向另一张卡的面板；页签键改走 `data-kt-tab`，不再从 id 反推。 */}
-      <div className="kt-tabs" role="tablist" onKeyDown={onTablistKeyDown}>
-        <button type="button" role="tab" id={tabId('route')} aria-controls={panelId('route')} data-kt-tab="route"
-          aria-selected={activeTab === 'route'} tabIndex={activeTab === 'route' ? 0 : -1}
-          className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-          onClick={() => setActiveTab('route')}>路由</button>
-        {isV5Plus && (
-          <button type="button" role="tab" id={tabId('flows')} aria-controls={panelId('flows')} data-kt-tab="flows"
-            aria-selected={activeTab === 'flows'} tabIndex={activeTab === 'flows' ? 0 : -1}
-            className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-            onClick={() => setActiveTab('flows')}>协作流</button>
-        )}
-        <button type="button" role="tab" id={tabId('trial')} aria-controls={panelId('trial')} data-kt-tab="trial"
-          aria-selected={activeTab === 'trial'} tabIndex={activeTab === 'trial' ? 0 : -1}
-          className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-          onClick={() => setActiveTab('trial')}>测试场</button>
-        <button type="button" role="tab" id={tabId('help')} aria-controls={panelId('help')} data-kt-tab="help"
-          aria-selected={activeTab === 'help'} tabIndex={activeTab === 'help' ? 0 : -1}
-          className={activeTab === 'help' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-          onClick={() => setActiveTab('help')}>说明</button>
-      </div>
-      {/* 1.4.1：瞬态状态位（错误横幅 /「已保存」闪现）收进**绝对定位**槽——它们是
-          反馈而不是内容，此前在文档流里各占一行，每次落盘闪现都会把下面整块内容顶下去
-          再弹回来（实机反馈：「切换完显示已保存 UI 会上下跳动」）。槽脱离文档流 ⇒
-          零位移；错误与「已保存」同槽并排，互不覆盖。 */}
-      <div className="kt-status-slot">
-        {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
-        {savedFlash && <span className="kt-saved" role="status">已保存</span>}
-      </div>
-
-      {/* 路由页容器：预设选择 / 编辑器 / 预设操作 / 关键词组（原本散落为 4+ 个并列子节点）。 */}
-      <div className="kt-tabpanel kt-route" role="tabpanel" id={panelId('route')} aria-labelledby={tabId('route')} tabIndex={0} hidden={activeTab !== 'route'}>
-
-      {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
-      <div className="kt-preset-row">
-        <button
-          type="button"
-          className={activeId === null ? 'kt-preset kt-active' : 'kt-preset'}
-          aria-pressed={activeId === null}
-          disabled={!writable}
-          onClick={() => {
-            setRuleConflict(null)
-            void storeWriter.saveActivePreset(null)
-          }}
-        >
-          关闭
-        </button>
-        {Object.entries(config.presets).map(([id, preset]) => (
-          <button
-            key={id}
-            type="button"
-            className={id === activeId ? 'kt-preset kt-active' : 'kt-preset'}
-            aria-pressed={id === activeId}
-            disabled={!writable}
-            onClick={() => {
-              setRuleConflict(null)
-              void storeWriter.saveActivePreset(id)
-            }}
-          >
-            {preset.name}
-          </button>
-        ))}
-      </div>
-
-      {/* 当前预设编辑器（选中非「关闭」时显示）。 */}
-      {active !== null && activeId !== null && (
+  /* ---- A-② 链内档位容器（设计稿 §4.2）：第 3 档内联分工表、第 4 档内联当前预设
+     编辑器——两表改为链上的档位容器（不再并列折叠）。抽成 JSX 变量：视图模型缺席
+     （构建异常，§9.3 防御）时兜底分支直渲同一对块，编辑能力不丢。 ---- */
+  const editorBlock = active !== null && activeId !== null ? (
         <div className="kt-editor">
           <label className="kt-row">
             <span className="kt-field-label">默认模型</span>
@@ -1142,7 +1208,17 @@ export function SettingsCard(props: SettingsCardProps) {
                 void storeWriter.savePreset(activeId, { ...active, default: next })
               }}
             />
+            {/* A-⑥ driver 消歧（§4.6）：driverSticky 开启时主会话打底恒定取主驱动，
+                预设「默认模型」只在主驱动关闭（跟随宿主默认）时生效。 */}
+            {driverSticky && <span className="kt-hint">仅主驱动关闭时生效</span>}
           </label>
+          {/* A-⑥ 同值提示：driverSticky 开且主驱动目标 = 本预设默认模型时，两处在
+              界面上看不出差别（§1.1 症状 3）——显式点名，避免用户误以为重复配置。 */}
+          {driverSticky && driver !== null && configKey(driver) === configKey(active.default) && (
+            <span className="kt-hint">
+              主驱动目标与本预设默认模型同值（{configKey(driver)}）——目前两处看不出差别，改动任一处才会分叉
+            </span>
+          )}
 
           <div className="kt-card kt-rules">
             <div className="kt-card-head">
@@ -1187,6 +1263,9 @@ export function SettingsCard(props: SettingsCardProps) {
                 <div key={rule.id} className={`kt-rule-grid kt-rule-row${conflicted ? ' kt-conflict' : ''}${rule.when.kind === 'image' ? ' kt-row-image' : ''}${claimed ? ' kt-rule-claimed' : ''}`}>
                   <span className="kt-rule-no">{index + 1}</span>
                   <span className="kt-cond">
+                    {/* B2 作用域徽标（§5.1）：规则行 = 「主会话」——关键词规则只对
+                        主会话生效（子代理不参与，D6；与分工表行的「派发时」相对）。 */}
+                    <span className="kt-wire" title="作用域：只对主会话生效（子代理不参与关键词规则，D6）">主会话</span>
                     <select
                       aria-label={`第 ${index + 1} 条 · 条件`}
                       value={conditionValue(rule)}
@@ -1302,6 +1381,21 @@ export function SettingsCard(props: SettingsCardProps) {
               )
             })}
             </div>
+            {/* A-④ 空状态说人话（§4.4）：rules 为空时不再是一张空表——明示「全部走
+                打底（<打底目标>）」；有悬空词表（已备但无规则引用）时点名数量与后果。
+                打底目标与摘要同口径（view.fallback；视图缺席回落本预设默认模型）。 */}
+            {active.rules.length === 0 && (() => {
+              const orphans = (routingView?.groups ?? []).filter((group) => group.wiring === 'orphan').length
+              const base = routingView === null
+                ? configKey(active.default)
+                : routingView.fallback.target !== null ? configKey(routingView.fallback.target) : '宿主默认'
+              return (
+                <div className="kt-rules-empty">
+                  <div>未命中任何规则 ⇒ 全部走打底（{base}）。</div>
+                  {orphans > 0 && <div>你已备 {orphans} 组词表，但没有任何规则引用它们 ⇒ 现在都不生效。</div>}
+                </div>
+              )
+            })()}
             {ruleConflict !== null && (
               <span className="kt-warn kt-rule-conflict-msg" role="alert">{ruleConflict}</span>
             )}
@@ -1401,6 +1495,178 @@ export function SettingsCard(props: SettingsCardProps) {
             </div>
           )}
         </div>
+  ) : null
+
+  /* Task 7 分工表（角色 = 领域 → 模型）：details.kt-card 范式不变，容器改为决策链
+     第 3 档（A-②，不再与关键词组/主驱动并列）。写通道 = storeWriter.saveRoles
+     （守卫式：认领名冲突 fail() 不写盘，错误经 .kt-status-slot 状态槽上浮）。 */
+  const rolesBlock = (
+      <details className="kt-roles kt-card" data-kt-section="roles">
+        <summary>分工表（专项活派给谁）</summary>
+        <p className="kt-hint">
+          每个角色 = 一个领域 → 一个模型。角色 id 与「队友名」用 lower-kebab-case（如 frontend）；
+          用这些名字 spawn_teammate，月汐会把它们的请求改道到该角色的目标模型。
+          认领名（id + 队友名）不得跨角色重复——冲突时保存会被拒绝。
+        </p>
+        {roleEntries.map(([id, role]) => (
+          <div key={id} className="kt-group-item">
+            <RoleRow
+              role={role}
+              writable={writable}
+              modelOptions={modelOptions}
+              optionGroups={optionGroups}
+              modelNames={modelNames}
+              availability={availability}
+              effortsOf={effortsOf}
+              onSave={(next) => updateRole(id, next)}
+              onRename={(raw) => renameRole(id, raw)}
+              onDelete={() => {
+                const next = { ...roles }
+                delete next[id]
+                saveRolesRecord(next)
+              }}
+            />
+            {/* B3 重叠解释条（角色侧，§5.2）：本角色身份词与词表词重叠且目标不同 ⇒ 行下挂解释条。 */}
+            {(routingView?.overlaps ?? []).filter((overlap) => overlap.roleId === id).map(renderOverlapBar)}
+          </div>
+        ))}
+        <div className="kt-row">
+          <button type="button" disabled={!writable} onClick={addRole}>新增角色</button>
+          <button
+            type="button"
+            disabled={!writable}
+            title="填入 前端/后端/写作 三条示例（目标先取当前预设默认模型，可再在下拉里改）"
+            onClick={fillExampleRoles}
+          >
+            填入三条示例
+          </button>
+          {/* B5 词表 → 角色接线（§5.4）：orphan 词表组（无规则引用）批量生成分工角色。 */}
+          <button
+            type="button"
+            disabled={!writable || orphanGroups.length === 0}
+            title="把还没有任何规则引用的词表组批量生成分工角色（目标先取当前预设默认模型，可再在下拉里改）"
+            onClick={generateRolesFromGroups}
+          >
+            从词表生成角色
+          </button>
+        </div>
+      </details>
+  )
+
+  return (
+    <div className="kimi-tide-settings" data-tab={activeTab}>
+      {/* ⑥-B：页签导航。2026-09-15 v2（评审 M1/M2）：可见性改由**容器 + hidden**
+          驱动（styles.ts 有作者级 [hidden] 兜底）；旧 data-tab :not() 链退役——
+          那套写法正是「测试场藏错误横幅 / 藏已保存」两起 bug 的成因。
+          键盘：←/→ 循环、Home/End 跳首尾（还 UI 评审 C11/N5 的债）。
+          id：**实例级**（useId，评审 #8）——静态 `kt-tab-*`/`kt-panel-*` 在同页两张卡时撞车，
+          aria-controls 会指向另一张卡的面板；页签键改走 `data-kt-tab`，不再从 id 反推。 */}
+      <div className="kt-tabs" role="tablist" onKeyDown={onTablistKeyDown}>
+        <button type="button" role="tab" id={tabId('route')} aria-controls={panelId('route')} data-kt-tab="route"
+          aria-selected={activeTab === 'route'} tabIndex={activeTab === 'route' ? 0 : -1}
+          className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+          onClick={() => setActiveTab('route')}>路由</button>
+        {isV5Plus && (
+          <button type="button" role="tab" id={tabId('flows')} aria-controls={panelId('flows')} data-kt-tab="flows"
+            aria-selected={activeTab === 'flows'} tabIndex={activeTab === 'flows' ? 0 : -1}
+            className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+            onClick={() => setActiveTab('flows')}>协作流</button>
+        )}
+        <button type="button" role="tab" id={tabId('trial')} aria-controls={panelId('trial')} data-kt-tab="trial"
+          aria-selected={activeTab === 'trial'} tabIndex={activeTab === 'trial' ? 0 : -1}
+          className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+          onClick={() => setActiveTab('trial')}>测试场</button>
+        <button type="button" role="tab" id={tabId('help')} aria-controls={panelId('help')} data-kt-tab="help"
+          aria-selected={activeTab === 'help'} tabIndex={activeTab === 'help' ? 0 : -1}
+          className={activeTab === 'help' ? 'kt-tab kt-tab-on' : 'kt-tab'}
+          onClick={() => setActiveTab('help')}>说明</button>
+      </div>
+      {/* 1.4.1：瞬态状态位（错误横幅 /「已保存」闪现）收进**绝对定位**槽——它们是
+          反馈而不是内容，此前在文档流里各占一行，每次落盘闪现都会把下面整块内容顶下去
+          再弹回来（实机反馈：「切换完显示已保存 UI 会上下跳动」）。槽脱离文档流 ⇒
+          零位移；错误与「已保存」同槽并排，互不覆盖。 */}
+      <div className="kt-status-slot">
+        {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
+        {savedFlash && <span className="kt-saved" role="status">已保存</span>}
+      </div>
+
+      {/* 路由页容器（A 项重排 2026-10-07，设计稿 §4）：人话摘要 → 预设选择行 →
+          竖直决策链（第 3 档内联分工表 / 第 4 档内联预设编辑器）→ 预设操作 →
+          关键词组 → 主驱动——信息架构从「四个并列控件」改为「一条决策链」。 */}
+      <div className="kt-tabpanel kt-route" role="tabpanel" id={panelId('route')} aria-labelledby={tabId('route')} tabIndex={0} hidden={activeTab !== 'route'}>
+
+      {/* A-① 顶部人话摘要：describeRouting 单源输出（routingView.summary），一行，
+          不自己拼文案（三处共用防漂移——设置页/技能描述/show 命令）。 */}
+      {routingView !== null && <p className="kt-route-summary">{routingView.summary}</p>}
+
+      {/* 预设选择行：关闭 + 各预设（点击即写 activePreset，全局生效）。 */}
+      <div className="kt-preset-row">
+        <button
+          type="button"
+          className={activeId === null ? 'kt-preset kt-active' : 'kt-preset'}
+          aria-pressed={activeId === null}
+          disabled={!writable}
+          onClick={() => {
+            setRuleConflict(null)
+            void storeWriter.saveActivePreset(null)
+          }}
+        >
+          关闭
+        </button>
+        {Object.entries(config.presets).map(([id, preset]) => (
+          <button
+            key={id}
+            type="button"
+            className={id === activeId ? 'kt-preset kt-active' : 'kt-preset'}
+            aria-pressed={id === activeId}
+            disabled={!writable}
+            onClick={() => {
+              setRuleConflict(null)
+              void storeWriter.saveActivePreset(id)
+            }}
+          >
+            {preset.name}
+          </button>
+        ))}
+      </div>
+
+      {/* A-② 竖直决策链（§4.2）：五档直渲 view.precedence（序号/标题/active/detail
+          单源），顺序 = 显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 打底。
+          第 3 档内联分工表、第 4 档内联当前预设编辑器——两表改为链上档位容器，
+          不再并列。每档三行式：什么时候轮到它 / 当前生效值 / 关掉它会怎样。
+          未激活档位只靠语义分层（透明度 + 状态字），§9.2 禁第二道边框/阴影。 */}
+      {routingView !== null ? (
+        <ol className="kt-chain">
+          {routingView.precedence.map((tier) => (
+            <li key={tier.tier} className={tier.active ? 'kt-tier' : 'kt-tier kt-tier-off'}>
+              <div className="kt-tier-head">
+                <span className="kt-tier-no" aria-hidden="true">{tier.tier}</span>
+                <span className="kt-tier-title">{tier.title}</span>
+                {!tier.active && <span className="kt-tier-state">未生效</span>}
+              </div>
+              <p className="kt-tier-line"><span className="kt-tier-tag">什么时候轮到它</span>{TIER_WHEN[tier.tier] ?? '—'}</p>
+              <p className="kt-tier-line">
+                <span className="kt-tier-tag">当前生效值</span>
+                {/* A-③ 打底档显式渲染 view.fallback（来源 + reason；activePreset=null
+                    ⇒「路由已关闭」），其余档位渲染视图模型给出的 detail。 */}
+                {tier.tier === 5
+                  ? routingView.fallback.target !== null
+                    ? `${configKey(routingView.fallback.target)}（${routingView.fallback.reason}）`
+                    : routingView.fallback.reason
+                  : tier.detail !== '' ? tier.detail : '—'}
+              </p>
+              <p className="kt-tier-line"><span className="kt-tier-tag">关掉它会怎样</span>{TIER_OFF[tier.tier] ?? '—'}</p>
+              {tier.tier === 3 && rolesBlock}
+              {tier.tier === 4 && editorBlock}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        // 兜底：视图模型构建失败（§9.3 防御）时编辑能力不丢——同一对容器降级为并列直渲。
+        <>
+          {editorBlock}
+          {rolesBlock}
+        </>
       )}
 
       {/* 预设操作：新建（输入显示名 → slug id）/ 复制当前 / 删除当前。
@@ -1438,19 +1704,28 @@ export function SettingsCard(props: SettingsCardProps) {
         )}
       </div>
 
-      {/* 关键词组管理区：组列表 + 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
+      {/* 关键词组管理区：组列表（A-⑤ 每行带接线徽标：被 N 条规则引用 / 被协作流
+          认领 / ⚠ 悬空）+ 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
       <details className="kt-groups kt-card">
         <summary>关键词组</summary>
-        {groupNames.map((name) => (
-          <KeywordGroupRow
-            key={name}
-            name={name}
-            words={config.keywordGroups[name]}
-            writable={writable}
-            onSave={(words) => void storeWriter.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
-            onDelete={() => void storeWriter.saveKeywordGroups(omitKey(config.keywordGroups, name))}
-          />
-        ))}
+        {groupNames.map((name) => {
+          const badge = wiringBadge(routingView?.groups.find((group) => group.name === name))
+          // B3 重叠解释条（词表侧，§5.2）：本组有词与角色身份词重叠且目标不同 ⇒ 行下挂解释条。
+          const overlaps = (routingView?.overlaps ?? []).filter((overlap) => overlap.group === name)
+          return (
+            <div key={name} className="kt-group-item">
+              <KeywordGroupRow
+                name={name}
+                words={config.keywordGroups[name]}
+                writable={writable}
+                {...(badge === null ? {} : { badge: badge.text, badgeTone: badge.tone })}
+                onSave={(words) => void storeWriter.saveKeywordGroups({ ...config.keywordGroups, [name]: words })}
+                onDelete={() => void storeWriter.saveKeywordGroups(omitKey(config.keywordGroups, name))}
+              />
+              {overlaps.map(renderOverlapBar)}
+            </div>
+          )
+        })}
         <div className="kt-row">
           <input
             aria-label="新组名"
@@ -1517,47 +1792,6 @@ export function SettingsCard(props: SettingsCardProps) {
         </label>
       </details>
 
-      {/* Task 7 分工表（角色 = 领域 → 模型）：照关键词组卡的 details.kt-card 范式放进
-          「路由」页（不新增页签）。写通道 = storeWriter.saveRoles（守卫式：认领名冲突
-          fail() 不写盘，错误经 .kt-status-slot 状态槽上浮）。 */}
-      <details className="kt-roles kt-card" data-kt-section="roles">
-        <summary>分工表（专项活派给谁）</summary>
-        <p className="kt-hint">
-          每个角色 = 一个领域 → 一个模型。角色 id 与「队友名」用 lower-kebab-case（如 frontend）；
-          用这些名字 spawn_teammate，月汐会把它们的请求改道到该角色的目标模型。
-          认领名（id + 队友名）不得跨角色重复——冲突时保存会被拒绝。
-        </p>
-        {roleEntries.map(([id, role]) => (
-          <RoleRow
-            key={id}
-            role={role}
-            writable={writable}
-            modelOptions={modelOptions}
-            optionGroups={optionGroups}
-            modelNames={modelNames}
-            availability={availability}
-            effortsOf={effortsOf}
-            onSave={(next) => updateRole(id, next)}
-            onRename={(raw) => renameRole(id, raw)}
-            onDelete={() => {
-              const next = { ...roles }
-              delete next[id]
-              saveRolesRecord(next)
-            }}
-          />
-        ))}
-        <div className="kt-row">
-          <button type="button" disabled={!writable} onClick={addRole}>新增角色</button>
-          <button
-            type="button"
-            disabled={!writable}
-            title="填入 前端/后端/写作 三条示例（目标先取当前预设默认模型，可再在下拉里改）"
-            onClick={fillExampleRoles}
-          >
-            填入三条示例
-          </button>
-        </div>
-      </details>
       </div>
 
       {/* 测试场页容器 */}
@@ -1607,6 +1841,51 @@ export function SettingsCard(props: SettingsCardProps) {
             </div>
           )
         })()}
+      </details>
+
+      {/* B4 派发层（§5.3）「派给谁」：输入或选择一个角色/队友名 ⇒ 用
+          previewDispatch 在同一视图模型上反查该队友的改道目标与依据
+          （role / unclaimed，复用派发台账口径）；命中时同时显示角色 label。 */}
+      <details className="kt-trial kt-card" open>
+        <summary>派给谁</summary>
+        <input
+          aria-label="派给谁"
+          list={`${cardUid}kt-claim-list`}
+          placeholder="输入或选择角色/队友名（如 frontend）"
+          value={dispatchClaim}
+          onChange={(e) => setDispatchClaim(e.target.value)}
+        />
+        <datalist id={`${cardUid}kt-claim-list`}>
+          {dispatchClaims.map((claim) => (
+            <option key={claim} value={claim} />
+          ))}
+        </datalist>
+        {dispatchClaim.trim() !== '' && (routingView === null ? (
+          <span className="kt-hint">视图模型不可用，无法预判派发结果。</span>
+        ) : (() => {
+          const claim = dispatchClaim.trim()
+          const result = previewDispatch(routingView, claim)
+          return (
+            <div className="kt-trial-result">
+              {result.basis === 'role' && result.target !== null ? (
+                <div className="kt-trial-outcome">
+                  派给「{result.roleLabel ?? claim}」（{claim}）→ 改道到 {configKey(result.target)}
+                  {result.target.effort !== undefined ? `（档位 ${result.target.effort}）` : ''}
+                  ；依据：role（分工表认领）
+                </div>
+              ) : (
+                <div className="kt-trial-outcome">
+                  「{claim}」未被分工表认领 ⇒ 不改道（保持调用方指定或宿主默认模型）；依据：unclaimed
+                </div>
+              )}
+            </div>
+          )
+        })())}
+        {/* D6 作用域声明（§5.3）：与「试一句」是两套作用域——子代理不参与关键词
+            规则，上面那句的命中结果对派出去的队友不适用。 */}
+        <span className="kt-hint">
+          子代理不参与关键词规则（D6）：这里的「派给谁」看的是分工表改道，与上面「试一句」（主会话关键词规则）是两套作用域。
+        </span>
       </details>
       </div>
 

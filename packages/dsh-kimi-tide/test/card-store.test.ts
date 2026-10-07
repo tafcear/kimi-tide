@@ -1,8 +1,9 @@
 // test/card-store.test.ts
-import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
+import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_CONFIG_V7, rowsFromConfig, rowsFromLegacy, type RouteRowV7, type RouteTarget, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
 import { createCardStore, type SettingsScopeLike } from '../src/client/card-store.js'
 import { validateRouterConfig } from '../src/settings-schema.js'
+import { buildRoutingView, previewDispatch } from '../src/routing-view.js'
 
 // 宿主 dsh-settings 行为模拟（C1 终审）：set 落值前先跑 validateRouterConfig，
 // 校验拒绝则不改值（不抛错、静默 recover）——validate-on-write。
@@ -39,8 +40,11 @@ describe('card-store v4', () => {
     const store = createCardStore(scope, null)
     const edited = { ...DEFAULT_CONFIG_V4().presets.saving, rules: [] }
     await store.savePreset('saving', edited)
-    const [field, value] = scope.writes[0]
-    expect(field).toBe('presets')
+    // B1 双写：写序列 = unset routes → set presets → set routes（三笔同源），
+    // 「presets 整段覆盖」的断言语义不变——定位 presets 那一笔而非固定位次。
+    const presetsWrite = scope.writes.find(([f]) => f === 'presets')
+    expect(presetsWrite).toBeDefined()
+    const value = presetsWrite![1]
     expect((value as Record<string, { rules: unknown[] }>).saving.rules).toEqual([])
     expect((value as Record<string, { name: string }>).capability.name).toBe('能力')  // 其他预设不动
   })
@@ -288,5 +292,131 @@ describe('card-store effort 档位目录（0.8.0）', () => {
     // 通道；那条通道在 0.1.7+ 宿主上读的是已移除的 kimi-tide-catalog 命名空间 = 恒空）
     expect(store.getSnapshot().efforts).toEqual(table)
     expect(store.getSnapshot().mounted).toEqual(['zai-coding-cn/glm-5.3'])
+  })
+})
+
+describe('card-store v7 写通道双写（B1，2026-10-07 设计稿 §6.4「写边界双写」）', () => {
+  it('savePreset 改既有规则目标：三笔序列（unset routes → set presets → set routes）全落盘，最终态 routes ≡ 旧字段', async () => {
+    // Fails if: ① 双写退化为只写 presets——文件一旦出现 routes（v7 导入/此前
+    // 双写），运行期按 routes 走，只写旧字段 = 编辑静默失效（本任务收口的事故
+    // 形态）；② 两笔直写——「改既有行」时宿主 routes×旧字段冲突检测会把两个
+    // 中间态都拒掉（死锁，编辑永不落盘），三笔序列先摘 routes 才恒合法。
+    const scope = makeScope({ ...DEFAULT_CONFIG_V6(), activePreset: 'saving' })
+    const store = createCardStore(scope, null)
+    const saving = DEFAULT_CONFIG_V6().presets.saving
+    const edited = {
+      ...saving,
+      rules: saving.rules.map((r) => (r.id === 'code-kfc' ? { ...r, target: { provider: 'kimi-coding', model: 'k3' } } : r)),
+    }
+    await store.savePreset('saving', edited)
+    expect(scope.writes.map(([f]) => f)).toEqual(['routes', 'presets', 'routes'])
+    expect(store.getSnapshot().error).toBeNull()
+    const config = store.getSnapshot().config as RouterConfigV6 & { routes?: RouteRowV7[] }
+    // 最终态过宿主同款校验：routes × 旧字段冲突检测不误报（两处语义一致）
+    expect(validateRouterConfig(config)).toBeUndefined()
+    // routes 与写入的 presets/roles 同源（rowsFromLegacy 单源）
+    const routesWrite = scope.writes[2][1] as RouteRowV7[]
+    expect(routesWrite).toEqual(rowsFromLegacy({ presets: scope.writes[1][1] as RouterConfigV6['presets'], roles: {} }))
+    // 读回走字段判据（rowsFromConfig：routes 存在按 routes）与落盘 routes 一致
+    expect(rowsFromConfig(config)).toEqual(routesWrite)
+    // 再读回来 buildRoutingView：编辑结果（code-kfc → kimi-coding/k3）在视图里生效
+    const view = buildRoutingView(config)
+    const row = view.session.find((r) => r.id === 'code-kfc')
+    expect(row).toBeDefined()
+    expect((row!.target as RouteTarget).model).toBe('k3')
+  })
+
+  it('saveRoles：roles 与 routes 镜像同序三笔下发，dispatch 行携带 roles 元数据；读回 previewDispatch 命中', async () => {
+    // Fails if: 分工表写操作不带 routes 镜像（routes 存在后角色编辑静默失效），
+    // 或 dispatch 行丢 label/teammate 元数据（skill 正文与认领集合失真）。
+    const scope = makeScope(DEFAULT_CONFIG_V6())
+    const store = createCardStore(scope, null)
+    const roles = {
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } },
+      backend: { id: 'backend', label: '后端', target: { provider: 'zai-coding-cn', model: 'glm-5.3' }, teammate: ['glm'] },
+    }
+    await store.saveRoles(roles)
+    expect(scope.writes.map(([f]) => f)).toEqual(['routes', 'roles', 'routes'])
+    expect(store.getSnapshot().error).toBeNull()
+    const config = store.getSnapshot().config as RouterConfigV6 & { routes?: RouteRowV7[] }
+    expect(validateRouterConfig(config)).toBeUndefined()
+    const dispatch = config.routes!.filter((r) => r.scope === 'dispatch')
+    expect(dispatch.map((r) => r.id)).toEqual(['frontend', 'backend'])
+    expect(dispatch[1]!.teammate).toEqual(['glm'])
+    expect(config.roles).toEqual(roles)
+    // 再读回来 buildRoutingView：previewDispatch 按认领名反查命中（role 依据 + label）
+    const view = buildRoutingView(config)
+    expect(previewDispatch(view, 'glm')).toEqual({
+      target: { provider: 'zai-coding-cn', model: 'glm-5.3' },
+      basis: 'role',
+      roleLabel: '后端',
+    })
+  })
+
+  it('connection/mutate 路径：一笔 mutate 同序三 ops（unset routes → set presets → set routes），routes 与 presets 同源', async () => {
+    // Fails if: mutate 路径拆成多笔（中间态撞宿主校验）或 ops 顺序漂移
+    // （先 set routes 后 set presets 在逐 op 校验的宿主上死锁）。
+    const mutate = vi.fn(async () => ({ result: { ok: true as const, value: {} } }))
+    const connection = { api: {
+      settings: {
+        describe: async () => ({ result: { ok: true as const, value: { writable: true, namespaces: [{ ns: 'dsh-kimi-tide', value: { router: DEFAULT_CONFIG_V6() }, revision: 3 }] } } }),
+        mutate,
+      },
+    } }
+    const store = createCardStore(null, connection as never)
+    await store.load()
+    const edited = { ...DEFAULT_CONFIG_V6().presets.saving, rules: [] }
+    await store.savePreset('saving', edited)
+    expect(mutate).toHaveBeenCalledTimes(1)
+    const req = mutate.mock.calls[0]![0] as { ns: string; expectedRevision?: number; ops: Array<{ op: string; path: string[]; value?: unknown }> }
+    expect(req.ns).toBe('dsh-kimi-tide')
+    expect(req.expectedRevision).toBe(3)
+    expect(req.ops.map((op) => `${op.op}:${op.path.join('.')}`)).toEqual(['unset:router.routes', 'set:router.presets', 'set:router.routes'])
+    expect(req.ops[2]!.value).toEqual(rowsFromLegacy({ presets: req.ops[1]!.value as RouterConfigV6['presets'], roles: {} }))
+  })
+
+  it('routes 落值被宿主静默吞掉 ⇒ error 上浮（双写的「意图 vs 实读」比对不静默）', async () => {
+    // Fails if: 双写只做旧字段的比对——routes 那笔被宿主吞掉时错误无声消失
+    // （文件里 routes 与旧字段从此分叉，运行期按陈旧 routes 走 = 静默失效）。
+    let value: unknown = DEFAULT_CONFIG_V6()
+    const scope: SettingsScopeLike = {
+      getSnapshot: () => ({ status: 'ready', value, base: undefined, user: undefined, writable: true }),
+      subscribe: () => () => {},
+      set: async (f, v) => { if (f !== 'routes') value = { ...(value as object), [f]: v } },
+      unset: async () => {},
+    }
+    const store = createCardStore(scope, null)
+    await store.savePreset('saving', { ...DEFAULT_CONFIG_V6().presets.saving, rules: [] })
+    expect(store.getSnapshot().error).toContain('写入被拒绝')
+  })
+
+  it('读边界投影：v7 形（routes + 陈旧旧字段）⇒ 快照编辑模型来自 routes，陈旧旧字段不生效', async () => {
+    // Fails if: 读边界不投影——卡片编辑的是不生效的旧字段（运行期按 routes 走），
+    // 且后续双写会以陈旧旧字段重推 routes，冲掉 routes 独有内容（数据丢失）。
+    const v7 = DEFAULT_CONFIG_V7()
+    v7.presets = {
+      ...v7.presets,
+      saving: { ...v7.presets.saving, rules: [{ id: 'stale', when: { kind: 'image' }, target: { provider: 'p', model: 'm' } }] },
+    }
+    const scope = makeScope(v7)
+    const store = createCardStore(scope, null)
+    const config = store.getSnapshot().config
+    // 陈旧旧字段（stale 规则）被 routes 反投影覆盖；routes 行集（内置规则）在场
+    expect(config?.presets.saving.rules.find((r) => r.id === 'stale')).toBeUndefined()
+    expect(config?.presets.saving.rules.some((r) => r.id === 'image-k3')).toBe(true)
+  })
+
+  it('v7 形上 saveRoles：presets 半边取 routes 反投影值，重推 routes 不丢 session 行（无投影即数据丢失的回归钉）', async () => {
+    // Fails if: v7 默认形态（presets[*].rules 已迁出为空）上写 roles 时按空
+    // presets 重推 routes——全部 session 行被静默清空（本任务最重的数据丢失面）。
+    const scope = makeScope(DEFAULT_CONFIG_V7())
+    const store = createCardStore(scope, null)
+    const roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    await store.saveRoles(roles)
+    expect(store.getSnapshot().error).toBeNull()
+    const config = store.getSnapshot().config
+    expect(config?.presets.saving.rules.length).toBe(3)
+    expect(config?.presets.capability.rules.length).toBe(8)
+    expect(validateRouterConfig(config as RouterConfigV6)).toBeUndefined()
   })
 })

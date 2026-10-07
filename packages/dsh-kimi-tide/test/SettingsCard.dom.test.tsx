@@ -1505,3 +1505,109 @@ describe('SettingsCard 主驱动卡（Task 7 修复轮 1：driver / driverSticky
     expect((container.querySelector('input[aria-label="子代理参与关键词规则"]') as HTMLInputElement).checked).toBe(true)
   })
 })
+
+describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / 派发预览 / 词表生成角色）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  /** B 项夹具：v6 就绪快照（分工层默认），激活省钱预设。 */
+  const readyV6 = (overrides: Partial<CardSnapshot> = {}): CardSnapshot => ({
+    status: 'ready',
+    config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' },
+    base: null,
+    user: null,
+    writable: true,
+    error: null,
+    catalog: null,
+    availability: null,
+    efforts: null,
+    ...overrides,
+  })
+
+  function fireInput(input: HTMLInputElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('B3 一键动作：点「规则跟随该角色」→ savePreset 把引用该组的规则目标改为角色目标（既有写通道）', async () => {
+    const savePreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ savePreset })
+    await mount(store)
+    const cfg = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null }
+    cfg.roles = { coder: { id: 'coder', label: '代码工', target: { provider: 'zai-coding-cn', model: 'glm-5.3' }, aliases: ['代码'] } }
+    await act(async () => { publish(readyV6({ config: cfg })) })
+    // 词表侧 + 角色侧各一条解释条（§5.2 两侧各挂一条）
+    expect(container.querySelectorAll('.kt-overlap').length).toBe(2)
+    const btn = [...container.querySelectorAll<HTMLButtonElement>('.kt-overlap button')]
+      .find((b) => b.textContent === '规则跟随该角色')!
+    await act(async () => { btn.click() })
+    // Fails if: 动作不走 storeWriter 既有写通道，或改的不是引用该词表组的规则目标。
+    expect(savePreset).toHaveBeenCalledTimes(1)
+    expect(savePreset).toHaveBeenCalledWith('saving', expect.objectContaining({
+      rules: expect.arrayContaining([
+        expect.objectContaining({ id: 'code-kfc', target: { provider: 'zai-coding-cn', model: 'glm-5.3' } }),
+      ]),
+    }))
+  })
+
+  it('B4「派给谁」：输入认领名 ⇒ 改道目标 + 依据 role + 角色 label；未认领 ⇒ unclaimed', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    const cfg = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null }
+    cfg.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    await act(async () => { publish(readyV6({ config: cfg })) })
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="派给谁"]')
+    expect(input).not.toBeNull()
+    await act(async () => { fireInput(input!, 'frontend') })
+    // Fails if: 命中分工表不显示改道目标 / 依据枚举 / 角色 label（§5.3）。
+    expect(container.textContent).toContain('改道到 kimi-coding/k3')
+    expect(container.textContent).toContain('依据：role')
+    expect(container.textContent).toContain('「前端」')
+    await act(async () => { fireInput(input!, 'nobody') })
+    // Fails if: 未认领队友不按 unclaimed 口径展示（与派发台账依据枚举对齐）。
+    expect(container.textContent).toContain('未被分工表认领')
+    expect(container.textContent).toContain('依据：unclaimed')
+  })
+
+  it('B5「从词表生成角色」：悬空词表组批量生成角色（目标 = 激活预设默认模型，同「填入三条示例」兜底）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    const cfg = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null }
+    cfg.keywordGroups = { ...cfg.keywordGroups, spare: ['闲置词'], idle: ['另一词'] }
+    await act(async () => { publish(readyV6({ config: cfg })) })
+    const btn = [...container.querySelectorAll('button')].find((b) => b.textContent === '从词表生成角色')! as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    await act(async () => { btn.click() })
+    // Fails if: ① 生成不经 saveRoles 守卫通道（认领冲突失去拒写保护）；② 目标
+    // 不是激活预设默认模型（§5.4 与「填入三条示例」同款兜底）；③ 把非悬空组
+    // （已被规则引用的内置 7 组）也生成了角色。
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0]![0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>
+    expect(Object.keys(record).sort()).toEqual(['idle', 'spare'])
+    expect(record['spare']).toEqual({ id: 'spare', label: 'spare', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(record['idle']!.label).toBe('idle')
+  })
+})

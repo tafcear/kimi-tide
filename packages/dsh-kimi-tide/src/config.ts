@@ -190,7 +190,7 @@ export function DEFAULT_CONFIG_V7(): RouterConfigV7 {
   const v6 = DEFAULT_CONFIG_V6()
   const presets: Record<string, RouterPreset> = {}
   for (const [key, preset] of Object.entries(v6.presets)) presets[key] = { ...preset, rules: [] }
-  return { ...v6, version: 7, presets, roles: DEFAULT_ROLES(), routes: deriveFromLegacy(v6) }
+  return { ...v6, version: 7, presets, roles: DEFAULT_ROLES(), routes: rowsFromLegacy(v6) }
 }
 
 /**
@@ -202,20 +202,22 @@ export function DEFAULT_CONFIG_V7(): RouterConfigV7 {
 export function rowsFromConfig(config: RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7): RouteRowV7[] {
   const routes = (config as { routes?: unknown }).routes
   if (routes !== undefined) return routes as RouteRowV7[]
-  return deriveFromLegacy(config)
+  return rowsFromLegacy(config)
 }
 
-/** 旧字段 → v7 行集投影（rowsFromConfig 的 legacy 支路，迁移 migrateV6 共用）：
+/** 旧字段 → v7 行集投影（rowsFromConfig 的 legacy 支路，迁移 migrateV6 共用；
+ *  B 项写通道双写亦由本函数从「将要写入的 presets/roles」推出同源 routes 行集
+ *  ——读写两侧同一实现，防两处投影逻辑漂移）：
  *  预设序 × 规则序保序填 preset；roles 键序保序搬 label/teammate/aliases/note。
  *  when/target 直接共享原引用（纯投影，不改写不克隆）。 */
-function deriveFromLegacy(config: RouterConfigV4 | RouterConfigV5Plus | RouterConfigV7): RouteRowV7[] {
+export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; roles?: Record<string, RoleEntry> }): RouteRowV7[] {
   const rows: RouteRowV7[] = []
   for (const [presetId, preset] of Object.entries(config.presets)) {
     for (const rule of preset.rules) {
       rows.push({ id: rule.id, scope: 'session', when: rule.when, target: rule.target, preset: presetId })
     }
   }
-  const roles = (config as { roles?: Record<string, RoleEntry> }).roles ?? {}
+  const roles = config.roles ?? {}
   for (const role of Object.values(roles)) {
     rows.push({
       id: role.id,
@@ -243,7 +245,7 @@ function deriveFromLegacy(config: RouterConfigV4 | RouterConfigV5Plus | RouterCo
  * - 不修改入参：浅拷贝 config，只重建 presets 与 roles 两处；其余字段
  *   （flows / keywordGroups / driver / … 及 routes 自身）原引用保留；
  * - presets 逐项浅拷贝（name / default / imageFallback 等原引用保留），仅 rules 重建；
- * - session 行的 when / target 与行内共享原引用（与 deriveFromLegacy 投影方向互逆，
+ * - session 行的 when / target 与行内共享原引用（与 rowsFromLegacy 投影方向互逆，
  *   「routes ≡ 旧字段」的迁移产物因此逐字节还原）；
  * - dispatch 行还原 id / label / target / teammate / aliases / note 逐字段等价，
  *   缺省字段**不落键**；label 缺省回落 id（RoleEntry.label 必填）；
