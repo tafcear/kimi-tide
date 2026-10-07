@@ -1,0 +1,121 @@
+/**
+ * panel 表：dock / 决策面板（ReasonPanel）/ 评审卡（ReviewCard）文案（W2 填充）。
+ * 键前缀冻结：`panel.dock.*`（TideDock）、`panel.reason.*`（ReasonPanel）、`panel.review.*`（ReviewCard/退回卡）。
+ * 中文逐字保留自原硬编码字面量（标点、空格、全角字符均不变）——既有测试逐字钉住。
+ * 宿主侧拼好的中文串（panel.decision.reason、configSource 详情、quotaSources[].reason 等）是**数据**，
+ * 经 {0}/{1} 占位符透传，不在本表。
+ */
+export const zh = {
+  // ---- TideDock：命令与通用 ----
+  'panel.dock.commandFailed': '命令执行失败',
+  'panel.dock.commandFailedDetail': '命令执行失败：{0}',
+  'panel.dock.noValue': '—',
+  'panel.dock.closed': '关闭',
+  'panel.dock.expand': '展开',
+  'panel.dock.collapse': '收起',
+  'panel.dock.decision': '决策',
+  // ---- TideDock：数字短格式（zh 路径：亿/万；en 路径同键不同缩放，见 fmtRemain）----
+  'panel.dock.fmtYi': '{0}亿',
+  'panel.dock.fmtWan': '{0}万',
+  // ---- TideDock：余额槽 / 余额 tooltip ----
+  'panel.dock.balance': '余额',
+  'panel.dock.balanceSlot': '余额 {0}',
+  'panel.dock.balanceInsufficient': '余额不足（不足以调用 API）',
+  'panel.dock.balanceInsufficientWord': '余额不足',
+  'panel.dock.balanceShort': '（余额不足）',
+  'panel.dock.balanceGranted': '赠送 {0}',
+  'panel.dock.balanceToppedUp': '充值 {0}',
+  'panel.dock.balanceDetail': '（{0}）',
+  'panel.dock.balanceAll': ' ｜ 全部：{0}',
+  // ---- TideDock：用量总览行 ----
+  'panel.dock.kindUsage': '用量',
+  'panel.dock.noPublicApi': '无公开用量 API',
+  'panel.dock.noData': '无数据',
+  'panel.dock.whenStale': '{0}（过期）',
+  'panel.dock.weekRemain': '周剩{0}%',
+  'panel.dock.fiveHourRemain': '5h剩{0}%',
+  'panel.dock.windowNoData': '该窗口无数据',
+  // ---- TideDock：空态 / 加载态 ----
+  'panel.dock.panelEmpty': '暂无面板数据（路由关闭或取数通道不可用）',
+  'panel.dock.panelEmptyReason': '暂无面板数据（{0}）',
+  'panel.dock.panelLoading': '面板数据加载中…',
+  'panel.dock.regionLabel': '月汐路由状态',
+  // ---- TideDock：决策开关 title（两形态共用）----
+  'panel.dock.toggleTitleDecision': '{0}决策可观测：{1}',
+  'panel.dock.toggleTitleNoDecision': '{0}决策可观测（本步无决策）',
+  'panel.dock.toggleTitleNoDecisionCompact': '{0}决策可观测（本步无决策）· 预设 {1}',
+  // ---- TideDock：r1 身份与路由链 ----
+  'panel.dock.labelTitle': '推理输出已启用 · 路由设置见 设置 → 月汐',
+  'panel.dock.presetChipTitle': '当前路由预设',
+  'panel.dock.baselineChipTitle': '预设默认模型 {0}/{1}（未命中规则时的默认目标）',
+  'panel.dock.decisionChipTitle': '本步决策目标 {0}/{1}',
+  'panel.dock.kimiMissing': 'Kimi 未接入：设置 → 模型',
+  'panel.dock.kimiMissingTitle': '缺少 kimi-coding 路由或 API key（设置 → 模型 配置，apiKeyEnv 指向你的凭据）',
+  'panel.dock.kimiMissingTitleCompact': '缺少 kimi-coding 路由或 API key（设置 → 模型 配置）',
+  // ---- TideDock：r2 额度槽 title / aria-label ----
+  'panel.dock.week': '周',
+  'panel.dock.remainPct': '剩{0}%',
+  'panel.dock.weekTitleRemain': '周配额剩余比例 · 剩 {0} / 共 {1}',
+  'panel.dock.weekTitleNoData': '周配额（该窗口无数据）',
+  'panel.dock.weekTitleFailed': '周配额（取数失败，配额不可用）',
+  'panel.dock.weekTitleNa': '周配额不适用于当前目标（{0}）',
+  'panel.dock.fiveTitleRemain': '五小时窗剩余比例 · 剩 {0} / 共 {1}',
+  'panel.dock.fiveTitleNoData': '五小时窗（该窗口无数据）',
+  'panel.dock.fiveTitleFailed': '五小时窗（取数失败，配额不可用）',
+  'panel.dock.fiveTitleNa': '五小时窗不适用于当前目标（{0}）',
+  'panel.dock.clockTitle': '配额取数时间',
+  'panel.dock.clockTitleStale': '（已过期）',
+  'panel.dock.clockTitleFailed': '配额取数时间（取数失败，配额不可用）',
+  'panel.dock.clockTitleNoQuota': '配额取数时间（当前目标无配额数据）',
+  'panel.dock.clockStale': '{0} (过期)',
+  // ---- TideDock：图像上下文槽 ----
+  'panel.dock.imageContextTitle': '本会话图像三态计数：原生视觉 / 已转述 / 盲答（盲>0 = 有图文本模型看不到）',
+  'panel.dock.imageContext': '图 原{0}·述{1}·盲{2}',
+  'panel.dock.imageBlind': '有图文本模型看不到',
+  // ---- TideDock：派发摘要槽 / 刷新 / 总览开关 ----
+  'panel.dock.dispatchTitle': '最近一次派发：{0}',
+  'panel.dock.refreshTitle': '刷新配额（/kimi-tide refresh）',
+  'panel.dock.overviewTitle': '用量总览',
+  'panel.dock.overviewExpand': '展开用量总览（全部源）',
+  'panel.dock.overviewCollapse': '收起用量总览',
+  'panel.dock.compactQuotaNoData': '用量总览（当前目标无配额数据）',
+  'panel.dock.compactQuotaOpen': '{0} · 点开用量总览',
+
+  // ---- ReasonPanel：决策可观测面板 ----
+  'panel.reason.title': '决策可观测',
+  'panel.reason.sourceSettings': '设置命名空间',
+  'panel.reason.sourceSidecar': '配置文件',
+  'panel.reason.sourcePatch': '补丁配置',
+  'panel.reason.sourceDefault': '内置默认',
+  'panel.reason.configSource': '配置来源：{0}（{1}）',
+  'panel.reason.actualRoute': '实际路由：',
+  'panel.reason.routeOff': '（路由已关闭）',
+  'panel.reason.noDecision': '（暂无本步决策 — 尚未发生规则命中或为默认目标）',
+  'panel.reason.routerDecision': '（router 决策）',
+  'panel.reason.reason': '原因：{0}',
+  'panel.reason.lastFlowEvent': '最近流事件：{0}',
+  'panel.reason.dispatchSection': '最近派发',
+  'panel.reason.dispatchRow': '派发：{0}',
+  'panel.reason.whoExplicit': '点名',
+  'panel.reason.whoUnclaimed': '未在分工表',
+  'panel.reason.whoKeep': '继承',
+  'panel.reason.dispatchLine': '{0} → {1}/{2} · {3}',
+  'panel.reason.dispatchKeepRole': '「{0}」目标不可用 → 保持继承（{1}/{2}）',
+
+  // ---- ReviewCard / ReviewReviseCard：评审卡与退回卡 ----
+  'panel.review.bridgeMissing': '退回通道未接入（client 未 apply？）',
+  'panel.review.reviseFailed': '退回失败：{0}',
+  'panel.review.badge': '评审 · {0}',
+  'panel.review.failed': '评审失败：{0}',
+  'panel.review.unknownError': '未知错误',
+  'panel.review.reviseNoSession': '本会话身份不可用，退回通道未接入',
+  'panel.review.reviseTitle': '按这次评审意见让主模型重做（计修订上限）',
+  'panel.review.reviseBusy': '退回中…',
+  'panel.review.revise': '让它重做',
+  'panel.review.stopped': '已停（达上限）',
+  'panel.review.revised': '↩︎ 已按评审意见退回重做（第 {0} 次）',
+  'panel.review.manual': '手动',
+  'panel.review.auto': '自动',
+  'panel.review.basis': '依据结论：{0}',
+  'panel.review.basisStopped': '依据结论：{0}——已达修订上限（轮次），不再自动重做；结论全文见上一张评审卡',
+} as const

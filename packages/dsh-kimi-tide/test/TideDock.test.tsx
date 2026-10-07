@@ -7,12 +7,16 @@
  * 结构标记而非整树快照，对样式微调保持稳健。Portal 行为另见
  * TideDock.portal.dom.test.tsx（renderToString 不渲染 portal）。
  */
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { fmtRemain, formatDispatch, TideDock } from '../src/client/TideDock.js'
+import { fmtRemain, formatDispatch, overviewRows, TideDock } from '../src/client/TideDock.js'
 import { ReasonPanel } from '../src/client/ReasonPanel.js'
+import { attachLocaleService } from '../src/client/locale.js'
 import { DOCK_ELEMENTS } from '../src/client/help-content.js'
+import { en as enDict, formatCopy } from '../src/locales/index.js'
+import { zh as zhPanel } from '../src/locales/zh/panel.js'
+import { en as enPanel } from '../src/locales/en/panel.js'
 import type { DispatchEntry } from '../src/dispatch-ledger.js'
 import type { KimiTidePanelProjection } from '../src/types.js'
 
@@ -543,5 +547,133 @@ describe('TideDock 派发区（Task 6：摘要行 + 明细 + 帮助锚点）', (
       configSource: 'settings', decision: null, presetName: '省钱',
     }))
     expect(absent).not.toContain('派发')
+  })
+})
+
+// ---- W2 新增：panel 表结构与英文渲染（任务书 §4）----
+
+describe('W2：panel 表键集（zh/en 相等 + 占位符集合一致）', () => {
+  it('zh/en 键集完全相等', () => {
+    expect(Object.keys(enPanel).sort()).toEqual(Object.keys(zhPanel).sort())
+  })
+
+  it('同一键 zh/en 占位符集合一致（遍历 panel 表）', () => {
+    const placeholders = (value: string): string[] =>
+      [...value.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1]!).sort()
+    for (const [key, zhValue] of Object.entries(zhPanel)) {
+      const enValue = (enPanel as Record<string, string>)[key]
+      expect(typeof enValue, `en 缺键 ${key}`).toBe('string')
+      expect(placeholders(enValue!), `占位符不一致 ${key}`).toEqual(placeholders(zhValue))
+    }
+  })
+
+  it('zh 表逐字钉桩（抽样：三条关键文案不被顺手润色）', () => {
+    expect(zhPanel['panel.dock.toggleTitleNoDecisionCompact']).toBe('{0}决策可观测（本步无决策）· 预设 {1}')
+    expect(zhPanel['panel.reason.noDecision']).toBe('（暂无本步决策 — 尚未发生规则命中或为默认目标）')
+    expect(zhPanel['panel.review.basisStopped']).toBe('依据结论：{0}——已达修订上限（轮次），不再自动重做；结论全文见上一张评审卡')
+  })
+})
+
+/**
+ * 英文渲染（任务书 §4.1）：最简 locale 服务桩（register/bind/subscribe/getSnapshot，
+ * active: 'en-US'）走 attachLocaleService 后渲染 dock / 面板 ⇒ 必须出现英文，
+ * 且不含对应中文原句。注意本 describe 会把模块态 bound 切成英文——必须放在本文件
+ * 最后一个 describe（vitest 按声明序执行；其他文件各有独立模块实例，互不影响）。
+ * 夹具里的宿主数据字段（presetName/reason 等）填英文值，使整树可做无汉字断言。
+ */
+describe('W2：英文渲染（locale 服务桩，active=en-US）', () => {
+  const noHan = (s: string): void => {
+    expect(/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(s)).toBe(false)
+  }
+
+  beforeAll(() => {
+    const stub = {
+      register: () => () => {},
+      bind: () => (key: string, params?: Record<string, unknown>) =>
+        formatCopy((enDict as Record<string, string>)[key] ?? key, params as Record<string, string | number> | undefined),
+      subscribe: () => () => {},
+      getSnapshot: () => ({ active: 'en-US' }),
+    }
+    const fakeCtx = {
+      get: () => stub,
+      effect: (fn: () => unknown) => { fn(); return () => {} },
+      inject: () => {},
+    }
+    attachLocaleService(fakeCtx as never)
+  })
+
+  const enPanelOf = (overrides: Partial<KimiTidePanelProjection> = {}): KimiTidePanelProjection =>
+    makePanel({
+      quota: kimiQuota,
+      quotaProvider: 'kimi-coding',
+      router: {
+        activePreset: 'saving',
+        presetName: 'Saving',
+        defaultTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        ruleCount: 2,
+      },
+      decision: { chosen: { provider: 'kimi-coding', model: 'k3' }, reason: 'rule hit' },
+      ...overrides,
+    })
+
+  it('dock（full）：额度槽/决策开关/title 全英文，整树无汉字', () => {
+    const html = render(enPanelOf())
+    // Fails if: copy() 仍回落中文表（服务桩没接上，或组件还在用硬编码字面量）
+    expect(visible(html)).toContain('90% left') // 剩90%（周 10/100）
+    expect(visible(html)).toContain('20% left') // 剩20%（5h 80/100）
+    expect(html).toContain('Decision</button>')
+    expect(html).toContain('Expand decision observability: rule hit')
+    expect(html).toContain('Weekly quota remaining')
+    expect(html).toContain('Kimi Tide routing status')
+    expect(html).not.toContain('决策可观测')
+    expect(html).not.toContain('周配额')
+    noHan(visible(html))
+  })
+
+  it('dock（compact）：与 full 同一套文案（预设→目标按钮 title 英文）', () => {
+    const html = renderToString(createElement(TideDock, {
+      sessionId: 's', variant: 'compact', useProjection: () => enPanelOf({ decision: null }),
+    }))
+    // Fails if: 紧凑态走了另一份文案（portal/紧凑态共用约束，任务书 §3.3）
+    expect(html).toContain('Expand decision observability (no decision this step) · Preset Saving')
+    expect(html).not.toContain('决策可观测')
+    noHan(visible(html))
+  })
+
+  it('ReasonPanel：标题/配置来源/空态/派发行全英文（configSource 原键括注保留）', () => {
+    const entry: DispatchEntry = { basis: 'keep', target: { provider: 'p', model: 'm0' }, at: 1 }
+    const html = visible(renderToString(createElement(ReasonPanel, {
+      configSource: 'sidecar', decision: null, presetName: 'Saving', dispatch: [entry],
+    })))
+    expect(html).toContain('Decision observability')
+    expect(html).toContain('Config source: config file (sidecar)')
+    expect(html).toContain('(no decision this step')
+    expect(html).toContain('Recent dispatches')
+    expect(html).toContain('Dispatch: inherited → p/m0 · keep')
+    expect(html).not.toContain('决策可观测')
+    expect(html).not.toContain('配置来源')
+    noHan(html)
+  })
+
+  it('overviewRows / formatDispatch / fmtRemain：模块级纯函数同样跟随当前语言', () => {
+    const rows = overviewRows(enPanelOf({
+      quotaSources: [
+        { provider: 'kimi-coding', kind: 'usage', state: 'ok' },
+        { provider: 'deepseek-official', kind: 'balance', state: 'no-api' },
+      ],
+      quotas: { 'kimi-coding': kimiQuota },
+    }))
+    expect(rows[0]!.kindLabel).toBe('Usage')
+    expect(rows[0]!.value).toBe('Week 90% left · 5h 20% left')
+    expect(rows[1]!.kindLabel).toBe('Balance')
+    expect(rows[1]!.value).toBe('No public usage API')
+    expect(formatDispatch({ basis: 'explicit', target: { provider: 'p', model: 'm' }, at: 1 }))
+      .toBe('named → p/m · explicit')
+    expect(formatDispatch({ basis: 'keep', roleLabel: 'Frontend', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 }))
+      .toBe('"Frontend" target unavailable → kept inherited (kimi-coding/k3)')
+    // en 短格式：1e9→B / 1e6→M（zh 路径仍 亿/万，由上文 fmtRemain 用例钉住）
+    expect(fmtRemain(672305536)).toBe('672.3M')
+    expect(fmtRemain(6723055360)).toBe('6.7B')
+    expect(fmtRemain(999)).toBe('999')
   })
 })

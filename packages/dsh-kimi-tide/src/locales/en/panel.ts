@@ -1,0 +1,122 @@
+/**
+ * panel 表（英文镜像）：键集必须与 zh/panel.ts 完全相等（Record 类型钉住）。
+ * 术语镜像遵循 docs/agents/terminology.md §1 与 docs/agents/style-samples.md：
+ * 默认目标 = default target、派发 = dispatch、已接入 = wired、(过期) = (stale)。
+ * fmtYi/fmtWan 与 zh 同键但缩放不同（en 路径按 1e9/1e6 缩放，见 fmtRemain）。
+ */
+import { zh } from '../zh/panel.js'
+
+export const en: Record<keyof typeof zh, string> = {
+  // ---- TideDock: commands & common ----
+  'panel.dock.commandFailed': 'Command failed',
+  'panel.dock.commandFailedDetail': 'Command failed: {0}',
+  'panel.dock.noValue': '—',
+  'panel.dock.closed': 'off',
+  'panel.dock.expand': 'Expand',
+  'panel.dock.collapse': 'Collapse',
+  'panel.dock.decision': 'Decision',
+  // ---- TideDock: compact number format (en path scales by 1e9/1e6) ----
+  'panel.dock.fmtYi': '{0}B',
+  'panel.dock.fmtWan': '{0}M',
+  // ---- TideDock: balance slot / balance tooltip ----
+  'panel.dock.balance': 'Balance',
+  'panel.dock.balanceSlot': 'Balance {0}',
+  'panel.dock.balanceInsufficient': 'Insufficient balance (not enough to call the API)',
+  'panel.dock.balanceInsufficientWord': 'Insufficient balance',
+  'panel.dock.balanceShort': ' (insufficient balance)',
+  'panel.dock.balanceGranted': 'Granted {0}',
+  'panel.dock.balanceToppedUp': 'Topped up {0}',
+  'panel.dock.balanceDetail': ' ({0})',
+  'panel.dock.balanceAll': ' | All: {0}',
+  // ---- TideDock: usage overview rows ----
+  'panel.dock.kindUsage': 'Usage',
+  'panel.dock.noPublicApi': 'No public usage API',
+  'panel.dock.noData': 'No data',
+  'panel.dock.whenStale': '{0} (stale)',
+  'panel.dock.weekRemain': 'Week {0}% left',
+  'panel.dock.fiveHourRemain': '5h {0}% left',
+  'panel.dock.windowNoData': 'No data for this window',
+  // ---- TideDock: empty / loading states ----
+  'panel.dock.panelEmpty': 'No panel data (routing is off or the fetch channel is unavailable)',
+  'panel.dock.panelEmptyReason': 'No panel data ({0})',
+  'panel.dock.panelLoading': 'Loading panel data…',
+  'panel.dock.regionLabel': 'Kimi Tide routing status',
+  // ---- TideDock: decision toggle titles (shared by both variants) ----
+  'panel.dock.toggleTitleDecision': '{0} decision observability: {1}',
+  'panel.dock.toggleTitleNoDecision': '{0} decision observability (no decision this step)',
+  'panel.dock.toggleTitleNoDecisionCompact': '{0} decision observability (no decision this step) · Preset {1}',
+  // ---- TideDock: r1 identity & route chain ----
+  'panel.dock.labelTitle': 'Reasoning output enabled · Routing settings: Settings → Kimi Tide',
+  'panel.dock.presetChipTitle': 'Current routing preset',
+  'panel.dock.baselineChipTitle': 'Preset default model {0}/{1} (default target when no rule matches)',
+  'panel.dock.decisionChipTitle': 'Decision target this step {0}/{1}',
+  'panel.dock.kimiMissing': 'Kimi not wired: Settings → Models',
+  'panel.dock.kimiMissingTitle': 'Missing kimi-coding route or API key (configure under Settings → Models; apiKeyEnv points to your credentials)',
+  'panel.dock.kimiMissingTitleCompact': 'Missing kimi-coding route or API key (configure under Settings → Models)',
+  // ---- TideDock: r2 quota slot titles / aria-labels ----
+  'panel.dock.week': 'Week',
+  'panel.dock.remainPct': '{0}% left',
+  'panel.dock.weekTitleRemain': 'Weekly quota remaining · {0} left of {1}',
+  'panel.dock.weekTitleNoData': 'Weekly quota (no data for this window)',
+  'panel.dock.weekTitleFailed': 'Weekly quota (fetch failed; quota unavailable)',
+  'panel.dock.weekTitleNa': 'Weekly quota does not apply to the current target ({0})',
+  'panel.dock.fiveTitleRemain': 'Five-hour window remaining · {0} left of {1}',
+  'panel.dock.fiveTitleNoData': 'Five-hour window (no data for this window)',
+  'panel.dock.fiveTitleFailed': 'Five-hour window (fetch failed; quota unavailable)',
+  'panel.dock.fiveTitleNa': 'Five-hour window does not apply to the current target ({0})',
+  'panel.dock.clockTitle': 'Quota fetch time',
+  'panel.dock.clockTitleStale': ' (stale)',
+  'panel.dock.clockTitleFailed': 'Quota fetch time (fetch failed; quota unavailable)',
+  'panel.dock.clockTitleNoQuota': 'Quota fetch time (no quota data for the current target)',
+  'panel.dock.clockStale': '{0} (stale)',
+  // ---- TideDock: image context slot ----
+  'panel.dock.imageContextTitle': 'Image counts this session: native vision / transcribed / blind (blind>0 = images the text model cannot see)',
+  'panel.dock.imageContext': 'Img native {0}·transcribed {1}·blind {2}',
+  'panel.dock.imageBlind': 'Images the text model cannot see',
+  // ---- TideDock: dispatch summary slot / refresh / overview toggle ----
+  'panel.dock.dispatchTitle': 'Latest dispatch: {0}',
+  'panel.dock.refreshTitle': 'Refresh quota (/kimi-tide refresh)',
+  'panel.dock.overviewTitle': 'Usage overview',
+  'panel.dock.overviewExpand': 'Expand usage overview (all sources)',
+  'panel.dock.overviewCollapse': 'Collapse usage overview',
+  'panel.dock.compactQuotaNoData': 'Usage overview (no quota data for the current target)',
+  'panel.dock.compactQuotaOpen': '{0} · Open usage overview',
+
+  // ---- ReasonPanel: decision observability panel ----
+  'panel.reason.title': 'Decision observability',
+  'panel.reason.sourceSettings': 'settings namespace',
+  'panel.reason.sourceSidecar': 'config file',
+  'panel.reason.sourcePatch': 'patch config',
+  'panel.reason.sourceDefault': 'built-in default',
+  'panel.reason.configSource': 'Config source: {0} ({1})',
+  'panel.reason.actualRoute': 'Actual route: ',
+  'panel.reason.routeOff': '(routing is off)',
+  'panel.reason.noDecision': '(no decision this step — no rule matched yet, or the default target)',
+  'panel.reason.routerDecision': '(router decision)',
+  'panel.reason.reason': 'Reason: {0}',
+  'panel.reason.lastFlowEvent': 'Latest flow event: {0}',
+  'panel.reason.dispatchSection': 'Recent dispatches',
+  'panel.reason.dispatchRow': 'Dispatch: {0}',
+  'panel.reason.whoExplicit': 'named',
+  'panel.reason.whoUnclaimed': 'not in assignment table',
+  'panel.reason.whoKeep': 'inherited',
+  'panel.reason.dispatchLine': '{0} → {1}/{2} · {3}',
+  'panel.reason.dispatchKeepRole': '"{0}" target unavailable → kept inherited ({1}/{2})',
+
+  // ---- ReviewCard / ReviewReviseCard ----
+  'panel.review.bridgeMissing': 'Revise channel not wired (client not applied?)',
+  'panel.review.reviseFailed': 'Revise failed: {0}',
+  'panel.review.badge': 'Review · {0}',
+  'panel.review.failed': 'Review failed: {0}',
+  'panel.review.unknownError': 'unknown error',
+  'panel.review.reviseNoSession': 'Session identity unavailable; revise channel not wired',
+  'panel.review.reviseTitle': 'Redo with the main model per this review (counts toward the revise limit)',
+  'panel.review.reviseBusy': 'Revising…',
+  'panel.review.revise': 'Redo it',
+  'panel.review.stopped': 'Stopped (limit reached)',
+  'panel.review.revised': '↩︎ Sent back for redo per the review (revision {0})',
+  'panel.review.manual': 'manual',
+  'panel.review.auto': 'auto',
+  'panel.review.basis': 'Based on verdict: {0}',
+  'panel.review.basisStopped': 'Based on verdict: {0} — revise limit (rounds) reached; no more automatic redos. Full verdict in the previous review card',
+}

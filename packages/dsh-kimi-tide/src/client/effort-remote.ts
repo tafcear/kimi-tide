@@ -12,6 +12,7 @@
 // card-store.loadEfforts 的 catch 处理（不静默伪造空表）。
 import { EFFORT_CATALOG_NAMESPACE } from '../effort-catalog.js'
 import { CARD_NAMESPACE } from './card-store.js'
+import { copy } from './locale.js'
 
 export { EFFORT_CATALOG_NAMESPACE }
 
@@ -70,11 +71,11 @@ const catalogFromNamespaces = (
  * 供仍有 connection 但无 loopback describe 的宿主使用；调用形态必须是零参。
  */
 export async function fetchEffortsViaDescribe(connection: EffortsConnection): Promise<CatalogMeta> {
-  if (connection === null) throw new Error('effort 档位表：connection 通道不可用')
+  if (connection === null) throw new Error(copy('settings.diag.effortNoConnection'))
   const r = await connection.api.settings.describe()
-  if (!r.result.ok) throw new Error(`effort 档位表 describe 失败：${r.result.error.message}`)
+  if (!r.result.ok) throw new Error(copy('settings.diag.effortDescribeFailed', { 0: r.result.error.message }))
   const meta = catalogFromNamespaces(r.result.value.namespaces)
-  if (meta === null) throw new Error(`effort 档位表：describe 视图里既无 ${CARD_NAMESPACE} 也无 ${EFFORT_CATALOG_NAMESPACE}`)
+  if (meta === null) throw new Error(copy('settings.diag.effortNamespaceMissing', { 0: CARD_NAMESPACE, 1: EFFORT_CATALOG_NAMESPACE }))
   return meta
 }
 
@@ -98,9 +99,9 @@ export async function fetchCatalogMetaViaRemoteDescribe(
       ? (raw as DescribeEnvelope)
       : { ok: true, value: raw as { namespaces?: ReadonlyArray<{ ns: string; value?: unknown }> } }
   if (envelope.ok !== true) {
-    throw new Error(`describe 失败：${envelope.error?.message ?? 'unknown'}`)
+    throw new Error(copy('settings.diag.describeFailed', { 0: envelope.error?.message ?? 'unknown' }))
   }
   const meta = catalogFromNamespaces(envelope.value?.namespaces ?? [])
-  if (meta === null) throw new Error(`effort 档位表：describe 视图里既无 ${CARD_NAMESPACE} 也无 ${EFFORT_CATALOG_NAMESPACE}`)
+  if (meta === null) throw new Error(copy('settings.diag.effortNamespaceMissing', { 0: CARD_NAMESPACE, 1: EFFORT_CATALOG_NAMESPACE }))
   return meta
 }

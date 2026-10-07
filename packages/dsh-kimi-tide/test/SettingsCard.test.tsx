@@ -17,6 +17,7 @@ import type { CardSnapshot, CardStore, ConnectionLike, SettingsScopeLike } from 
 import { presetSlug, SettingsCard } from '../src/client/SettingsCard.js'
 import { apply } from '../src/client/index.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_FLOWS, type RouterConfigV4, type RouterConfigV5, type RouterConfigV6 } from '../src/config.js'
+import { formatCopy, zh } from '../src/locales/index.js'
 import { describeRouting } from '../src/routing-view.js'
 
 /** A 项（2026-10-07）：决策链用例需要 v6 分工层（driverSticky）夹具——快照配置并集。 */
@@ -559,7 +560,11 @@ describe('settings.section registration', () => {
 
   it('binds the section label through the locale service when present', () => {
     const registered: Array<[string, Record<string, Record<string, string>>]> = []
-    const t = vi.fn((key: string) => `译:${key}`)
+    // W1 起卡片正文也走 copy()：attachLocaleService 的 bound 是模块态且没有复位口——
+    // 本桩会留在后续用例的渲染路径上，故除 shared.nav（本条断言对象）外一律按 zh 真值
+    // + formatCopy 占位符替换回落（与真实宿主 bind 的语义一致），保证后续中文断言不受影响。
+    const t = vi.fn((key: string, params?: Record<string, string | number>) =>
+      key === 'shared.nav' ? `译:${key}` : formatCopy((zh as Record<string, string>)[key] ?? key, params))
     const locale = {
       register: (ns: string, dicts: Record<string, Record<string, string>>) => {
         registered.push([ns, dicts])
@@ -593,13 +598,15 @@ describe('settings.section registration', () => {
     expect(section).toBeDefined()
     section!.factory()
     const reg = registers.find((r) => r.options.name === 'settings.section')
-    // Fails if: the label stops routing through the locale service's t('nav').
-    expect((reg!.options.label as () => string)()).toBe('译:nav')
-    expect(t).toHaveBeenCalledWith('nav')
+    // Fails if: the label stops routing through the locale service's t('shared.nav')
+    // （阶段 P：字典键改为 shared.nav，走 src/locales 合并表）。
+    expect((reg!.options.label as () => string)()).toBe('译:shared.nav')
+    expect(t).toHaveBeenCalledWith('shared.nav')
     // Fails if: the plugin's dictionary is not registered under its namespace.
     expect(registered).toHaveLength(1)
     expect(registered[0][0]).toBe('settings.kimi-tide')
-    expect(registered[0][1].zh.nav).toBe('月汐')
+    expect(registered[0][1].zh['shared.nav']).toBe('月汐')
+    expect(registered[0][1].en['shared.nav']).toBe('Kimi Tide')
   })
 })
 

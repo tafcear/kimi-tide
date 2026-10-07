@@ -33,6 +33,7 @@ import {
   type RouterPreset,
 } from '../config.js'
 import { claimConflict } from '../roles.js'
+import { copy } from './locale.js'
 
 /**
  * 卡片读写的设置视图 id（= **profile entry id**）。
@@ -465,7 +466,7 @@ export function createCardStore(
       if (scope !== null) {
         const actual = (snapshot.config as Record<string, unknown> | null)?.[field]
         if (JSON.stringify(actual) !== JSON.stringify(value)) {
-          fail(new Error('写入被拒绝（校验失败？）'))
+          fail(new Error(copy('settings.diag.writeRejected')))
         }
       }
     } catch (error) {
@@ -537,7 +538,7 @@ export function createCardStore(
         const actual = snapshot.config as Record<string, unknown> | null
         if (JSON.stringify(actual?.[field]) !== JSON.stringify(value)
           || JSON.stringify(actual?.routes) !== JSON.stringify(routes)) {
-          fail(new Error('写入被拒绝（校验失败？）'))
+          fail(new Error(copy('settings.diag.writeRejected')))
         }
       }
     } catch (error) {
@@ -556,7 +557,7 @@ export function createCardStore(
 
   const createPreset = async (id: string, preset: RouterPreset): Promise<void> => {
     if (snapshot.config !== null && Object.hasOwn(snapshot.config.presets, id)) {
-      fail(new Error(`预设 id 冲突：${id} 已存在`))
+      fail(new Error(copy('settings.diag.presetIdConflict', { 0: id })))
       return
     }
     await writeRoutesAndLegacy('presets', { ...nextPresets(), [id]: preset })
@@ -594,30 +595,30 @@ export function createCardStore(
   const deleteFlow = async (id: string): Promise<void> => {
     const config = snapshot.config
     if (config === null || !isV5Plus(config)) {
-      fail(new Error('协作流注册表不可用（配置尚未迁移到 v5）'))
+      fail(new Error(copy('settings.diag.flowsUnavailable')))
       return
     }
     if (Object.hasOwn(DEFAULT_FLOWS(), id)) {
-      fail(new Error(`协作流 '${id}' 是预置流，不可删除（防规则失去引用目标）`))
+      fail(new Error(copy('settings.diag.flowPresetUndeletable', { 0: id })))
       return
     }
     if (!Object.hasOwn(config.flows, id)) {
-      fail(new Error(`协作流 '${id}' 不存在`))
+      fail(new Error(copy('settings.diag.flowMissing', { 0: id })))
       return
     }
     const refs: string[] = []
     for (const [presetId, preset] of Object.entries(config.presets)) {
       for (const rule of preset.rules) {
         if (isFlowTarget(rule.target) && rule.target.flow === id) {
-          refs.push(`预设 '${presetId}' 规则 '${rule.id}'`)
+          refs.push(copy('settings.diag.flowRefByRule', { 0: presetId, 1: rule.id }))
         }
       }
       if (preset.imageFallbackFlow === id) {
-        refs.push(`预设 '${presetId}' 的 imageFallbackFlow`)
+        refs.push(copy('settings.diag.flowRefByFallback', { 0: presetId }))
       }
     }
     if (refs.length > 0) {
-      fail(new Error(`协作流 '${id}' 仍被引用（${refs.join('、')}），请先清除引用`))
+      fail(new Error(copy('settings.diag.flowReferenced', { 0: id, 1: refs.join(copy('settings.common.joinList')) })))
       return
     }
     const flows = { ...config.flows }

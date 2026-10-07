@@ -9,6 +9,8 @@
  */
 import type { ConfigSource, DecisionSummary } from '../types.js'
 import type { DispatchEntry } from '../dispatch-ledger.js'
+import type { CopyKey } from '../locales/index.js'
+import { copy, useCopy } from './locale.js'
 
 /**
  * 派发行摘要（Task 6）：角色/队友 → provider/model · 依据。
@@ -23,10 +25,10 @@ import type { DispatchEntry } from '../dispatch-ledger.js'
  */
 export function formatDispatch(entry: DispatchEntry): string {
   if (entry.basis === 'keep' && entry.roleLabel !== undefined) {
-    return `「${entry.roleLabel}」目标不可用 → 保持继承（${entry.target.provider}/${entry.target.model}）`
+    return copy('panel.reason.dispatchKeepRole', { 0: entry.roleLabel, 1: entry.target.provider, 2: entry.target.model })
   }
-  const who = entry.roleLabel ?? entry.teammate ?? (entry.basis === 'explicit' ? '点名' : entry.basis === 'unclaimed' ? '未在分工表' : '继承')
-  return `${who} → ${entry.target.provider}/${entry.target.model} · ${entry.basis}`
+  const who = entry.roleLabel ?? entry.teammate ?? (entry.basis === 'explicit' ? copy('panel.reason.whoExplicit') : entry.basis === 'unclaimed' ? copy('panel.reason.whoUnclaimed') : copy('panel.reason.whoKeep'))
+  return copy('panel.reason.dispatchLine', { 0: who, 1: entry.target.provider, 2: entry.target.model, 3: entry.basis })
 }
 
 export interface ReasonPanelProps {
@@ -44,45 +46,51 @@ export interface ReasonPanelProps {
   dispatch?: DispatchEntry[]
 }
 
-const SOURCE_LABELS: Record<ConfigSource, string> = {
-  settings: '设置命名空间',
+// 配置来源标签（W2 locale 化）：模块级只存「键」（模块加载时没有语言概念），渲染处 t(key) 取值。
+const SOURCE_KEYS: Record<ConfigSource, CopyKey> = {
+  settings: 'panel.reason.sourceSettings',
   // 评审 P3/C7：平实措辞——原键仍经下方（{configSource}）括注保留供排障。
-  sidecar: '配置文件',
-  patch: '补丁配置',
-  default: '内置默认',
+  sidecar: 'panel.reason.sourceSidecar',
+  patch: 'panel.reason.sourcePatch',
+  default: 'panel.reason.sourceDefault',
 }
 
 export function ReasonPanel(props: ReasonPanelProps) {
+  // 文案经 useCopy() 取当前语言；语言切换由 locale 订阅触发重渲染
+  //（模块级 formatDispatch 等非组件上下文仍用 copy()）。
+  const t = useCopy()
   const { configSource, decision, presetName, lastFlowEvent, dispatch } = props
-  const source = SOURCE_LABELS[configSource] ?? configSource
+  const sourceKey = SOURCE_KEYS[configSource] as CopyKey | undefined
+  const source = sourceKey === undefined ? configSource : t(sourceKey)
 
   return (
     <div className="kt-reason">
-      <span className="kt-h">决策可观测</span>
-      <span className="kt-meta">配置来源：{source}（{configSource}）</span>
+      <span className="kt-h">{t('panel.reason.title')}</span>
+      <span className="kt-meta">{t('panel.reason.configSource', { 0: source, 1: configSource })}</span>
       {decision === null ? (
         <span className="kt-meta">
-          实际路由：{presetName === null ? '（路由已关闭）' : '（暂无本步决策 — 尚未发生规则命中或为默认目标）'}
+          {t('panel.reason.actualRoute')}{presetName === null ? t('panel.reason.routeOff') : t('panel.reason.noDecision')}
         </span>
       ) : (
         <>
           <span>
-            实际路由：<strong>{decision.chosen.provider}/{decision.chosen.model}</strong>
-            <span className="kt-meta">（router 决策）</span>
+            {t('panel.reason.actualRoute')}<strong>{decision.chosen.provider}/{decision.chosen.model}</strong>
+            <span className="kt-meta">{t('panel.reason.routerDecision')}</span>
           </span>
-          <span className="kt-meta">原因：{decision.reason}</span>
+          {/* decision.reason 是宿主侧拼好的中文串（/api/kimi-tide/panel 数据），原样透传。 */}
+          <span className="kt-meta">{t('panel.reason.reason', { 0: decision.reason })}</span>
         </>
       )}
-      {/* 0.6.x 池#1：流执行事件行（投影 v6 lastFlowEvent，推送侧 ≤120 截断）。 */}
-      {lastFlowEvent !== undefined && <span className="kt-meta">最近流事件：{lastFlowEvent}</span>}
+      {/* 0.6.x 池#1：流执行事件行（投影 v6 lastFlowEvent，推送侧 ≤120 截断）。宿主数据，透传。 */}
+      {lastFlowEvent !== undefined && <span className="kt-meta">{t('panel.reason.lastFlowEvent', { 0: lastFlowEvent })}</span>}
       {/* Task 6：派发明细，照上行「最近流事件」行式逐行渲染；台账侧已收口 20 条
           且新在前，slice(0, 20) 是客户端兜底（绕校验的实时载荷也至多 20 行）。
           终审 M8②：明细行用稳定键（at + 归属标签组合），不再用数组下标。 */}
       {dispatch !== undefined && dispatch.length > 0 && (
         <>
-          <span className="kt-h">最近派发</span>
+          <span className="kt-h">{t('panel.reason.dispatchSection')}</span>
           {dispatch.slice(0, 20).map((entry) => (
-            <span key={`${entry.at}:${entry.roleLabel ?? entry.teammate ?? entry.basis}`} className="kt-meta">派发：{formatDispatch(entry)}</span>
+            <span key={`${entry.at}:${entry.roleLabel ?? entry.teammate ?? entry.basis}`} className="kt-meta">{t('panel.reason.dispatchRow', { 0: formatDispatch(entry) })}</span>
           ))}
         </>
       )}

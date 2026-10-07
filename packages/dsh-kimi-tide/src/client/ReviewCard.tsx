@@ -29,6 +29,7 @@ import { useState } from 'react'
 import type { ReviewRecord, ReviewReviseRecord } from '../types.js'
 import { verdictLabel } from '../review-verdict.js'
 import { unwrapCommandOutcome } from './TideDock.js'
+import { copy, useCopy } from './locale.js'
 
 /** 评审卡 chat 渲染器 kind（ChatNodeDataMap 键；宿主按此值分发 keyed 槽）。 */
 export const REVIEW_NODE_KIND = 'kimi-tide-review' as const
@@ -59,7 +60,7 @@ declare module '@deepseek-ai/dsh-client-ui-chat/client' {
 export const reviewReviseBridge: {
   revise: (sessionId: string, line: string) => Promise<unknown>
 } = {
-  revise: () => Promise.reject(new Error('退回通道未接入（client 未 apply？）')),
+  revise: () => Promise.reject(new Error(copy('panel.review.bridgeMissing'))),
 }
 
 // ---- 宿主契约最小结构面（LocaleFace 先例：只取本文件用到的字段）----
@@ -215,6 +216,9 @@ function fmtTime(iso: string): string {
  * 并显示结论标签（v1.4.0 §3.3 的载荷字段；旧记录无该字段则不显示）。
  */
 export function ReviewCard(props: ReviewCardProps): JSX.Element {
+  // 文案经 useCopy() 取当前语言；语言切换由 locale 订阅触发重渲染。
+  // verdictLabel 来自 src/review-verdict.ts（非本任务写域），其产出作 {0} 参数透传。
+  const t = useCopy()
   const record = props.node?.data?.record
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
@@ -231,7 +235,7 @@ export function ReviewCard(props: ReviewCardProps): JSX.Element {
       // outcome === null：无法识别的回包（命令未匹配 value=undefined）——不编状态。
       if (outcome !== null) setNote(outcome.text)
     } catch (error) {
-      setNote(`退回失败：${error instanceof Error ? error.message : String(error)}`)
+      setNote(copy('panel.review.reviseFailed', { 0: error instanceof Error ? error.message : String(error) }))
     } finally {
       setBusy(false)
     }
@@ -240,7 +244,7 @@ export function ReviewCard(props: ReviewCardProps): JSX.Element {
   return (
     <div className={`kt-review-card${record.ok ? '' : ' kt-review-card-failed'}`}>
       <div className="kt-review-head">
-        <span className="kt-review-badge">评审 · {record.reviewer.model}</span>
+        <span className="kt-review-badge">{t('panel.review.badge', { 0: record.reviewer.model })}</span>
         <span className="kt-review-flow">{record.flowId}</span>
         {record.verdict !== undefined && (
           <span className={`kt-review-verdict kt-review-verdict-${record.verdict}`}>{verdictLabel(record.verdict)}</span>
@@ -250,7 +254,7 @@ export function ReviewCard(props: ReviewCardProps): JSX.Element {
       {record.ok ? (
         <pre className="kt-review-body">{record.reviewText}</pre>
       ) : (
-        <div className="kt-review-error">评审失败：{record.error ?? '未知错误'}</div>
+        <div className="kt-review-error">{t('panel.review.failed', { 0: record.error ?? t('panel.review.unknownError') })}</div>
       )}
       {record.ok && (
         <div className="kt-review-actions">
@@ -258,10 +262,10 @@ export function ReviewCard(props: ReviewCardProps): JSX.Element {
             type="button"
             className="kt-review-revise"
             disabled={props.sessionId === undefined || busy}
-            title={props.sessionId === undefined ? '本会话身份不可用，退回通道未接入' : '按这次评审意见让主模型重做（计修订上限）'}
+            title={props.sessionId === undefined ? t('panel.review.reviseNoSession') : t('panel.review.reviseTitle')}
             onClick={() => { void revise() }}
           >
-            {busy ? '退回中…' : '让它重做'}
+            {busy ? t('panel.review.reviseBusy') : t('panel.review.revise')}
           </button>
           {note !== '' && <span className="kt-review-note">{note}</span>}
         </div>
@@ -275,6 +279,8 @@ export function ReviewCard(props: ReviewCardProps): JSX.Element {
  * 或「已停（达上限）」＋依据的评审结论。
  */
 export function ReviewReviseCard(props: ReviewReviseCardProps): JSX.Element {
+  // 文案经 useCopy() 取当前语言（同 ReviewCard）。
+  const t = useCopy()
   const record = props.node?.data?.record
   if (record === undefined) return <></>
   const stopped = record.stopped === 'limit'
@@ -282,15 +288,15 @@ export function ReviewReviseCard(props: ReviewReviseCardProps): JSX.Element {
     <div className={`kt-review-card kt-revise-card${stopped ? ' kt-revise-card-stopped' : ''}`}>
       <div className="kt-review-head">
         <span className="kt-review-badge kt-revise-badge">
-          {stopped ? '已停（达上限）' : `↩︎ 已按评审意见退回重做（第 ${record.reviseIndex} 次）`}
+          {stopped ? t('panel.review.stopped') : t('panel.review.revised', { 0: record.reviseIndex })}
         </span>
-        <span className="kt-review-flow">{record.flowId} · {record.reason === 'manual' ? '手动' : '自动'}</span>
+        <span className="kt-review-flow">{record.flowId} · {record.reason === 'manual' ? t('panel.review.manual') : t('panel.review.auto')}</span>
         <span className="kt-review-time" title={record.at}>{fmtTime(record.at)}</span>
       </div>
       <div className="kt-revise-summary">
         {stopped
-          ? `依据结论：${verdictLabel(record.verdict)}——已达修订上限（轮次），不再自动重做；结论全文见上一张评审卡`
-          : `依据结论：${verdictLabel(record.verdict)}`}
+          ? t('panel.review.basisStopped', { 0: verdictLabel(record.verdict) })
+          : t('panel.review.basis', { 0: verdictLabel(record.verdict) })}
       </div>
     </div>
   )

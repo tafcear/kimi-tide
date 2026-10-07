@@ -77,8 +77,10 @@ describe('client apply：评审卡注册接入（A6 实机缺陷回归锁）', (
     const ctx = makeCtx({ onInject })
     apply(ctx as never)
     // Fails if: apply 在服务缺席时既不立即注册也不挂延迟驱动（实机缺陷本体）
-    expect(onInject).toHaveBeenCalledTimes(1)
-    expect(onInject.mock.calls[0]?.[0]).toEqual(['uiConversation'])
+    // 阶段 P 起 apply 还会为 locale 服务挂同款延迟驱动（attachLocaleService），
+    // 故按「存在 ['uiConversation'] 这次调用」断言，不再钉死调用总数。
+    const injectedDeps = onInject.mock.calls.map((call) => call[0])
+    expect(injectedDeps).toContainEqual(['uiConversation'])
   })
 
   it('延迟回调执行时服务已就绪：完成注册且经 effect 挂 fiber（停用可反注销）', () => {

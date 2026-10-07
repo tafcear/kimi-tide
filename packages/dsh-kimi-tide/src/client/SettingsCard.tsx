@@ -49,8 +49,10 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
 import { Icon } from './icons.js'
-import { FALLBACK_HINTS } from './help-content.js'
+import { FALLBACK_HINT_KEYS } from './help-content.js'
 import { HelpTab } from './HelpTab.js'
+import { copy, useCopy } from './locale.js'
+import type { CopyKey, CopyParams } from '../locales/index.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import { buildRoutingView, previewDispatch, type GroupInfo, type OverlapInfo, type RoutingConfigLike, type RoutingView } from '../routing-view.js'
@@ -170,9 +172,9 @@ export function roleSlug(name: string, existing: Record<string, unknown>): strin
 export function EXAMPLE_ROLES(fallback: RouteTarget): Record<string, RoleEntry> {
   const target = { provider: fallback.provider, model: fallback.model }
   return {
-    frontend: { id: 'frontend', label: '前端', target },
-    backend: { id: 'backend', label: '后端', target },
-    writer: { id: 'writer', label: '写作', target },
+    frontend: { id: 'frontend', label: copy('settings.role.example.frontend'), target },
+    backend: { id: 'backend', label: copy('settings.role.example.backend'), target },
+    writer: { id: 'writer', label: copy('settings.role.example.writer'), target },
   }
 }
 
@@ -193,9 +195,14 @@ const omitKey = (obj: Record<string, string[]>, key: string): Record<string, str
  * 「render 路径抛错会把 slot 条目整块搞白」，buildRoutingView 任何异常都回落
  * null（决策链/摘要/接入徽标整组跳过，预设选择行与编辑控件不受影响）。
  */
-const safeBuildRoutingView = (config: RoutingConfigLike, availability: Record<string, boolean> | null): RoutingView | null => {
+const safeBuildRoutingView = (
+  config: RoutingConfigLike,
+  availability: Record<string, boolean> | null,
+  copyFn: (key: CopyKey, params?: CopyParams) => string,
+): RoutingView | null => {
   try {
-    return buildRoutingView(config, { availability })
+    // W1：组件的 t 注入视图模型——卡片顶部摘要/五档链/默认目标行全部走当前语言。
+    return buildRoutingView(config, { availability, copy: copyFn })
   } catch {
     return null
   }
@@ -205,38 +212,40 @@ const safeBuildRoutingView = (config: RoutingConfigLike, availability: Record<st
  * A-② 决策链档位说明文案（实现锚点 = src/router.ts 优先级链）：档位序号/标题/
  * active/detail 由 view.precedence 单源给出，本表只补「触发条件 / 关闭后的
  * 影响」两行静态说明——纯展示层文案，不参与任何决策。
+ * W1 locale 化：模块级常量不能调 t（模块加载期无语言概念）——存键，渲染处 t(键)。
  */
-const TIER_WHEN: Record<number, string> = {
-  1: '消息里写了 @provider 或 @provider/model 时',
+const TIER_WHEN: Record<number, CopyKey> = {
+  1: 'settings.chain.tier1.when',
   // 2026-10-07 复核修：只有子代理（delegationDepth > 0）才保留调用方目标，
   // 主会话点名会被预设覆盖（router.ts shouldKeepExternalTarget）——与同屏
   // 第 2 档 detail「按需：仅子代理」（routing-view.ts）同口径，不得再写「宿主」。
-  2: '子代理调用方指定了模型，且与默认目标不同时',
-  3: '请求来自被分工表认领的队友时',
-  4: '主会话消息命中激活预设的某条规则时',
-  5: '以上各档都没接住时',
+  2: 'settings.chain.tier2.when',
+  3: 'settings.chain.tier3.when',
+  4: 'settings.chain.tier4.when',
+  5: 'settings.chain.tier5.when',
 }
-const TIER_OFF: Record<number, string> = {
-  1: '无开关，始终最先判定',
-  2: '无开关，按调用方指定',
+const TIER_OFF: Record<number, CopyKey> = {
+  1: 'settings.chain.tier1.off',
+  2: 'settings.chain.tier2.off',
   // 2026-10-07 复核修：D6 起子代理默认不参与关键词规则，清空分工表后队友请求
   // 只落到默认目标——「落到下一档（关键词规则/默认目标）」是旧口径，已按实修正。
-  3: '清空分工表后，队友请求落到默认目标（子代理默认不参与关键词规则；仅开启「子代理参与关键词规则」时才可能被规则接管）',
-  4: '关闭路由或清空规则后，主会话全部使用默认目标',
-  5: '无开关，它是最后一档',
+  3: 'settings.chain.tier3.off',
+  4: 'settings.chain.tier4.off',
+  5: 'settings.chain.tier5.off',
 }
 
 /**
  * A-⑤ 词表接入徽标（§4.5）：三态文案 + 色调。流认领优先于规则引用（与
  * buildRoutingView 的徽标单值口径一致）；视图缺该组数据 → null（行不渲染徽标）。
+ * W1 locale 化：模块级函数吃 t（渲染处传入），不在模块顶层取文案。
  */
-const wiringBadge = (group: GroupInfo | undefined): { text: string; tone: 'ok' | 'flow' | 'warn' } | null => {
+const wiringBadge = (t: (key: CopyKey, params?: CopyParams) => string, group: GroupInfo | undefined): { text: string; tone: 'ok' | 'flow' | 'warn' } | null => {
   if (group === undefined) return null
-  if (group.wiring === 'claimed-by-flow') return { text: '被协作流认领', tone: 'flow' }
+  if (group.wiring === 'claimed-by-flow') return { text: t('settings.chain.badge.claimedByFlow'), tone: 'flow' }
   if (group.wiring === 'referenced') {
-    return { text: `被 ${group.referencedBy.length} 条规则引用（${group.referencedBy.join('、')}）`, tone: 'ok' }
+    return { text: t('settings.chain.badge.referenced', { 0: group.referencedBy.length, 1: group.referencedBy.join(t('settings.common.joinList')) }), tone: 'ok' }
   }
-  return { text: '⚠ 未接入', tone: 'warn' }
+  return { text: t('settings.chain.badge.orphan'), tone: 'warn' }
 }
 
 /** 目标下拉：只列可用（已挂载）模型；当前值未挂载时不作为 option 兜底，改灰字提示
@@ -265,6 +274,9 @@ function TargetSelect(props: {
   onChange: (value: string) => void
 }) {
   const flowOptions = props.flowOptions ?? []
+  // 文案（W1 locale 化；P3 接回 useCopy）：useCopy() 取当前语言，服务缺席回落中文表；
+  // 语言切换由 locale 订阅触发重渲染。模块级常量（ROLE_EXAMPLES 等）仍用 copy()。
+  const t = useCopy()
   const known = props.options.includes(props.value)
     || flowOptions.some((flow) => flowValue(flow.id) === props.value)
     || (props.nullLabel !== undefined && props.value === '')
@@ -272,8 +284,8 @@ function TargetSelect(props: {
   return (
     <span className="kt-target-wrap">
       {!known && (
-        <span className="kt-unavailable kt-target-missing" title="该目标未接入（模型：设置 → Models 挂载后出现；流：flows 注册表缺失）">
-          （未挂载）{props.value}
+        <span className="kt-unavailable kt-target-missing" title={t('settings.field.target.missingTitle')}>
+          {t('settings.field.target.unmounted', { 0: props.value })}
         </span>
       )}
       <select
@@ -286,7 +298,7 @@ function TargetSelect(props: {
         {/* 占位档须先于 nullLabel 档：存量值未知（!known）时 select value=''
             命中首个同值 option——先占位档才能如实显示「— 选择目标 —」而非
             误显空值档文案；已知空值态（nullLabel 档本身）不占位、不撞档。 */}
-        {!known && <option value="" disabled>— 选择目标 —</option>}
+        {!known && <option value="" disabled>{t('settings.field.target.placeholder')}</option>}
         {props.nullLabel !== undefined && <option value="">{props.nullLabel}</option>}
         {groups.map((group, groupIndex) => {
           const options = group.options.map((option) => (
@@ -297,7 +309,7 @@ function TargetSelect(props: {
             : <optgroup key={groupIndex} label={group.label}>{options}</optgroup>
         })}
         {flowOptions.length > 0 && (
-          <optgroup label="协作流">
+          <optgroup label={t('settings.flows.label')}>
             {flowOptions.map((flow) => (
               <option key={flow.id} value={flowValue(flow.id)}>{flow.label}</option>
             ))}
@@ -322,6 +334,7 @@ function EffortSelect(props: {
   const options = props.options ?? []
   const known = props.value !== undefined && options.includes(props.value)
   const stored = props.value !== undefined && !known
+  const t = useCopy() // 文案经 useCopy() 取当前语言；语言切换由 locale 订阅触发重渲染
   return (
     <select
       aria-label={props.label}
@@ -331,7 +344,7 @@ function EffortSelect(props: {
     >
       {/* 1.4.1：模型未在宿主目录声明档位时这一项就是唯一选项（下拉禁用）——文案
           自解释，别让用户对着灰框猜原因（实机反馈：「模型能力没法设置」）。 */}
-      <option value="">{options.length === 0 ? '跟随默认（该模型未声明档位）' : '跟随默认'}</option>
+      <option value="">{options.length === 0 ? t('settings.field.effortFollowDefaultUndeclared') : t('settings.field.effortFollowDefault')}</option>
       {stored && <option value={props.value!}>{props.value!}</option>}
       {options.map((option) => (
         <option key={option} value={option}>{option}</option>
@@ -351,6 +364,7 @@ function KeywordGroupRow(props: {
   onSave: (words: string[]) => void
   onDelete: () => void
 }) {
+  const t = useCopy() // 文案经 useCopy() 取当前语言；语言切换由 locale 订阅触发重渲染
   const [draft, setDraft] = useState(() => props.words.join('\n'))
   // 评审 P2-4（2026-08-29）：草稿仅挂载时初始化 → 外部推送（他端/他 agent 改
   // 词表）后失焦会用旧草稿整段覆盖新值 = 静默丢修改。joined 变化且本行
@@ -369,13 +383,13 @@ function KeywordGroupRow(props: {
       )}
       <textarea
         ref={taRef}
-        aria-label={`${props.name} 词表`}
+        aria-label={t('settings.groups.wordsAria', { 0: props.name })}
         disabled={!props.writable}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => props.onSave(parseWords(draft))}
       />
-      <button type="button" disabled={!props.writable} onClick={props.onDelete}>删除组</button>
+      <button type="button" disabled={!props.writable} onClick={props.onDelete}>{t('settings.groups.delete')}</button>
     </div>
   )
 }
@@ -399,6 +413,7 @@ function RoleRow(props: {
   onDelete: () => void
 }) {
   const { role } = props
+  const t = useCopy() // 文案经 useCopy() 取当前语言；语言切换由 locale 订阅触发重渲染
   const [draft, setDraft] = useState(() => ({
     label: role.label,
     id: role.id,
@@ -421,7 +436,7 @@ function RoleRow(props: {
   return (
     <div className="kt-role-row" ref={rowRef}>
       <input
-        aria-label="角色显示名"
+        aria-label={t('settings.roles.labelAria')}
         className="kt-role-label"
         value={draft.label}
         disabled={!props.writable}
@@ -432,19 +447,19 @@ function RoleRow(props: {
         }}
       />
       <input
-        aria-label="角色 id"
+        aria-label={t('settings.roles.idAria')}
         className="kt-role-id"
         value={draft.id}
         disabled={!props.writable}
-        title="lower-kebab-case；同时是默认认领的队友名"
+        title={t('settings.roles.idTitle')}
         onChange={(e) => setDraft({ ...draft, id: e.target.value })}
         onBlur={() => { if (draft.id.trim() !== role.id) props.onRename(draft.id) }}
       />
       {/* B2 作用域徽标（§5.1）：分工表行 = 「派发时」——只对派给该队友/角色的
           请求改道，主会话不看分工表（与规则行的「主会话」相对）。 */}
-      <span className="kt-wire" title="作用域：仅在请求派给该队友/角色时改道（主会话不受分工表影响）">派发时</span>
+      <span className="kt-wire" title={t('settings.roles.scopeBadgeTitle')}>{t('settings.roles.scopeBadge')}</span>
       <TargetSelect
-        label={`${role.label} 目标`}
+        label={t('settings.roles.targetAria', { 0: role.label })}
         value={configKey(role.target)}
         options={props.modelOptions}
         groups={props.optionGroups}
@@ -455,7 +470,7 @@ function RoleRow(props: {
       />
       {/* 切换目标天然清空 effort（parseTarget 不产 effort 字段，与规则行同款语义） */}
       <EffortSelect
-        label={`${role.label} 目标 · 档位`}
+        label={t('settings.roles.targetEffortAria', { 0: role.label })}
         value={role.target.effort}
         options={props.effortsOf(role.target)}
         disabled={!props.writable}
@@ -467,11 +482,11 @@ function RoleRow(props: {
         }}
       />
       <input
-        aria-label="队友名"
+        aria-label={t('settings.roles.teammateAria')}
         className="kt-role-names"
         value={draft.teammate}
         disabled={!props.writable}
-        placeholder="额外认领的队友名，逗号分隔"
+        placeholder={t('settings.roles.teammatePlaceholder')}
         onChange={(e) => setDraft({ ...draft, teammate: e.target.value })}
         onBlur={() => {
           const teammate = listFromText(draft.teammate)
@@ -482,11 +497,11 @@ function RoleRow(props: {
         }}
       />
       <input
-        aria-label="别名"
+        aria-label={t('settings.roles.aliasesAria')}
         className="kt-role-names"
         value={draft.aliases}
         disabled={!props.writable}
-        placeholder="供模型识别的别名，逗号分隔"
+        placeholder={t('settings.roles.aliasesPlaceholder')}
         onChange={(e) => setDraft({ ...draft, aliases: e.target.value })}
         onBlur={() => {
           const aliases = listFromText(draft.aliases)
@@ -496,7 +511,7 @@ function RoleRow(props: {
           }
         }}
       />
-      <button type="button" aria-label={`删除角色 ${role.id}`} disabled={!props.writable} onClick={props.onDelete}>删除</button>
+      <button type="button" aria-label={t('settings.roles.deleteAria', { 0: role.id })} disabled={!props.writable} onClick={props.onDelete}>{t('settings.action.delete')}</button>
     </div>
   )
 }
@@ -508,7 +523,8 @@ function RoleRow(props: {
  * + rounds（1..3 夹取，validate 界内）+ autoRevise。
  * 预置流（DEFAULT_FLOWS 键）可改不可删；自建流可删，被引用时禁用删除按钮
  * （store.deleteFlow 的引用守卫是写路径兜底）。无 useState——hooks 置顶纪律
- * 下本组件保持零 hook（参数变更直接落盘，与规则行同款）。
+ * 下本组件不持本地草稿（参数变更直接落盘，与规则行同款）；文案经 useCopy()
+ * 取当前语言（语言切换由 locale 订阅触发重渲染）。
  */
 function FlowRow(props: {
   id: string
@@ -532,14 +548,15 @@ function FlowRow(props: {
   onDelete: () => void
 }) {
   const { flow } = props
+  const t = useCopy() // 文案经 useCopy() 取当前语言；语言切换由 locale 订阅触发重渲染
   return (
     <div className="kt-flow-row">
-      <span className="kt-flow-badge">{flow.type === 'transcribe' ? '转述' : '评审'}</span>
+      <span className="kt-flow-badge">{flow.type === 'transcribe' ? t('settings.flows.typeTranscribe') : t('settings.flows.typeReview')}</span>
       <span className="kt-field-label">{props.id}</span>
       {flow.type === 'transcribe' ? (
         <>
           <TargetSelect
-            label={`${props.id} 视觉模型`}
+            label={t('settings.flows.visionAria', { 0: props.id })}
             value={configKey(flow.visionModel)}
             options={props.modelOptions}
             groups={props.optionGroups}
@@ -549,7 +566,7 @@ function FlowRow(props: {
             onChange={(value) => props.onSave({ ...flow, visionModel: parseTarget(value) })}
           />
           <EffortSelect
-            label={`${props.id} 视觉模型 · 档位`}
+            label={t('settings.flows.visionEffortAria', { 0: props.id })}
             value={flow.visionModel.effort}
             options={props.effortsOf(flow.visionModel)}
             disabled={!props.writable}
@@ -562,19 +579,19 @@ function FlowRow(props: {
             }}
           />
           <select
-            aria-label={`${props.id} 失败策略`}
+            aria-label={t('settings.flows.failurePolicyAria', { 0: props.id })}
             value={flow.failurePolicy}
             disabled={!props.writable}
             onChange={(e) => props.onSave({ ...flow, failurePolicy: e.target.value as TranscribeFlow['failurePolicy'] })}
           >
-            <option value="latch-image">失败锁存</option>
-            <option value="blind">失败盲答</option>
+            <option value="latch-image">{t('settings.flows.failureLatch')}</option>
+            <option value="blind">{t('settings.flows.failureBlind')}</option>
           </select>
         </>
       ) : (
         <>
           <TargetSelect
-            label={`${props.id} 评审模型`}
+            label={t('settings.flows.reviewerAria', { 0: props.id })}
             value={configKey(flow.reviewer)}
             options={props.modelOptions}
             groups={props.optionGroups}
@@ -584,7 +601,7 @@ function FlowRow(props: {
             onChange={(value) => props.onSave({ ...flow, reviewer: parseTarget(value) })}
           />
           <EffortSelect
-            label={`${props.id} 评审模型 · 档位`}
+            label={t('settings.flows.reviewerEffortAria', { 0: props.id })}
             value={flow.reviewer.effort}
             options={props.effortsOf(flow.reviewer)}
             disabled={!props.writable}
@@ -597,7 +614,7 @@ function FlowRow(props: {
             }}
           />
           <select
-            aria-label={`${props.id} 触发方式`}
+            aria-label={t('settings.flows.triggerAria', { 0: props.id })}
             value={flow.trigger}
             disabled={!props.writable}
             onChange={(e) => {
@@ -611,18 +628,18 @@ function FlowRow(props: {
               props.onSave(next)
             }}
           >
-            <option value="manual">手动</option>
-            <option value="keywords" disabled={props.groupNames.length === 0}>关键词组</option>
+            <option value="manual">{t('settings.flows.triggerManual')}</option>
+            <option value="keywords" disabled={props.groupNames.length === 0}>{t('settings.flows.triggerKeywords')}</option>
           </select>
           {flow.trigger === 'keywords' && (
             <select
-              aria-label={`${props.id} 触发关键词组`}
+              aria-label={t('settings.flows.triggerGroupAria', { 0: props.id })}
               value={flow.keywordGroup ?? ''}
               disabled={!props.writable}
               onChange={(e) => props.onSave({ ...flow, keywordGroup: e.target.value })}
             >
               {flow.keywordGroup !== undefined && !props.groupNames.includes(flow.keywordGroup) && (
-                <option value={flow.keywordGroup} disabled>{flow.keywordGroup}（缺失）</option>
+                <option value={flow.keywordGroup} disabled>{t('settings.common.missing', { 0: flow.keywordGroup })}</option>
               )}
               {props.groupNames.map((group) => (
                 <option key={group} value={group}>{group}</option>
@@ -631,12 +648,12 @@ function FlowRow(props: {
           )}
           {flow.trigger === 'keywords' && props.claimConflicts.length > 0 && (
             <span className="kt-claimed-hint kt-claim-conflict">
-              本流认领该组后，下列预设规则将不再参与路由：
-              {props.claimConflicts.map((c) => `${c.ruleId}（${c.presetName}）`).join('、')}
+              {t('settings.flows.claimHint')}
+              {props.claimConflicts.map((c) => t('settings.common.wrapParen', { 0: c.ruleId, 1: c.presetName })).join(t('settings.common.joinList'))}
             </span>
           )}
           <input
-            aria-label={`${props.id} 评审轮次`}
+            aria-label={t('settings.flows.roundsAria', { 0: props.id })}
             type="number"
             min={1}
             max={3}
@@ -654,17 +671,17 @@ function FlowRow(props: {
           />
           <label className="kt-row">
             <input
-              aria-label={`${props.id} 自动修订`}
+              aria-label={t('settings.flows.autoReviseAria', { 0: props.id })}
               type="checkbox"
               checked={flow.autoRevise}
               disabled={!props.writable}
               onChange={(e) => props.onSave({ ...flow, autoRevise: e.target.checked })}
             />
-            自动修订
+            {t('settings.flows.autoRevise')}
           </label>
           <label className="kt-row">
             <input
-              aria-label={`${props.id} 复检`}
+              aria-label={t('settings.flows.recheckAria', { 0: props.id })}
               type="checkbox"
               // v1.4.0：默认开（用户 2026-10-02 裁定）——存量配置没写该键也显示为勾选；
               // 取消勾选显式落盘 false（`!== false` 语义的写侧对应）。
@@ -672,26 +689,26 @@ function FlowRow(props: {
               disabled={!props.writable}
               onChange={(e) => props.onSave({ ...flow, recheck: e.target.checked })}
             />
-            修订后复检
+            {t('settings.flows.recheck')}
           </label>
           {/* v1.4.0 配额护栏（spec §3.5）：两个开关各多花一次调用，写清代价再让人勾。
               上限口径 = **每会话每流**（与 README/CHANGELOG 一致，复核 F4 修正「每轮会话」）。 */}
           <span className="kt-flow-quota-hint">
-            开启自动修订或复检后：每次退回会多一轮主模型调用
-            {flow.recheck !== false ? '，复检再各多一次评审调用' : ''}
-            ；本会话该流最多修订 {Math.min(3, Math.max(1, Math.round(flow.rounds) || 1))} 次（= 轮次上限，手动退回同计）。
+            {t('settings.flows.quotaBase')}
+            {flow.recheck !== false ? t('settings.flows.quotaRecheck') : ''}
+            {t('settings.flows.quotaLimit', { 0: Math.min(3, Math.max(1, Math.round(flow.rounds) || 1)) })}
           </span>
         </>
       )}
       {!props.preset && (
         <button
           type="button"
-          aria-label={`删除流 ${props.id}`}
+          aria-label={t('settings.flows.deleteAria', { 0: props.id })}
           disabled={!props.writable || props.referenced}
-          title={props.referenced ? '仍被规则或 imageFallbackFlow 引用，请先清除引用' : undefined}
+          title={props.referenced ? t('settings.flows.referencedTitle') : undefined}
           onClick={props.onDelete}
         >
-          删除
+          {t('settings.action.delete')}
         </button>
       )}
     </div>
@@ -700,6 +717,9 @@ function FlowRow(props: {
 
 export function SettingsCard(props: SettingsCardProps) {
   const { scope, connection } = props
+  // 文案（W1 locale 化；P3 接回 useCopy）：useCopy() 取当前语言，服务缺席回落中文表；
+  // 语言切换由 locale 订阅触发重渲染。模块级常量（ROLE_EXAMPLES 等）仍用 copy()。
+  const t = useCopy()
   const [store] = useState(() => (props.storeFactory ?? createCardStore)(scope, connection))
   // connection 路径是异步 describe：mount 后拉一次（scope 路径已在创建时同步读入）。
   useEffect(() => {
@@ -826,15 +846,15 @@ export function SettingsCard(props: SettingsCardProps) {
   // 防御：构建异常回落 null（§9.3：render 抛错会把 slot 条目整块搞白）——
   // 链区/徽标/空状态整组跳过，预设选择行与编辑控件照常（见渲染处兜底分支）。
   const routingView = useMemo(
-    () => (config === null ? null : safeBuildRoutingView(config, snapshot.availability)),
-    [config, snapshot.availability],
+    () => (config === null ? null : safeBuildRoutingView(config, snapshot.availability, t)),
+    [config, snapshot.availability, t],
   )
 
   if (config === null) {
     // 现状不可用态原样保留。
     return (
       <div className="kimi-tide-settings">
-        <span className="kt-hint">路由设置不可用</span>
+        <span className="kt-hint">{t('settings.status.unavailable')}</span>
         {snapshot.error !== null && <span className="kt-warn"><Icon name="warn" /> {snapshot.error}</span>}
       </div>
     )
@@ -923,7 +943,7 @@ export function SettingsCard(props: SettingsCardProps) {
   // P1 边界：仅 transcribe 流可作规则目标（review 流出现在注册表区但不进分组）。
   const transcribeFlowOptions = flowEntries
     .filter(([, flow]) => flow.type === 'transcribe')
-    .map(([id]) => ({ id, label: `${id}（转述）` }))
+    .map(([id]) => ({ id, label: t('settings.flows.transcribeOption', { 0: id }) }))
   /** 流引用检查（UI 层禁用删除；store.deleteFlow 守卫是写路径兜底）。 */
   const flowReferenced = (flowId: string): boolean =>
     Object.values(config.presets).some((preset) =>
@@ -960,7 +980,7 @@ export function SettingsCard(props: SettingsCardProps) {
   }
   const addRole = (): void => {
     const id = roleSlug(`role-${roleEntries.length + 1}`, roles)
-    saveRolesRecord({ ...roles, [id]: { id, label: '新角色', target: roleFallbackTarget() } })
+    saveRolesRecord({ ...roles, [id]: { id, label: t('settings.roles.newLabel'), target: roleFallbackTarget() } })
   }
   const fillExampleRoles = (): void => {
     // 既有角色保留（同 id 以用户现值为准，示例不覆盖）；三条示例置前便于就地改目标。
@@ -1010,24 +1030,24 @@ export function SettingsCard(props: SettingsCardProps) {
     return (
       <div className="kt-overlap" key={`${overlap.group}:${overlap.word}:${overlap.roleId}`}>
         <span>
-          设计使然：主会话说『{overlap.word}』走 {overlap.sessionTarget}；派给『{roleLabel}』做走 {overlap.dispatchTarget}。
+          {t('settings.chain.overlap.text', { 0: overlap.word, 1: overlap.sessionTarget, 2: roleLabel, 3: overlap.dispatchTarget })}
         </span>
         <button
           type="button"
           disabled={!writable}
-          title="把引用该词表组的规则目标改为跟随该角色目标"
+          title={t('settings.chain.overlap.followTitle')}
           onClick={() => followRoleTarget(overlap)}
         >
-          规则跟随该角色
+          {t('settings.chain.overlap.followAction')}
         </button>
         {/* §5.2 第二个一键动作：把该词并入该角色别名（去重、空串不写）。 */}
         <button
           type="button"
           disabled={!writable}
-          title="把该词追加进该角色的别名（已在别名中则不落笔）——认领集合不变，仅供模型识别"
+          title={t('settings.chain.overlap.mergeTitle')}
           onClick={() => mergeWordIntoRoleAliases(overlap)}
         >
-          词并入该角色别名
+          {t('settings.chain.overlap.mergeAction')}
         </button>
       </div>
     )
@@ -1081,7 +1101,7 @@ export function SettingsCard(props: SettingsCardProps) {
     if (activeId === null || active === null) return
     const next = active.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule))
     if (!saveRulesIfDistinct(activeId, active.rules, next)) {
-      setRuleConflict('条件重复（互斥）：同条件规则只能保留一条，本次修改未保存')
+      setRuleConflict(t('settings.rules.conflictDuplicate'))
       return
     }
     setRuleConflict(null)
@@ -1131,7 +1151,7 @@ export function SettingsCard(props: SettingsCardProps) {
       }
     }
     if (when === null) {
-      setRuleConflict('没有可用条件：所有条件均已被占用（可先在「关键词组」新建组，再新增规则）')
+      setRuleConflict(t('settings.rules.noCondition'))
       return
     }
     updateRules(activeId, [
@@ -1193,7 +1213,7 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const duplicateActive = (): void => {
     if (activeId === null || active === null) return
-    const name = `${active.name} 副本`
+    const name = t('settings.presets.copySuffix', { 0: active.name })
     void storeWriter.createPreset(presetSlug(name, config.presets), { ...active, name, rules: [...active.rules] })
   }
 
@@ -1215,9 +1235,9 @@ export function SettingsCard(props: SettingsCardProps) {
   const editorBlock = active !== null && activeId !== null ? (
         <div className="kt-editor">
           <label className="kt-row">
-            <span className="kt-field-label">默认模型</span>
+            <span className="kt-field-label">{t('settings.field.defaultModel')}</span>
             <TargetSelect
-              label="默认模型"
+              label={t('settings.field.defaultModel')}
               value={configKey(active.default)}
               options={modelOptions}
               groups={optionGroups}
@@ -1228,7 +1248,7 @@ export function SettingsCard(props: SettingsCardProps) {
             />
             {/* 切换默认模型天然清空 effort（parseTarget 不产 effort 字段，D3 UI 语义） */}
             <EffortSelect
-              label="默认模型 · 档位"
+              label={t('settings.field.defaultModelEffort')}
               value={active.default.effort}
               options={effortsOf(active.default)}
               disabled={!writable}
@@ -1241,26 +1261,26 @@ export function SettingsCard(props: SettingsCardProps) {
             />
             {/* A-⑥ driver 消歧（§4.6）：driverSticky 开启时主会话默认目标恒定取主驱动，
                 预设「默认模型」只在主驱动关闭（跟随宿主默认）时生效。 */}
-            {driverSticky && <span className="kt-hint">仅主驱动关闭时生效</span>}
+            {driverSticky && <span className="kt-hint">{t('settings.field.defaultModelStickyHint')}</span>}
           </label>
           {/* A-⑥ 同值提示：driverSticky 开且主驱动目标 = 本预设默认模型时，两处在
               界面上看不出差别（§1.1 症状 3）——显式点名，避免用户误以为重复配置。 */}
           {driverSticky && driver !== null && configKey(driver) === configKey(active.default) && (
             <span className="kt-hint">
-              主驱动目标与本预设默认模型同值（{configKey(driver)}）——目前两处看不出差别，改动任一处才会分叉
+              {t('settings.field.defaultModelSameAsDriver', { 0: configKey(driver) })}
             </span>
           )}
 
           <div className="kt-card kt-rules">
             <div className="kt-card-head">
-              <h4 className="kt-card-title">规则</h4>
-              <span className="kt-h">命中词数多者优先，平手按列表序，带图恒第一</span>
+              <h4 className="kt-card-title">{t('settings.rules.title')}</h4>
+              <span className="kt-h">{t('settings.rules.orderHint')}</span>
             </div>
             {/* ⑥-B 打磨三：存量重复条件警示条 + 一键清理被遮蔽规则。 */}
             {dupIds.length > 0 && (
               <div className="kt-conflict-banner" role="alert">
                 <span className="kt-warn">
-                  检测到重复条件（{dupIds.length} 条被遮蔽）——同条件规则只有首条可命中
+                  {t('settings.rules.dupBanner', { 0: dupIds.length })}
                 </span>
                 <button
                   type="button"
@@ -1271,7 +1291,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     updateRules(activeId, active.rules.filter((rule) => !shadowed.has(rule.id)))
                   }}
                 >
-                  删除重复项
+                  {t('settings.rules.dupCleanup')}
                 </button>
               </div>
             )}
@@ -1280,10 +1300,10 @@ export function SettingsCard(props: SettingsCardProps) {
               {/* 评审 P2-6：表头不再 aria-hidden——列头进入可访问树（读屏可听列名）。 */}
             <div className="kt-rule-grid kt-rule-head">
                 <span>#</span>
-                <span>条件</span>
-                <span>目标</span>
-                <span>档位</span>
-                <span>操作</span>
+                <span>{t('settings.rules.colCondition')}</span>
+                <span>{t('settings.rules.colTarget')}</span>
+                <span>{t('settings.rules.colEffort')}</span>
+                <span>{t('settings.rules.colOps')}</span>
               </div>
             {active.rules.map((rule, index) => {
               const targetKey = ruleTargetValue(rule.target)
@@ -1296,9 +1316,9 @@ export function SettingsCard(props: SettingsCardProps) {
                   <span className="kt-cond">
                     {/* B2 作用域徽标（§5.1）：规则行 = 「主会话」——关键词规则只对
                         主会话生效（子代理不参与，D6；与分工表行的「派发时」相对）。 */}
-                    <span className="kt-wire" title="作用域：只对主会话生效（子代理不参与关键词规则，D6）">主会话</span>
+                    <span className="kt-wire" title={t('settings.rules.scopeBadgeTitle')}>{t('settings.rules.scopeBadge')}</span>
                     <select
-                      aria-label={`第 ${index + 1} 条 · 条件`}
+                      aria-label={t('settings.rules.condAria', { 0: index + 1 })}
                       value={conditionValue(rule)}
                       disabled={!writable}
                       onChange={(e) => {
@@ -1311,19 +1331,19 @@ export function SettingsCard(props: SettingsCardProps) {
                         editActiveRule(index, { when })
                       }}
                     >
-                      <option value={IMAGE_VALUE}>带图</option>
+                      <option value={IMAGE_VALUE}>{t('settings.rules.condImage')}</option>
                       {groupNames.map((group) => (
                         <option key={group} value={kwValue(group)}>{group}</option>
                       ))}
                       {rule.when.kind === 'keywords' && missingGroup && (
-                        <option value={kwValue(rule.when.group)}>{rule.when.group}（缺失）</option>
+                        <option value={kwValue(rule.when.group)}>{t('settings.common.missing', { 0: rule.when.group })}</option>
                       )}
                     </select>
                     {rule.when.kind === 'keywords' && (
                       <>
                         <input
-                          aria-label={`第 ${index + 1} 条 · 最少命中词数`}
-                          title="最少命中词数：≥N 个词同时命中才触发"
+                          aria-label={t('settings.rules.minHitsAria', { 0: index + 1 })}
+                          title={t('settings.rules.minHitsTitle')}
                           className="kt-minhits"
                           type="number"
                           min={1}
@@ -1339,13 +1359,13 @@ export function SettingsCard(props: SettingsCardProps) {
                             editActiveRule(index, { when: { ...rule.when, minHits: Math.max(1, n) } })
                           }}
                         />
-                        <span className="kt-hint" aria-hidden="true">词</span>
+                        <span className="kt-hint" aria-hidden="true">{t('settings.rules.minHitsUnit')}</span>
                       </>
                     )}
                   </span>
                   <span className="kt-cell">
                     <TargetSelect
-                      label={`第 ${index + 1} 条 · 目标`}
+                      label={t('settings.rules.targetAria', { 0: index + 1 })}
                       value={targetKey}
                       options={modelOptions}
                       groups={optionGroups}
@@ -1360,7 +1380,7 @@ export function SettingsCard(props: SettingsCardProps) {
                   <span className="kt-cell">
                     {!isFlowTarget(rule.target) ? (
                       <EffortSelect
-                        label={`第 ${index + 1} 条 · 档位`}
+                        label={t('settings.rules.effortAria', { 0: index + 1 })}
                         value={rule.target.effort}
                         options={effortsOf(rule.target)}
                         disabled={!writable}
@@ -1373,13 +1393,13 @@ export function SettingsCard(props: SettingsCardProps) {
                         }}
                       />
                     ) : (
-                      <span className="kt-hint">—</span>
+                      <span className="kt-hint">{t('settings.common.dash')}</span>
                     )}
                   </span>
                   <span className="kt-ops">
                     <button
                       type="button"
-                      aria-label={`第 ${index + 1} 条 · 上移`}
+                      aria-label={t('settings.rules.moveUpAria', { 0: index + 1 })}
                       disabled={!writable || index === 0}
                       onClick={() => moveRule(index, -1)}
                     >
@@ -1387,7 +1407,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     </button>
                     <button
                       type="button"
-                      aria-label={`第 ${index + 1} 条 · 下移`}
+                      aria-label={t('settings.rules.moveDownAria', { 0: index + 1 })}
                       disabled={!writable || index === active.rules.length - 1}
                       onClick={() => moveRule(index, 1)}
                     >
@@ -1395,18 +1415,18 @@ export function SettingsCard(props: SettingsCardProps) {
                     </button>
                     <button
                       type="button"
-                      aria-label={`第 ${index + 1} 条 · 删除规则`}
+                      aria-label={t('settings.rules.deleteAria', { 0: index + 1 })}
                       disabled={!writable}
                       onClick={() => removeRule(index)}
                     >
-                      删除
+                      {t('settings.action.delete')}
                     </button>
                   </span>
                   {claimed && (
-                    <span className="kt-claimed-hint">该组已被评审流认领，不再参与路由</span>
+                    <span className="kt-claimed-hint">{t('settings.rules.claimedHint')}</span>
                   )}
                   {conflicted && (
-                    <span className="kt-conflict-hint">条件重复：与上方某条规则条件相同，永不优先命中</span>
+                    <span className="kt-conflict-hint">{t('settings.rules.conflictHint')}</span>
                   )}
                 </div>
               )
@@ -1419,18 +1439,18 @@ export function SettingsCard(props: SettingsCardProps) {
               const orphans = (routingView?.groups ?? []).filter((group) => group.wiring === 'orphan').length
               const base = routingView === null
                 ? configKey(active.default)
-                : routingView.fallback.target !== null ? configKey(routingView.fallback.target) : '宿主默认'
+                : routingView.fallback.target !== null ? configKey(routingView.fallback.target) : t('settings.rules.emptyHostDefault')
               return (
                 <div className="kt-rules-empty">
-                  <div>主会话没有可命中的规则，全部使用默认目标（{base}）。</div>
-                  {orphans > 0 && <div>另有 {orphans} 组关键词组未接入任何规则，暂不生效。</div>}
+                  <div>{t('settings.rules.empty', { 0: base })}</div>
+                  {orphans > 0 && <div>{t('settings.rules.emptyOrphans', { 0: orphans })}</div>}
                 </div>
               )
             })()}
             {ruleConflict !== null && (
               <span className="kt-warn kt-rule-conflict-msg" role="alert">{ruleConflict}</span>
             )}
-            <button type="button" className="kt-btn-primary" disabled={!writable} onClick={addRule}>新增规则</button>
+            <button type="button" className="kt-btn-primary" disabled={!writable} onClick={addRule}>{t('settings.rules.add')}</button>
           </div>
 
           {/* 带图兜底三态（0.6.0，仅 v5+）：锁存/盲答/懒转述 + 一句话后果提示；
@@ -1438,24 +1458,27 @@ export function SettingsCard(props: SettingsCardProps) {
           {isV5Plus && (
             <div className="kt-card kt-fallback">
               <label className="kt-row">
-                <span className="kt-field-label">带图兜底</span>
+                <span className="kt-field-label">{t('settings.field.imageFallback')}</span>
                 <select
-                  aria-label="带图兜底"
+                  aria-label={t('settings.field.imageFallback')}
                   value={active.imageFallback ?? 'latch'}
                   disabled={!writable}
                   onChange={(e) => saveImageFallback(e.target.value as ImageFallback)}
                 >
-                  <option value="latch">锁存</option>
-                  <option value="blind">盲答</option>
-                  <option value="transcribe-lazy">懒转述</option>
+                  <option value="latch">{t('settings.field.imageFallbackLatch')}</option>
+                  <option value="blind">{t('settings.field.imageFallbackBlind')}</option>
+                  <option value="transcribe-lazy">{t('settings.field.imageFallbackLazy')}</option>
                 </select>
               </label>
-              <span className="kt-hint">{FALLBACK_HINTS[active.imageFallback ?? 'latch']}</span>
+              {/* W1/W4 冻结契约：后果提示走 help.fallback.* 键（help-content.ts 导出
+                  FALLBACK_HINT_KEYS 键映射），渲染处 t() 解析——不再消费模块级
+                  FALLBACK_HINTS 常量（模块加载期求值恒为中文）。 */}
+              <span className="kt-hint">{t(FALLBACK_HINT_KEYS[active.imageFallback ?? 'latch'])}</span>
               {(active.imageFallback ?? 'latch') === 'transcribe-lazy' && (
                 <label className="kt-row">
-                  <span className="kt-field-label">懒转述流</span>
+                  <span className="kt-field-label">{t('settings.field.lazyFlow')}</span>
                   <select
-                    aria-label="懒转述流"
+                    aria-label={t('settings.field.lazyFlow')}
                     value={active.imageFallbackFlow ?? 'transcribe'}
                     disabled={!writable}
                     onChange={(e) => saveImageFallbackFlow(e.target.value)}
@@ -1465,7 +1488,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     ))}
                     {!transcribeFlowOptions.some((flow) => flow.id === (active.imageFallbackFlow ?? 'transcribe')) && (
                       <option value={active.imageFallbackFlow ?? 'transcribe'} disabled>
-                        {active.imageFallbackFlow ?? 'transcribe'}（缺失）
+                        {t('settings.common.missing', { 0: active.imageFallbackFlow ?? 'transcribe' })}
                       </option>
                     )}
                   </select>
@@ -1480,25 +1503,25 @@ export function SettingsCard(props: SettingsCardProps) {
           {isV5Plus && (
             <div className="kt-card kt-hit-confirm">
               <label className="kt-row">
-                <span className="kt-field-label">语义命中确认</span>
+                <span className="kt-field-label">{t('settings.field.hitConfirm')}</span>
                 <input
                   type="checkbox"
-                  aria-label="语义命中确认"
+                  aria-label={t('settings.field.hitConfirm')}
                   checked={active.hitConfirm?.enabled === true}
                   disabled={!writable}
                   onChange={(e) => saveHitConfirm({ ...(active.hitConfirm ?? {}), enabled: e.target.checked })}
                 />
                 <span className="kt-hint">
-                  命中先让本预设的默认模型（{configKey(active.default)}）确认一次；判否就跳过该条规则
+                  {t('settings.field.hitConfirmHint', { 0: configKey(active.default) })}
                 </span>
               </label>
               {active.hitConfirm?.enabled === true && (
                 <>
                   <label className="kt-row">
-                    <span className="kt-field-label">判官超时（毫秒）</span>
+                    <span className="kt-field-label">{t('settings.field.hitTimeout')}</span>
                     <input
                       type="number"
-                      aria-label="判官超时"
+                      aria-label={t('settings.field.hitTimeoutAria')}
                       min={1}
                       max={10000}
                       defaultValue={active.hitConfirm.timeoutMs ?? 1200}
@@ -1507,10 +1530,10 @@ export function SettingsCard(props: SettingsCardProps) {
                     />
                   </label>
                   <label className="kt-row">
-                    <span className="kt-field-label">判官输出上限（token）</span>
+                    <span className="kt-field-label">{t('settings.field.hitMaxTokens')}</span>
                     <input
                       type="number"
-                      aria-label="判官输出上限"
+                      aria-label={t('settings.field.hitMaxTokensAria')}
                       min={1}
                       max={256}
                       defaultValue={active.hitConfirm.maxTokens ?? 64}
@@ -1519,7 +1542,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     />
                   </label>
                   <span className="kt-hint">
-                    问不到（超时/模型不可用/输出读不出）一律不过闸；显式 @ 轮与「带图规则已排首位」的轮不会调用判官。
+                    {t('settings.field.hitFailOpen')}
                   </span>
                 </>
               )}
@@ -1533,11 +1556,9 @@ export function SettingsCard(props: SettingsCardProps) {
      （守卫式：认领名冲突 fail() 不写盘，错误经 .kt-status-slot 状态槽上浮）。 */
   const rolesBlock = (
       <details className="kt-roles kt-card" data-kt-section="roles">
-        <summary>分工表（专项活派给谁）</summary>
+        <summary>{t('settings.roles.summary')}</summary>
         <p className="kt-hint">
-          每个角色 = 一个领域 → 一个模型。角色 id 与「队友名」用 lower-kebab-case（如 frontend）；
-          用这些名字 spawn_teammate，月汐会把它们的请求改道到该角色的目标模型。
-          认领名（id + 队友名）不得跨角色重复——冲突时保存会被拒绝。
+          {t('settings.roles.intro')}
         </p>
         {roleEntries.map(([id, role]) => (
           <div key={id} className="kt-group-item">
@@ -1562,23 +1583,23 @@ export function SettingsCard(props: SettingsCardProps) {
           </div>
         ))}
         <div className="kt-row">
-          <button type="button" disabled={!writable} onClick={addRole}>新增角色</button>
+          <button type="button" disabled={!writable} onClick={addRole}>{t('settings.roles.add')}</button>
           <button
             type="button"
             disabled={!writable}
-            title="填入 前端/后端/写作 三条示例（目标先取当前预设默认模型，可再在下拉里改）"
+            title={t('settings.roles.fillExampleTitle')}
             onClick={fillExampleRoles}
           >
-            填入三条示例
+            {t('settings.roles.fillExample')}
           </button>
           {/* B5 词表 → 角色接入（§5.4）：orphan 词表组（无规则引用）批量生成分工角色。 */}
           <button
             type="button"
             disabled={!writable || orphanGroups.length === 0}
-            title="把还没有任何规则引用的词表组批量生成分工角色（目标先取当前预设默认模型，可再在下拉里改）"
+            title={t('settings.roles.generateTitle')}
             onClick={generateRolesFromGroups}
           >
-            从词表生成角色
+            {t('settings.roles.generate')}
           </button>
         </div>
       </details>
@@ -1596,21 +1617,21 @@ export function SettingsCard(props: SettingsCardProps) {
         <button type="button" role="tab" id={tabId('route')} aria-controls={panelId('route')} data-kt-tab="route"
           aria-selected={activeTab === 'route'} tabIndex={activeTab === 'route' ? 0 : -1}
           className={activeTab === 'route' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-          onClick={() => setActiveTab('route')}>路由</button>
+          onClick={() => setActiveTab('route')}>{t('settings.tab.route')}</button>
         {isV5Plus && (
           <button type="button" role="tab" id={tabId('flows')} aria-controls={panelId('flows')} data-kt-tab="flows"
             aria-selected={activeTab === 'flows'} tabIndex={activeTab === 'flows' ? 0 : -1}
             className={activeTab === 'flows' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-            onClick={() => setActiveTab('flows')}>协作流</button>
+            onClick={() => setActiveTab('flows')}>{t('settings.flows.label')}</button>
         )}
         <button type="button" role="tab" id={tabId('trial')} aria-controls={panelId('trial')} data-kt-tab="trial"
           aria-selected={activeTab === 'trial'} tabIndex={activeTab === 'trial' ? 0 : -1}
           className={activeTab === 'trial' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-          onClick={() => setActiveTab('trial')}>测试场</button>
+          onClick={() => setActiveTab('trial')}>{t('settings.tab.trial')}</button>
         <button type="button" role="tab" id={tabId('help')} aria-controls={panelId('help')} data-kt-tab="help"
           aria-selected={activeTab === 'help'} tabIndex={activeTab === 'help' ? 0 : -1}
           className={activeTab === 'help' ? 'kt-tab kt-tab-on' : 'kt-tab'}
-          onClick={() => setActiveTab('help')}>说明</button>
+          onClick={() => setActiveTab('help')}>{t('settings.tab.help')}</button>
       </div>
       {/* 1.4.1：瞬态状态位（错误横幅 /「已保存」闪现）收进**绝对定位**槽——它们是
           反馈而不是内容，此前在文档流里各占一行，每次落盘闪现都会把下面整块内容顶下去
@@ -1618,7 +1639,7 @@ export function SettingsCard(props: SettingsCardProps) {
           零位移；错误与「已保存」同槽并排，互不覆盖。 */}
       <div className="kt-status-slot">
         {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
-        {savedFlash && <span className="kt-saved" role="status">已保存</span>}
+        {savedFlash && <span className="kt-saved" role="status">{t('settings.status.saved')}</span>}
       </div>
 
       {/* 路由页容器（A 项重排 2026-10-07，设计稿 §4）：顶部摘要 → 预设选择行 →
@@ -1642,7 +1663,7 @@ export function SettingsCard(props: SettingsCardProps) {
             void storeWriter.saveActivePreset(null)
           }}
         >
-          关闭
+          {t('settings.presets.close')}
         </button>
         {Object.entries(config.presets).map(([id, preset]) => (
           <button
@@ -1676,21 +1697,21 @@ export function SettingsCard(props: SettingsCardProps) {
                 {/* A-② 三态徽标（2026-10-07 修）：off ⇒ 未启用；on-demand ⇒ 按需。
                     「按需」**不置灰**——该档可用，只是要满足条件才参与（写 @ / 子代理点名）；
                     只有真正不参与的档位才走 kt-tier-off 的语义分层（§9.2 禁边框/阴影分组）。 */}
-                {tier.state === 'off' && <span className="kt-tier-state">未启用</span>}
-                {tier.state === 'on-demand' && <span className="kt-tier-state">按需</span>}
+                {tier.state === 'off' && <span className="kt-tier-state">{t('settings.chain.stateOff')}</span>}
+                {tier.state === 'on-demand' && <span className="kt-tier-state">{t('settings.chain.stateOnDemand')}</span>}
               </div>
-              <p className="kt-tier-line"><span className="kt-tier-tag">触发条件</span>{TIER_WHEN[tier.tier] ?? '—'}</p>
+              <p className="kt-tier-line"><span className="kt-tier-tag">{t('settings.chain.tagWhen')}</span>{t(TIER_WHEN[tier.tier] ?? 'settings.common.dash')}</p>
               <p className="kt-tier-line">
-                <span className="kt-tier-tag">当前取值</span>
+                <span className="kt-tier-tag">{t('settings.chain.tagValue')}</span>
                 {/* A-③ 默认目标档显式渲染 view.fallback（来源 + reason；activePreset=null
                     ⇒「路由已关闭」），其余档位渲染视图模型给出的 detail。 */}
                 {tier.tier === 5
                   ? routingView.fallback.target !== null
-                    ? `${configKey(routingView.fallback.target)}（${routingView.fallback.reason}）`
+                    ? t('settings.common.wrapParen', { 0: configKey(routingView.fallback.target), 1: routingView.fallback.reason })
                     : routingView.fallback.reason
-                  : tier.detail !== '' ? tier.detail : '—'}
+                  : tier.detail !== '' ? tier.detail : t('settings.common.dash')}
               </p>
-              <p className="kt-tier-line"><span className="kt-tier-tag">关闭后的影响</span>{TIER_OFF[tier.tier] ?? '—'}</p>
+              <p className="kt-tier-line"><span className="kt-tier-tag">{t('settings.chain.tagOff')}</span>{t(TIER_OFF[tier.tier] ?? 'settings.common.dash')}</p>
               {tier.tier === 3 && rolesBlock}
               {tier.tier === 4 && editorBlock}
             </li>
@@ -1708,22 +1729,22 @@ export function SettingsCard(props: SettingsCardProps) {
           仅 ready 且可写时可用（T7 延期 Minor 门控）。 */}
       <div className="kt-preset-ops">
         <input
-          aria-label="新预设名"
-          placeholder="新预设名"
+          aria-label={t('settings.presets.newName')}
+          placeholder={t('settings.presets.newName')}
           value={newPresetName}
           disabled={!canManagePresets}
           onChange={(e) => setNewPresetName(e.target.value)}
         />
-        <button type="button" disabled={!canManagePresets} onClick={createPreset}>新建预设</button>
+        <button type="button" disabled={!canManagePresets} onClick={createPreset}>{t('settings.presets.create')}</button>
         {active !== null && (
           <>
-            <button type="button" disabled={!canManagePresets} onClick={duplicateActive}>复制</button>
+            <button type="button" disabled={!canManagePresets} onClick={duplicateActive}>{t('settings.presets.duplicate')}</button>
             {/* 评审 P2-2：删除预设连全部规则——两步确认（3 秒自动解除）。 */}
             <button
               type="button"
               className={deleteArmed ? 'kt-danger' : undefined}
               disabled={!canManagePresets}
-              title={deleteArmed ? '再次点击确认删除（3 秒内有效）' : undefined}
+              title={deleteArmed ? t('settings.presets.deleteArmedTitle') : undefined}
               onClick={() => {
                 if (!deleteArmed) {
                   setDeleteArmed(true)
@@ -1733,7 +1754,7 @@ export function SettingsCard(props: SettingsCardProps) {
                 deleteActive()
               }}
             >
-              {deleteArmed ? '确认删除？' : '删除'}
+              {deleteArmed ? t('settings.presets.deleteArmed') : t('settings.action.delete')}
             </button>
           </>
         )}
@@ -1742,9 +1763,9 @@ export function SettingsCard(props: SettingsCardProps) {
       {/* 关键词组管理区：组列表（A-⑤ 每行带接入徽标：被 N 条规则引用 / 被协作流
           认领 / ⚠ 未接入）+ 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
       <details className="kt-groups kt-card">
-        <summary>关键词组</summary>
+        <summary>{t('settings.groups.summary')}</summary>
         {groupNames.map((name) => {
-          const badge = wiringBadge(routingView?.groups.find((group) => group.name === name))
+          const badge = wiringBadge(t, routingView?.groups.find((group) => group.name === name))
           // B3 重叠解释条（词表侧，§5.2）：本组有词与角色身份词重叠且目标不同 ⇒ 行下挂解释条。
           const overlaps = (routingView?.overlaps ?? []).filter((overlap) => overlap.group === name)
           return (
@@ -1763,8 +1784,8 @@ export function SettingsCard(props: SettingsCardProps) {
         })}
         <div className="kt-row">
           <input
-            aria-label="新组名"
-            placeholder="新组名"
+            aria-label={t('settings.groups.newName')}
+            placeholder={t('settings.groups.newName')}
             value={newGroupName}
             disabled={!writable}
             onChange={(e) => setNewGroupName(e.target.value)}
@@ -1774,7 +1795,7 @@ export function SettingsCard(props: SettingsCardProps) {
             disabled={!writable || newGroupName.trim() === '' || Object.hasOwn(config.keywordGroups, newGroupName.trim())}
             onClick={addGroup}
           >
-            新建组
+            {t('settings.groups.add')}
           </button>
         </div>
       </details>
@@ -1785,23 +1806,23 @@ export function SettingsCard(props: SettingsCardProps) {
           saveDriverSticky / saveRulesApplyToChildren（saveTop 范式：scope.set/mutate +
           写后「意图值 vs 实读值」比对）。零新增 useState（改即保存，FlowRow 同款纪律）。 */}
       <details className="kt-driver kt-card" data-kt-section="driver">
-        <summary>主驱动（团队派发）</summary>
+        <summary>{t('settings.driver.summary')}</summary>
         <p className="kt-hint">
-          主驱动目标 = 主会话默认目标的常驻来源；选「跟随宿主默认」= 不锁定（driver = null）。
+          {t('settings.driver.intro')}
         </p>
         {/* ③ driver 消歧（§4.6，2026-10-07 复核修）：driverSticky 关闭时主驱动目标
             暂不生效（主会话默认目标跟随预设默认模型）——行置灰走透明度 + 状态字分层
             （§9.2 禁边框/阴影分组），并明示未启用原因；开关行保持原样——它是启用
             入口，不能灰。 */}
         <div className={driverSticky ? 'kt-driver-row' : 'kt-driver-row kt-driver-off'}>
-          <span className="kt-field-label">主驱动目标</span>
+          <span className="kt-field-label">{t('settings.driver.target')}</span>
           <TargetSelect
-            label="主驱动目标"
+            label={t('settings.driver.target')}
             value={driver === null ? '' : configKey(driver)}
             options={modelOptions}
             groups={optionGroups}
             labels={modelNames}
-            nullLabel="跟随宿主默认"
+            nullLabel={t('settings.driver.followHost')}
             unavailable={driver !== null && availability?.[configKey(driver)] === false}
             disabled={!writable}
             onChange={(value) => void storeWriter.saveDriver(value === '' ? null : parseTarget(value))}
@@ -1809,30 +1830,30 @@ export function SettingsCard(props: SettingsCardProps) {
         </div>
         {!driverSticky && (
           <span className="kt-hint">
-            未启用：「主驱动恒定」已关闭，主会话默认目标跟随预设默认模型——此目标暂不生效，开启主驱动恒定后才接管默认目标
+            {t('settings.driver.disabledHint')}
           </span>
         )}
         <label className="kt-row">
-          <span className="kt-field-label">主驱动恒定</span>
+          <span className="kt-field-label">{t('settings.driver.sticky')}</span>
           <input
             type="checkbox"
-            aria-label="主驱动恒定"
+            aria-label={t('settings.driver.sticky')}
             checked={driverSticky}
             disabled={!writable}
             onChange={(e) => void storeWriter.saveDriverSticky(e.target.checked)}
           />
-          <span className="kt-hint">开启后主会话默认目标恒定用主驱动目标（目标是「跟随宿主默认」时不改道）</span>
+          <span className="kt-hint">{t('settings.driver.stickyHint')}</span>
         </label>
         <label className="kt-row">
-          <span className="kt-field-label">子代理参与关键词规则</span>
+          <span className="kt-field-label">{t('settings.driver.rulesForChildren')}</span>
           <input
             type="checkbox"
-            aria-label="子代理参与关键词规则"
+            aria-label={t('settings.driver.rulesForChildren')}
             checked={rulesApplyToChildren}
             disabled={!writable}
             onChange={(e) => void storeWriter.saveRulesApplyToChildren(e.target.checked)}
           />
-          <span className="kt-hint">关闭（默认）时子代理请求不参与关键词规则——只有分工表认领的队友会被改道</span>
+          <span className="kt-hint">{t('settings.driver.rulesForChildrenHint')}</span>
         </label>
       </details>
 
@@ -1844,10 +1865,10 @@ export function SettingsCard(props: SettingsCardProps) {
       {/* 「试一句」测试器（0.8.0 D2）：纯文本语义预测——命中规则（词数）+ 最终
           目标；带图输入只展示规则命中、不承诺最终改道（浏览器侧无 modalities）。 */}
       <details className="kt-trial kt-card" open>
-        <summary>试一句</summary>
+        <summary>{t('settings.test.trial')}</summary>
         <input
-          aria-label="试一句"
-          placeholder="输入一句话，看它会命中哪条规则、路由到哪个模型"
+          aria-label={t('settings.test.trial')}
+          placeholder={t('settings.test.trialPlaceholder')}
           value={trialText}
           onChange={(e) => setTrialText(e.target.value)}
         />
@@ -1860,28 +1881,38 @@ export function SettingsCard(props: SettingsCardProps) {
           })
           return (
             <div className="kt-trial-result">
-              <span className="kt-hint">按当前激活预设（{activeId === null ? '关闭' : active?.name ?? activeId}）</span>
-              {preview.hits.length === 0 && <div className="kt-h">未命中任何规则</div>}
+              <span className="kt-hint">{t('settings.test.trialPreset', { 0: activeId === null ? t('settings.presets.close') : active?.name ?? activeId })}</span>
+              {preview.hits.length === 0 && <div className="kt-h">{t('settings.test.noHit')}</div>}
               {preview.hits.map(({ rule, score }) => (
                 <div key={rule.id} className="kt-trial-hit">
-                  {ruleLabel(rule)} 命中 {score === Number.POSITIVE_INFINITY ? '（带图规则）' : `${score} 词`}
-                  —— {ruleConditionSummary(rule, config)}
+                  {t('settings.test.hitLine', {
+                    0: ruleLabel(rule),
+                    1: score === Number.POSITIVE_INFINITY ? t('settings.test.hitImage') : t('settings.test.hitScore', { 0: score }),
+                    2: ruleConditionSummary(rule, config),
+                  })}
                 </div>
               ))}
               <div className="kt-trial-outcome">
                 {/* 1.1.0 §4 review-flow outcome（A5 载体）：文案 = 本轮路由到 <routed
                     摘要> + <label>——routed 规则 → 该规则 label，default → 「预设默认」；
                     label 已含「轮末触发评审流 <id>/评审模型不可用」盲区语义，不重复处理。 */}
-                最终路由：
+                {t('settings.test.outcomeLabel')}
                 {preview.outcome.kind === 'review-flow' ? (
-                  <span>本轮路由到 {preview.outcome.routed.kind === 'rule' ? preview.outcome.routed.label : '预设默认'} + {preview.outcome.label}</span>
+                  <span>{t('settings.test.reviewFlowOutcome', { 0: preview.outcome.routed.kind === 'rule' ? preview.outcome.routed.label : t('settings.test.presetDefault'), 1: preview.outcome.label })}</span>
                 ) : preview.outcome.kind === 'off' ? preview.outcome.reason
                   : preview.outcome.kind === 'explicit' ? preview.outcome.reason
                   : preview.outcome.kind === 'rule'
-                    ? `${preview.outcome.reason} → ${preview.outcome.target === null ? '（不可判）' : isFlowTarget(preview.outcome.target) ? `协作流 ${preview.outcome.target.flow}` : configKey(preview.outcome.target)}`
-                    : `${preview.outcome.reason} → ${configKey(preview.outcome.target)}`}
+                    ? t('settings.test.routeArrow', {
+                        0: preview.outcome.reason,
+                        1: preview.outcome.target === null
+                          ? t('settings.test.undeterminable')
+                          : isFlowTarget(preview.outcome.target)
+                            ? t('settings.test.flowTarget', { 0: preview.outcome.target.flow })
+                            : configKey(preview.outcome.target),
+                      })
+                    : t('settings.test.routeArrow', { 0: preview.outcome.reason, 1: configKey(preview.outcome.target) })}
               </div>
-              <span className="kt-hint">仅文本探针：带图输入只展示规则命中，最终改道取决于图像护栏/协作流，此处不承诺。</span>
+              <span className="kt-hint">{t('settings.test.textOnlyHint')}</span>
             </div>
           )
         })()}
@@ -1891,11 +1922,11 @@ export function SettingsCard(props: SettingsCardProps) {
           previewDispatch 在同一视图模型上反查该队友的改道目标与依据
           （role / unclaimed，复用派发台账口径）；命中时同时显示角色 label。 */}
       <details className="kt-trial kt-card" open>
-        <summary>派给谁</summary>
+        <summary>{t('settings.test.dispatch')}</summary>
         <input
-          aria-label="派给谁"
+          aria-label={t('settings.test.dispatch')}
           list={`${cardUid}kt-claim-list`}
-          placeholder="输入或选择角色/队友名（如 frontend）"
+          placeholder={t('settings.test.dispatchPlaceholder')}
           value={dispatchClaim}
           onChange={(e) => setDispatchClaim(e.target.value)}
         />
@@ -1905,7 +1936,7 @@ export function SettingsCard(props: SettingsCardProps) {
           ))}
         </datalist>
         {dispatchClaim.trim() !== '' && (routingView === null ? (
-          <span className="kt-hint">视图模型不可用，无法预判派发结果。</span>
+          <span className="kt-hint">{t('settings.test.dispatchUnavailable')}</span>
         ) : (() => {
           const claim = dispatchClaim.trim()
           const result = previewDispatch(routingView, claim)
@@ -1913,13 +1944,13 @@ export function SettingsCard(props: SettingsCardProps) {
             <div className="kt-trial-result">
               {result.basis === 'role' && result.target !== null ? (
                 <div className="kt-trial-outcome">
-                  派给「{result.roleLabel ?? claim}」（{claim}）→ 改道到 {configKey(result.target)}
-                  {result.target.effort !== undefined ? `（档位 ${result.target.effort}）` : ''}
-                  ；依据：role（分工表认领）
+                  {t('settings.test.dispatchRole', { 0: result.roleLabel ?? claim, 1: claim, 2: configKey(result.target) })}
+                  {result.target.effort !== undefined ? t('settings.test.dispatchEffort', { 0: result.target.effort }) : ''}
+                  {t('settings.test.dispatchBasisRole')}
                 </div>
               ) : (
                 <div className="kt-trial-outcome">
-                  「{claim}」未被分工表认领 ⇒ 不改道（保持调用方指定或宿主默认模型）；依据：unclaimed
+                  {t('settings.test.dispatchUnclaimed', { 0: claim })}
                 </div>
               )}
             </div>
@@ -1928,7 +1959,7 @@ export function SettingsCard(props: SettingsCardProps) {
         {/* D6 作用域声明（§5.3）：与「试一句」是两套作用域——子代理不参与关键词
             规则，上面那句的命中结果对派出去的队友不适用。 */}
         <span className="kt-hint">
-          子代理不参与关键词规则（D6）：这里的「派给谁」看的是分工表改道，与上面「试一句」（主会话关键词规则）是两套作用域。
+          {t('settings.test.dispatchScopeHint')}
         </span>
       </details>
       </div>
@@ -1937,7 +1968,7 @@ export function SettingsCard(props: SettingsCardProps) {
       {isV5Plus && (
         <div className="kt-tabpanel kt-flows" role="tabpanel" id={panelId('flows')} aria-labelledby={tabId('flows')} tabIndex={0} hidden={activeTab !== 'flows'}>
         <details className="kt-flows kt-card" open>
-          <summary>协作流</summary>
+          <summary>{t('settings.flows.label')}</summary>
           {flowEntries.map(([flowId, flow]) => (
             <FlowRow
               key={flowId}
@@ -1960,34 +1991,34 @@ export function SettingsCard(props: SettingsCardProps) {
           {/* 0.6.x池#7：新建流入口——预置流同型模板 + presetSlug 去重后缀。 */}
           <div className="kt-flow-row kt-flow-new">
             <select
-              aria-label="新建流类型"
+              aria-label={t('settings.flows.newTypeAria')}
               value={newFlowType}
               disabled={!writable}
               onChange={(e) => setNewFlowType(e.target.value as 'transcribe' | 'review')}
             >
-              <option value="transcribe">转述</option>
-              <option value="review">评审</option>
+              <option value="transcribe">{t('settings.flows.typeTranscribe')}</option>
+              <option value="review">{t('settings.flows.typeReview')}</option>
             </select>
             <input
-              aria-label="新建流 id"
+              aria-label={t('settings.flows.newIdAria')}
               type="text"
-              placeholder="新流 id"
+              placeholder={t('settings.flows.newId')}
               value={newFlowId}
               disabled={!writable}
               onChange={(e) => setNewFlowId(e.target.value)}
             />
             <button
               type="button"
-              aria-label="新建流"
+              aria-label={t('settings.flows.new')}
               disabled={!writable || newFlowId.trim() === ''}
-              title="按所选类型用预置流默认参数创建（id 冲突自动 -2 后缀）；创建后可在各行内改参数"
+              title={t('settings.flows.newTitle')}
               onClick={() => {
                 const id = presetSlug(newFlowId.trim(), flows)
                 void storeWriter.saveFlows({ ...flows, [id]: { ...DEFAULT_FLOWS()[newFlowType] } })
                 setNewFlowId('')
               }}
             >
-              新建流
+              {t('settings.flows.new')}
             </button>
           </div>
         </details>

@@ -18,8 +18,13 @@
  *   返回结构不变（A/B 只依赖本模块，不感知配置版本）。
  */
 import { configKey, isFlowTarget, isV5Plus, rowsFromConfig, type CollaborationFlow, type ImageFallback, type RouteRowV7, type RouteTarget, type RouterConfigV7, type RouterPreset, type RuleTarget } from './config.js'
+import { makeCopy, zh, type CopyKey, type CopyParams } from './locales/index.js'
 import { claimedReviewGroups } from './rules.js'
 import type { RouterConfigAny } from './router.js'
+
+/** 文案注入面（阶段 P 冻结）：deps.copy 缺省 = makeCopy('zh')——缺省路径输出与
+ *  locale 化前的硬编码中文逐字一致（既有测试断言钉住）。 */
+export type RoutingCopy = (key: CopyKey, params?: CopyParams) => string
 
 /** 视图可吃的配置面：v4/v5/v6/v7（RouterConfigAny ∪ RouterConfigV7）。 */
 export type RoutingConfigLike = RouterConfigAny | RouterConfigV7
@@ -129,6 +134,11 @@ export interface ViewDeps {
   availability?: Record<string, boolean> | null
 }
 
+/** 视图依赖 + 文案注入（阶段 P）：copy 缺省回落中文表，老调用点一行不用改。 */
+export interface RoutingCopyDeps extends ViewDeps {
+  copy?: RoutingCopy
+}
+
 /** v5+ 取 flows 注册表；v4 无注册表 → 空表（与 router.flowsOf 同口径）。 */
 function flowsOf(config: RoutingConfigLike): Record<string, CollaborationFlow> {
   return isV5Plus(config) ? config.flows : {}
@@ -151,7 +161,8 @@ function conditionOf(row: RouteRowV7): RoutingRowCondition {
  * routes，否则旧字段投影——R2 裁定，禁止版本号门控）；分工层开关
  * （driver/driverSticky）同样只认字段本身。
  */
-export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {}): RoutingView {
+export function buildRoutingView(config: RoutingConfigLike, deps: RoutingCopyDeps = {}): RoutingView {
+  const copy = deps.copy ?? makeCopy('zh')
   const availability = deps.availability ?? null
   const unavailableModel = (target: RouteTarget): boolean => availability?.[configKey(target)] === false
   const flows = flowsOf(config)
@@ -248,13 +259,13 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
 
   /* ---- 默认目标（§4.3）：driverSticky ? driver : 预设默认；关闭/缺失 ⇒ null + 原因。 ---- */
   let fallback: FallbackInfo
-  if (config.activePreset === null) fallback = { target: null, reason: '路由已关闭' }
-  else if (preset === undefined) fallback = { target: null, reason: '激活预设不存在' }
+  if (config.activePreset === null) fallback = { target: null, reason: copy('view.fallback.closed') }
+  else if (preset === undefined) fallback = { target: null, reason: copy('view.fallback.presetMissing') }
   else if (team.driverSticky === true) {
     fallback = team.driver == null
-      ? { target: null, reason: '主驱动跟随宿主默认' }
-      : { target: { ...team.driver }, reason: `主驱动恒定（${configKey(team.driver)}）` }
-  } else fallback = { target: { ...preset.default }, reason: `预设「${preset.name}」默认` }
+      ? { target: null, reason: copy('view.fallback.driverFollowHost') }
+      : { target: { ...team.driver }, reason: copy('view.fallback.driverSticky', { 0: configKey(team.driver) }) }
+  } else fallback = { target: { ...preset.default }, reason: copy('view.fallback.presetDefault', { 0: preset.name }) }
 
   /* ---- 决策链五档（§4.2）：与 router.ts 优先级链逐档对齐。
      三态语义见 TierState：按需档（1/2）不置灰，只有当前配置下真的不参与的档才算 off。
@@ -268,47 +279,47 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
   const tier4: TierState = preset !== undefined && session.length > 0 ? 'ready' : 'off'
   const tier5: TierState = preset !== undefined ? 'ready' : 'off'
   const precedence: PrecedenceTier[] = [
-    { tier: 1, title: '显式 @指令', state: 'on-demand', active: false, detail: '按需：消息里写 @provider 或 @provider/model 时才参与裁决' },
-    { tier: 2, title: '调用方点名', state: 'on-demand', active: false, detail: '按需：仅子代理；调用方点名的模型与默认目标不同时保持该模型不变' },
+    { tier: 1, title: copy('view.tier.at.title'), state: 'on-demand', active: false, detail: copy('view.tier.at.detail') },
+    { tier: 2, title: copy('view.tier.caller.title'), state: 'on-demand', active: false, detail: copy('view.tier.caller.detail') },
     {
       tier: 3,
-      title: '分工表角色',
+      title: copy('view.tier.role.title'),
       state: tier3,
       active: tier3 === 'ready',
       detail: !routerOn
-        ? (dispatch.length > 0 ? `路由已关闭：分工表 ${dispatch.length} 个角色不发生任何改道（仅存档）` : '路由已关闭（未配置分工表）')
-        : dispatch.length > 0 ? `${dispatch.length} 个角色参与派发改道` : '未配置分工表（队友不改道）',
+        ? (dispatch.length > 0 ? copy('view.tier.role.detailClosedWithRoles', { 0: dispatch.length }) : copy('view.tier.role.detailClosedEmpty'))
+        : dispatch.length > 0 ? copy('view.tier.role.detailActive', { 0: dispatch.length }) : copy('view.tier.role.detailEmpty'),
     },
     {
       tier: 4,
-      title: '关键词规则',
+      title: copy('view.tier.rule.title'),
       state: tier4,
       active: tier4 === 'ready',
-      detail: preset === undefined ? '路由未激活' : session.length > 0 ? `预设「${preset.name}」共 ${session.length} 条规则（仅主会话参与）` : `预设「${preset.name}」无规则，未命中即使用默认目标`,
+      detail: preset === undefined ? copy('view.tier.rule.detailInactive') : session.length > 0 ? copy('view.tier.rule.detailRules', { 0: preset.name, 1: session.length }) : copy('view.tier.rule.detailEmpty', { 0: preset.name }),
     },
     {
       tier: 5,
-      title: '默认目标',
+      title: copy('view.tier.fallback.title'),
       state: tier5,
       active: tier5 === 'ready',
-      detail: fallback.target === null ? fallback.reason : `${configKey(fallback.target)}（${fallback.reason}）`,
+      detail: fallback.target === null ? fallback.reason : copy('view.tier.fallback.detail', { 0: configKey(fallback.target), 1: fallback.reason }),
     },
   ]
 
-  const summary = summarize({ config, preset, session, dispatch, groups, fallback })
+  const summary = summarize({ config, preset, session, dispatch, groups, fallback, copy })
   return { fallback, session, dispatch, groups, overlaps, summary, precedence }
 }
 
 /** 行条件的显示标签（摘要用；image → 带图，keywords → 组名，role → 显示名）。 */
-function conditionLabel(condition: RoutingRowCondition): string {
-  if (condition.kind === 'image') return '带图'
+function conditionLabel(condition: RoutingRowCondition, copy: RoutingCopy): string {
+  if (condition.kind === 'image') return copy('view.label.image')
   if (condition.kind === 'keywords') return condition.group
   return condition.label
 }
 
 /** 行目标的显示键（摘要用；模型 → provider/model，流引用 → 协作流 flow）。 */
-function targetLabel(target: RuleTarget): string {
-  return isFlowTarget(target) ? `协作流 ${target.flow}` : configKey(target)
+function targetLabel(target: RuleTarget, copy: RoutingCopy): string {
+  return isFlowTarget(target) ? copy('view.label.flow', { 0: target.flow }) : configKey(target)
 }
 
 /**
@@ -318,12 +329,21 @@ function targetLabel(target: RuleTarget): string {
  * 避免"两处各自维护一套状态名"的老问题。
  */
 export const IMAGE_FALLBACK_SHORT: Record<ImageFallback, string> = {
-  latch: '锁存视觉模型',
-  blind: '盲答',
-  'transcribe-lazy': '懒转述',
+  latch: zh['view.fallbackShort.latch'],
+  blind: zh['view.fallbackShort.blind'],
+  'transcribe-lazy': zh['view.fallbackShort.transcribeLazy'],
 }
 
-/** 摘要组装（describeRouting 的单一实现，纯中文、不含内部字段名）。 */
+/** 三态 → locale 键（view.fallbackShort.*）：状态名含连字符（transcribe-lazy），
+ *  键段用 camelCase（transcribeLazy）；IMAGE_FALLBACK_SHORT 保留为中文缺省形态，
+ *  键集仍由跨模块测试钉住。 */
+const IMAGE_FALLBACK_SHORT_KEYS: Record<ImageFallback, CopyKey> = {
+  latch: 'view.fallbackShort.latch',
+  blind: 'view.fallbackShort.blind',
+  'transcribe-lazy': 'view.fallbackShort.transcribeLazy',
+}
+
+/** 摘要组装（describeRouting 的单一实现；文案走 view.summary.* 键，缺省 copy = 中文表）。 */
 function summarize(parts: {
   config: RoutingConfigLike
   preset: RouterPreset | undefined
@@ -331,35 +351,36 @@ function summarize(parts: {
   dispatch: RoutingRow[]
   groups: GroupInfo[]
   fallback: FallbackInfo
+  copy: RoutingCopy
 }): string {
-  const { preset, session, dispatch, groups, fallback } = parts
-  if (parts.config.activePreset === null) return '路由已关闭：所有请求保持宿主当前模型。'
-  if (preset === undefined) return '路由已关闭：激活预设不存在。'
-  const base = fallback.target === null ? '宿主默认' : configKey(fallback.target)
+  const { preset, session, dispatch, groups, fallback, copy } = parts
+  if (parts.config.activePreset === null) return copy('view.summary.closed')
+  if (preset === undefined) return copy('view.summary.presetMissing')
+  const base = fallback.target === null ? copy('view.summary.hostDefault') : configKey(fallback.target)
   const orphan = groups.filter((g) => g.wiring === 'orphan').length
   const chunks: string[] = []
   if (session.length === 0) {
     // 空状态说明（§4.4，实机 capability rules:[] 形态）。
-    chunks.push(`主会话没有可命中的规则，全部使用默认目标（${base}）${orphan > 0 ? `；另有 ${orphan} 组关键词组未接入任何规则，暂不生效` : ''}`)
+    chunks.push(copy('view.summary.noRules', { 0: base }) + (orphan > 0 ? copy('view.summary.orphanSuffix', { 0: orphan }) : ''))
   } else {
     const effective = session.filter((r) => r.wiring !== 'claimed-by-flow')
     const listed = (effective.length > 0 ? effective : session).slice(0, 3)
-      .map((r) => `命中「${conditionLabel(r.condition)}」时改用 ${targetLabel(r.target)}`)
-    chunks.push(`主会话以 ${base} 为默认目标，${listed.join('、')}`)
+      .map((r) => copy('view.summary.ruleItem', { 0: conditionLabel(r.condition, copy), 1: targetLabel(r.target, copy) }))
+    chunks.push(copy('view.summary.mainRules', { 0: base, 1: listed.join(copy('view.join.list')) }))
   }
   if (dispatch.length > 0) {
-    chunks.push(`派发：${dispatch.map((r) => `${conditionLabel(r.condition)}→${targetLabel(r.target)}`).join('、')}`)
+    chunks.push(copy('view.summary.dispatch', { 0: dispatch.map((r) => copy('view.summary.dispatchItem', { 0: conditionLabel(r.condition, copy), 1: targetLabel(r.target, copy) })).join(copy('view.join.list')) }))
   }
   // §4.1 第三段：带图一项同样是"谁来决定"的一部分（缺省 latch，与卡片下拉缺省一致）。
-  chunks.push(`带图：${IMAGE_FALLBACK_SHORT[preset.imageFallback ?? 'latch']}`)
-  return chunks.join(' ｜ ')
+  chunks.push(copy('view.summary.image', { 0: copy(IMAGE_FALLBACK_SHORT_KEYS[preset.imageFallback ?? 'latch']) }))
+  return chunks.join(copy('view.join.chunk'))
 }
 
 /**
  * 路由摘要说明（**单源**）：= buildRoutingView(...).summary。设置页顶部摘要 /
  * renderTeamSkill 的 description / `/kimi-tide show` 三处共用，不得各自拼文案。
  */
-export function describeRouting(config: RoutingConfigLike, deps: ViewDeps = {}): string {
+export function describeRouting(config: RoutingConfigLike, deps: RoutingCopyDeps = {}): string {
   return buildRoutingView(config, deps).summary
 }
 

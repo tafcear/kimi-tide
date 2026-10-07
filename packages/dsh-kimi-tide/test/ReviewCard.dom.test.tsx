@@ -10,10 +10,12 @@
  * 异步交互用 react-dom/client + jsdom 真实挂载 → 点击 → act 冲刷
  * （TideDock.dom.test.tsx 同款；renderToString 覆盖不到）。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { ReviewCard, ReviewReviseCard, reviewReviseBridge } from '../src/client/ReviewCard.js'
+import { attachLocaleService } from '../src/client/locale.js'
+import { en as enDict, formatCopy } from '../src/locales/index.js'
 import type { ReviewRecord, ReviewReviseRecord } from '../src/types.js'
 
 declare global {
@@ -138,5 +140,83 @@ describe('ReviewReviseCard：退回留痕', () => {
     }))
     expect(container.textContent).toContain('已停（达上限）')
     expect(container.textContent).toContain('不再自动重做')
+  })
+})
+
+/**
+ * W2 新增（任务书 §4.1）：英文渲染——最简 locale 服务桩（active: 'en-US'）走
+ * attachLocaleService 后渲染评审卡/退回卡 ⇒ 必须出现英文，且不含对应中文原句。
+ * 注意：本 describe 把模块态 bound 切成英文，必须放在本文件最后一个 describe。
+ * verdictLabel 来自 src/review-verdict.ts（宿主侧共享单源，非 W2 写域）——其
+ * 中文产出作 {0} 参数透传，故「不通过」在英文界面仍出现（已知边界，见 W2 报告）。
+ */
+describe('W2：英文渲染（locale 服务桩，active=en-US）', () => {
+  let roots: Root[] = []
+
+  beforeAll(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    const stub = {
+      register: () => () => {},
+      bind: () => (key: string, params?: Record<string, unknown>) =>
+        formatCopy((enDict as Record<string, string>)[key] ?? key, params as Record<string, string | number> | undefined),
+      subscribe: () => () => {},
+      getSnapshot: () => ({ active: 'en-US' }),
+    }
+    const fakeCtx = {
+      get: () => stub,
+      effect: (fn: () => unknown) => { fn(); return () => {} },
+      inject: () => {},
+    }
+    attachLocaleService(fakeCtx as never)
+  })
+
+  afterEach(async () => {
+    for (const root of roots) {
+      await act(async () => { root.unmount() })
+    }
+    roots = []
+  })
+
+  it('评审卡：徽标/按钮/title 英文，不含「评审 · 」「让它重做」', () => {
+    const { container, root } = mount(createElement(ReviewCard, {
+      node: { kind: 'kimi-tide-review', data: { record: record() } }, sessionId: 's1',
+    }))
+    roots.push(root)
+    // Fails if: copy() 仍回落中文表（服务桩没接上，或组件还在用硬编码字面量）
+    expect(container.textContent).toContain('Review · k3')
+    const button = container.querySelector('button.kt-review-revise') as HTMLButtonElement
+    expect(button.textContent).toContain('Redo it')
+    expect(button.getAttribute('title')).toBe('Redo with the main model per this review (counts toward the revise limit)')
+    expect(container.textContent).not.toContain('评审 ·')
+    expect(container.textContent).not.toContain('让它重做')
+  })
+
+  it('评审卡失败态：Review failed: …；sessionId 缺席时 title 英文', () => {
+    const { container, root } = mount(createElement(ReviewCard, {
+      node: { kind: 'kimi-tide-review', data: { record: record({ ok: false, error: undefined, verdict: 'unknown' as never }) } },
+    }))
+    roots.push(root)
+    expect(container.textContent).toContain('Review failed: unknown error')
+    expect(container.textContent).not.toContain('评审失败')
+  })
+
+  it('退回卡：Stopped (limit reached) / revision {0} / manual·auto 英文', () => {
+    const stopped = mount(createElement(ReviewReviseCard, {
+      node: { kind: 'kimi-tide-review-revise', data: { record: { flowId: 'review', turn: 7, reason: 'manual', verdict: 'fail', reviseIndex: 1, at: '2026-10-03T10:00:00.000Z', stopped: 'limit' } } },
+    }))
+    roots.push(stopped.root)
+    expect(stopped.container.textContent).toContain('Stopped (limit reached)')
+    expect(stopped.container.textContent).toContain('manual')
+    expect(stopped.container.textContent).toContain('Based on verdict: 不通过 — revise limit (rounds) reached')
+    expect(stopped.container.textContent).not.toContain('已停（达上限）')
+    expect(stopped.container.textContent).not.toContain('依据结论')
+
+    const revised = mount(createElement(ReviewReviseCard, {
+      node: { kind: 'kimi-tide-review-revise', data: { record: { flowId: 'review', turn: 7, reason: 'auto', verdict: 'fail', reviseIndex: 2, at: '2026-10-03T10:00:00.000Z' } } },
+    }))
+    roots.push(revised.root)
+    expect(revised.container.textContent).toContain('Sent back for redo per the review (revision 2)')
+    expect(revised.container.textContent).toContain('auto')
+    expect(revised.container.textContent).not.toContain('已按评审意见退回重做')
   })
 })

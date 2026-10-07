@@ -18,6 +18,8 @@ import { CARD_NAMESPACE, type ConnectionLike } from './card-store.js'
 import { CLIENT_CSS } from './styles.js'
 import { registerSettingsNavIcon } from './settings-nav-icon.js'
 import { REVIEW_NODE_KIND, REVISE_NODE_KIND, ReviewCard, ReviewReviseCard, reviewNodeDefinition, reviewReviseBridge, reviseNodeDefinition } from './ReviewCard.js'
+import { attachLocaleService, copy } from './locale.js'
+import { LOCALE_NS } from '../locales/index.js'
 
 // 'remote.settings' / 'remote.llm' / 'remote.session'（2026-09-11 增补 session）：
 // 设置卡 describe / 模型目录走 loopback typed remote，cordis 要求嵌套路径逐级
@@ -84,7 +86,7 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
       settings: {
         describe: async () => {
           const d = describe()
-          if (d === undefined) throw new Error('settings.describe 通道不可用（connection api 面缺席且 loopback 未挂载）')
+          if (d === undefined) throw new Error(copy('shared.diag.describeUnavailable'))
           // 0.1.7：零参转发（宿主 typert 描述符 parameters: [] —— 带参即被 arity 拒）。
           const call = d as unknown as () => Promise<unknown>
           return { result: (await call()) as never }
@@ -97,7 +99,7 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
             return { result: (await loopbackMutate(request.ns, request.ops, request.expectedRevision)) as never }
           }
           const m = mutate()
-          if (m === undefined) throw new Error('settings.mutate 通道不可用（connection api 面缺席且 loopback 未挂载）')
+          if (m === undefined) throw new Error(copy('shared.diag.mutateUnavailable'))
           // legacy connection.api.settings.mutate：对象载荷形态。
           const legacyMutate = m as unknown as (req: typeof request) => Promise<unknown>
           return { result: (await legacyMutate(request)) as never }
@@ -106,21 +108,13 @@ function buildConnectionFace(ctx: Context): ConnectionLike | null {
       llm: {
         models: async (request) => {
           const m = models()
-          if (m === undefined) throw new Error('模型目录通道不可用（session/llm loopback 与 connection api 均缺席）')
+          if (m === undefined) throw new Error(copy('shared.diag.modelsUnavailable'))
           return (await m(request)) as never
         },
       },
     },
   }
 }
-
-/** Minimal structural face of the browser locale service (dsh-client-locale). */
-interface LocaleFace {
-  register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
-  bind(ns: string): (key: string, params?: Record<string, unknown>) => string
-}
-
-const LOCALE_NS = 'settings.kimi-tide'
 
 export function apply(ctx: Context): void {
   // 0.8.0 effort 档位表（B5 换道 2026-08-27）：客户端经 settings.describe 读
@@ -165,30 +159,22 @@ export function apply(ctx: Context): void {
         headers: { accept: 'application/json' },
       })
     } catch (error) {
-      throw new Error(`网络请求失败：${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(copy('shared.panel.fetchFailed', { 0: error instanceof Error ? error.message : String(error) }))
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    if (!response.ok) throw new Error(copy('shared.panel.httpError', { 0: response.status }))
     const payload = await response.json().catch(() => undefined) as { ok?: boolean; error?: string; panel?: KimiTidePanelProjection | null } | undefined
-    if (payload === undefined) throw new Error('响应体不是合法 JSON')
-    if (payload.ok !== true) throw new Error(payload.error ?? '路由返回 ok!=true')
-    if (payload.panel === null || payload.panel === undefined) throw new Error('路由未返回面板数据')
+    if (payload === undefined) throw new Error(copy('shared.panel.invalidJson'))
+    if (payload.ok !== true) throw new Error(payload.error ?? copy('shared.panel.okNotTrue'))
+    if (payload.panel === null || payload.panel === undefined) throw new Error(copy('shared.panel.noPanel'))
     return payload.panel
   }
 
-  // Settings-card nav label (spec §3.1): locale-bound `t('nav')` like the
-  // official Models section, falling back to the hardcoded copy when the
-  // locale service is absent (it is not in this plugin's inject, so its
-  // absence must not block activation).
-  const locale = ctx.get('locale') as LocaleFace | undefined
-  let navLabel = (): string => '月汐'
-  if (locale?.register !== undefined && locale?.bind !== undefined) {
-    ctx.effect(() => locale.register(LOCALE_NS, {
-      zh: { nav: '月汐' },
-      en: { nav: 'Kimi Tide' },
-    }))
-    const t = locale.bind(LOCALE_NS)
-    navLabel = () => t('nav')
-  }
+  // Settings-card nav label (spec §3.1): locale-bound `t('shared.nav')` like the
+  // official Models section, falling back to the zh dictionary when the locale
+  // service is absent (it is not in this plugin's inject, so its absence must
+  // not block activation). 阶段 P：字典注册/绑定/订阅收进 client/locale.ts。
+  attachLocaleService(ctx)
+  const navLabel = (): string => copy('shared.nav')
 
   // 设置导航图标标记（视觉升级 2026-08-29）：契约无 icon 字段——按文案标记
   // 自己的导航行，CSS 把宿主默认齿轮换成月汐紫月牙（先例：dsh-better-sidebar）。
@@ -208,7 +194,8 @@ export function apply(ctx: Context): void {
     name: 'conversation.input.right',
     id: 'kimi-tide',
     order: 10,
-    label: '月汐',
+    label: navLabel,
+    locale: LOCALE_NS,
     inject: () => ({ variant: 'compact' as const }),
   }, TideDock))
 
@@ -249,11 +236,13 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
     key: REVIEW_NODE_KIND,
+    locale: LOCALE_NS,
   }, ReviewCard))
   // v1.4.0：退回卡渲染器（同槽第二个 key——宿主按 entryKey=node.kind 分发）。
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
     key: REVISE_NODE_KIND,
+    locale: LOCALE_NS,
   }, ReviewReviseCard))
 
   // 设置页「月汐」卡片。settingsScope / connection 均为可选读取：bind 在
@@ -273,6 +262,7 @@ export function apply(ctx: Context): void {
       id: CARD_NAMESPACE,
       order: 100,
       label: navLabel,
+      locale: LOCALE_NS,
       inject: () => ({
         scope: (ctx.get('settingsScope') as { bind?: (spec: { namespace: string }) => unknown } | undefined)
           ?.bind({ namespace: CARD_NAMESPACE }) ?? null,

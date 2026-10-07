@@ -19,6 +19,7 @@ import { createPortal } from 'react-dom'
 import type { BalanceSnapshot, KimiTidePanelProjection, QuotaSnapshot } from '../types.js'
 import { formatDispatch, ReasonPanel } from './ReasonPanel.js'
 import { Icon } from './icons.js'
+import { copy, currentLanguage, useCopy } from './locale.js'
 
 // Task 6：摘要格式化纯函数经本模块转出口（定义在 ReasonPanel.tsx，避免组件互引成环）。
 export { formatDispatch }
@@ -95,14 +96,14 @@ export function unwrapCommandOutcome(payload: unknown): CommandOutcome | null {
     const error = envelope.error
     const message = typeof error === 'object' && error !== null && 'message' in error
       ? String((error as { message?: unknown }).message)
-      : typeof envelope.message === 'string' ? envelope.message : '命令执行失败'
+      : typeof envelope.message === 'string' ? envelope.message : copy('panel.dock.commandFailed')
     return { ok: false, text: message }
   }
   if (Object.hasOwn(envelope, 'error')) {
     const error = envelope.error
     const message = typeof error === 'object' && error !== null && 'message' in error
       ? String((error as { message?: unknown }).message)
-      : typeof error === 'string' ? error : '命令执行失败'
+      : typeof error === 'string' ? error : copy('panel.dock.commandFailed')
     return { ok: false, text: message }
   }
   const execution: unknown = Object.hasOwn(envelope, 'value') ? envelope.value : (envelope.result ?? envelope)
@@ -117,7 +118,7 @@ export function unwrapCommandOutcome(payload: unknown): CommandOutcome | null {
     return typeof record.text === 'string' ? { ok: true, text: record.text } : null
   }
   const text = typeof outcome.text === 'string' ? outcome.text : ''
-  if (outcome.kind === 'error') return { ok: false, text: text === '' ? '命令执行失败' : text }
+  if (outcome.kind === 'error') return { ok: false, text: text === '' ? copy('panel.dock.commandFailed') : text }
   if (outcome.kind === 'success') return { ok: true, text }
   return text === '' ? (envelope.ok === true ? { ok: true, text: '' } : null) : { ok: true, text }
 }
@@ -142,10 +143,17 @@ function remainClass(remain: number | null): string {
   return ''
 }
 
-/** 中文短格式（2026-08-29 用户裁定）：zai 周期为亿级 token 计数，不撑爆 dock 行。 */
+/** 中文短格式（2026-08-29 用户裁定）：zai 周期为亿级 token 计数，不撑爆 dock 行。
+ *  locale 化（W2）：单位进表（fmtYi/fmtWan）；en 路径同键不同缩放（1e9→B / 1e6→M），
+ *  zh 路径保持 1e8→亿 / 1e4→万，产出与改动前逐字节一致。 */
 export function fmtRemain(n: number): string {
-  if (n >= 1e8) return `${(n / 1e8).toFixed(1)}亿`
-  if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`
+  if (currentLanguage() === 'en') {
+    if (n >= 1e9) return copy('panel.dock.fmtYi', { 0: (n / 1e9).toFixed(1) })
+    if (n >= 1e6) return copy('panel.dock.fmtWan', { 0: (n / 1e6).toFixed(1) })
+    return String(n)
+  }
+  if (n >= 1e8) return copy('panel.dock.fmtYi', { 0: (n / 1e8).toFixed(1) })
+  if (n >= 1e4) return copy('panel.dock.fmtWan', { 0: (n / 1e4).toFixed(1) })
   return String(n)
 }
 
@@ -159,7 +167,7 @@ function currencySymbol(currency: string): string {
 /** 余额槽正文：取首币种（多币种进 tooltip）。 */
 function fmtBalance(balance: BalanceSnapshot): string {
   const first = balance.balances[0]
-  if (first === undefined) return '—'
+  if (first === undefined) return copy('panel.dock.noValue')
   return `${currencySymbol(first.currency)}${first.total}`
 }
 
@@ -169,14 +177,14 @@ function fmtBalance(balance: BalanceSnapshot): string {
  */
 function balanceTitleOf(balance: BalanceSnapshot): string {
   const first = balance.balances[0]
-  const head = balance.available === false ? '余额不足（不足以调用 API）' : '余额'
+  const head = balance.available === false ? copy('panel.dock.balanceInsufficient') : copy('panel.dock.balance')
   const primary = first === undefined ? '' : ` ${currencySymbol(first.currency)}${first.total}`
   const bits: string[] = []
-  if (first?.granted !== undefined) bits.push(`赠送 ${currencySymbol(first.currency)}${first.granted}`)
-  if (first?.toppedUp !== undefined) bits.push(`充值 ${currencySymbol(first.currency)}${first.toppedUp}`)
-  const detail = bits.length === 0 ? '' : `（${bits.join(' · ')}）`
+  if (first?.granted !== undefined) bits.push(copy('panel.dock.balanceGranted', { 0: `${currencySymbol(first.currency)}${first.granted}` }))
+  if (first?.toppedUp !== undefined) bits.push(copy('panel.dock.balanceToppedUp', { 0: `${currencySymbol(first.currency)}${first.toppedUp}` }))
+  const detail = bits.length === 0 ? '' : copy('panel.dock.balanceDetail', { 0: bits.join(' · ') })
   const all = balance.balances.length > 1
-    ? ` ｜ 全部：${balance.balances.map((b) => `${b.currency} ${b.total}`).join(' · ')}`
+    ? copy('panel.dock.balanceAll', { 0: balance.balances.map((b) => `${b.currency} ${b.total}`).join(' · ') })
     : ''
   return `${head}${primary}${detail}${all}`
 }
@@ -200,22 +208,23 @@ export function overviewRows(panel: KimiTidePanelProjection): OverviewRow[] {
   const rows: OverviewRow[] = []
   for (const meta of panel.quotaSources ?? []) {
     const snap = panel.quotas?.[meta.provider] ?? null
-    const kindLabel = meta.kind === 'balance' ? '余额' : '用量'
-    const when = snap === null ? '' : `${fmtClock(snap.fetchedAt)}${snap.stale ? '（过期）' : ''}`
+    const kindLabel = meta.kind === 'balance' ? copy('panel.dock.balance') : copy('panel.dock.kindUsage')
+    // meta.reason 是宿主侧拼好的中文串（/api/kimi-tide/panel 数据），本轮不在 locale 范围，原样透传。
+    const when = snap === null ? '' : (snap.stale ? copy('panel.dock.whenStale', { 0: fmtClock(snap.fetchedAt) }) : fmtClock(snap.fetchedAt))
     if (meta.state === 'no-api') {
-      rows.push({ provider: meta.provider, kindLabel, value: meta.reason ?? '无公开用量 API', when: '', dim: true })
+      rows.push({ provider: meta.provider, kindLabel, value: meta.reason ?? copy('panel.dock.noPublicApi'), when: '', dim: true })
       continue
     }
     if (snap === null) {
-      rows.push({ provider: meta.provider, kindLabel, value: meta.reason ?? '无数据', when: '', dim: true })
+      rows.push({ provider: meta.provider, kindLabel, value: meta.reason ?? copy('panel.dock.noData'), when: '', dim: true })
       continue
     }
     if ((snap as { kind?: unknown }).kind === 'balance') {
       const b = snap as BalanceSnapshot
       const first = b.balances[0]
       const value = first === undefined
-        ? '—'
-        : `${currencySymbol(first.currency)}${first.total}${b.available === false ? '（余额不足）' : ''}`
+        ? copy('panel.dock.noValue')
+        : `${currencySymbol(first.currency)}${first.total}${b.available === false ? copy('panel.dock.balanceShort') : ''}`
       rows.push({ provider: meta.provider, kindLabel, value, when, dim: false })
       continue
     }
@@ -223,11 +232,11 @@ export function overviewRows(panel: KimiTidePanelProjection): OverviewRow[] {
     const w = remainPct(usage.weekly.used, usage.weekly.limit)
     const f = remainPct(usage.fiveHour.used, usage.fiveHour.limit)
     const parts: string[] = []
-    if (w !== null) parts.push(`周剩${w}%`)
-    if (f !== null) parts.push(`5h剩${f}%`)
+    if (w !== null) parts.push(copy('panel.dock.weekRemain', { 0: w }))
+    if (f !== null) parts.push(copy('panel.dock.fiveHourRemain', { 0: f }))
     rows.push({
       provider: meta.provider, kindLabel,
-      value: parts.length > 0 ? parts.join(' · ') : '该窗口无数据',
+      value: parts.length > 0 ? parts.join(' · ') : copy('panel.dock.windowNoData'),
       when, dim: parts.length === 0,
     })
   }
@@ -244,6 +253,9 @@ function fmtClock(ts: number): string {
 const POP_WIDTH = 430
 
 export function TideDock(props: TideDockProps) {
+  // 文案（W2 locale 化；P3 接回 useCopy）：useCopy() 取当前语言，服务缺席回落中文表；
+  // 语言切换由 locale 订阅触发重渲染。模块级纯函数（overviewRows/fmtRemain 等）仍用 copy()。
+  const t = useCopy()
   const projected = props.useProjection?.('kimi-tide/panel')
   const [fetched, setFetched] = useState<KimiTidePanelProjection | null | undefined>(undefined)
   /** 首次取数是否落定（成功或失败）：落定前才是「加载中」，落定后无数据是降级态。 */
@@ -305,12 +317,12 @@ export function TideDock(props: TideDockProps) {
       const outcome = unwrapCommandOutcome(await tideDockBridge.execute(props.sessionId, line))
       if (outcome !== null && !outcome.ok) {
         // ok=false：远端拒绝（{ok:false,error}）或处理器报错（kind:'error'）——展示原文。
-        setNotice(`命令执行失败：${outcome.text}`)
+        setNotice(copy('panel.dock.commandFailedDetail', { 0: outcome.text }))
       }
       // outcome === null：无法识别的回包（如命令未匹配 value=undefined）——不打扰。
     } catch (error) {
       console.error('kimi-tide dock execute failed:', error)
-      setNotice(`命令执行失败：${error instanceof Error ? error.message : String(error)}`)
+      setNotice(copy('panel.dock.commandFailedDetail', { 0: error instanceof Error ? error.message : String(error) }))
     } finally {
       setBusy(false)
       // 动作已改变路由/配额：立刻重取，不干等下一轮轮询。
@@ -421,8 +433,8 @@ export function TideDock(props: TideDockProps) {
 
   if (panel === undefined || panel === null) {
     const stateText = settled
-      ? (degraded !== '' ? `暂无面板数据（${degraded}）` : '暂无面板数据（路由关闭或取数通道不可用）')
-      : '面板数据加载中…'
+      ? (degraded !== '' ? t('panel.dock.panelEmptyReason', { 0: degraded }) : t('panel.dock.panelEmpty'))
+      : t('panel.dock.panelLoading')
     return (
       <div className={`kimi-tide-dock${compact ? ' kt-dock-c' : ''}`} data-kt-el="dock-states">
         {/* 紧凑态：状态文案收进 title（工具行只有一行），面上只留「月汐」，不挤掉别的控件。 */}
@@ -430,7 +442,7 @@ export function TideDock(props: TideDockProps) {
           className={`kt-label kt-slot${compact ? ' kt-c-state' : ''}`}
           title={compact ? stateText : undefined}
         >
-          <Icon name="moon" className="kt-ic-moon" /> 月汐
+          <Icon name="moon" className="kt-ic-moon" /> {t('shared.nav')}
         </span>
         {!compact && <span className="kt-dim">{stateText}</span>}
       </div>
@@ -476,42 +488,42 @@ export function TideDock(props: TideDockProps) {
   // 评审 P2-10：置灰槽的「—」对读屏是零语义破折号，title 又不可达——
   // 把原因进 aria-label（仅置灰态；点亮态保留自然文本朗读，避免吞掉剩 N 数字）。
   const weekTitle = weekWindow !== null && weekPct !== null
-    ? `周配额剩余比例 · 剩 ${fmtRemain(Math.max(0, weekWindow.limit - weekWindow.used))} / 共 ${fmtRemain(weekWindow.limit)}`
+    ? t('panel.dock.weekTitleRemain', { 0: fmtRemain(Math.max(0, weekWindow.limit - weekWindow.used)), 1: fmtRemain(weekWindow.limit) })
     : usage !== null
-      ? '周配额（该窗口无数据）'
+      ? t('panel.dock.weekTitleNoData')
       : targetHasSource
-        ? '周配额（取数失败，配额不可用）'
-        : `周配额不适用于当前目标（${targetProvider ?? '—'}）`
+        ? t('panel.dock.weekTitleFailed')
+        : t('panel.dock.weekTitleNa', { 0: targetProvider ?? t('panel.dock.noValue') })
   const fiveTitle = fiveWindow !== null && fivePct !== null
-    ? `五小时窗剩余比例 · 剩 ${fmtRemain(Math.max(0, fiveWindow.limit - fiveWindow.used))} / 共 ${fmtRemain(fiveWindow.limit)}`
+    ? t('panel.dock.fiveTitleRemain', { 0: fmtRemain(Math.max(0, fiveWindow.limit - fiveWindow.used)), 1: fmtRemain(fiveWindow.limit) })
     : usage !== null
-      ? '五小时窗（该窗口无数据）'
+      ? t('panel.dock.fiveTitleNoData')
       : targetHasSource
-        ? '五小时窗（取数失败，配额不可用）'
-        : `五小时窗不适用于当前目标（${targetProvider ?? '—'}）`
+        ? t('panel.dock.fiveTitleFailed')
+        : t('panel.dock.fiveTitleNa', { 0: targetProvider ?? t('panel.dock.noValue') })
   const clockTitle = quota !== null
-    ? `配额取数时间${quota.stale ? '（已过期）' : ''}`
+    ? `${t('panel.dock.clockTitle')}${quota.stale ? t('panel.dock.clockTitleStale') : ''}`
     : targetHasSource
-      ? '配额取数时间（取数失败，配额不可用）'
-      : '配额取数时间（当前目标无配额数据）'
+      ? t('panel.dock.clockTitleFailed')
+      : t('panel.dock.clockTitleNoQuota')
   // ---- 紧凑态（v1.4.x，工具行右端）派生值 ----
   // 目标链：本步决策目标优先，回落预设默认目标（与 r1 的 ⟶/→ 同语义，只是合成一个按钮）。
   const compactTarget = panel.decision?.chosen ?? (router.activePreset !== null ? router.defaultTarget ?? null : null)
   // 配额摘要一格：余额源给 `¥xx`，用量源给 `周剩NN%`，无数据给 null（退化为 ▤ 图标）。
   const compactQuota = balance !== null
     ? fmtBalance(balance)
-    : weekPct === null ? null : `周剩${weekPct}%`
+    : weekPct === null ? null : t('panel.dock.weekRemain', { 0: weekPct })
   const compactQuotaTitle = balance !== null
     ? balanceTitleOf(balance)
     : weekPct === null
-      ? '用量总览（当前目标无配额数据）'
-      : `${weekTitle} · 点开用量总览`
+      ? t('panel.dock.compactQuotaNoData')
+      : t('panel.dock.compactQuotaOpen', { 0: weekTitle })
   // Task 6 派发台账（面板 v7）：每父会话最近 20 条、新在前；旧载荷缺席 → 空数组
   // → 摘要槽与明细区都不渲染（空态不挂锚点，不是渲染空字符串）。
   const dispatch = panel.dispatch ?? []
 
   return (
-    <div className={`kimi-tide-dock ${compact ? 'kt-dock-c' : 'kt-dock-b'}`} ref={dockRef} role="region" aria-label="月汐路由状态">
+    <div className={`kimi-tide-dock ${compact ? 'kt-dock-c' : 'kt-dock-b'}`} ref={dockRef} role="region" aria-label={t('panel.dock.regionLabel')}>
       {compact ? (
         <>
           {/* 紧凑态（工具行右端，仅一行空间）：① 预设→目标（点开决策面板）
@@ -524,12 +536,12 @@ export function TideDock(props: TideDockProps) {
             className={`kt-c-main kt-slot${expanded ? ' kt-armed' : ''}`}
             aria-expanded={expanded}
             title={panel.decision === null
-              ? `${expanded ? '收起' : '展开'}决策可观测（本步无决策）· 预设 ${router.presetName ?? '关闭'}`
-              : `${expanded ? '收起' : '展开'}决策可观测：${panel.decision.reason}`}
+              ? t('panel.dock.toggleTitleNoDecisionCompact', { 0: expanded ? t('panel.dock.collapse') : t('panel.dock.expand'), 1: router.presetName ?? t('panel.dock.closed') })
+              : t('panel.dock.toggleTitleDecision', { 0: expanded ? t('panel.dock.collapse') : t('panel.dock.expand'), 1: panel.decision.reason })}
             onClick={toggleExpand}
           >
             <Icon name="moon" className="kt-ic-moon" />
-            <span className="kt-c-preset">{router.presetName ?? '关闭'}</span>
+            <span className="kt-c-preset">{router.presetName ?? t('panel.dock.closed')}</span>
             {compactTarget !== null && (
               <>
                 <span className="kt-route-arrow" aria-hidden>→</span>
@@ -537,7 +549,7 @@ export function TideDock(props: TideDockProps) {
               </>
             )}
             {(!kimi.route || !kimi.key) && (
-              <span data-kt-el="kimi-warning" className="kt-c-warn" title="缺少 kimi-coding 路由或 API key（设置 → 模型 配置）">
+              <span data-kt-el="kimi-warning" className="kt-c-warn" title={t('panel.dock.kimiMissingTitleCompact')}>
                 <Icon name="warn" />
               </span>
             )}
@@ -564,13 +576,13 @@ export function TideDock(props: TideDockProps) {
         <span
           data-kt-el="label"
           className="kt-label kt-slot"
-          title="推理输出已启用 · 路由设置见 设置 → 月汐"
+          title={t('panel.dock.labelTitle')}
         >
-          <Icon name="moon" className="kt-ic-moon" /> 月汐
+          <Icon name="moon" className="kt-ic-moon" /> {t('shared.nav')}
         </span>
 
-        <span data-kt-el="preset-chip" className="kt-chip kt-slot" title="当前路由预设">
-          <Icon name="route" className="kt-ic-route" /> {router.presetName ?? '关闭'}
+        <span data-kt-el="preset-chip" className="kt-chip kt-slot" title={t('panel.dock.presetChipTitle')}>
+          <Icon name="route" className="kt-ic-route" /> {router.presetName ?? t('panel.dock.closed')}
         </span>
 
         {router.activePreset !== null && (
@@ -579,7 +591,7 @@ export function TideDock(props: TideDockProps) {
             <span
               data-kt-el="baseline-chip"
               className="kt-chip kt-slot"
-              title={`预设默认模型 ${router.defaultTarget?.provider ?? ''}/${router.defaultTarget?.model ?? ''}（未命中规则时的默认目标）`}
+              title={t('panel.dock.baselineChipTitle', { 0: router.defaultTarget?.provider ?? '', 1: router.defaultTarget?.model ?? '' })}
             >
               <Icon name="base" className="kt-ic-base" /> <span className="kt-ellip">{router.defaultTarget?.model}</span>
             </span>
@@ -592,7 +604,7 @@ export function TideDock(props: TideDockProps) {
             <span
               data-kt-el="decision-chip"
               className="kt-chip kt-slot kt-route-target"
-              title={`本步决策目标 ${panel.decision.chosen.provider}/${panel.decision.chosen.model}`}
+              title={t('panel.dock.decisionChipTitle', { 0: panel.decision.chosen.provider, 1: panel.decision.chosen.model })}
             >
               <Icon name="target" className="kt-ic-target" /> <span className="kt-ellip">{panel.decision.chosen.model}</span>
             </span>
@@ -603,9 +615,9 @@ export function TideDock(props: TideDockProps) {
           <span
             data-kt-el="kimi-warning"
             className="kt-chip kt-slot kt-warn"
-            title="缺少 kimi-coding 路由或 API key（设置 → 模型 配置，apiKeyEnv 指向你的凭据）"
+            title={t('panel.dock.kimiMissingTitle')}
           >
-            <Icon name="warn" /> Kimi 未接入：设置 → 模型
+            <Icon name="warn" /> {t('panel.dock.kimiMissing')}
           </span>
         )}
 
@@ -619,12 +631,12 @@ export function TideDock(props: TideDockProps) {
             data-kt-el="decision-toggle"
             className={`kt-decision-chip kt-decision-toggle${expanded ? ' kt-armed' : ''}`}
             title={panel.decision === null
-              ? `${expanded ? '收起' : '展开'}决策可观测（本步无决策）`
-              : `${expanded ? '收起' : '展开'}决策可观测：${panel.decision.reason}`}
+              ? t('panel.dock.toggleTitleNoDecision', { 0: expanded ? t('panel.dock.collapse') : t('panel.dock.expand') })
+              : t('panel.dock.toggleTitleDecision', { 0: expanded ? t('panel.dock.collapse') : t('panel.dock.expand'), 1: panel.decision.reason })}
             aria-expanded={expanded}
             onClick={toggleExpand}
           >
-            {expanded ? '▾' : '▸'} <Icon name="compass" className="kt-ic-compass" /> 决策
+            {expanded ? '▾' : '▸'} <Icon name="compass" className="kt-ic-compass" /> {t('panel.dock.decision')}
           </button>
         </span>
       </div>
@@ -642,13 +654,13 @@ export function TideDock(props: TideDockProps) {
           title={weekTitle}
           aria-label={weekDim ? weekTitle : undefined}
         >
-          <Icon name="calendar" className="kt-ic-calendar" /> 周{' '}
+          <Icon name="calendar" className="kt-ic-calendar" /> {t('panel.dock.week')}{' '}
           {weekPct === null ? (
-            '—'
+            t('panel.dock.noValue')
           ) : (
             <>
               <span className="kt-quota-bar"><i style={{ width: `${weekPct}%` }} /></span>
-              剩{weekPct}%
+              {t('panel.dock.remainPct', { 0: weekPct })}
             </>
           )}
         </span>
@@ -661,11 +673,11 @@ export function TideDock(props: TideDockProps) {
         >
           <Icon name="gauge" className="kt-ic-gauge" /> 5h{' '}
           {fivePct === null ? (
-            '—'
+            t('panel.dock.noValue')
           ) : (
             <>
               <span className="kt-quota-bar"><i style={{ width: `${fivePct}%` }} /></span>
-              剩{fivePct}%
+              {t('panel.dock.remainPct', { 0: fivePct })}
             </>
           )}
         </span>
@@ -676,8 +688,8 @@ export function TideDock(props: TideDockProps) {
           className={`kt-slot kt-quota-slot${balance.available === false ? ' kt-warn' : ''}`}
           title={balanceTitleOf(balance)}
         >
-          <Icon name="wallet" className="kt-ic-calendar" /> 余额 {fmtBalance(balance)}
-          {balance.available === false && <span className="kt-warn"> 余额不足</span>}
+          <Icon name="wallet" className="kt-ic-calendar" /> {t('panel.dock.balanceSlot', { 0: fmtBalance(balance) })}
+          {balance.available === false && <span className="kt-warn"> {t('panel.dock.balanceInsufficientWord')}</span>}
         </span>
         )}
 
@@ -687,11 +699,11 @@ export function TideDock(props: TideDockProps) {
           <span
             data-kt-el="image-context"
             className={`kt-slot${panel.imageContext.blind > 0 ? ' kt-warn' : ''}`}
-            title="本会话图像三态计数：原生视觉 / 已转述 / 盲答（盲>0 = 有图文本模型看不到）"
+            title={t('panel.dock.imageContextTitle')}
           >
-            <Icon name="image" className="kt-ic-image" /> 图 原{panel.imageContext.native}·述{panel.imageContext.transcribed}·盲{panel.imageContext.blind}
+            <Icon name="image" className="kt-ic-image" /> {t('panel.dock.imageContext', { 0: panel.imageContext.native, 1: panel.imageContext.transcribed, 2: panel.imageContext.blind })}
             {panel.imageContext.blind > 0 && (
-              <span className="kt-warn">有图文本模型看不到</span>
+              <span className="kt-warn">{t('panel.dock.imageBlind')}</span>
             )}
           </span>
         )}
@@ -701,7 +713,7 @@ export function TideDock(props: TideDockProps) {
             text-overflow 无效）。终审 M8①：title 含完整格式化文案——摘要被
             截断后 hover 仍可读全文（定值「最近一次派发」只有槽位名）。 */}
         {dispatch.length > 0 && (
-          <span className="kt-slot kt-dispatch" data-kt-el="dispatch" title={`最近一次派发：${formatDispatch(dispatch[0]!)}`}>
+          <span className="kt-slot kt-dispatch" data-kt-el="dispatch" title={t('panel.dock.dispatchTitle', { 0: formatDispatch(dispatch[0]!) })}>
             <span className="kt-ellip">{formatDispatch(dispatch[0]!)}</span>
           </span>
         )}
@@ -714,7 +726,7 @@ export function TideDock(props: TideDockProps) {
             className={`kt-ov-toggle${overviewOpen ? ' kt-armed' : ''}`}
             aria-expanded={overviewOpen}
             aria-controls="kt-quota-overview"
-            title={overviewOpen ? '收起用量总览' : '展开用量总览（全部源）'}
+            title={overviewOpen ? t('panel.dock.overviewCollapse') : t('panel.dock.overviewExpand')}
             onClick={toggleOverview}
           >
             <Icon name="stacks" className="kt-ic-refresh" />
@@ -727,15 +739,15 @@ export function TideDock(props: TideDockProps) {
           >
             <Icon name="clock" className="kt-ic-clock" />{' '}
             {showValues
-              ? `${fmtClock(quota.fetchedAt)}${quota.stale ? ' (过期)' : ''}`
-              : '—'}
+              ? (quota.stale ? t('panel.dock.clockStale', { 0: fmtClock(quota.fetchedAt) }) : fmtClock(quota.fetchedAt))
+              : t('panel.dock.noValue')}
           </span>
           <button
             type="button"
             data-kt-el="refresh"
             className="kt-refresh"
             disabled={busy}
-            title="刷新配额（/kimi-tide refresh）"
+            title={t('panel.dock.refreshTitle')}
             onClick={() => void run('/kimi-tide refresh')}
           >
             <Icon name="refresh" className="kt-ic-refresh" />
@@ -752,11 +764,11 @@ export function TideDock(props: TideDockProps) {
           className="kt-dock-pop kt-ov"
           id="kt-quota-overview"
           role="dialog"
-          aria-label="用量总览"
+          aria-label={t('panel.dock.overviewTitle')}
           ref={ovRef}
           style={{ left: ovPos?.left ?? 8, top: ovPos?.top, bottom: ovPos?.bottom }}
         >
-          <span className="kt-h">用量总览</span>
+          <span className="kt-h">{t('panel.dock.overviewTitle')}</span>
           <ul className="kt-ov-list">
             {overviewRows(panel).map((row) => (
               <li key={row.provider} className={row.dim ? 'kt-ov-row kt-dim' : 'kt-ov-row'}>
