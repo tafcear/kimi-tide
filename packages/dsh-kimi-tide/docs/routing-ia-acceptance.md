@@ -126,6 +126,7 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 
 【A-1 摘要行】主会话：未命中任何规则 ⇒ 全部走打底（deepseek-official/deepseek-flash）；
              已备 6 组词表无规则引用，暂不生效 ｜ 派发：前端→kimi-coding/k3、后端→zai-coding-cn/glm-5.3
+             ｜ 带图：锁存视觉模型
 
 【A-3 五档决策链】
   1. 显式 @指令    [按需]    按需：消息里写 @provider 或 @provider/model 时才参与裁决

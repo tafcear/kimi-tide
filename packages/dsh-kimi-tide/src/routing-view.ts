@@ -17,7 +17,7 @@
  *   routes，否则旧字段投影）——v6 与 v7 输入产出**等价视图**，对外 API 与
  *   返回结构不变（A/B 只依赖本模块，不感知配置版本）。
  */
-import { configKey, isFlowTarget, isV5Plus, rowsFromConfig, type CollaborationFlow, type RouteRowV7, type RouteTarget, type RouterConfigV7, type RouterPreset, type RuleTarget } from './config.js'
+import { configKey, isFlowTarget, isV5Plus, rowsFromConfig, type CollaborationFlow, type ImageFallback, type RouteRowV7, type RouteTarget, type RouterConfigV7, type RouterPreset, type RuleTarget } from './config.js'
 import { claimedReviewGroups } from './rules.js'
 import type { RouterConfigAny } from './router.js'
 
@@ -311,6 +311,18 @@ function targetLabel(target: RuleTarget): string {
   return isFlowTarget(target) ? `协作流 ${target.flow}` : configKey(target)
 }
 
+/**
+ * imageFallback 三态的**短标签**（摘要用，§4.1 示例的第三段）。
+ * 与 `client/help-content.ts` 的 `FALLBACK_HINTS` 是**同一组键**——那边是给用户看的
+ * 一句话后果（长），这里只要一个词；**键集由跨模块测试钉住**（任一侧漏一个状态即红），
+ * 避免"两处各自维护一套状态名"的老问题。
+ */
+export const IMAGE_FALLBACK_SHORT: Record<ImageFallback, string> = {
+  latch: '锁存视觉模型',
+  blind: '盲答',
+  'transcribe-lazy': '懒转述',
+}
+
 /** 摘要组装（describeRouting 的单一实现，纯中文人话、不含内部字段名）。 */
 function summarize(parts: {
   config: RoutingConfigLike
@@ -338,6 +350,8 @@ function summarize(parts: {
   if (dispatch.length > 0) {
     chunks.push(`派发：${dispatch.map((r) => `${conditionLabel(r.condition)}→${targetLabel(r.target)}`).join('、')}`)
   }
+  // §4.1 第三段：带图兜底同样是"谁来决定"的一部分（缺省 latch，与卡片下拉缺省一致）。
+  chunks.push(`带图：${IMAGE_FALLBACK_SHORT[preset.imageFallback ?? 'latch']}`)
   return chunks.join(' ｜ ')
 }
 

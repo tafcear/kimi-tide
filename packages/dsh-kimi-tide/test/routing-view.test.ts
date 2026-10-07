@@ -3,7 +3,8 @@
 // 词表接线、重叠解释、打底可见、决策链五档、派发预览、人话摘要单源。
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_KEYWORD_GROUPS, type ReviewFlow, type RoleEntry, type RouteTarget, type RouterConfigV6, type RouterPreset, type RouterRule } from '../src/config.js'
-import { buildRoutingView, describeRouting, previewDispatch } from '../src/routing-view.js'
+import { buildRoutingView, describeRouting, IMAGE_FALLBACK_SHORT, previewDispatch } from '../src/routing-view.js'
+import { FALLBACK_HINTS } from '../src/client/help-content.js'
 
 const t = (provider: string, model: string): RouteTarget => ({ provider, model })
 const K3 = t('kimi-coding', 'k3')
@@ -226,5 +227,30 @@ describe('C1 修复（2026-10-07 复核⑦）：overlaps 口径对齐 summarize'
       presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3)] satisfies RouterPreset } },
       roles: { backend: { id: 'backend', label: '后端', target: GLM, aliases: ['代码'] } },
     })).overlaps[0]!).toBe(false)
+  })
+})
+
+describe('C1：摘要第三段「带图」（§4.1，2026-10-07 补）', () => {
+  const withFallback = (imageFallback?: RouterPreset['imageFallback']): RouterConfigV6 => v6({
+    presets: {
+      main: {
+        name: '主力', default: FLASH, rules: [],
+        ...(imageFallback === undefined ? {} : { imageFallback }),
+      } satisfies RouterPreset,
+    },
+  })
+
+  it('按预设的 imageFallback 出短标签；缺省与卡片下拉一致（latch）', () => {
+    // Fails if：summarize 里那段 `带图：…` 被删（四条全红）或标签写反。
+    expect(describeRouting(withFallback('latch'))).toContain('带图：锁存视觉模型')
+    expect(describeRouting(withFallback('blind'))).toContain('带图：盲答')
+    expect(describeRouting(withFallback('transcribe-lazy'))).toContain('带图：懒转述')
+    expect(describeRouting(withFallback())).toContain('带图：锁存视觉模型')
+  })
+
+  it('短标签键集与 client/help-content.ts 的 FALLBACK_HINTS 一致（跨模块防漂移）', () => {
+    // 两处各有一份「三态」的名字：那边是给用户看的一句话后果，这边只取一个词。
+    // 任一侧漏一个状态（或改名）即红——不允许两处各自维护一套状态名。
+    expect(Object.keys(IMAGE_FALLBACK_SHORT).sort()).toEqual(Object.keys(FALLBACK_HINTS).sort())
   })
 })

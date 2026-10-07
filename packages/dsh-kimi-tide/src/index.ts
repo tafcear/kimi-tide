@@ -42,8 +42,8 @@ import {
 import { ImageStateStore } from './image-state.js'
 import { DispatchLedger } from './dispatch-ledger.js'
 import { Transcriber } from './transcribe.js'
-import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, projectRoutesToLegacy, type CandidateMeta, type RoleEntry, type RouteTarget, type RouterConfigV5Plus } from './config.js'
-import { routerConfigSchema } from './settings-schema.js'
+import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, isV5Plus, projectRoutesToLegacy, type CandidateMeta, type RoleEntry, type RouteTarget, type RouterConfigV5Plus } from './config.js'
+import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { createSettingsPort, hasActivePreset, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
@@ -851,6 +851,23 @@ export function apply(ctx: Context, config: Config = {}) {
     // 的配置原引用返回（v6 及更早零行为变更）。attach 与 volatile 变更共用本口。
     // S1（2026-10-07 复核）：读路径不经过写入期校验——畸形 routes 行（手改 YAML
     // 常见产物）在此保守丢弃并 warn，不沿 apply 抛穿插件 apply。
+    // M4（2026-10-07 复核）：读边界**不做冲突拦截**（拦截仍以写入期为准，见
+    // commands.ts 的 import 路径），但**不静默**——手改配置造成 routes 与旧字段
+    // 不一致时，运行期按 routes 走，这里给一条 warn，让"改了文件却没生效"有迹可循。
+    // 校验是纯函数、成本可忽略（设置页每次写入也跑它）；校验器本身抛错也不得
+    // 让读边界崩掉，故再包一层。**注意**：`validateRouterConfig` 只覆盖 v5+ 语义
+    // （v4 及更早由迁移链负责），故先过 `isV5Plus` 守卫——否则 v4 配置会被误报。
+    let invalid: string | undefined
+    if (isV5Plus(incoming)) {
+      try {
+        invalid = validateRouterConfig(incoming)
+      } catch (error) {
+        invalid = `校验器异常：${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+    if (invalid !== undefined) {
+      warn(`路由配置未通过校验（运行期按字段判据继续；写入期会拒绝）：${invalid}`)
+    }
     const next = projectRoutesToLegacy(incoming, warn)
     // 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：skills/agentTeams 可能在
     // apply 之后才挂上；服务出现/消失 ⇒ 与配置变更同款重挂（成本可忽略）。

@@ -95,6 +95,8 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   const effects: Array<() => void> = []
   const listModelsCalls: string[] = []
+  /** M4（2026-10-07 复核）：读边界 warn 的观测点——手改出的冲突配置应有 warn，不静默。 */
+  const warnMessages: string[] = []
   // ctx.skills 替身（Task 3 / R3 门控断言用）：记录注册与释放，不真挂目录。
   const skillDisposers: Array<ReturnType<typeof vi.fn>> = []
   const skillRegister = vi.fn((skill: { name: string }) => {
@@ -131,7 +133,7 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
         },
       }
   const ctx: Record<string, unknown> = {
-    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    logger: { info: () => {}, warn: (message: string) => { warnMessages.push(String(message)) }, error: () => {} },
     fiber: { entry },
     config: pluginConfig(),
     llm: {
@@ -182,6 +184,7 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
     ctx,
     listeners,
     listModelsCalls,
+    warnMessages,
     skillRegister,
     skillDisposers,
     getCommand: () => commandDef,
@@ -1010,5 +1013,25 @@ describe('apply() C2b：routes 运行期生效（applyConfig 读边界投影）'
     const snapshot = JSON.parse(result.text) as { decision: { chosen: { provider: string; model: string } } | null }
     // 迁移产物的 routes 与旧字段一致 ⇒ 决策仍落 capability 的内置 code 规则目标
     expect(snapshot.decision?.chosen).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+  })
+
+  /**
+   * M4（2026-10-07 交叉复核）：读边界**不做冲突拦截**（拦截以写入期为准），但**不静默**——
+   * 手改配置造成校验不过时，运行期按字段判据继续，同时给一条 warn。
+   *
+   * Fails if：把 applyConfig 里那段 `validateRouterConfig(incoming)` + warn 删掉（正向那条变红）；
+   * 或者反过来对合法配置也无脑 warn（反向那条变红）。
+   */
+  it('M4：配置未通过校验 ⇒ 读边界 warn；合法配置 ⇒ 不 warn', async () => {
+    const bad = makeSettings({ ...DEFAULT_CONFIG_V5(), activePreset: 'ghost' })
+    const badCtx = makeCtx([], bad)
+    apply(badCtx.ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    expect(badCtx.warnMessages.some((message) => message.includes('未通过校验'))).toBe(true)
+
+    const goodCtx = makeCtx([], makeSettings(DEFAULT_CONFIG_V5()))
+    apply(goodCtx.ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    expect(goodCtx.warnMessages.some((message) => message.includes('未通过校验'))).toBe(false)
   })
 })

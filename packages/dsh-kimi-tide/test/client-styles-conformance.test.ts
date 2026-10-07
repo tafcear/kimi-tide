@@ -62,6 +62,18 @@ describe('§9 官方 UI 规则：阴影不得用于分组', () => {
     expect(offenders).toEqual([])
   })
 
+  it('虚线描边不得出现在卡片类规则上（§9.2 裁定，2026-10-07 复核 #7-①）', () => {
+    // 复核者把 `.kt-overlap { border: 1px dashed … }` 列为"需人眼裁定是否算第二道边框"。
+    // 裁定：**合规**——§9.2 禁的是"在设置卡片那道 stroke 上再加一道中性边框/阴影"来分组；
+    // `.kt-overlap` 是**行内解释条**（不是 kt-card），虚线是刻意的**语义标记**（区分
+    // 「解释」与 kt-conflict-banner 的警示实底）。本用例把边界钉住：虚线**只能**留在
+    // 非卡片元素上；一旦有人给卡片加虚线描边，即红。
+    const dashedOnCards = ruleBlocks(SOURCE_CSS)
+      .filter((b) => /kt-card/.test(b.selector) && /dashed/.test(b.body))
+      .map((b) => b.selector)
+    expect(dashedOnCards).toEqual([])
+  })
+
   it('阴影选择器集合不得新增（只允许收缩到基线子集）', () => {
     const withShadow = ruleBlocks(SOURCE_CSS)
       .filter((b) => b.body.includes('box-shadow'))
