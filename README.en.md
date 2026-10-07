@@ -98,7 +98,7 @@ Open "Settings → 月汐 → Route": from top to bottom it *is* a **five-tier d
    ```
 
    `session` rows serve the main session only, `dispatch` rows serve teammates only; **once `routes` exists it is the single source of truth**, and the legacy fields (`presets[*].rules` / `roles`) stay as a mirror — delete the `routes` block and the old-field reading applies again, nothing breaks.
-4. **Overlap notes**: when one word (say "code") is both the subject of a keyword rule and a role's identity word, both sides show a note: "by design: saying 'code' in the main session goes to A; delegating 'code' work to 'backend' goes to B" — **not a conflict, a division of labour**.
+4. **Overlap notes**: when one word (say "code") is both the subject of a keyword rule and a role's identity word, both sides show a note: "by design: saying 'code' in the main session goes to A; delegating 'code' work to 'backend' goes to B" — **not a conflict, a division of labour**. Two one-click actions sit next to it: **make the rule follow that role** / **merge the word into that role's aliases**. (Rules claimed by a collaboration flow are left out of these notes — they are suppressed, so explaining them would be a lie.)
 5. **The playground's "dispatch to" box**: type a role or teammate name and see which model it will be rerouted to and on what basis (`role` / `unclaimed`). It is a **different scope** from "try a sentence": "try a sentence" predicts the main session's keyword rules, "dispatch to" predicts the roster reroute at delegation time.
 
 > For the config shape, ordering and migration rules (`scope` semantics and conflict validation included), see the [router architecture](packages/dsh-kimi-tide/docs/router.md) "2.1.0 unified routing table (v7)" section.
