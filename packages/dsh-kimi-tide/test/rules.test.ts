@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, type RouterRule } from '../src/config.js'
+import { setCopyResolver } from '../src/copy.js'
+import { makeCopy } from '../src/locales/index.js'
 import {
   claimedGroupRuleConflicts,
   configuredProviders,
@@ -338,5 +340,39 @@ describe('claimedGroupRuleConflicts', () => {
     config.keywordGroups.unused = ['没有规则用它']
     config.flows.review = { ...config.flows.review, trigger: 'keywords', keywordGroup: 'unused' }
     expect(claimedGroupRuleConflicts(config)).toEqual([])
+  })
+})
+
+/**
+ * W6：previewRoute / ruleLabel / ruleConditionSummary 经共享层 copyNow 跟随语言。
+ * 配置在 zh 绑定下预制（关键词组/预设名是配置数据，不随界面语言改写），再切 en
+ * 断言渲染文案英文；finally 恢复 zh 防模块态泄漏（同文件后续用例仍见中文）。
+ */
+describe('W6：试一句/条件文案英文（copyNow 绑定 makeCopy(\'en\')）', () => {
+  const CATALOG: RoutePreviewDeps['catalog'] = [
+    { provider: 'kimi-coding', models: ['k3', 'kimi-for-coding'] },
+    { provider: 'deepseek-official', models: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
+  ]
+  const DEPS: RoutePreviewDeps = { catalog: CATALOG, availability: null }
+
+  it('en 绑定 ⇒ outcome reason/label 与条件摘要英文；恢复 zh 后逐字回到中文', () => {
+    const off = DEFAULT_CONFIG_V4()
+    const capability = DEFAULT_CONFIG_V4(); capability.activePreset = 'capability'
+    const imageRule = capability.presets.capability.rules[0]!
+    setCopyResolver(makeCopy('en'))
+    try {
+      expect(previewRoute(off, '随便一句', DEPS).outcome).toEqual({ kind: 'off', reason: 'Routing is off' })
+      const hit = previewRoute(capability, '帮我重构这段周报', DEPS)
+      expect(hit.outcome).toMatchObject({ kind: 'rule', ruleId: 'code-kfc', reason: 'Rule "code" hit 1 word(s)' })
+      expect(ruleLabel(imageRule)).toBe('With image')
+      expect(ruleConditionSummary(capability.presets.capability.rules[2]!, capability)).toBe('Group code: ≥1 word(s) hit')
+      // 预设名是配置数据（zh 预制），只有 chrome 文案变英文。
+      expect(previewRoute(capability, '今天降温了', DEPS).outcome).toMatchObject({ kind: 'default', reason: 'Preset "能力" default' })
+    } finally {
+      setCopyResolver(makeCopy('zh'))
+    }
+    // Fails if: en 绑定泄漏到恢复之后（中文安全网被污染）
+    expect(previewRoute(off, '随便一句', DEPS).outcome).toEqual({ kind: 'off', reason: '路由已关闭' })
+    expect(ruleLabel(imageRule)).toBe('带图')
   })
 })

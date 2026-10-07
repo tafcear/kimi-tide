@@ -8,7 +8,9 @@
 //
 // 判据（两大块）：
 //   A. 硬编码扫描（AST 级，不用正则——注释天然不进 TS AST）：
-//      扫 packages/dsh-kimi-tide/src/client/**/*.{ts,tsx} 与 src/routing-view.ts，
+//      扫 packages/dsh-kimi-tide/src/client/**/*.{ts,tsx}、src/routing-view.ts，
+//      以及四个宿主/浏览器共享模块（W6 扩面：src/config.ts、src/rules.ts、
+//      src/roles.ts、src/review-verdict.ts——它们的中文会直接渲染进设置卡），
 //      字符串字面量 / 模板字面量（head/middle/tail）/ JSX 文本节点里出现
 //      汉字（\u3400-\u4DBF \u4E00-\u9FFF \uF900-\uFAFF）、
 //      中文标点（\u3000-\u303F）、全角形式（\uFF00-\uFFEF）、
@@ -77,8 +79,11 @@ function hardcodedTargets() {
   const files = []
   const clientDir = join(pkgRoot, 'src', 'client')
   if (existsSync(clientDir)) walk(clientDir, files)
-  const routing = join(pkgRoot, 'src', 'routing-view.ts')
-  if (existsSync(routing)) files.push(routing)
+  // src 根下的受扫单文件：routing-view（P）+ 四个宿主/浏览器共享模块（W6）。
+  for (const name of ['routing-view.ts', 'config.ts', 'rules.ts', 'roles.ts', 'review-verdict.ts']) {
+    const file = join(pkgRoot, 'src', name)
+    if (existsSync(file)) files.push(file)
+  }
   return files
 }
 

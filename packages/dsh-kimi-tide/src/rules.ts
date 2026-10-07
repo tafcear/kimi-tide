@@ -8,6 +8,7 @@
  */
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { KIMI_PROVIDER, configKey, isFlowTarget, isV5Plus, type CollaborationFlow, type ReviewFlow, type RouteTarget, type RuleTarget, type RouterPreset, type RouterRule } from './config.js'
+import { copyNow } from './copy.js'
 import type { RouterConfigAny } from './router.js'
 
 /** 词法层的 provider 名。
@@ -220,13 +221,13 @@ export function routableHits(config: RouterConfigAny, hits: readonly RuleMatch[]
 
 /** 决策摘要/UI 用的条件名：image→带图；keywords→组名。 */
 export function ruleLabel(rule: RouterRule): string {
-  return rule.when.kind === 'image' ? '带图' : rule.when.group
+  return rule.when.kind === 'image' ? copyNow('shared.rules.image') : rule.when.group
 }
 
 /** 规则行条件摘要（0.8.0 D2）：「带图」/「命中 code 组 ≥1 词」/「命中 plan 组 ≥2 词」。 */
 export function ruleConditionSummary(rule: RouterRule, config: RuleMatchConfig): string {
-  if (rule.when.kind === 'image') return '带图'
-  return `命中 ${rule.when.group} 组 ≥${rule.when.minHits ?? 1} 词`
+  if (rule.when.kind === 'image') return copyNow('shared.rules.image')
+  return copyNow('shared.rules.condition', { 0: rule.when.group, 1: rule.when.minHits ?? 1 })
 }
 
 /**
@@ -379,9 +380,9 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
   const available = (target: RouteTarget): boolean =>
     availability === null || availability[`${target.provider}/${target.model}`] !== false
   const hits = matchingScored(config, text, false)
-  if (config.activePreset === null) return { hits, outcome: { kind: 'off', reason: '路由已关闭' } }
+  if (config.activePreset === null) return { hits, outcome: { kind: 'off', reason: copyNow('shared.rules.off') } }
   const preset = config.presets[config.activePreset]
-  if (preset === undefined) return { hits, outcome: { kind: 'off', reason: '激活预设不存在' } }
+  if (preset === undefined) return { hits, outcome: { kind: 'off', reason: copyNow('shared.rules.presetMissing') } }
   // 显式 @指令：与 decide 同款语义（v1.3.0 Q3 精确寻址 + Q6 已知 provider 门控）——
   // 精确寻址优先；provider 简写按「本预设已配置目标 → 目录序」确定化，并把实际选择
   // 写进 reason（可解释）。catalog 取不到 ⇒ known=null ⇒ 退化纯词法（不误杀真指令）。
@@ -401,16 +402,23 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
       .find((model) => models === undefined || models.includes(model))
     const pick = explicit.model ?? configuredModel ?? models?.[0]
     const target = models !== undefined && pick !== undefined ? { provider: explicit.provider, model: pick } : null
-    const why = explicit.model !== undefined
-      ? (models !== undefined && models.includes(explicit.model) ? '' : '（不可用 → 回落）')
-      : configuredModel !== undefined ? ' → 预设内已配置目标' : ' → 目录序首个'
+    // 四种注记各是一句完整文案（不把句子拆段翻译再拼——英文语序会崩）；
+    // {1} 为 `/model` 后缀（无 model 段时为空串），zh 产出与改前逐字节相同。
+    const modelSuffix = explicit.model === undefined ? '' : `/${explicit.model}`
+    const reason = target === null
+      ? copyNow('shared.rules.explicit.unknownCatalog', { 0: explicit.provider })
+      : explicit.model !== undefined
+        ? (models !== undefined && models.includes(explicit.model)
+          ? copyNow('shared.rules.explicit.directive', { 0: explicit.provider, 1: modelSuffix })
+          : copyNow('shared.rules.explicit.fallback', { 0: explicit.provider, 1: modelSuffix }))
+        : configuredModel !== undefined
+          ? copyNow('shared.rules.explicit.configured', { 0: explicit.provider })
+          : copyNow('shared.rules.explicit.catalogFirst', { 0: explicit.provider })
     return {
       hits,
       outcome: {
         kind: 'explicit', provider: explicit.provider, target,
-        reason: target === null
-          ? `显式 @${explicit.provider} 指令（候选目录不可判）`
-          : `显式 @${explicit.provider}${explicit.model === undefined ? '' : `/${explicit.model}`} 指令${why === '' ? '' : why}`,
+        reason,
       },
     }
   }
@@ -435,7 +443,7 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
       ruleOutcome = {
         kind: 'rule', ruleId: rule.id, label: ruleLabel(rule), score,
         target: { flow: rule.target.flow },
-        reason: `规则「${ruleLabel(rule)}」命中 ${score} 词（协作流 ${rule.target.flow}）`,
+        reason: copyNow('shared.rules.ruleHitFlow', { 0: ruleLabel(rule), 1: score, 2: rule.target.flow }),
       }
       break
     }
@@ -443,7 +451,7 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
     routedSummary = { kind: 'rule', ruleId: rule.id, label: ruleLabel(rule) }
     ruleOutcome = {
       kind: 'rule', ruleId: rule.id, label: ruleLabel(rule), score, target: { ...rule.target },
-      reason: `规则「${ruleLabel(rule)}」命中 ${score} 词`,
+      reason: copyNow('shared.rules.ruleHit', { 0: ruleLabel(rule), 1: score }),
     }
     break
   }
@@ -465,12 +473,12 @@ export function previewRoute(config: RouterConfigAny, text: string, deps: RouteP
       outcome: {
         kind: 'review-flow',
         flowId: armed.flowId,
-        label: reviewerOk ? `轮末触发评审流 ${armed.flowId}` : `评审流已认领但评审模型不可用`,
+        label: reviewerOk ? copyNow('shared.rules.reviewFlow', { 0: armed.flowId }) : copyNow('shared.rules.reviewFlowUnavailable'),
         score: 0,
         routed: routedSummary,
       },
     }
   }
   if (ruleOutcome !== undefined) return { hits: routable, outcome: ruleOutcome }
-  return { hits: routable, outcome: { kind: 'default', target: { ...preset.default }, reason: `预设「${preset.name}」默认` } }
+  return { hits: routable, outcome: { kind: 'default', target: { ...preset.default }, reason: copyNow('shared.rules.presetDefault', { 0: preset.name }) } }
 }

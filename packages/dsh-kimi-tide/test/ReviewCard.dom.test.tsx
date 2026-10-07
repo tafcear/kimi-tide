@@ -207,7 +207,8 @@ describe('W2：英文渲染（locale 服务桩，active=en-US）', () => {
     roots.push(stopped.root)
     expect(stopped.container.textContent).toContain('Stopped (limit reached)')
     expect(stopped.container.textContent).toContain('manual')
-    expect(stopped.container.textContent).toContain('Based on verdict: 不通过 — revise limit (rounds) reached')
+    // W6 起 verdictLabel 也跟语言走：英文界面下结论标签是 Fail（此前会中英混排）
+    expect(stopped.container.textContent).toContain('Based on verdict: Fail — revise limit (rounds) reached')
     expect(stopped.container.textContent).not.toContain('已停（达上限）')
     expect(stopped.container.textContent).not.toContain('依据结论')
 

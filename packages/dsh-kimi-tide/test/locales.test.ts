@@ -156,3 +156,34 @@ describe('P：routing-view copy 注入', () => {
     expect(view.precedence[2]!.detail).toContain('Routing is off')
   })
 })
+
+describe('W6：shared.* 共享模块文案（键值逐字钉住，防搬运期润色）', () => {
+  it('rules/roles/verdict/diag 抽样键值逐字（含全角括号/「」/占位符）', () => {
+    expect(zh['shared.rules.off']).toBe('路由已关闭')
+    expect(zh['shared.rules.ruleHit']).toBe('规则「{0}」命中 {1} 词')
+    expect(formatCopy(zh['shared.rules.ruleHit'], { 0: 'code', 1: 2 })).toBe('规则「code」命中 2 词')
+    expect(zh['shared.rules.explicit.fallback']).toBe('显式 @{0}{1} 指令（不可用 → 回落）')
+    expect(formatCopy(zh['shared.rules.explicit.configured'], { 0: 'kimi-coding' })).toBe('显式 @kimi-coding 指令 → 预设内已配置目标')
+    expect(zh['shared.rules.reviewFlowUnavailable']).toBe('评审流已认领但评审模型不可用')
+    expect(zh['shared.roles.claimConflict']).toBe('认领名「{0}」同时属于角色「{1}」与「{2}」')
+    expect(zh['shared.roles.listJoin']).toBe('、')
+    expect(en['shared.roles.listJoin']).toBe(', ')
+    expect(zh['shared.roles.effortSuffix']).toBe('（effort {0}）')
+    expect(zh['shared.verdict.unknown']).toBe('无明确结论')
+    expect(zh['shared.diag.routesNotArray']).toBe('dsh-kimi-tide: routes 非数组（读路径视为缺失，回落 presets[*].rules / roles 投影）')
+    expect(zh['shared.config.preset.saving']).toBe('省钱')
+    expect(zh['shared.config.preset.capability']).toBe('能力')
+  })
+
+  it('默认关键词组 7 组键值逐字（\\n 分隔还原后 = 原数组，code 17 词）', () => {
+    expect(zh['shared.config.kw.code'].split('\n')).toEqual(['代码', 'code', 'bug', '重构', 'refactor', '实现', '函数', '测试', '接口', '联调', '部署', '性能', '报错', '日志', '编译', '命令', '脚本'])
+    expect(zh['shared.config.kw.chitchat'].split('\n')).toEqual(['你好', '谢谢', '怎么样', '随便', '聊聊', '天气'])
+    expect(zh['shared.config.kw.review'].split('\n')).toEqual(['审查', 'review', '评审', '挑毛病', '复检', '检查', 'audit', '意见', '打分'])
+    expect(zh['shared.config.kw.writing'].split('\n')).toEqual(['写作', '文案', '润色', '改写', '扩写', '标题', '推文', '周报', '演讲稿', '总结'])
+    expect(zh['shared.config.kw.translate'].split('\n')).toEqual(['翻译', '译成', '中译英', '英译中', 'translate', '本地化'])
+    expect(zh['shared.config.kw.longdoc'].split('\n')).toEqual(['长文档', '通读', '逐段', '全文', '上万字', '大文档'])
+    expect(zh['shared.config.kw.math'].split('\n')).toEqual(['数学', '证明', '推导', '求解', '公式', '数论', '概率', '逻辑题'])
+    // DEFAULT_KEYWORD_GROUPS 快照与表同源（config.test.ts 另钉数组形态）
+    expect(DEFAULT_KEYWORD_GROUPS.code).toEqual(zh['shared.config.kw.code'].split('\n'))
+  })
+})

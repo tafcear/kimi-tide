@@ -3,6 +3,7 @@
  * 无副作用、不碰宿主服务 —— pre-step 闭包与设置页写通道共用同一套判据。
  */
 import type { RoleEntry } from './config.js'
+import { copyNow } from './copy.js'
 import { describeRouting, type RoutingConfigLike } from './routing-view.js'
 
 /** 派发依据（投影与面板的枚举，设计稿 D7）。 */
@@ -15,8 +16,10 @@ export interface DispatchMeta {
   roleLabel?: string
 }
 
-/** 宿主队友名规则（`dsh-experimental-agent-team/lib/types/roster.js:420`）。 */
-export const TEAMMATE_NAME_RULE = 'lower-kebab-case（小写字母/数字/连字符）、≤64 字符、不得为 lead'
+/** 宿主队友名规则（`dsh-experimental-agent-team/lib/types/roster.js:420`）。
+ *  模块级常量只能取加载期语言（宿主恒 zh）；运行期消费方只有 renderTeamSkill
+ *  （宿主侧注入文本），无浏览器渲染路径，快照化无影响。 */
+export const TEAMMATE_NAME_RULE = copyNow('shared.roles.teammateNameRule')
 
 /** 认领集合 = teammate[] ∪ {id}（设计稿 D2；评审阻塞 B1 的修法）。 */
 export function roleClaimSet(role: RoleEntry): Set<string> {
@@ -31,7 +34,7 @@ export function claimConflict(roles: Record<string, RoleEntry>): string | undefi
   for (const role of Object.values(roles)) {
     for (const name of roleClaimSet(role)) {
       const prev = owner.get(name)
-      if (prev !== undefined && prev !== role.id) return `认领名「${name}」同时属于角色「${prev}」与「${role.id}」`
+      if (prev !== undefined && prev !== role.id) return copyNow('shared.roles.claimConflict', { 0: name, 1: prev, 2: role.id })
       owner.set(name, role.id)
     }
   }
@@ -98,44 +101,45 @@ export function renderTeamSkill(
   // M5（2026-10-07 复核）：传入路由配置（宿主挂载侧恒传）时 description 消费
   // describeRouting 的**同源片段**（主会话默认目标 + 命中走哪 + 派发到哪）——摘要
   // 的「派发：」段即旧角色索引，信息不丢；不再自拼文案防跨模块漂移。routing
-  // 缺席（旧调用方）维持旧文案，零行为变更。
-  const summary = routing === undefined ? undefined : describeRouting(routing)
-  const head = summary ?? list.map(one).join('、')
-  const full = `派活前读我：${head}`
+  // 缺席（旧调用方）维持旧文案，零行为变更。W6：copy 注入改走共享层 copyNow
+  // （宿主恒 zh，逐字节不变；浏览器侧若日后渲染本摘要则跟随宿主语言）。
+  const summary = routing === undefined ? undefined : describeRouting(routing, { copy: copyNow })
+  const head = summary ?? list.map(one).join(copyNow('shared.roles.listJoin'))
+  const full = copyNow('shared.roles.readFirst', { 0: head })
   const description = full.length <= DESCRIPTION_BUDGET
     ? full
-    : `派活前读我：共 ${list.length} 个角色（${list.slice(0, 3).map(one).join('、')}…）`
+    : copyNow('shared.roles.readFirstOverflow', { 0: list.length, 1: list.slice(0, 3).map(one).join(copyNow('shared.roles.listJoin')) })
 
   const rows = list.map((r) => {
-    const claims = [...roleClaimSet(r)].join('、')
-    const aliases = (r.aliases ?? []).join('、')
-    const effort = r.target.effort === undefined ? '' : `（effort ${r.target.effort}）`
+    const claims = [...roleClaimSet(r)].join(copyNow('shared.roles.listJoin'))
+    const aliases = (r.aliases ?? []).join(copyNow('shared.roles.listJoin'))
+    const effort = r.target.effort === undefined ? '' : copyNow('shared.roles.effortSuffix', { 0: r.target.effort })
     return `| ${r.label} | \`${r.id}\` | ${r.target.provider}/${r.target.model}${effort} | ${claims} | ${aliases} | ${r.note ?? ''} |`
   })
 
   const body = [
-    '# 月汐分工表（团队派发）',
+    copyNow('shared.roles.skill.title'),
     '',
-    '当任务属于某个专项领域时，**派发给对应模型的子代理**，不要自己硬做。',
+    copyNow('shared.roles.skill.intro'),
     '',
-    '| 角色 | id | 目标模型 | 队友名（认领） | 别名 | 备注 |',
+    copyNow('shared.roles.skill.tableHeader'),
     '|---|---|---|---|---|---|',
     ...rows,
     '',
-    '## 怎么派（两种形态，都要）',
+    copyNow('shared.roles.skill.howto'),
     '',
-    '1. **一次性任务**（做完即回收）：用 `workflow` 的 `agent(prompt, { provider, model })` 指定上表的目标，提示词必须自带任务所需的全部上下文。',
-    '2. **常驻队友**（可多次差遣）：用 `spawn_teammate` 建队友，**队友名必须取自上表的「队友名（认领）」一列**（或该角色的 id）——月汐据此把它的请求改道到目标模型。',
+    copyNow('shared.roles.skill.oneShot'),
+    copyNow('shared.roles.skill.persistent'),
     '',
-    '## 队友名合法性',
+    copyNow('shared.roles.skill.nameRuleTitle'),
     '',
-    `队友名须满足：${TEAMMATE_NAME_RULE}；名字永不复用，且一旦失败也占用名额。`,
+    copyNow('shared.roles.skill.nameRule', { 0: TEAMMATE_NAME_RULE }),
     '',
-    '## 什么时候不要派',
+    copyNow('shared.roles.skill.whenNot'),
     '',
-    '- 琐碎到不值得起一个子代理的活（改个错别字、一句话问答）；',
-    '- 没有对应角色的领域 —— 要么自己答，要么先请用户在设置里加一个角色；',
-    '- 需要与本轮上下文强耦合的连续操作（子代理只有你给它的提示词）。',
+    copyNow('shared.roles.skill.whenNot1'),
+    copyNow('shared.roles.skill.whenNot2'),
+    copyNow('shared.roles.skill.whenNot3'),
   ].join('\n')
 
   return { description, body }

@@ -4,6 +4,8 @@
 // 结论出现在正文而非末行。口径来源 = spec §3.3（保守优先：只看最后一条非空行，
 // 解析不出＝不触发）。
 import { describe, expect, it } from 'vitest'
+import { setCopyResolver } from '../src/copy.js'
+import { makeCopy } from '../src/locales/index.js'
 import {
   isRevisableVerdict,
   lastVerdictLine,
@@ -104,5 +106,30 @@ describe('触发判据与标签', () => {
     expect(verdictLabel('conditional')).toBe('有条件通过')
     expect(verdictLabel('pass')).toBe('通过')
     expect(verdictLabel('unknown')).toBe('无明确结论')
+  })
+})
+
+/**
+ * W6：verdictLabel 经 copyNow 跟随语言（评审卡结论标签英文界面可用）；
+ * 解析词表是匹配数据——英文界面下中文评审结论照样要解得出来（zh 表直引，
+ * 不随界面语言走）。finally 恢复 zh 防模块态泄漏。
+ */
+describe('W6：标签英文 + 解析语言无关', () => {
+  it('en 绑定 ⇒ 标签英文；中文结论词仍照常解析；恢复 zh 后逐字回到中文', () => {
+    setCopyResolver(makeCopy('en'))
+    try {
+      expect(verdictLabel('pass')).toBe('Pass')
+      expect(verdictLabel('conditional')).toBe('Conditional pass')
+      expect(verdictLabel('fail')).toBe('Fail')
+      expect(verdictLabel('unknown')).toBe('No clear verdict')
+      // Fails if: 解析词表改走 copyNow——英文界面读不出中文评审结论（该退不退）
+      expect(parseReviewVerdict('结论：不通过')).toBe('fail')
+      expect(parseReviewVerdict('结论：有条件通过')).toBe('conditional')
+      expect(parseReviewVerdict('结论：通过')).toBe('pass')
+      expect(parseReviewVerdict('Verdict: fail')).toBe('fail')
+    } finally {
+      setCopyResolver(makeCopy('zh'))
+    }
+    expect(verdictLabel('fail')).toBe('不通过')
   })
 })

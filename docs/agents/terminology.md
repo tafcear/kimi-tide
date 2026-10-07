@@ -60,7 +60,7 @@
 ### 4.2 [`scripts/check-client-i18n.mjs`](../../scripts/check-client-i18n.mjs) — 硬编码文案（locale-owned）
 
 - **为什么**：上游 DSH 明文规则「Client UI copy is locale-owned」（deepseek-harness 仓 `AGENTS.md:154`），`verify-client-ui-i18n` 拒绝硬编码文案。只要文案还是散落的字面量，就没有任何一处能整表审阅。
-- **扫**（AST 级，TypeScript `createSourceFile` 递归遍历——注释天然不进 AST）：`packages/dsh-kimi-tide/src/client/**/*.{ts,tsx}` 与 `src/routing-view.ts`；字符串字面量 / 模板字面量（head/middle/tail）/ JSX 文本节点里出现汉字（`\u3400-\u4DBF`、`\u4E00-\u9FFF`、`\uF900-\uFAFF`）、中文标点（U+3000–U+303F）、全角形式（U+FF00–U+FFEF）、`——`、`…` 即红（**拼接用标点也是文案**：`（${x}）`、`join('、')`、`join(' ｜ ')` 都会被拦）。例外：`src/client/styles.ts` 的 `CLIENT_CSS` 先剥掉 `/* … */` 注释再判（CSS `content:` 里的真实中文仍红）。
+- **扫**（AST 级，TypeScript `createSourceFile` 递归遍历——注释天然不进 AST，**共 18 个源文件**）：`packages/dsh-kimi-tide/src/client/**/*.{ts,tsx}`、`src/routing-view.ts`，以及**客户端同样会 import 的四个共享模块** `src/config.ts` / `src/rules.ts` / `src/roles.ts` / `src/review-verdict.ts`（它们的中文会直接渲染进设置卡与评审卡——试一句结果、分工表校验错误、评审结论标签；续接文案走 `src/copy.ts` 的 `copyNow()`，宿主侧缺省恒为中文表）；字符串字面量 / 模板字面量（head/middle/tail）/ JSX 文本节点里出现汉字（`\u3400-\u4DBF`、`\u4E00-\u9FFF`、`\uF900-\uFAFF`）、中文标点（U+3000–U+303F）、全角形式（U+FF00–U+FFEF）、`——`、`…` 即红（**拼接用标点也是文案**：`（${x}）`、`join('、')`、`join(' ｜ ')` 都会被拦）。例外：`src/client/styles.ts` 的 `CLIENT_CSS` 先剥掉 `/* … */` 注释再判（CSS `content:` 里的真实中文仍红）。
 - **表结构校验**（esbuild 把表打成临时 ESM 取真值）：五张 surface 表 zh/en 键集完全相等（差集打印）；跨 surface 无重复键（两两求交）；值为非空字符串；同一键 zh/en 占位符（`{0}`/`{name}`）集合一致；`locale/{zh,en}.json` 的 `meta.title`/`meta.description` 存在且非空。
 - **用法**：`node scripts/check-client-i18n.mjs [--json] [--roots <dir…>] [--fixture <dir>]`；`--roots` / `--fixture` 供负控只扫指定目录/假包根。退出码 0/1。已接进 `npm run check`。
 - **边界**：本闸只判"硬编码 / 表结构"，**不判语体**（那是 §2 + 样例的事），也不扫 `src/locales/**` 里的中文（表本来就是中文真源，禁用词由 §4.1 管）。

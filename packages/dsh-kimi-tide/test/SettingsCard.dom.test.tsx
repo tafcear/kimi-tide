@@ -18,7 +18,9 @@ import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SettingsCard } from '../src/client/SettingsCard.js'
 import type { CardSnapshot, CardStore } from '../src/client/card-store.js'
+import { attachLocaleService } from '../src/client/locale.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV4 } from '../src/config.js'
+import { formatCopy } from '../src/locales/index.js'
 
 declare global {
   // React 18 act 环境开关（react-dom/client 在非测试构建下需要）。
@@ -1642,5 +1644,95 @@ describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / �
     await act(async () => { btn.click() })
     // Fails if: 已在别名中的词仍触发写盘（无去重守卫，aliases 会越点越长）。
     expect(saveRoles).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * W6：试一句测试场走英文——共享模块（rules.ts previewRoute outcome）经
+ * src/copy.ts 的 copyNow 跟随宿主语言。假 locale 服务（active='en-US'，bind 按
+ * 当前 active 取 zh/en 表）经 attachLocaleService 接线后，路由关闭的 trial 原因
+ * 必须是英文。
+ * 模块态无复位口：假服务 active 可切，finally 切回 zh-CN 并触发订阅回调恢复；
+ * 本 describe 置于文件末尾（文件内用例顺序执行），不污染既有中文断言。
+ * 负控：wire() 里去掉 setCopyResolver 调用后本条变红（红/绿原始输出见 W6 报告）。
+ */
+describe('W6：试一句测试场英文（共享模块 copyNow 跟随语言）', () => {
+  let container: HTMLDivElement
+  let root: Root | undefined
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    if (root !== undefined) {
+      const current = root
+      root = undefined
+      await act(async () => { current.unmount() })
+    }
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  it('假 locale 服务 active=en-US ⇒ 试一句 off 原因显示英文（不含中文原句）', async () => {
+    // 可控假 locale 服务（useCopy.switch.test.tsx 同款：bind 按调用期 active 取值）。
+    const state = {
+      active: 'en-US',
+      dicts: { zh: {} as Record<string, string>, en: {} as Record<string, string> },
+      listeners: [] as Array<() => void>,
+    }
+    const service = {
+      register: (_ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }) => {
+        state.dicts = dicts
+        return () => {}
+      },
+      bind: () => (key: string, params?: Record<string, unknown>) => {
+        const table = state.active.startsWith('zh') ? state.dicts.zh : state.dicts.en
+        return formatCopy(table[key] ?? key, params as Record<string, string | number> | undefined)
+      },
+      subscribe: (cb: () => void) => {
+        state.listeners.push(cb)
+        return () => {}
+      },
+      getSnapshot: () => ({ active: state.active }),
+    }
+    const ctx = {
+      get: (name: string) => (name === 'locale' ? service : undefined),
+      effect: (fn: () => unknown) => {
+        fn()
+        return () => {}
+      },
+      inject: () => {},
+    }
+    attachLocaleService(ctx as never)
+    try {
+      const { store, publish } = makeDeferredStore()
+      await act(async () => {
+        root = createRoot(container)
+        root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+      })
+      const snapshot = readySnapshot()
+      ;(snapshot.config as unknown as { activePreset: string | null }).activePreset = null
+      await act(async () => { publish(snapshot) })
+      const input = container.querySelector<HTMLInputElement>('.kt-trial input')
+      expect(input).not.toBeNull()
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+        setter?.call(input, '随便一句')
+        input!.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      const trial = container.querySelector('.kt-trial-result')!
+      // Fails if: wire() 不再调用 setCopyResolver——copyNow 停在 zh 回落（负控即此）。
+      expect(trial.textContent).toContain('Routing is off')
+      expect(trial.textContent).not.toContain('路由已关闭')
+    } finally {
+      // 恢复中文模块态（bound 闭包按调用期 active 取值；订阅回调同步 React 侧快照）。
+      state.active = 'zh-CN'
+      await act(async () => {
+        for (const cb of [...state.listeners]) cb()
+      })
+    }
   })
 })

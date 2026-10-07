@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { RoleEntry, RouterConfigV6 } from '../src/config.js'
 import { DEFAULT_CONFIG_V6 } from '../src/config.js'
+import { setCopyResolver } from '../src/copy.js'
+import { makeCopy } from '../src/locales/index.js'
 import { describeRouting } from '../src/routing-view.js'
 import {
   claimConflict, dispatchMetaOf, lookupRoleByTeammate, renderTeamSkill, resolveRoleDecision, roleClaimSet,
@@ -120,5 +122,27 @@ describe('roles：分工表 skill description 消费 describeRouting 单源（�
     const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`r${i}`, role(`r${i}`)]))
     const rendered = renderTeamSkill(many, cfg)!
     expect(rendered.description.length).toBeLessThanOrEqual(480)
+  })
+})
+
+/**
+ * W6：claimConflict / renderTeamSkill 经共享层 copyNow 跟随语言
+ * （设置卡分工表校验错误走英文界面不再是中文）。finally 恢复 zh 防模块态泄漏。
+ */
+describe('W6：roles 文案英文（copyNow 绑定 makeCopy(\'en\')）', () => {
+  it('en 绑定 ⇒ 认领冲突与 skill 标题/描述英文；恢复 zh 后逐字回到中文', () => {
+    setCopyResolver(makeCopy('en'))
+    try {
+      expect(claimConflict({ a: role('a', { teammate: ['x'] }), b: role('b', { teammate: ['x'] }) }))
+        .toBe('Claimed name "x" belongs to both role "a" and "b"')
+      const rendered = renderTeamSkill({ frontend: role('frontend', { label: '前端' }) })!
+      expect(rendered.description).toContain('Read before dispatching: 前端→p/m')
+      expect(rendered.body).toContain('# Kimi Tide assignment table (team dispatch)')
+      expect(rendered.body).not.toContain('# 月汐分工表')
+    } finally {
+      setCopyResolver(makeCopy('zh'))
+    }
+    expect(claimConflict({ a: role('a', { teammate: ['x'] }), b: role('b', { teammate: ['x'] }) }))
+      .toBe('认领名「x」同时属于角色「a」与「b」')
   })
 })

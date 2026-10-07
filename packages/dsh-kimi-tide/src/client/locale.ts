@@ -8,6 +8,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { useSyncExternalStore } from 'react'
+import { copyNow, setCopyResolver } from '../copy.js'
 import { LOCALE_NS, en, makeCopy, zh, type CopyKey, type CopyParams } from '../locales/index.js'
 
 /** 宿主 locale 服务的结构化面（不 import 任何宿主包）。 */
@@ -41,6 +42,12 @@ function wire(ctx: Context, locale: LocaleServiceFace): void {
     // effect 用调用方 ctx（dshmarket 同款：插件停用/热重载时反向注销字典）。
     ctx.effect(() => locale.register(LOCALE_NS, { zh, en }), 'kimi-tide: dictionaries')
     bound = locale.bind(LOCALE_NS)
+    // W6：共享模块（config/rules/roles/review-verdict）经 src/copy.ts 跟随语言——
+    // 绑定「bound 优先、缺席/异常回落 zh」的同一套语义（与 copy() 回落链同源）。
+    setCopyResolver((key: CopyKey, params?: CopyParams) => {
+      if (bound !== null) return params === undefined ? bound(key) : bound(key, params)
+      return zhCopy(key, params)
+    })
     // 语言切换只更新模块态并通知 React 订阅者——**不重新注册**字典（register 一次即可）。
     if (typeof locale.subscribe === 'function' && typeof locale.getSnapshot === 'function') {
       const sync = (): void => {
@@ -75,17 +82,8 @@ export function attachLocaleService(ctx: Context): void {
 
 /** 非组件上下文（事件处理器、命令桥、字符串拼接）用这个取当前语言文案。绝不抛错。 */
 export function copy(key: CopyKey, params?: CopyParams): string {
-  try {
-    // 缺参时不传第二参（与宿主 t('key') 单参调用形态一致）。
-    if (bound !== null) return params === undefined ? bound(key) : bound(key, params)
-  } catch {
-    // 宿主 bind 异常 → 回落中文表。
-  }
-  try {
-    return zhCopy(key, params)
-  } catch {
-    return String(key)
-  }
+  // W6 起委托 src/copy.ts 的 copyNow（同一全局绑定；对外签名与回落语义不变）。
+  return copyNow(key, params)
 }
 
 /**

@@ -14,6 +14,9 @@
  * 词表优先级是刻意的：CJK 里「不通过」/「未通过」都以「通过」结尾，先判
  * 「通过」会把全部否定判成通过，所以顺序恒为 conditional → fail → pass。
  */
+import { copyNow } from './copy.js'
+import { zh as zhCopy } from './locales/index.js'
+
 export type ReviewVerdict = 'pass' | 'conditional' | 'fail' | 'unknown'
 
 /** 触发回退的结论（spec §3.3 + 用户裁定 ①）。 */
@@ -21,13 +24,13 @@ export function isRevisableVerdict(verdict: ReviewVerdict): boolean {
   return verdict === 'conditional' || verdict === 'fail'
 }
 
-/** 结论的中文标签（注入文本与面板摘要共用单源，避免两处措辞漂移）。 */
+/** 结论的标签（注入文本与面板摘要共用单源，避免两处措辞漂移）。 */
 export function verdictLabel(verdict: ReviewVerdict): string {
   switch (verdict) {
-    case 'pass': return '通过'
-    case 'conditional': return '有条件通过'
-    case 'fail': return '不通过'
-    case 'unknown': return '无明确结论'
+    case 'pass': return copyNow('shared.verdict.pass')
+    case 'conditional': return copyNow('shared.verdict.conditional')
+    case 'fail': return copyNow('shared.verdict.fail')
+    case 'unknown': return copyNow('shared.verdict.unknown')
   }
 }
 
@@ -57,17 +60,21 @@ export function lastVerdictLine(text: string): string {
 
 /**
  * 解析评审结论（spec §3.3）。传入失败载荷（reviewText 为空）⇒ unknown。
+ *
+ * 解析词表读 **zh 表直引**（非 copyNow）：它匹配的是评审模型的产出文本——
+ * 英文界面下中文评审照样要写中文结论，词表不随界面语言走（W6 裁定，
+ * review-verdict.test.ts 钉住这条语言无关性）。
  */
 export function parseReviewVerdict(reviewText: string): ReviewVerdict {
   const line = lastVerdictLine(reviewText)
   if (line === '') return 'unknown'
   // 1) 有条件通过（含「有条件地通过」的英文 conditional）。
-  if (line.includes('有条件通过') || EN_CONDITIONAL.test(line)) return 'conditional'
+  if (line.includes(zhCopy['shared.verdict.conditional']) || EN_CONDITIONAL.test(line)) return 'conditional'
   // 2) 否定结论（「不通过」「未通过」「需要修改」「无法通过」「fail」「reject」
   //    「not approved」…）。
-  if (line.includes('不通过') || line.includes('未通过') || line.includes('需要修改')
+  if (line.includes(zhCopy['shared.verdict.fail']) || line.includes(zhCopy['shared.verdict.wordNotPassed']) || line.includes(zhCopy['shared.verdict.wordNeedsChanges'])
     || CJK_NEGATED_PASS.test(line) || EN_FAIL.test(line)) return 'fail'
   // 3) 通过（无否定前缀的「通过」/「pass」）。
-  if (line.includes('通过') || EN_PASS.test(line)) return 'pass'
+  if (line.includes(zhCopy['shared.verdict.pass']) || EN_PASS.test(line)) return 'pass'
   return 'unknown'
 }
