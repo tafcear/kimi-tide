@@ -823,3 +823,47 @@ describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重�
     expect(html2).toMatch(/<button[^>]*disabled[^>]*>从词表生成角色<\/button>/)
   })
 })
+
+describe('SettingsCard 复核修（2026-10-07 独立交叉复核：静态文案钉住 + 主驱动未启用态）', () => {
+  it('第 2 档「什么时候轮到它」口径 = 仅子代理——不再出现「宿主」', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    // Fails if: TIER_WHEN[2] 退回「宿主/子代理」——真源 router.ts
+    // shouldKeepExternalTarget 只在 delegationDepth>0（子代理）保留调用方目标，
+    // 主会话点名会被预设覆盖；写「宿主」与同屏 detail「按需：仅子代理」互相打脸。
+    expect(html).toContain('调用方（子代理）点名了模型，且与打底不同')
+    expect(html).not.toContain('宿主/子代理')
+  })
+
+  it('第 3 档「关掉它会怎样」口径 = 落到打底——D6 下不再出现「关键词规则/打底」', () => {
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
+    // Fails if: TIER_OFF[3] 退回「落到下一档（关键词规则/打底）」——D6 起子代理
+    // 默认不参与关键词规则，清空分工表后队友请求只落到打底。
+    expect(html).toContain('清空分工表 ⇒ 队友请求落到打底（子代理默认不参与关键词规则')
+    expect(html).not.toContain('关键词规则/打底')
+  })
+
+  it('主驱动目标：driverSticky 关闭 ⇒ 行置灰（kt-driver-off）+ 未启用说明；开启 ⇒ 均无（§4.6）', () => {
+    const base = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null, driver: { provider: 'kimi-coding', model: 'k3' } }
+    const off = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith({ ...base, driverSticky: false }) }))
+    // Fails if: driverSticky 关闭时主驱动目标侧既不置灰也无未启用说明（§4.6 要求
+    // 「置灰或折叠」；实现取透明度分层 + 状态字，§9.2 禁边框/阴影）。
+    expect(off).toContain('kt-driver-row kt-driver-off')
+    expect(off).toContain('未启用：「主驱动恒定」已关闭')
+    const on = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith({ ...base, driverSticky: true }) }))
+    // Fails if: 开启态仍挂着置灰/未启用说明（语义反转——启用中的控件被标成未启用）。
+    expect(on).not.toContain('kt-driver-off')
+    expect(on).not.toContain('未启用：「主驱动恒定」已关闭')
+  })
+
+  it('B3 重叠解释条补第二个一键动作「词并入该角色别名」（§5.2，词表行与角色行两侧各一枚）', () => {
+    const cfg: RouterConfigV6 = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' }
+    cfg.roles = {
+      coder: { id: 'coder', label: '代码工', target: { provider: 'zai-coding-cn', model: 'glm-5.3' }, aliases: ['代码'] },
+    }
+    const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
+    // Fails if: 解释条只有「规则跟随该角色」一个动作——§5.2 列了两个一键动作，
+    // 第二个（词并入别名）是 2026-10-07 复核补的欠账。
+    expect(html.match(/词并入该角色别名/g)?.length).toBe(2)
+    expect(html.match(/规则跟随该角色/g)?.length).toBe(2)
+  })
+})

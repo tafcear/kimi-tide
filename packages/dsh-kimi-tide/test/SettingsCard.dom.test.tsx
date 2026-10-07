@@ -1610,4 +1610,37 @@ describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / �
     expect(record['spare']).toEqual({ id: 'spare', label: 'spare', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
     expect(record['idle']!.label).toBe('idle')
   })
+
+  it('B3 第二个一键动作：点「词并入该角色别名」→ saveRoles 把重叠词追加进该角色 aliases（守卫式写通道）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    const cfg = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null }
+    // 重叠词经角色 label『代码』命中（aliases 为空）——验证「追加」路径。
+    cfg.roles = { coder: { id: 'coder', label: '代码', target: { provider: 'zai-coding-cn', model: 'glm-5.3' } } }
+    await act(async () => { publish(readyV6({ config: cfg })) })
+    const btn = [...container.querySelectorAll<HTMLButtonElement>('.kt-overlap button')]
+      .find((b) => b.textContent === '词并入该角色别名')!
+    await act(async () => { btn.click() })
+    // Fails if: ① 动作不经 saveRoles 守卫通道（认领冲突失去拒写保护，失败也不上浮）；
+    // ② 追加的不是重叠词本身；③ 整段覆盖而非追加（既有别名被吃掉）。
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0]![0] as Record<string, { id: string; aliases?: string[] }>
+    expect(record['coder']).toEqual(expect.objectContaining({ id: 'coder', aliases: ['代码'] }))
+  })
+
+  it('B3 别名去重：重叠词已在 aliases ⇒ 点击不落笔（空写防护）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    const cfg = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null }
+    // 重叠词『代码』已在 aliases——重复点击不得产生重复别名，也不得空写一笔。
+    cfg.roles = { coder: { id: 'coder', label: '代码工', target: { provider: 'zai-coding-cn', model: 'glm-5.3' }, aliases: ['代码'] } }
+    await act(async () => { publish(readyV6({ config: cfg })) })
+    const btn = [...container.querySelectorAll<HTMLButtonElement>('.kt-overlap button')]
+      .find((b) => b.textContent === '词并入该角色别名')!
+    await act(async () => { btn.click() })
+    // Fails if: 已在别名中的词仍触发写盘（无去重守卫，aliases 会越点越长）。
+    expect(saveRoles).not.toHaveBeenCalled()
+  })
 })

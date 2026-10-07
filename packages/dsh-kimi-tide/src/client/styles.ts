@@ -154,6 +154,9 @@ export const CLIENT_CSS = `
     /* 主驱动卡：目标行下拉弹性占满余宽；开关行复用 .kt-row / .kt-field-label 既有规则 */
     .kimi-tide-settings .kt-driver-row { display: flex; align-items: center; gap: 6px; }
     .kimi-tide-settings .kt-driver-row .kt-target-wrap { flex: 1; min-width: 0; }
+    /* ③ driver 消歧（§4.6，2026-10-07 复核修）：driverSticky 关闭时主驱动目标行置灰——
+       语义分层只用透明度（与 kt-tier-off 同档）+ 状态字，§9.2 禁边框/阴影分组。 */
+    .kimi-tide-settings .kt-driver-row.kt-driver-off { opacity: 0.55; }
     .kimi-tide-settings .kt-target-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
     .kimi-tide-settings .kt-target-wrap select { flex: 1; min-width: 0; }
     .kimi-tide-settings .kt-target-missing { font-variant-numeric: tabular-nums; white-space: nowrap; }

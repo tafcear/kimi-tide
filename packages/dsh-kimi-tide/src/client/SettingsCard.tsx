@@ -41,8 +41,8 @@
  *
  * B 项（2026-10-07 设计稿 §5，C1 视图模型消费侧）：B2 作用域徽标（规则行
  * 「主会话」/ 角色行「派发时」，kt-wire 样式）；B3 重叠解释器（view.overlaps
- * ⇒ 词表行与角色行两侧各挂解释条 + 「规则跟随该角色」一键动作，走
- * storeWriter 既有写通道）；B4 测试场「派给谁」（previewDispatch 预判队友
+ * ⇒ 词表行与角色行两侧各挂解释条 + 「规则跟随该角色 / 词并入该角色别名」
+ * 两个一键动作，走 storeWriter 既有写通道）；B4 测试场「派给谁」（previewDispatch 预判队友
  * 改道目标与依据 role/unclaimed，文案点明 D6 两套作用域）；B5 词表 → 角色
  * 接线（orphan 词表组批量生成角色，目标兜底同「填入三条示例」）。
  */
@@ -208,7 +208,10 @@ const safeBuildRoutingView = (config: RoutingConfigLike, availability: Record<st
  */
 const TIER_WHEN: Record<number, string> = {
   1: '消息里显式写了 @provider 或 @provider/model',
-  2: '调用方（宿主/子代理）点名了模型，且与打底不同',
+  // 2026-10-07 复核修：只有子代理（delegationDepth > 0）才保留调用方目标，
+  // 主会话点名会被预设覆盖（router.ts shouldKeepExternalTarget）——与同屏
+  // 第 2 档 detail「按需：仅子代理」（routing-view.ts）同口径，不得再写「宿主」。
+  2: '调用方（子代理）点名了模型，且与打底不同',
   3: '请求派给被分工表认领的队友',
   4: '主会话消息命中激活预设的某条规则',
   5: '以上各档都没接住',
@@ -216,7 +219,9 @@ const TIER_WHEN: Record<number, string> = {
 const TIER_OFF: Record<number, string> = {
   1: '无开关——始终最先裁决',
   2: '无开关——随调用方约定',
-  3: '清空分工表 ⇒ 队友请求落到下一档（关键词规则/打底）',
+  // 2026-10-07 复核修：D6 起子代理默认不参与关键词规则，清空分工表后队友请求
+  // 只落到打底——「落到下一档（关键词规则/打底）」是旧口径，已按实修正。
+  3: '清空分工表 ⇒ 队友请求落到打底（子代理默认不参与关键词规则；仅开启「子代理参与关键词规则」时才可能被规则接管）',
   4: '关闭路由或清空规则 ⇒ 主会话全部走打底',
   5: '关闭路由 ⇒ 所有请求保持宿主当前模型',
 }
@@ -979,6 +984,23 @@ export function SettingsCard(props: SettingsCardProps) {
   }
 
   /**
+   * B3 重叠解释器的第二个一键动作（§5.2，2026-10-07 复核补）：把重叠的词追加进
+   * 该角色的 aliases——去重（已在别名中不落笔，避免空写）、空串不写；走
+   * storeWriter.saveRoles 的守卫式写（认领名跨角色冲突拒写），失败经 error
+   * 通道上浮、不静默。分工语义不变：主会话关键词与派发认领各走各的，本动作只是
+   * 让角色身份词覆盖该词、供模型识别。
+   */
+  const mergeWordIntoRoleAliases = (overlap: OverlapInfo): void => {
+    const role = roles[overlap.roleId]
+    if (role === undefined) return
+    const word = overlap.word.trim()
+    if (word === '') return
+    const aliases = role.aliases ?? []
+    if (aliases.includes(word)) return
+    updateRole(overlap.roleId, { ...role, aliases: [...aliases, word] })
+  }
+
+  /**
    * B3 重叠解释条（§5.2）：词表的词与某角色身份词（id/label/aliases）重叠且
    * 目标不同 ⇒ 词表行与角色行两侧各挂一条——解释条，不是报错（机制上两者本就
    * 不冲突：关键词规则只服务主会话、分工表只服务队友，§1.3）。
@@ -997,6 +1019,15 @@ export function SettingsCard(props: SettingsCardProps) {
           onClick={() => followRoleTarget(overlap)}
         >
           规则跟随该角色
+        </button>
+        {/* §5.2 第二个一键动作：把该词并入该角色别名（去重、空串不写）。 */}
+        <button
+          type="button"
+          disabled={!writable}
+          title="把该词追加进该角色的别名（已在别名中则不落笔）——认领集合不变，仅供模型识别"
+          onClick={() => mergeWordIntoRoleAliases(overlap)}
+        >
+          词并入该角色别名
         </button>
       </div>
     )
@@ -1758,7 +1789,11 @@ export function SettingsCard(props: SettingsCardProps) {
         <p className="kt-hint">
           主驱动目标 = 主会话打底的常驻模型；选「跟随宿主默认」= 不锁定（driver = null）。
         </p>
-        <div className="kt-driver-row">
+        {/* ③ driver 消歧（§4.6，2026-10-07 复核修）：driverSticky 关闭时主驱动目标
+            暂不生效（主会话打底跟随预设默认模型）——行置灰走透明度 + 状态字分层
+            （§9.2 禁边框/阴影分组），并明示未启用原因；开关行保持原样——它是启用
+            入口，不能灰。 */}
+        <div className={driverSticky ? 'kt-driver-row' : 'kt-driver-row kt-driver-off'}>
           <span className="kt-field-label">主驱动目标</span>
           <TargetSelect
             label="主驱动目标"
@@ -1772,6 +1807,11 @@ export function SettingsCard(props: SettingsCardProps) {
             onChange={(value) => void storeWriter.saveDriver(value === '' ? null : parseTarget(value))}
           />
         </div>
+        {!driverSticky && (
+          <span className="kt-hint">
+            未启用：「主驱动恒定」已关闭，主会话打底跟随预设默认模型——此目标暂不生效，开启主驱动恒定后才接管打底
+          </span>
+        )}
         <label className="kt-row">
           <span className="kt-field-label">主驱动恒定</span>
           <input
