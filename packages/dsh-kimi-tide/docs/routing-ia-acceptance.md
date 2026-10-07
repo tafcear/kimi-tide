@@ -110,3 +110,38 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 > 附录：官方 UI 硬规则（圆角 token / 禁加第二道边框与阴影 / 明暗双主题 / 键盘焦点）
 > 见设计稿 §9；本次 A/B 改动均按 token 实现，**明暗双主题实机渲染尚未截图核对**，
 > 建议在 A-1 时顺带切一次主题目检。
+
+---
+
+## 5. 本机「应然」快照（2026-10-07 由 `routing-view-preview.mjs` 生成，`exit=0`）
+
+> 用法：重启宿主后打开「设置 → 月汐 → 路由」，把屏幕上看到的与下面逐行对照。
+> **对不上就是发现**（要么预检脚本与界面渲染不一致，要么中间又改了东西）——记进 §4 表。
+> 注意：本快照是**当前配置**（`capability` 预设、`rules: []`、7 组词表、前端/后端两角色）的产物；
+> 你若在验收过程中改了配置，重跑预检脚本取新快照。
+
+```
+配置来源：profiles/desktop/cordis.patch.yml（条目 dsh-kimi-tide）
+版本：6 ｜ 激活预设：capability（能力）   校验：✓ 通过
+
+【A-1 摘要行】主会话：未命中任何规则 ⇒ 全部走打底（deepseek-official/deepseek-flash）；
+             已备 6 组词表无规则引用，暂不生效 ｜ 派发：前端→kimi-coding/k3、后端→zai-coding-cn/glm-5.3
+
+【A-3 五档决策链】
+  1. 显式 @指令    [按需]    按需：消息里写 @provider 或 @provider/model 时才参与裁决
+  2. 调用方点名    [按需]    按需：仅子代理；调用方点名的模型与打底不同时保持该模型不变
+  3. 分工表角色    [已就绪]  2 个角色参与派发改道
+  4. 关键词规则    [未启用]  预设「能力」无规则，未命中即走打底
+  5. 打底         [已就绪]  deepseek-official/deepseek-flash（主驱动恒定（deepseek-official/deepseek-flash））
+
+【A-4 词表接线】code 17 词 被引用（code-glm）｜ chitchat 6 悬空 ｜ review 9 悬空 ｜
+              writing 10 悬空 ｜ translate 6 悬空 ｜ longdoc 6 悬空 ｜ math 8 悬空
+【B-2 重叠】无
+【派发面】session 行 0 条 ｜ dispatch 行 2 条：frontend → kimi-coding/k3 ；backend → zai-coding-cn/glm-5.3
+```
+
+**两处易误判，先说明白**：
+- `code` 组显示「**被引用**」不算错——它被**省钱预设**的 `code-glm` 规则引用（词表接线是**跨全部预设**扫的），
+  所以"悬空"是 6 组而不是 7 组。
+- `review` 组显示「⚠ 悬空」也是对的——评审流的 `trigger` 是 `manual`，按 `claimedReviewGroups` 口径
+  **只有 `trigger: keywords` 才认领**该组。若把评审流触发方式改成"关键词组"，这行才会变成「被协作流认领」。
