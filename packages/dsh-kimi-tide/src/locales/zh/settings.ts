@@ -21,6 +21,11 @@ export const zh = {
   'settings.status.unavailable': '路由设置不可用',
   'settings.status.saved': '已保存',
 
+  /* ---- 界面语言行（W7：卡片顶部的宿主语言切换入口；语言名 label 是宿主数据，不进表） ---- */
+  'settings.language.title': '界面语言',
+  'settings.language.hint': '切换后整个界面立即生效，并由宿主记住；月汐的界面文案跟随同一语言。',
+  'settings.language.ariaLabel': '界面语言（切换整个界面与月汐的语言）',
+
   /* ---- 决策链（A-② 档位静态说明 + 徽标 + 重叠解释条） ---- */
   'settings.chain.tier1.when': '消息里写了 @provider 或 @provider/model 时',
   'settings.chain.tier2.when': '子代理调用方指定了模型，且与默认目标不同时',

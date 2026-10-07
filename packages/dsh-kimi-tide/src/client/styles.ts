@@ -206,6 +206,10 @@ export const CLIENT_CSS = `
       display: flex; align-items: center; justify-content: flex-end; gap: 8px;
       max-width: 50%; text-align: right; }
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
+    /* W7「界面语言」行（页签行之下）：左标签 + 下拉一行、小字说明另起一行；
+       控件复用 .kt-row / .kt-field-label / 裸 select 既有规则——不新增圆角/描边/阴影（§9.2） */
+    .kimi-tide-settings .kt-language { display: flex; flex-direction: column; gap: 2px; }
+    .kimi-tide-settings .kt-language select { flex: none; min-width: 120px; }
     /* 设置导航图标标记：契约无 icon 字段——按文案标记自己的行后，
        CSS 把宿主默认齿轮换成月汐紫月牙（先例：dsh-better-sidebar）。
        导航行在宿主设置对话框内，不在本插件作用域——accent 走回退值 */

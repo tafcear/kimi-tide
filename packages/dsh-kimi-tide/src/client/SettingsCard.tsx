@@ -51,7 +51,7 @@ import { createCardStore } from './card-store.js'
 import { Icon } from './icons.js'
 import { FALLBACK_HINT_KEYS } from './help-content.js'
 import { HelpTab } from './HelpTab.js'
-import { copy, useCopy } from './locale.js'
+import { copy, setLanguage, useCopy, useLanguages } from './locale.js'
 import type { CopyKey, CopyParams } from '../locales/index.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
@@ -720,6 +720,10 @@ export function SettingsCard(props: SettingsCardProps) {
   // 文案（W1 locale 化；P3 接回 useCopy）：useCopy() 取当前语言，服务缺席回落中文表；
   // 语言切换由 locale 订阅触发重渲染。模块级常量（ROLE_EXAMPLES 等）仍用 copy()。
   const t = useCopy()
+  // W7「界面语言」行：语言列表与生效语言的真源在宿主 locale 服务——不自持 state；
+  // 切换后宿主 subscribe 通知，useLanguages()/useCopy() 重渲染。服务缺席/无语言列表
+  // ⇒ options 为空 ⇒ 整行不渲染（旧宿主上等于没这功能，不留空壳）。hook 置顶纪律同 useCopy。
+  const { options: languageOptions, active: languageActive } = useLanguages()
   const [store] = useState(() => (props.storeFactory ?? createCardStore)(scope, connection))
   // connection 路径是异步 describe：mount 后拉一次（scope 路径已在创建时同步读入）。
   useEffect(() => {
@@ -862,6 +866,11 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const writable = snapshot.writable
   const efforts = snapshot.efforts
+  // W7：宿主 active 可能带区域后缀（zh-CN）而语言项 id 是裸 zh/en——先精确匹配，
+  // 再按基础语言前缀归并；都不中原样回落（浏览器显示首项，写入仍只走 onChange）。
+  const selectedLanguage = languageOptions.some((option) => option.id === languageActive)
+    ? languageActive
+    : languageOptions.find((option) => option.id === (languageActive.split('-')[0] ?? languageActive))?.id ?? languageActive
   // T7 延期 Minor 门控：createPreset 在未就绪时会整段覆盖 presets、deletePreset
   // 双写非原子——新建/复制/删除按钮只在 status==='ready' && config!==null（此点
   // 之后 config 恒非 null）且可写时可用，UI 层门控是既定缓解。
@@ -1641,6 +1650,28 @@ export function SettingsCard(props: SettingsCardProps) {
         {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
         {savedFlash && <span className="kt-saved" role="status">{t('settings.status.saved')}</span>}
       </div>
+
+      {/* W7「界面语言」行（卡片顶部，页签行与一行摘要之间——任何页签下都可见）：
+          左标签 + 右下拉（宿主注册的全部语言，当前项选中；语言名 label 是宿主数据，
+          不进 locale 表）+ 下方一行小字说明。onChange 即调宿主 setLocale（真源在宿主，
+          不自持 state）；宿主未提供语言列表时整行不渲染。 */}
+      {languageOptions.length > 0 && (
+        <div className="kt-language">
+          <label className="kt-row">
+            <span className="kt-field-label">{t('settings.language.title')}</span>
+            <select
+              aria-label={t('settings.language.ariaLabel')}
+              value={selectedLanguage}
+              onChange={(e) => setLanguage(e.target.value)}
+            >
+              {languageOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <span className="kt-hint">{t('settings.language.hint')}</span>
+        </div>
+      )}
 
       {/* 路由页容器（A 项重排 2026-10-07，设计稿 §4）：顶部摘要 → 预设选择行 →
           竖直决策链（第 3 档内联分工表 / 第 4 档内联预设编辑器）→ 预设操作 →

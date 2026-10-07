@@ -23,6 +23,11 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.status.unavailable': 'Routing settings unavailable',
   'settings.status.saved': 'Saved',
 
+  /* ---- Interface language row (W7; language labels come from the host as data) ---- */
+  'settings.language.title': 'Interface language',
+  'settings.language.hint': 'Applies to the whole interface immediately and is remembered by the host; Kimi Tide\'s copy follows the same language.',
+  'settings.language.ariaLabel': 'Interface language (switches the whole interface and Kimi Tide)',
+
   /* ---- Decision chain ---- */
   'settings.chain.tier1.when': 'When the message contains @provider or @provider/model',
   'settings.chain.tier2.when': 'When a subagent caller names a model different from the default target',

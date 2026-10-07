@@ -16,14 +16,17 @@ export interface LocaleServiceFace {
   register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
   bind(ns: string): (key: string, params?: Record<string, unknown>) => string
   subscribe?(cb: () => void): () => void
-  getSnapshot?(): { active?: string }
+  getSnapshot?(): { active?: string; locales?: Array<{ id: string; label: string }>; revision?: number }
+  setLocale?(id: string): void
 }
 
 type BoundCopy = (key: string, params?: Record<string, unknown>) => string
 
-/** 模块态：宿主 bind 结果（缺席 = null 走中文回落）与当前语言（subscribe/getSnapshot 驱动）。 */
+/** 模块态：宿主 bind 结果（缺席 = null 走中文回落）、当前语言（subscribe/getSnapshot
+ *  驱动）与宿主服务对象引用（wire 成功后持有——W7 语言操控面 listLanguages/setLanguage 用）。 */
 let bound: BoundCopy | null = null
 let active: 'zh' | 'en' = 'zh'
+let serviceRef: LocaleServiceFace | null = null
 const listeners = new Set<() => void>()
 const zhCopy = makeCopy('zh')
 
@@ -42,6 +45,7 @@ function wire(ctx: Context, locale: LocaleServiceFace): void {
     // effect 用调用方 ctx（dshmarket 同款：插件停用/热重载时反向注销字典）。
     ctx.effect(() => locale.register(LOCALE_NS, { zh, en }), 'kimi-tide: dictionaries')
     bound = locale.bind(LOCALE_NS)
+    serviceRef = locale
     // W6：共享模块（config/rules/roles/review-verdict）经 src/copy.ts 跟随语言——
     // 绑定「bound 优先、缺席/异常回落 zh」的同一套语义（与 copy() 回落链同源）。
     setCopyResolver((key: CopyKey, params?: CopyParams) => {
@@ -52,16 +56,21 @@ function wire(ctx: Context, locale: LocaleServiceFace): void {
     if (typeof locale.subscribe === 'function' && typeof locale.getSnapshot === 'function') {
       const sync = (): void => {
         active = locale.getSnapshot!().active?.startsWith('zh') === true ? 'zh' : 'en'
+        refreshLangSnapshot()
       }
       sync()
       ctx.effect(() => locale.subscribe!(() => {
         sync()
         notify()
       }), 'kimi-tide: locale subscription')
+    } else {
+      // 有 getSnapshot 但无 subscribe：语言列表可读但收不到变化通知——快照取一次即可。
+      refreshLangSnapshot()
     }
   } catch {
     // 服务形状不符（极旧宿主）：保持 bound=null，回落中文，绝不抛错。
     bound = null
+    serviceRef = null
   }
 }
 
@@ -111,4 +120,64 @@ export function useCopy(): (key: CopyKey, params?: CopyParams) => string {
 /** 当前语言（'zh' | 'en'），缺服务时为 'zh'。 */
 export function currentLanguage(): 'zh' | 'en' {
   return active
+}
+
+/* ---- W7 语言操控面（设置卡「界面语言」行）：列表/生效语言读取 + 切换转发。
+   真源在宿主服务（getSnapshot().locales / setLocale）；本侧只缓存一份引用稳定的
+   快照供 useSyncExternalStore 消费。render/交互路径绝不抛错。 ---- */
+
+export interface LanguageOption { id: string; label: string }
+
+/** 宿主注册的语言列表；服务缺席或未提供 locales 时返回 []（卡片据此决定整行不渲染）。 */
+export function listLanguages(): LanguageOption[] {
+  try {
+    const locales = serviceRef?.getSnapshot?.().locales
+    if (!Array.isArray(locales)) return []
+    // 宿主数据照原样透传（label 是数据，不进 locale 表）；形状不符的条目丢弃。
+    return locales.filter((entry): entry is LanguageOption =>
+      typeof entry?.id === 'string' && typeof entry?.label === 'string')
+  } catch {
+    return []
+  }
+}
+
+/** 当前生效语言 id；服务缺席时回落 'zh'。 */
+export function activeLanguageId(): string {
+  try {
+    const id = serviceRef?.getSnapshot?.().active
+    return typeof id === 'string' && id !== '' ? id : 'zh'
+  } catch {
+    return 'zh'
+  }
+}
+
+/** 切换语言（转调宿主 setLocale）；服务缺席/无 setter 时 no-op 且不抛错。 */
+export function setLanguage(id: string): void {
+  try {
+    serviceRef?.setLocale?.(id)
+  } catch {
+    // 宿主 setter 异常不外溢——交互路径绝不抛错。
+  }
+}
+
+/** useLanguages 的模块级快照（内容未变不换对象——useSyncExternalStore 靠引用判变更）。 */
+let langSnapshot: { options: LanguageOption[]; active: string } = { options: [], active: 'zh' }
+
+function refreshLangSnapshot(): void {
+  const options = listLanguages()
+  const activeId = activeLanguageId()
+  const prev = langSnapshot
+  const unchanged = prev.active === activeId
+    && prev.options.length === options.length
+    && prev.options.every((option, index) => option.id === options[index]!.id && option.label === options[index]!.label)
+  if (!unchanged) langSnapshot = { options, active: activeId }
+}
+
+function getLangSnapshot(): { options: LanguageOption[]; active: string } {
+  return langSnapshot
+}
+
+/** 语言列表或生效语言变化时重渲染（内部 useSyncExternalStore，三参齐全——上一轮 P3 的教训）。 */
+export function useLanguages(): { options: LanguageOption[]; active: string } {
+  return useSyncExternalStore(subscribeCopy, getLangSnapshot, getLangSnapshot)
 }
