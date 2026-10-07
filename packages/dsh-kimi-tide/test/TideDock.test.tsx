@@ -132,7 +132,7 @@ describe('TideDock 批次4 打磨（P3）', () => {
 })
 
 describe('TideDock ⑥-B 两行布局', () => {
-  it('第一行=身份+路由链（预设 → 打底 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
+  it('第一行=身份+路由链（预设 → 默认目标 ⟶ 决策目标）；第二行=可观测条（限额进度条/图像上下文/刷新）', () => {
     const html = render(makePanel({
       quota: kimiQuota,
       quotaProvider: 'kimi-coding',
@@ -388,7 +388,7 @@ describe('说明页 UI 锚（评审 M7）：dock 元素与 DOCK_ELEMENTS 同源'
           stale: false,
         },
       },
-      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '默认目标' },
     })))
     const empty = anchorsOf(renderToString(createElement(TideDock, { sessionId: 's', useProjection: () => null })))
     const union = new Set([...normal, ...warning, ...balanceState, ...empty])
@@ -413,7 +413,7 @@ describe('余额槽（用量/余额 spec v2 §6.1）：API 计费源画余额，
   it('目标为余额源 → 单槽显示 ¥ 总额与分项（不出现进度条）', () => {
     const html = visible(render(makePanel({
       quotas: { 'deepseek-official': balanceSnap },
-      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '默认目标' },
     })))
     // Fails if: 余额快照被塞进用量槽（读 weekly 得 undefined → 崩或画出空条）
     expect(html).toContain('¥110.00')
@@ -426,7 +426,7 @@ describe('余额槽（用量/余额 spec v2 §6.1）：API 计费源画余额，
   it('余额不足（is_available=false）→ 明确标注，不静默', () => {
     const html = visible(render(makePanel({
       quotas: { 'deepseek-official': { ...balanceSnap, available: false } },
-      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '默认目标' },
     })))
     // Fails if: 余额不足时界面与充足时长得一样（官方语义 = 余额是否够用）
     expect(html).toContain('余额不足')
@@ -440,7 +440,7 @@ describe('余额槽（用量/余额 spec v2 §6.1）：API 计费源画余额，
           balances: [{ currency: 'CNY', total: '1.00' }, { currency: 'USD', total: '2.00' }],
         },
       },
-      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '打底' },
+      decision: { chosen: { provider: 'deepseek-official', model: 'deepseek-flash' }, reason: '默认目标' },
     }))
     expect(visible(html)).toContain('¥1.00')
     expect(html).toContain('USD 2.00')

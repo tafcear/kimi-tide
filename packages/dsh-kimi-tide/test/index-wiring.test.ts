@@ -35,7 +35,7 @@ describe('defaultPatchFile', () => {
 })
 
 /**
- * 0.1.7 设置通道接线（2026-09-28 换道）。
+ * 0.1.7 设置通道接入（2026-09-28 换道）。
  *
  * 旧 harness 驱动的是真实 dsh-settings provider（`ctx.settings.register` 命名空间），
  * 该 API 在 0.1.7 已整体移除。现行架构：路由配置是本条目 Config 的 **volatile**
@@ -526,7 +526,7 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(existsSync(docFile + '.pre-v6')).toBe(true)
   })
 
-  it('v5 流接线：eager 转述成功 → 面板推送 imageContext 三态计数与 lastFlowEvent', async () => {
+  it('v5 流接入：eager 转述成功 → 面板推送 imageContext 三态计数与 lastFlowEvent', async () => {
     // saving 预设的带图规则改挂预置 transcribe 流（用户经设置页操作后的形态）
     const v5 = v5cfg('saving')
     v5.presets.saving.rules[0] = { id: 'image-transcribe', when: { kind: 'image' }, target: { flow: 'transcribe' } }
@@ -842,7 +842,7 @@ describe('review 命令与 show 认领行 wiring（Task 6，spec §8）', () => 
     expect(on).toContain('还没有可退回的评审结论')
   })
 
-  it('onReviewRevise 接线：手动退回后 /kimi-tide panel 的 lastFlowEvent 出现退回行（复核疑点 6）', async () => {
+  it('onReviewRevise 接入：手动退回后 /kimi-tide panel 的 lastFlowEvent 出现退回行（复核疑点 6）', async () => {
     // reviewer 换成本 harness 目录里真实可用的目标（kimi-coding 只列了 kimi-for-coding，
     // k3 不在池里 ⇒ reviewerAvailable=false，命令会走「没有可用的评审流」降级）。
     const cfg = claimedCfg()

@@ -19,7 +19,7 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined
 }
 
-/** 面板夹具：预设「省钱」+ 打底 deepseek-flash + 本步决策已落到 glm-5.3 + 余额源。 */
+/** 面板夹具：预设「省钱」+ 默认目标 deepseek-flash + 本步决策已落到 glm-5.3 + 余额源。 */
 const panel = (over: Partial<KimiTidePanelProjection> = {}): KimiTidePanelProjection => ({
   quota: null,
   quotaProvider: 'zai-coding-cn',
@@ -86,7 +86,7 @@ describe('TideDock 紧凑态（工具行右端）', () => {
     expect(container.querySelectorAll('.kt-c-quota')).toHaveLength(1)
   })
 
-  it('本步决策目标优先于打底（与 r1 的 ⟶ 同语义）', async () => {
+  it('本步决策目标优先于默认目标（与 r1 的 ⟶ 同语义）', async () => {
     await mount(panel({ decision: { chosen: { provider: 'zai-coding-cn', model: 'glm-5.3' }, reason: '规则「code」命中' } }))
     const main = container.querySelector('.kt-c-main')!
     expect(main.textContent).toContain('glm-5.3')
@@ -102,7 +102,7 @@ describe('TideDock 紧凑态（工具行右端）', () => {
   })
 
   it('配额摘要：余额源给 ¥ 金额，点开用量总览 portal', async () => {
-    // 配额跟随**当前路由目标**的 provider（deepseek-official = 预设打底）
+    // 配额跟随**当前路由目标**的 provider（deepseek-official = 预设默认目标）
     await mount(panel({
       quotaProvider: 'deepseek-official',
       quotas: { 'deepseek-official': { kind: 'balance', balances: [{ currency: 'CNY', total: '3.94' }], available: true, fetchedAt: 1, stale: false } },

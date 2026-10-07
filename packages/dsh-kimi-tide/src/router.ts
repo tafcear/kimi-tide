@@ -3,7 +3,7 @@
  *
  * 决策语义（spec §5.1）：显式 @指令（最高优先级）→ 预设规则链（列表顺序，
  * 首条目标可用者生效；目标不可用跳过该规则降级）→ 未命中路由到预设默认
- * 模型（打底，非 keep）。规则目标是模型或协作流引用（0.6.0）：流目标须
+ * 模型（默认目标，非 keep）。规则目标是模型或协作流引用（0.6.0）：流目标须
  * flow 存在 + transcribe 型 + visionModel 可用，任一不满足按同样的降级
  * 语义跳过。
  *
@@ -11,7 +11,7 @@
  *   agent/pre-step（携带本步消息）→ decide() 计算决策存入 per-agent 槽位
  *   agent/request（携带该步的 callConfig）→ 消费槽位，返回替换路由
  *
- * 0.6.0（Task 9）编排执行层：pre-step 按 spec §5.1/5.2/5.6 执行序接线
+ * 0.6.0（Task 9）编排执行层：pre-step 按 spec §5.1/5.2/5.6 执行序接入
  * eager/lazy 转述（按图状态表替代布尔锁存）；llm/stream 智能投影拦截器
  * 把 text-only 目标请求中已转述的图块替换为转述文字（S4c 缝，spike 实证）。
  */
@@ -72,7 +72,7 @@ export type RouteDecision =
 /**
  * 语义闸注记（v1.3.0 可观测性补链）：把判词结论前置拼进决策原因串，并留下
  * `confirmNote` 供 `buildDecisionSummary` 判别。判否 ⇒ 规则被过滤 ⇒ 最终必然
- * 落打底（`via: 'default'`），而打底按既有语义**不上报面板**——不特殊处理的话，
+ * 落默认目标（`via: 'default'`），而默认目标按既有语义**不上报面板**——不特殊处理的话，
  * 「判否」这个最需要被看见的结果恰恰完全不可见（A7 实机失效即由此被掩盖）。
  *
  * 注记必须短：`buildDecisionSummary` 对 reason 截断 120 字符，故前置以保证不被截掉。
@@ -135,13 +135,13 @@ export function applyRoleDecision(
 }
 
 /**
- * 主驱动恒定（v2.0.0 D1，优先级链第 5 档「打底」，纯函数）：仅作用于**主会话**
- * （delegationDepth === 0，调用方以 isChild 传入）且仅作用于**打底**决策
+ * 主驱动恒定（v2.0.0 D1，优先级链第 5 档「默认目标」，纯函数）：仅作用于**主会话**
+ * （delegationDepth === 0，调用方以 isChild 传入）且仅作用于**默认目标**决策
  * （via === 'default'）——规则/显式/role/flow/keep 一律原引用返回。
  *
  * sticky !== true 原引用返回（存量迁移显式 false ⇒ 与 v1.4.1 逐字节一致）。
  * driver 为 null / 缺失 → keep「主驱动跟随宿主默认」（applyTo 对 keep 不改写，
- * 请求落宿主 agent-default-model）；driver 非空 → 打底目标换成 driver。
+ * 请求落宿主 agent-default-model）；driver 非空 → 默认目标换成 driver。
  */
 export function applyDriverSticky(
   decision: RouteDecision,
@@ -455,8 +455,8 @@ export class KimiRouter {
       if (meta === undefined) continue
       return { kind: 'route', target: { ...target }, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
     }
-    // 3. 打底：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
-    // 被认领组命中不入链——全部命中被抑制时同样落此打底（1.1.0 §4）。
+    // 3. 默认目标：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
+    // 被认领组命中不入链——全部命中被抑制时同样落此默认目标（1.1.0 §4）。
     return { kind: 'route', target: { ...preset.default }, reason: `${noteHead}预设「${preset.name}」默认`, via: 'default' }
   }
 
@@ -552,7 +552,7 @@ export interface RouterOrchestrationDeps {
   /** v1.4.0 §3.6：退回留痕回调（dock 流事件行；与会话事件同批交付）。 */
   onReviewRevise?: (agent: Agent, event: ReviewRevisePayload) => void
   /**
-   * v1.3.0 语义命中确认闸（语义闸 spec v2 §7）：关键词命中时先让预设打底模型
+   * v1.3.0 语义命中确认闸（语义闸 spec v2 §7）：关键词命中时先让预设默认模型
    * 判定真伪；判否 ⇒ 该规则视同不存在（跳过继续后续规则）。缺省 = 不过闸。
    */
   hitConfirm?: HitConfirmGate
@@ -585,14 +585,14 @@ export function delegationDepthOf(agent: Agent): number {
 }
 
 /**
- * B-1a 让位判据（纯函数）：**打底**决策 ∧ 该 agent 是委派子代理 ∧ 传入目标与打底
+ * B-1a 让位判据（纯函数）：**默认目标**决策 ∧ 该 agent 是委派子代理 ∧ 传入目标与默认
  * 目标不同 ⇒ true（保持传入目标，不改道）。其余一律 false（交给 `applyTo`）。
  *
  * 为什么只保护子代理：子代理的 provider/model 是调用方对**具体任务**的点名
  * （`workflow` 的 `agent(prompt,{provider,model})` → `subagents.start` 的
  * `agentOptions`，spawn provider 声明 `agentOptions: true` 并在创建窗口合并）；
  * 主会话的模型选择则是预设**本来就要覆盖**的对象（spec §5.1「未命中⇒预设默认」，
- * v0.5.0 以来的核心语义）——一并保护会把打底整体废掉。
+ * v0.5.0 以来的核心语义）——一并保护会把默认目标整体废掉。
  */
 export function shouldKeepExternalTarget(decision: RouteDecision, incoming: RouteTarget, agent: Agent): boolean {
   if (decision.kind !== 'route' || decision.via !== 'default') return false
@@ -883,7 +883,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const untranscribed = batch.filter((img) => peek(img.attachmentId) === undefined)
       let hasImage = untranscribed.length > 0
       // 3.5 语义命中确认闸（v1.3.0；v2 评审 M1/M2 落地）：关键词命中时先问本预设的
-      //     打底模型「这是本轮真意图吗」。**前置短路**（M2）：显式 @ 轮（decide 在
+      //     默认模型「这是本轮真意图吗」。**前置短路**（M2）：显式 @ 轮（decide 在
       //     规则链之前就返回）与「首位是 image/flow 命中」的轮（关键词规则根本轮不到）
       //     一律零调用——避免白花 1.2s 且结果必然被丢弃。
       let omitted: ReadonlySet<string> | undefined
@@ -929,7 +929,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       const membership = isChild ? deps.teamLookup?.(agent) : undefined
       const roleHit = resolveRoleDecision(teamCfg.roles ?? {}, membership)
       // §8-6 可用性护栏（R7）：role 目标须在候选池中且可用（available !== false）
-      // 才改道。不可用 ⇒ 不套用 role 决策——走既有决策路径（子代理通常落打底，
+      // 才改道。不可用 ⇒ 不套用 role 决策——走既有决策路径（子代理通常落默认目标，
       // 再由 B-1a 让位保持继承值），不静默换人；面板由派发元信息
       // （basis=keep + roleLabel/teammate，见下方槽位写入）提示。
       const roleTargetUsable = roleHit === undefined || router.metas.some(
@@ -937,7 +937,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       )
       const effectiveRoleHit = roleTargetUsable ? roleHit : undefined
       // 决策后处理链（顺序不可变）：role 覆盖（不覆盖显式 @ 与 flow；目标不可用
-      // 时不套用）→ 主驱动恒定（仅主会话、仅打底）。三处 decide 调用点**同带**
+      // 时不套用）→ 主驱动恒定（仅主会话、仅默认目标）。三处 decide 调用点**同带**
       // ——转述后的重跑若不过链，终决策会丢 role 改道与 sticky（与判否集合/注记
       // 三处同传同款理由）。注意在 withConfirmNote **之前**过链：注记须前置拼进
       // 最终原因串。
@@ -1110,16 +1110,16 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         })
       }
       // B-1a（2026-09-20 缺陷修复，docs/audit/2026-09-20-defect-explicit-model-pin-
-      // overridden-by-preset-default.md）：打底让位于**委派子代理**的外部显式目标。
-      // 打底之前的语义是「未命中 ≠ keep → 预设默认」，但它只看消息文本；子代理被
+      // overridden-by-preset-default.md）：默认目标让位于**委派子代理**的外部显式目标。
+      // 默认目标之前的语义是「未命中 ≠ keep → 预设默认」，但它只看消息文本；子代理被
       // 点名的 kimi-coding/k3 因此被静默改写成预设默认（实机两次对照探针坐实）。
       // 让位后仍走图像护栏与后续日志，只是不再改写 provider/model。
       const yieldToExternal = shouldKeepExternalTarget(slot.decision, resolved, payload.agent)
       let replaced = yieldToExternal ? resolved : router.applyTo(resolved, slot.decision)
       if (yieldToExternal && slot.decision.kind === 'route') {
-        // 留痕（沿用 v1.3.0 confirmNote 模式）：打底按既有语义不上报面板，不特殊
+        // 留痕（沿用 v1.3.0 confirmNote 模式）：默认目标按既有语义不上报面板，不特殊
         // 处理的话「这轮为什么没走省钱默认」同样不可见。
-        const note = `打底让位：外部显式目标 ${resolved.provider}/${resolved.model}（≠预设默认 ${slot.decision.target.provider}/${slot.decision.target.model}）`
+        const note = `默认目标让位：外部显式目标 ${resolved.provider}/${resolved.model}（≠预设默认 ${slot.decision.target.provider}/${slot.decision.target.model}）`
         deps.onDecision?.(payload.agent, withConfirmNote(slot.decision, note))
         ctx.logger?.info?.(`kimi-router: ${note}`)
       }
@@ -1139,8 +1139,8 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         const label = slot.decision.kind === 'route'
           ? slot.decision.reason
           : slot.decision.kind === 'flow' ? `flow:${slot.decision.flowId}` : 'kept'
-        // B-1a 留痕（覆盖侧）：打底把一个与预设默认不同的传入目标换掉时，日志里点名
-        // 被覆盖者——否则「谁被换掉了」在决策串里是隐去的（面板对打底同样不上报）。
+        // B-1a 留痕（覆盖侧）：默认目标把一个与预设默认不同的传入目标换掉时，日志里点名
+        // 被覆盖者——否则「谁被换掉了」在决策串里是隐去的（面板对默认目标同样不上报）。
         const overridden = slot.decision.kind === 'route' && slot.decision.via === 'default'
           && (resolved.provider !== slot.decision.target.provider || resolved.model !== slot.decision.target.model)
           ? `（覆盖外部目标 ${resolved.provider}/${resolved.model}）`

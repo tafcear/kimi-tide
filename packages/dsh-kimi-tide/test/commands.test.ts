@@ -121,7 +121,7 @@ describe('applyKimiTideCommand', () => {
   /**
    * 1.2.0 会话事件解耦：面板数据不再写会话日志，改由本命令按需供给 dock。
    * 契约 = 返回 `KimiTidePanelProjection` 的 JSON 文本；取数不可用（缺 agent /
-   * 未接线 / 快照空）一律抛错——命令层把它收敛成 error 结果，dock 据此回退，
+   * 未挂载 / 快照空）一律抛错——命令层把它收敛成 error 结果，dock 据此回退，
    * 绝不拿一份无主数据冒充某会话的面板。
    */
   it('/kimi-tide panel --json → 返回该 agent 的面板快照 JSON（可被 schema 解析）', async () => {
@@ -134,13 +134,13 @@ describe('applyKimiTideCommand', () => {
 
   it('/kimi-tide panel → 缺 agent 时拒绝（不返回无主面板）', async () => {
     const deps = { ...makeDeps(v4cfg('saving')), panel: () => ({ router: {} }) }
-    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps)).rejects.toThrow(/缺 agent|未接线/)
+    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps)).rejects.toThrow(/缺 agent|未挂载/)
   })
 
-  it('/kimi-tide panel → 未接线（旧宿主/单测直呼）时拒绝', async () => {
+  it('/kimi-tide panel → 未挂载（旧宿主/单测直呼）时拒绝', async () => {
     const deps = makeDeps(v4cfg('saving'))
     const agent = { id: 'agent-1' }
-    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps, agent as never)).rejects.toThrow(/未接线/)
+    await expect(applyKimiTideCommand(parseKimiTideCommand('panel'), deps, agent as never)).rejects.toThrow(/未挂载/)
   })
 
   it('/kimi-tide panel → 快照为空时拒绝（路由关闭且无数据）', async () => {

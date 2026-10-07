@@ -1,7 +1,7 @@
 // src/rules.ts
 /**
  * kimi-tide 0.5.0 规则引擎（纯函数，无 ctx/agent 依赖）：
- * 显式 @指令提取、消息工具、预设规则匹配。决策组装（可用性过滤/打底/护栏）
+ * 显式 @指令提取、消息工具、预设规则匹配。决策组装（可用性过滤/默认目标/护栏）
  * 在 router.ts。匹配语义（0.7.0）：命中规则按（特异度 desc，列表序 asc）稳定
  * 排序返回（由路由层取第一个目标可用者）；纯 ASCII 关键词带词边界邻接守卫，
  * 中文/混合/短语关键词为大小写不敏感子串匹配。
@@ -366,7 +366,7 @@ export interface RoutePreview {
 /**
  * 「试一句」预测（0.8.0 D2）：浏览器侧复刻 decide 的文本语义——显式 @ →
  * 规则链（首个目标可用者；availability===false 即不可用，null 全可用；
- * flow 目标须存在且 transcribe 型且 visionModel 可用，否则跳过）→ 默认打底。
+ * flow 目标须存在且 transcribe 型且 visionModel 可用，否则跳过）→ 默认目标。
  * 不模拟图像护栏/flow 降级路径（无 modalities，带图偏差声明在卡片）。
  * 1.1.0 §4：规则链与返回 hits 均剔除被认领组（decide 同款静态抑制）；评审
  * 流触发（先于过滤、基于全量命中）时 outcome 改为 review-flow 枝，routed

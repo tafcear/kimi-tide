@@ -107,7 +107,7 @@ describe('migrateV3', () => {
     expect(v4.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding-highspeed' })
     expect(v4.presets.saving.default.model).toBe('deepseek-v4-flash')  // 另一预设不动
   })
-  it('Ruling 11：capability + deepseek 默认（遗留便宜默认，本机实况）→ 不覆盖，保留内置 k3 打底', () => {
+  it('Ruling 11：capability + deepseek 默认（遗留便宜默认，本机实况）→ 不覆盖，保留内置 k3 默认目标', () => {
     const v4 = migrateV3({ version: 3, mode: 'capability', default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
     expect(v4.activePreset).toBe('capability')
     expect(v4.presets.capability.default).toEqual({ provider: 'kimi-coding', model: 'k3' })

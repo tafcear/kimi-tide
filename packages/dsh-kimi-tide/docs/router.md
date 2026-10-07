@@ -1,8 +1,8 @@
 # kimi-tide 路由（规则驱动 0.5.0 → 协作编排 0.6.0 → 匹配语义升级 0.7.0 → 覆盖面补全 + effort 0.8.0 → 评审流认领 1.1.0 → 团队派发 2.0.0 → 统一路由表 2.1.0）
 
 本文以 `src/` 现行实现为准：0.5.0 起**规则驱动路由**架构（预设 = 默认模型 +
-有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中路由到预设
-默认模型打底）；**0.6.0 起规则目标泛化为「模型 | 协作流」**（配置升 v5，见文末
+有序规则集；规则条件 = 带图 / 命名关键词组；命中即路由，未命中以预设
+默认模型为默认目标）；**0.6.0 起规则目标泛化为「模型 | 协作流」**（配置升 v5，见文末
 「0.6.0 协作编排扩展」节）；**0.7.0 起关键词匹配语义升级**（ASCII 词边界 +
 命中特异度排序 + 可选 minHits 阈值，见文末「0.7.0 匹配语义升级」节）；
 **0.8.0 起规则体系补全 + 可解释性 + 推理程度配置**（内置关键词组 2→7 组、
@@ -28,13 +28,13 @@ agent/pre-step ──► decide(messages, step, hasImageOverride?)
                           │
         1. 显式 @provider（最高优先级，via: 'explicit'）
         2. 预设规则链（列表顺序，首条目标可用者生效，via: 'rule'）
-        3. 打底：预设默认模型（未命中 ≠ keep，via: 'default'）
+        3. 默认目标：预设默认模型（未命中 ≠ keep，via: 'default'）
                           │
 agent/request ──► applyTo(callConfig) ──► guardImage（模态护栏）
 ```
 
 > 上图是 0.5.0 的三档决策链；2.0.0 起扩为**五档**（显式 @ → 调用方点名让位 →
-> 分工表 role → 关键词规则 → 打底），见文末「2.0.0 团队派发」节的优先级链；
+> 分工表 role → 关键词规则 → 默认目标），见文末「2.0.0 团队派发」节的优先级链；
 > **2.1.0 起第 3、4 档 = v7 统一路由表 `routes` 的两个 scope**（dispatch / session），
 > 见文末「2.1.0 统一路由表（v7）」节与下文「决策流程」节。
 
@@ -63,7 +63,7 @@ export interface RouterRule {
 
 export interface RouterPreset {
   name: string                // 显示名
-  default: RouteTarget        // 打底模型（未命中规则时的路由目标）
+  default: RouteTarget        // 默认模型（未命中规则时的路由目标）
   rules: RouterRule[]         // 特异度排序匹配（命中词数 desc、平手按列表序、带图恒优先）；逐条尝试目标可用者生效
 }
 
@@ -121,7 +121,7 @@ keywordGroups:               # 0.8.0 起内置 7 组（词表全文见文末「0
   （两次顺序写入——宿主 dsh-settings 对每笔写入跑 validate-on-write，
   两个中间态各自合法；反序会产生「activePreset 指向已删预设」的非法中间态
   被拒）。
-- **打底语义**：预设激活时未命中规则即路由到预设默认模型，覆盖会话手动选
+- **默认目标语义**：预设激活时未命中规则即路由到预设默认模型，覆盖会话手动选
   模型；需手动控制时把预设切到「关闭」（`activePreset: null`）。
 
 ## 决策流程（`src/router.ts: KimiRouter.decide`，五档）
@@ -147,7 +147,7 @@ decide(messages, step, hasImageOverride?):
      else if 词法命中但 provider 未知 → 记 noteHead，前缀进后续各枝原因串：
                                                                        // '@x 非本路由器已知 provider（已忽略）· '
   2. 调用方点名让位（非队友子代理的既有语义，B-1a）：
-     打底决策 ∧ 传入目标 ≠ 打底 ⇒ keep（保持调用方指定的模型不变）
+     默认目标决策 ∧ 传入目标 ≠ 默认目标 ⇒ keep（保持调用方指定的模型不变）
   3. 分工表 role（v7 = routes 的 dispatch 行；仅队友，via: 'role'）：
      队友身份 ∈ 某角色认领集合（teammate[] ∪ {id}）且目标在候选池可用
        → route(role.target, '分工表「<label>」→ <目标>（队友 <name>）', via: 'role')
@@ -158,7 +158,7 @@ decide(messages, step, hasImageOverride?):
        if 目标不在枚举池或 available:false → 跳过该规则（降级，继续）    // 见「降级语义」
        else → route(rule.target, `<noteHead>规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；（特异度最高）仅标注排序后首命中（0.8.x①：降级命中不误标）；image 规则无词数
        // 子代理默认不进本档（rulesApplyToChildren !== true，D6）；图像规则保留
-  5. 打底：主会话 → route(driverSticky === true && driver ? driver : preset.default, …, via: 'default')
+  5. 默认目标：主会话 → route(driverSticky === true && driver ? driver : preset.default, …, via: 'default')
           子代理 → 继承目标（B-1a keep）；driver 为 null / 缺失 ⇒ keep（跟随宿主默认）
 ```
 
@@ -175,7 +175,7 @@ decide(messages, step, hasImageOverride?):
 ## 降级语义（规则目标不可用）
 
 「不可用」= 目标 id 不在全量枚举池（或枚举标记 `available: false`）。命中规则
-但目标不可用 → **跳过该规则**（继续匹配后续规则，最终可能落到打底）。图像场景
+但目标不可用 → **跳过该规则**（继续匹配后续规则，最终可能落到默认目标）。图像场景
 的最后正确性轨仍是护栏：全池无多模态可用候选时 keep（宿主友好拒绝接管）。
 UI 对不可用目标标灰（规则编辑器与默认模型下拉均标灰）。
 
@@ -205,11 +205,11 @@ Models 页全量目录，任何 provider 的任何模型都可作预设默认、
 
 | 来源 | 模型 ID | 模态 | 上下文 | 角色 |
 |---|---|---|---|---|
-| `kimi-coding` | `k3` | 多模态 | 1M | 能力预设打底 / 带图规则目标 |
+| `kimi-coding` | `k3` | 多模态 | 1M | 能力预设默认目标 / 带图规则目标 |
 | `kimi-coding` | `k3-256k` | 多模态 | 256K | 候选 |
 | `kimi-coding` | `kimi-for-coding` | 多模态 | 256K | 代码规则目标 |
 | `kimi-coding` | `kimi-for-coding-highspeed` | 多模态 | 256K | 候选 |
-| `deepseek-official` | `deepseek-v4-flash` | 文本-only | 1M | 省钱预设打底 / 闲聊规则目标 |
+| `deepseek-official` | `deepseek-v4-flash` | 文本-only | 1M | 省钱预设默认目标 / 闲聊规则目标 |
 | `deepseek-official` | `deepseek-v4-pro` | 文本-only | 1M | 候选 |
 | `deepseek-official` | `deepseek-v4-flash-vision-exp` | 多模态 | 1M | 预置转述流 vision 目标（0.6.0） |
 
@@ -294,7 +294,7 @@ Models 页全量目录，任何 provider 的任何模型都可作预设默认、
 | `routes[].preset` | `string` | — | session 行必填：归属预设 id（须存在于 `presets`） |
 | `routes[].label` / `teammate` / `aliases` / `note` | `string` / `string[]` / `string[]` / `string` | — | dispatch 行专用（= v6 `RoleEntry` 元数据）；认领集合 = `teammate[] ∪ {id}`，跨行不得重复 |
 | `presets` | `Record<string, RouterPreset>` | 内置 saving/capability | 预设表；键即预设 id。**v7 下 `presets[*].rules` 迁出为镜像**（保留原值不删） |
-| `presets.<id>.name` / `presets.<id>.default` | `string` / `{provider, model, effort?}` | — | 显示名（非空）/ 打底模型（effort 可选，0.8.0） |
+| `presets.<id>.name` / `presets.<id>.default` | `string` / `{provider, model, effort?}` | — | 显示名（非空）/ 默认模型（effort 可选，0.8.0） |
 | `presets.<id>.rules` | `RouterRule[]` | — | 旧字段（镜像）：无 `routes` 时的真源；特异度排序匹配（词数 desc / 平手列表序 / 带图优先），目标不可用跳过降级 |
 | `roles` | `Record<string, RoleEntry>` | `{}`（不预置模型判断，D2 裁定） | 旧字段（镜像）：无 `routes` 时的分工表真源 |
 | `keywordGroups` | `Record<string, string[]>` | 内置 7 组（0.8.0） | 组名 → 词表；全局共享，用户可增删改 |
@@ -360,7 +360,7 @@ Models 页全量目录，任何 provider 的任何模型都可作预设默认、
 
 - **决策可观测**（`buildDecisionSummary`）：`DecisionSummary = { chosen, reason }`
   （reason 截断 120 字符，`scoreDelta` 字段已删除）。**上屏规则**：仅
-  `via: explicit | rule` 的路由决策上浮；`via: default`（打底，每轮都发生，
+  `via: explicit | rule` 的路由决策上浮；`via: default`（默认目标，每轮都发生，
   太吵）/ keep / 关闭一律返回 null。配置变更即清空（旧决策不泄漏）。
   示例：`规则「code」命中 2 词（特异度最高） → kimi-coding/kimi-for-coding`
   （0.8.0 起原因带命中词数；image 规则 = `规则「带图」命中`）、
@@ -541,7 +541,7 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
   优先于泛 code 词——「帮我审查这段代码」review 1 词 + code 1 词平手时落
   review 目标，平手按列表序）。
 - **saving 只加 translate**（image → code → translate；省钱姿态下翻译类消息
-  显式落 flash 打底位）。
+  显式落 flash 默认目标位）。
 
 ### `effort` 推理程度配置（可选字段）
 
@@ -601,13 +601,13 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
 - **「试一句」测试器**（`rules.ts: previewRoute` 纯函数 + 设置卡片折叠区）：
   输入一句话，实时显示命中规则（含词数）与按当前激活预设的最终路由目标。
   浏览器侧复刻 `decide` 的**文本语义**（显式 @ → 规则链首个目标可用者 →
-  打底；目标不可用即跳过），不模拟图像护栏与 flow 降级路径（浏览器侧无
+  默认目标；目标不可用即跳过），不模拟图像护栏与 flow 降级路径（浏览器侧无
   modalities）——带图输入只展示规则命中，卡片固定声明不承诺最终改道。
 - **决策原因词数**：路由决策原因升级为 `规则「code」命中 2 词（特异度最高）`
   （多命中时仅排序后首命中标注特异度最高——0.8.x① 降级命中不误标；单命中 =
   `规则「code」命中 1 词`；image 规则 =
   `规则「带图」命中`，∞ 无词数语义）。chip 数据经投影透传，
-  `DecisionSummary.reason` ≤120 截断契约不变；`via: default` 打底与 keep
+  `DecisionSummary.reason` ≤120 截断契约不变；`via: default` 默认目标与 keep
   仍不上 chip（既有语义）。
 
 ### 非目标（0.8.0 明确不做）
@@ -635,7 +635,7 @@ rc.2 `dsh-host-apiproxy` 在 agent 创建时安装 `installModelSelection`——
   统一过滤 `when.kind === 'keywords'` 且组被认领的规则——被认领组的路由规则
   （含内置 capability 预设的 `review-k3`）**无需手删即失效**；抑制无条件
   （与「本轮是否命中」「评审模型是否可用」均无关，语义可预测）。其余规则与
-  打底照常；显式 @ 指令恒最优先：不被抑制、也不武装评审。
+  默认目标照常；显式 @ 指令恒最优先：不被抑制、也不武装评审。
 - **轮末自动评审**：每轮首个模型步（step 1）用 `reviewTriggerHit` 判定——
   flows 注册表序首个「文本命中认领组 ≥1 词且 reviewer 在候选池可用」的 review
   流（命中词复用 matchingScored 同款词匹配语义；本轮文本取 latestUserText）。
@@ -747,7 +747,7 @@ fail-open（按原关键词结果走）。
   后两处由调用方传同一集合（`previewRoute` 的 `catalog == null` ⇒ `known = null`）。
 - **降级**：`known === null`（调用方拿不到目录）退化为纯词法结果（旧行为）——不误杀真指令。
 - **可解释**：词法命中但被判非指令时，原因串前缀 `@x 非本路由器已知 provider（已忽略）· `。
-- **有意变更**：未识别的 `@provider`（如 `@anthropic`）由 `keep` 改为落打底 + 说明；
+- **有意变更**：未识别的 `@provider`（如 `@anthropic`）由 `keep` 改为落默认目标 + 说明；
   已知 provider 无可用候选仍 `keep`（原因串改为中文并写明"为何 keep"）。
 - **noteHead 只交代词法首个未知 @**（Q6 评审轻#4，**按设计保留**）：一句话里出现多个未知 `@` 时不逐一罗列——
   提示词里成串的 scoped 包名会让原因串变成噪声。显式指令命中时其余未知 `@` 不提示（真指令已生效，无需解释）。
@@ -773,8 +773,8 @@ fail-open（按原关键词结果走）。
 
 | 键 | 类型 | 默认值口径 | 语义 |
 |---|---|---|---|
-| `driver` | `RouteTarget \| null`（可缺省） | 缺省 / `null` ＝跟随宿主 `agent-default-model`（`DEFAULT_CONFIG_V6()` 显式写 `null`） | 主驱动目标；仅在 `driverSticky: true` 时参与主会话打底（见下） |
-| `driverSticky` | `boolean`（可缺省） | **四口径**：新装（`DEFAULT_CONFIG_V6`）＝`true`；存量迁移（`migrateV5`）**显式写 `false`**（保持 v1.4.1 行为，设置页可一键打开）；**缺席解析**（终审 I1/F4：schema 红线无 `.default()`，`readRouterConfig` 与设置卡快照的读取兜底把**缺席**解析为 `true`——卡片单字段写后默认值不再蒸发；显式 `version<6` 未迁移文档除外 ⇒ `false`）；运行期判据 `=== true` | `true` ⇒ 主会话（`delegationDepth === 0`）的打底目标 = `driver`，不再等于 `preset.default`；关键词规则仍可改道（规则是用户显式意图） |
+| `driver` | `RouteTarget \| null`（可缺省） | 缺省 / `null` ＝跟随宿主 `agent-default-model`（`DEFAULT_CONFIG_V6()` 显式写 `null`） | 主驱动目标；仅在 `driverSticky: true` 时参与主会话默认目标（见下） |
+| `driverSticky` | `boolean`（可缺省） | **四口径**：新装（`DEFAULT_CONFIG_V6`）＝`true`；存量迁移（`migrateV5`）**显式写 `false`**（保持 v1.4.1 行为，设置页可一键打开）；**缺席解析**（终审 I1/F4：schema 红线无 `.default()`，`readRouterConfig` 与设置卡快照的读取兜底把**缺席**解析为 `true`——卡片单字段写后默认值不再蒸发；显式 `version<6` 未迁移文档除外 ⇒ `false`）；运行期判据 `=== true` | `true` ⇒ 主会话（`delegationDepth === 0`）的默认目标 = `driver`，不再等于 `preset.default`；关键词规则仍可改道（规则是用户显式意图） |
 | `rulesApplyToChildren` | `boolean`（可缺省） | 缺省 / `false` ＝**子代理不参与关键词规则**（v2.0.0 行为变更）；`true` 恢复旧语义。**迁移不写该字段**（§8-3 裁定：缺省即新语义） | 见「子代理与关键词规则」 |
 | `roles` | `Record<string, RoleEntry>` | 内置 `DEFAULT_ROLES()` ＝**空表**（不替用户做能力判断；设置页提供前端/后端/写作三条可一键填入的示例） | 分工表；键即 `role.id` |
 
@@ -812,10 +812,10 @@ interface RoleEntry {
 ```
 1. 显式 @provider[/model]        via:'explicit'（最高；用户点名最大）
 2. 调用方显式点名的模型           非队友委派子代理沿用 B-1a 让位
-                                  （打底决策 ∧ 传入目标 ≠ 打底 ⇒ keep）
-3. 分工表 role 命中（新）         仅队友，via:'role'——优先于打底与关键词规则
+                                  （默认目标决策 ∧ 传入目标 ≠ 默认目标 ⇒ keep）
+3. 分工表 role 命中（新）         仅队友，via:'role'——优先于默认目标与关键词规则
 4. 预设关键词规则                 主会话保留；子代理默认跳过（D6，见下）
-5. 打底                          主会话 = driverSticky ? driver : preset.default
+5. 默认目标                          主会话 = driverSticky ? driver : preset.default
                                   子代理 = 继承目标（B-1a keep）
 ```
 
@@ -840,7 +840,7 @@ interface RoleEntry {
 
 ### 主驱动恒定的两条边界（`applyDriverSticky`）
 
-仅作用于**主会话**且仅作用于**打底**决策（`via === 'default'`）——规则/
+仅作用于**主会话**且仅作用于**默认目标**决策（`via === 'default'`）——规则/
 显式/role/flow/keep 一律原引用返回。两条边界：
 
 1. **`driver` 为 null / 缺失** ⇒ 返回 keep「主驱动跟随宿主默认」（`applyTo`
@@ -947,7 +947,7 @@ rolesOf` 与 `router.ts` 的 `teamCfg` 同款）、`driverSticky === true`、
 - **role 目标可用性（§8-6 裁定，已落地）**：pre-step 闭包解出 role 命中后、
   套用 role 决策之前，先按**候选池**判定目标可用——目标在 `router.metas`
   中存在且 `available !== false` 才改道；不可用（不在池中 / `available:
-  false`）⇒ **不套用 role 决策**，走既有决策路径（子代理通常落打底，再由
+  false`）⇒ **不套用 role 决策**，走既有决策路径（子代理通常落默认目标，再由
   B-1a 让位**保持继承值**，不静默换人）。该情形下派发元信息记
   `basis: 'keep'` 并带 `roleLabel` 与 `teammate`（不新增 basis 枚举值），
   面板派发行（dock 摘要槽与决策悬浮层明细共用同一 `formatDispatch`）据此
@@ -962,17 +962,17 @@ rolesOf` 与 `router.ts` 的 `teamCfg` 同款）、`driverSticky === true`、
 
 > 状态：**已实现，未发布**（版本号升到 2.1.0；tag 与发版由维护者裁定）。
 > 设计稿（权威）：`docs/superpowers/specs/2026-10-07-routing-ia-unification-design.md`
-> （A 决策链一屏 / B 作用域与重叠解释 / C1 统一视图模型 / C2 配置面 v7 / C2b 运行期投影接线）。
+> （A 决策链一屏 / B 作用域与重叠解释 / C1 统一视图模型 / C2 配置面 v7 / C2b 运行期投影接入）。
 > 实机验收 runbook（发版门禁 A1–A5 / B1–B5 / C1–C4）：[`routing-ia-acceptance.md`](./routing-ia-acceptance.md)。
 
 一句话：**关键词规则（主会话）与分工表（派发）在配置里合成一张带 `scope` 的
 `routes` 表**，界面上合成**一条五档决策链**（显式 @ > 调用方点名 > 分工表 role >
-关键词规则 > 打底）；**路由决策语义零变更**——改的是信息架构，不是行为。
+关键词规则 > 默认目标）；**路由决策语义零变更**——改的是信息架构，不是行为。
 
 ### 为什么要统一（三条实测症状）
 
 1. **规则表空不是渲染 bug，是配置真相**：`activePreset: capability` 且 `rules: []`，
-   而 `keywordGroups` 有 7 组 ⇒ 7 组词表全部悬空（词表是名词，规则才是动词）。
+   而 `keywordGroups` 有 7 组 ⇒ 7 组词表全部未接入（词表是名词，规则才是动词）。
 2. **同一个词，三处三个答案**：主会话说「代码」走规则目标，派给 `backend` 队友
    走分工表目标——两套作用域各自都合法，但界面上关系零表达（客户端目录
    grep「优先级 / 决策顺序 / 作用域」零命中）。
@@ -1055,7 +1055,7 @@ v2.0.0 D6）；显式 `@` 与 flow 决策不参与 role 档。界面上的「从
 |---|---|
 | **真源判据** | `routes` **存在即真源**（`rowsFromConfig`；`routes: []` 也算「存在」——视图模型的行集因此为空）；缺失才由旧字段投影（`rowsFromLegacy`）。**字段判据、禁止版本号门控**（R2 裁定）——`version` 只服务迁移分派与 schema 兼容 |
 | **迁移** | `migrateV6`（入口 `coerceRouterConfigV7`）：**浅拷贝 + 只改 `version` / `routes`**，`presets[*].rules` 与 `roles` **保留原值不删**（可回退、可 diff）；v7 输入原引用直通（幂等）。`coerceRouterConfigV6` 认 6 与 7 ⇒ 迁移链不再摧毁 v7 字段 |
-| **读边界** | `projectRoutesToLegacy(config)`：`routes` 存在且非空 ⇒ 按其重建 `presets[*].rules`（session 行按数组相对序落回所属 preset）与 `roles`（dispatch 行 → v6 `RoleEntry`，`label` 缺省回落 `id`；悬空 `preset` 引用的行保守丢弃），下游 `matchingRules` / `roleClaimSet` / `renderTeamSkill` / 台账**不改一行**即按 `routes` 走；`routes` 缺失或空数组 ⇒ **原引用返回**（v6 及更早零行为变更）。调用点：`index.ts` 的 `applyConfig`（attach 与 volatile 变更共用同一口）、`commands.ts` 的 import 与 persist、`card-store` 的读边界投影 |
+| **读边界** | `projectRoutesToLegacy(config)`：`routes` 存在且非空 ⇒ 按其重建 `presets[*].rules`（session 行按数组相对序落回所属 preset）与 `roles`（dispatch 行 → v6 `RoleEntry`，`label` 缺省回落 `id`；无效 `preset` 引用的行保守丢弃），下游 `matchingRules` / `roleClaimSet` / `renderTeamSkill` / 台账**不改一行**即按 `routes` 走；`routes` 缺失或空数组 ⇒ **原引用返回**（v6 及更早零行为变更）。调用点：`index.ts` 的 `applyConfig`（attach 与 volatile 变更共用同一口）、`commands.ts` 的 import 与 persist、`card-store` 的读边界投影 |
 | **写边界** | 运行期只写 `routes`；设置卡片的 `presets` / `roles` 写操作**同笔双写 `routes` 镜像**（`rowsFromLegacy` 单源，由「将要写入的 presets/roles」推出）。scope 路径是**三笔序列**：`unset routes` → `set 旧字段` → `set routes`（mutate 路径单笔三 ops 同序）——顺序是**硬约束**：宿主 validate-on-write 逐笔跑 `routes` × 旧字段冲突检测，「改既有规则 / 角色」时两笔直写无论先后都会撞上中间态冲突 ⇒ 编辑永不落盘（死锁）；且 ② 落定后即使 ③ 中断，文件也是「无 routes + 新旧字段」的自洽态。写后仍走「意图值 vs 实读值」比对（`routes` 与旧字段任一不一致即上浮 error 通道）。**`version` 字段不动** |
 | **一致性校验** | `validateRouterConfig` 的 `routes` 块（`validateRoutes`，字段判据）：行形状 / `scope` 与 `when` 匹配 / session 行必带存在的 `preset` / **分域唯一**（session 在预设内唯一、dispatch 全局唯一）/ `group` 存在且 `minHits` ≥1 整数 / `target` 完整（dispatch 行不收流引用；流目标仅限带图行且须是存在的 transcribe 流）/ dispatch 认领名跨行唯一；**并与旧字段比对**：同一规则或角色两处不一致 ⇒ 返回错误串（不静默择一） |
 
@@ -1066,17 +1066,17 @@ v2.0.0 D6）；显式 `@` 与 flow 决策不参与 role 档。界面上的「从
 > 升级到 v7，`routes` 落盘的时机是「迁移 / 导入 / 设置卡片写入」。
 >
 > ⚠ **`routes: []` 是唯一的不对称角落**（手写配置请注意）：`rowsFromConfig` 认它「存在」
-> ⇒ 视图模型渲染成「无规则、全部走打底」，而 `projectRoutesToLegacy` 对**空数组**
+> ⇒ 视图模型渲染成「无规则、全部使用默认目标」，而 `projectRoutesToLegacy` 对**空数组**
 > 原引用返回 ⇒ 运行期仍读旧字段。想关掉统一表请**直接删掉 `routes` 键**，不要留空数组。
 
 ### 五档决策链（界面与 `src/router.ts` 逐档对齐）
 
 ```
 1. 显式 @provider[/model]                via:'explicit'（最高；用户点名最大）
-2. 调用方点名（非队友子代理）              打底决策 ∧ 传入目标 ≠ 打底 ⇒ keep（B-1a 让位）
-3. 分工表 role ← routes 的 dispatch 行    via:'role'——优先于打底与关键词规则
+2. 调用方点名（非队友子代理）              默认目标决策 ∧ 传入目标 ≠ 默认目标 ⇒ keep（B-1a 让位）
+3. 分工表 role ← routes 的 dispatch 行    via:'role'——优先于默认目标与关键词规则
 4. 关键词规则 ← routes 的 session 行      仅主会话；子代理默认跳过（D6，图像规则保留）
-5. 打底                                 主会话 = driverSticky ? driver : preset.default
+5. 默认目标                                 主会话 = driverSticky ? driver : preset.default
                                         子代理 = 继承目标（keep）
 ```
 
@@ -1086,16 +1086,16 @@ Q3 精确寻址 / Q6 已知 provider 门控、降级语义、图像护栏）见�
 
 ### 界面（A / B 两项：一条决策链 + 作用域可见）
 
-- **顶部人话摘要**：`buildRoutingView().summary`（导出包装 `describeRouting`，纯中文人话、
-  不含内部字段名）。**三处同源已真实接线**（2026-10-07 交叉复核后修）：设置卡片顶部、
+- **顶部摘要说明**：`buildRoutingView().summary`（导出包装 `describeRouting`，纯中文、
+  不含内部字段名）。**三处同源已真实接入**（2026-10-07 交叉复核后修）：设置卡片顶部、
   `roles.ts: renderTeamSkill` 的技能 description、`/kimi-tide show` 的摘要行都消费
   `describeRouting`，并有**跨模块**测试钉住（任一侧回退自拼即红）；此前注释声称三处共用、
   实际只有设置页消费（复核 M5）。
-- **一条五档决策链**取代原先四个并列控件：每档三行式（什么时候轮到它 / 当前生效值 /
-  关掉它会怎样）；第 3 档内联分工表、第 4 档内联预设编辑器；**打底档显式渲染**
+- **一条五档决策链**取代原先四个并列控件：每档三行式（触发条件 / 当前取值 /
+  关闭后的影响）；第 3 档内联分工表、第 4 档内联预设编辑器；**默认目标档显式渲染**
   （含来源：`driverSticky ? driver : 预设默认`；`driver` 为 null 时写「主驱动跟随宿主默认」）；
-  空规则时不再是空表，而是一句人话——「未命中任何规则 ⇒ 全部走打底（…）；已备 N 组
-  词表无规则引用，暂不生效」。
+  空规则时不再是空表，而是一句说明——「主会话没有可命中的规则，全部使用默认目标（…）；
+  另有 N 组关键词组未接入任何规则，暂不生效」。
 - **档位三态**（`PrecedenceTier.state`，2026-10-07 修正）：`ready` 已就绪 /
   `on-demand` **按需**（写 `@` 或子代理点名才参与，**不置灰**）/ `off` **未启用**（置灰）。
   第 1、2 档恒为 `on-demand`——此前写死 `active: true`，界面出现「五档里四档都亮着」、
@@ -1104,8 +1104,8 @@ Q3 精确寻址 / Q6 已知 provider 门控、降级语义、图像护栏）见�
   **路由关闭（`activePreset: null`）时第 3 档转 `off`**：此时 `installRouter` 根本不挂载，
   分工表不发生任何改道，detail 写「路由已关闭：分工表 N 个角色不发生任何改道（仅存档）」
   （此前仍按 `dispatch.length > 0` 报 ready，属假生效——复核 #6）。
-- **作用域徽标**：规则行「**主会话**」、角色行「**派发时**」——两个词一贴，「冲突」即变「分工」。
-- **词表接线徽标**：`被 N 条规则引用（列 id）` / `被协作流认领（review）` / `⚠ 悬空`。
+- **作用域徽标**：规则行「**主会话**」、角色行「**派发时**」——作用域标清之后，「冲突」即变「分工」。
+- **词表接入徽标**：`被 N 条规则引用（列 id）` / `被协作流认领（review）` / `⚠ 未接入`。
 - **重叠解释条**（`view.overlaps`，**不是报错**）：词表的词 ∈ 某角色身份词
   （id / label / aliases）且两侧目标不同 ⇒ 词表行与角色行**各挂一条**「设计使然：
   主会话说『X』走 A；派给『角色』做走 B」，并给**两个**一键动作——「规则跟随该角色」
@@ -1137,8 +1137,8 @@ Q3 精确寻址 / Q6 已知 provider 门控、降级语义、图像护栏）见�
 - **顺序冲突检测**：除按 id 比 `when`/`target`/元数据外，还比**相对序**
   （同预设 session 行序 vs `presets[*].rules` 序；dispatch 行序 vs `roles` 键序）——
   排序即语义，两处顺序分叉不再算合法状态。（复核 M3）
-- **客户端表达修正**：第 2 档文案去掉「宿主」（真源仅子代理）；第 3 档「关掉它会怎样」
-  按 D6 口径改为「落到打底」；`driverSticky` 关闭时主驱动目标置灰并写明未启用原因
+- **客户端表达修正**：第 2 档文案去掉「宿主」（真源仅子代理）；第 3 档「关闭后的影响」
+  按 D6 口径改为「落到默认目标」；`driverSticky` 关闭时主驱动目标置灰并写明未启用原因
   （`kt-driver-off`，无边框无阴影）；补**渲染健壮性测试**（`buildRoutingView` 抛错时
   编辑器与分工表仍可用、链与摘要整组跳过——官方明文：render 抛错会把 slot 条目整块搞白）。
 - **复核留下的已知限制（有意不改）**：`overlaps` 的目标比较只到 provider/model（不含 `effort`）、

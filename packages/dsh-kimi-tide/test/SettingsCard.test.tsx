@@ -269,12 +269,12 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
     }
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(custom) }))
     // Fails if: 自建流缺删除按钮，或预置流（transcribe/review）出现删除按钮
-    // （spec §7：预置流可改不可删，防规则悬空）。
+    // （spec §7：预置流可改不可删，防规则失去引用目标）。
     expect(html).toContain('aria-label="删除流 my"')
     expect(html).not.toContain('aria-label="删除流 transcribe"')
     expect(html).not.toContain('aria-label="删除流 review"')
   })
-  it('被规则引用的自建流删除按钮禁用（UI 层防悬空，store 守卫兜底）', () => {
+  it('被规则引用的自建流删除按钮禁用（UI 层防失去引用目标，store 守卫兜底）', () => {
     const custom = v5cfg('saving')
     custom.presets.saving = {
       ...custom.presets.saving,
@@ -285,7 +285,7 @@ describe('SettingsCard 协作流配置（v5 渲染，Task 11 Step 1）', () => {
       my: { type: 'transcribe', visionModel: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, failurePolicy: 'blind' },
     }
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(custom) }))
-    // Fails if: 被规则引用的流删除按钮仍可点击（UI 不提示悬空风险）。
+    // Fails if: 被规则引用的流删除按钮仍可点击（UI 不提示引用风险）。
     expect(html).toMatch(/aria-label="删除流 my"[^>]*disabled|disabled[^>]*aria-label="删除流 my"/)
   })
   it('imageFallback 三态选择（锁存/盲答/懒转述）+ 一句话后果提示', () => {
@@ -403,7 +403,7 @@ describe('createCardStore 协作流写路径（v5，Task 11 Step 1）', () => {
     expect(store.getSnapshot().error).toBeNull()
   })
 
-  it('deleteFlow 拒删预置流（防规则悬空），不写盘且 error 上浮', async () => {
+  it('deleteFlow 拒删预置流（防规则失去引用目标），不写盘且 error 上浮', async () => {
     const { scope, set } = makeApplyingScope(DEFAULT_CONFIG_V5())
     const store = createCardStore(scope, null)
 
@@ -687,7 +687,7 @@ describe('v1.3.0 语义命中确认闸：设置页开关（spec §8.1）', () =>
 })
 
 describe('SettingsCard 路由决策链（A 项，2026-10-07 设计稿 §4）', () => {
-  it('① 顶部人话摘要 = describeRouting 单源输出（不自己拼文案）', () => {
+  it('① 顶部摘要 = describeRouting 单源输出（不自己拼文案）', () => {
     const cfg = v4cfg('saving')
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
     // Fails if: 摘要行缺失，或卡片自己拼文案与 describeRouting 漂移（§3 单源约定——
@@ -695,10 +695,10 @@ describe('SettingsCard 路由决策链（A 项，2026-10-07 设计稿 §4）', (
     expect(html).toContain(describeRouting(cfg))
   })
 
-  it('② 五档标题按优先级顺序出现（显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 打底）', () => {
+  it('② 五档标题按优先级顺序出现（显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 默认目标）', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
     // Fails if: 决策链缺档或档位顺序漂移（§4.2：与 router.ts 优先级链逐档对齐）。
-    const titles = ['显式 @指令', '调用方点名', '分工表角色', '关键词规则', '打底']
+    const titles = ['显式 @指令', '调用方点名', '分工表角色', '关键词规则', '默认目标']
     let pos = -1
     for (const title of titles) {
       const next = html.indexOf(`kt-tier-title">${title}<`, pos + 1)
@@ -711,24 +711,24 @@ describe('SettingsCard 路由决策链（A 项，2026-10-07 设计稿 §4）', (
     expect(html).toContain('kt-tier-state">未启用<')
   })
 
-  it('③ 空规则 + 有词表 ⇒「全部走打底」与「现在都不生效」（空状态说人话）', () => {
+  it('③ 空规则 + 有词表 ⇒「全部使用默认目标」与「暂不生效」（空状态说明）', () => {
     const cfg = v4cfg('saving')
     // 视图模型跨**全部预设**扫规则引用——只清激活预设的规则，词表仍被另一预设
-    // 引用而不算悬空；两预设全清才是「7 组词表全部悬空」的实机形态（§1.1 症状 1）。
+    // 引用而不算未接入；两预设全清才是「7 组关键词组全部未接入」的实机形态（§1.1 症状 1）。
     for (const [id, preset] of Object.entries(cfg.presets)) cfg.presets[id] = { ...preset, rules: [] }
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
-    // Fails if: rules 为空仍是一张空表（§4.4：未命中 ⇒ 全部走打底），或已备词表
-    // 无规则引用时不点名「现在都不生效」。
-    expect(html).toContain('全部走打底')
-    expect(html).toContain('现在都不生效')
-    expect(html).toContain('⚠ 悬空')
+    // Fails if: rules 为空仍是一张空表（§4.4：未命中 ⇒ 全部使用默认目标），或已备词表
+    // 无规则引用时不点名「暂不生效」。
+    expect(html).toContain('全部使用默认目标')
+    expect(html).toContain('暂不生效')
+    expect(html).toContain('⚠ 未接入')
   })
 
-  it('④ 词表接线三态：被 N 条规则引用（列 id）/ 被协作流认领 / ⚠ 悬空各一例', () => {
+  it('④ 词表接入三态：被 N 条规则引用（列 id）/ 被协作流认领 / ⚠ 未接入各一例', () => {
     const cfg = v5cfg('saving')
     // review 流改 keywords 认领 chitchat 组 → 该组「被协作流认领」；math 组仅被
     // capability 预设的 math-v4p 引用（code/translate 被两预设同名规则引用，不是
-    // 单条实例）；内置 7 组全部被引用/认领，故另备一组 spare 作「⚠ 悬空」实例。
+    // 单条实例）；内置 7 组全部被引用/认领，故另备一组 spare 作「⚠ 未接入」实例。
     const review = cfg.flows.review
     if (review.type === 'review') {
       review.trigger = 'keywords'
@@ -736,24 +736,24 @@ describe('SettingsCard 路由决策链（A 项，2026-10-07 设计稿 §4）', (
     }
     cfg.keywordGroups = { ...cfg.keywordGroups, spare: ['闲置词'] }
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
-    // Fails if: 三组接线徽标任一缺失或文案漂移（§4.5）。
+    // Fails if: 三组接入徽标任一缺失或文案漂移（§4.5）。
     expect(html).toContain('被 1 条规则引用（math-v4p）')
     expect(html).toContain('被协作流认领')
-    expect(html).toContain('⚠ 悬空')
+    expect(html).toContain('⚠ 未接入')
   })
 
-  it('⑤ driverSticky 开/关 ⇒ 打底档文案变化（来源 = 主驱动 / 预设默认）', () => {
+  it('⑤ driverSticky 开/关 ⇒ 默认目标档文案变化（来源 = 主驱动 / 预设默认）', () => {
     const base = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', driver: { provider: 'kimi-coding', model: 'k3' } }
     const on = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith({ ...base, driverSticky: true }) }))
-    // Fails if: driverSticky 开时打底档不取主驱动来源（§4.3：driverSticky ⇒ driver）。
+    // Fails if: driverSticky 开时默认目标档不取主驱动来源（§4.3：driverSticky ⇒ driver）。
     expect(on).toContain('主驱动恒定（kimi-coding/k3）')
     const off = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith({ ...base, driverSticky: false }) }))
-    // Fails if: driverSticky 关时打底档不回落激活预设默认（§4.3：否则取预设默认）。
+    // Fails if: driverSticky 关时默认目标档不回落激活预设默认（§4.3：否则取预设默认）。
     expect(off).toContain('预设「省钱」默认')
   })
 })
 
-describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重叠解释 / 派发预览 / 词表接线）', () => {
+describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重叠解释 / 派发预览 / 词表接入）', () => {
   /** B 项夹具：v6 配置工厂（含分工层），激活预设可注入。 */
   const v6cfg = (active: string | null): RouterConfigV6 => ({ ...DEFAULT_CONFIG_V6(), activePreset: active })
 
@@ -770,7 +770,7 @@ describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重�
     const cfg = v6cfg('saving')
     cfg.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(cfg) }))
-    // Fails if: 规则行/角色行缺作用域徽标（§5.1——两个词一贴，"冲突"即变"分工"）；
+    // Fails if: 规则行/角色行缺作用域徽标（§5.1——作用域标清后，"冲突"即变"分工"）；
     // 或徽标不沿用 A 项 kt-wire 徽标样式。
     expect(html.match(/kt-wire"[^>]*>主会话</g)?.length).toBe(3)  // saving 三条规则 = 三枚
     expect(html.match(/kt-wire"[^>]*>派发时</g)?.length).toBe(1)  // 一个角色 = 一枚
@@ -811,11 +811,11 @@ describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重�
     expect(html).toContain('value="frontend"')
   })
 
-  it('B5 「从词表生成角色」：有悬空词表组时可用；全部被引用时禁用', () => {
+  it('B5 「从词表生成角色」：有未接入词表组时可用；全部被引用时禁用', () => {
     const withSpare = v6cfg('saving')
     withSpare.keywordGroups = { ...withSpare.keywordGroups, spare: ['闲置词'] }
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(withSpare) }))
-    // Fails if: 分工表区块缺「从词表生成角色」动作（§5.4——7 组词表不再悬空）。
+    // Fails if: 分工表区块缺「从词表生成角色」动作（§5.4——让 7 组词表全部接入）。
     expect(html).toContain('从词表生成角色')
     expect(html).not.toMatch(/<button[^>]*disabled[^>]*>从词表生成角色<\/button>/)
     // v6 默认 7 组词表全部被内置两预设规则引用（无 orphan）⇒ 动作禁用（无可生成）。
@@ -825,21 +825,21 @@ describe('SettingsCard B 项（2026-10-07 设计稿 §5：作用域徽标 / 重�
 })
 
 describe('SettingsCard 复核修（2026-10-07 独立交叉复核：静态文案钉住 + 主驱动未启用态）', () => {
-  it('第 2 档「什么时候轮到它」口径 = 仅子代理——不再出现「宿主」', () => {
+  it('第 2 档「触发条件」口径 = 仅子代理——不再出现「宿主」', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
     // Fails if: TIER_WHEN[2] 退回「宿主/子代理」——真源 router.ts
     // shouldKeepExternalTarget 只在 delegationDepth>0（子代理）保留调用方目标，
-    // 主会话点名会被预设覆盖；写「宿主」与同屏 detail「按需：仅子代理」互相打脸。
-    expect(html).toContain('调用方（子代理）点名了模型，且与打底不同')
+    // 主会话点名会被预设覆盖；写「宿主」与同屏 detail「按需：仅子代理」互相矛盾。
+    expect(html).toContain('子代理调用方指定了模型，且与默认目标不同时')
     expect(html).not.toContain('宿主/子代理')
   })
 
-  it('第 3 档「关掉它会怎样」口径 = 落到打底——D6 下不再出现「关键词规则/打底」', () => {
+  it('第 3 档「关闭后的影响」口径 = 落到默认目标——D6 下不再出现「关键词规则/默认目标」', () => {
     const html = renderToString(createElement(SettingsCard, { scope: null, connection: null, storeFactory: storeWith(v4cfg('saving')) }))
-    // Fails if: TIER_OFF[3] 退回「落到下一档（关键词规则/打底）」——D6 起子代理
-    // 默认不参与关键词规则，清空分工表后队友请求只落到打底。
-    expect(html).toContain('清空分工表 ⇒ 队友请求落到打底（子代理默认不参与关键词规则')
-    expect(html).not.toContain('关键词规则/打底')
+    // Fails if: TIER_OFF[3] 退回「落到下一档（关键词规则/默认目标）」——D6 起子代理
+    // 默认不参与关键词规则，清空分工表后队友请求只落到默认目标。
+    expect(html).toContain('清空分工表后，队友请求落到默认目标（子代理默认不参与关键词规则')
+    expect(html).not.toContain('关键词规则/默认目标')
   })
 
   it('主驱动目标：driverSticky 关闭 ⇒ 行置灰（kt-driver-off）+ 未启用说明；开启 ⇒ 均无（§4.6）', () => {

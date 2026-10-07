@@ -50,7 +50,7 @@ describe('roles：派发依据（依据枚举 role|explicit|unclaimed|keep）', 
     expect(dispatchMetaOf({ role: 'teammate', name: 'frontend' }, { role: role('frontend'), name: 'frontend' }, { kind: 'route', via: 'role' }))
       .toEqual({ basis: 'role', teammate: 'frontend', roleLabel: 'FRONTEND' })
   })
-  it('队友未在分工表 ⇒ unclaimed（即使最终是打底）', () => {
+  it('队友未在分工表 ⇒ unclaimed（即使最终是默认目标）', () => {
     expect(dispatchMetaOf({ role: 'teammate', name: 'x' }, undefined, { kind: 'route', via: 'default' }).basis).toBe('unclaimed')
   })
   it('非队友子代理：显式点名 ⇒ explicit；否则 keep', () => {
@@ -100,7 +100,7 @@ describe('roles：分工表 skill 正文', () => {
 
 describe('roles：分工表 skill description 消费 describeRouting 单源（复核⑤ M5）', () => {
   // 跨模块判据：传入路由配置时，description 必须包含 describeRouting 的同源输出
-  // （主会话打底 + 命中走哪 + 派发到哪）。若 renderTeamSkill 回退到自拼文案
+  // （主会话默认目标 + 命中走哪 + 派发到哪）。若 renderTeamSkill 回退到自拼文案
   // （不含主会话片段），或 describeRouting 改了措辞而此处未跟随，本测试变红。
   const roles = { frontend: role('frontend', { label: '前端' }) }
   const cfg: RouterConfigV6 = {

@@ -60,7 +60,7 @@ function makeCtx(
       ],
       listModels: async (provider: string) =>
         provider === 'kimi-coding'
-          // 目录含 k3（能力预设的打底与 image/review 规则目标）——夹具的**可用性**
+          // 目录含 k3（能力预设的默认目标与 image/review 规则目标）——夹具的**可用性**
           // 语义要和生产一致：目标不在目录里就是 available:false、规则被跳过
           // （本次修复真实注销后暴露：原先旧监听器一直用「枚举完成前的
           //  fallback 元数据」作答，k3 被无条件当成可用）。
@@ -291,7 +291,7 @@ describe('apply() 二态 + 取数口径（v1.2.0：面板走命令通道，不�
   })
 })
 
-describe('apply() 面板 v6 推送接线（0.6.0：imageContext 三态计数）', () => {
+describe('apply() 面板 v6 推送接入（0.6.0：imageContext 三态计数）', () => {
   let dir: string
   let patchFile: string
   let sidecarFile: string
@@ -353,7 +353,7 @@ describe('apply() 面板 v6 推送接线（0.6.0：imageContext 三态计数）'
  * 450–850ms 返回合法判词（3/3 可解析）。本组钉住「档位真的落到了 GenerateOptions 上」；
  * 支持集判定（off 不被支持就不下发）在 hit-confirm/router-wiring 两层已各自钉住。
  */
-describe('apply() 语义闸判官档位接线（v1.3.0 A7 定向修复）', () => {
+describe('apply() 语义闸判官档位接入（v1.3.0 A7 定向修复）', () => {
   let dir: string
   let patchFile: string
   let sidecarFile: string
@@ -421,7 +421,7 @@ describe('apply() 语义闸判官档位接线（v1.3.0 A7 定向修复）', () =
     expect(stream.options[0]).not.toHaveProperty('reasoningEffort')
   })
 
-  it('判官支持 off 且真返回判否 ⇒ 决策落打底但带确认注记（端到端：判词进面板原因串）', async () => {
+  it('判官支持 off 且真返回判否 ⇒ 决策落默认目标但带确认注记（端到端：判词进面板原因串）', async () => {
     const agent: FakeAgent = { session: { append: vi.fn() } }
     const stream = {
       options: [] as unknown[],
@@ -505,27 +505,27 @@ describe('buildDecisionSummary (spec §2.7 gating + truncation)', () => {
     expect(buildDecisionSummary({
       kind: 'route', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       reason: '预设「省钱」默认', via: 'default',
-    })).toBeNull()  // 打底不上 chip（既有语义）
+    })).toBeNull()  // 默认目标不上 chip（既有语义）
     expect(buildDecisionSummary({
       kind: 'flow', flowId: 'transcribe', flow: { type: 'transcribe', visionModel: { provider: 'x', model: 'y' }, failurePolicy: 'blind' },
       reason: '规则「带图」命中（协作流 transcribe）', via: 'rule',
     })).toMatchObject({ chosen: { provider: 'flow', model: 'transcribe' } })
   })
 
-  it('v1.3.0 可观测性补链：带语义闸注解的打底决策也要上报（判否落打底时不再隐形）', () => {
+  it('v1.3.0 可观测性补链：带语义闸注解的默认目标决策也要上报（判否落默认目标时不再隐形）', () => {
     const noted = {
       ...route,
       via: 'default' as const,
       reason: '语义闸判否（引用语境） · 预设「省钱」默认',
       confirmNote: '语义闸判否（引用语境）',
     }
-    // 判否 ⇒ 规则被过滤 ⇒ 最终必然落打底。若沿用「default 不上报」，
+    // 判否 ⇒ 规则被过滤 ⇒ 最终必然落默认目标。若沿用「default 不上报」，
     // 判否这个最需要被看见的结果将完全不可见——这正是 A7 实机失效被掩盖的原因。
     expect(buildDecisionSummary(noted)).toEqual({
       chosen: { provider: 'kimi-coding', model: 'kimi-for-coding' },
       reason: '语义闸判否（引用语境） · 预设「省钱」默认',
     })
-    // 无注解的打底仍然隐形——既有语义逐字节不变
+    // 无注解的默认目标仍然隐形——既有语义逐字节不变
     expect(buildDecisionSummary({ ...noted, confirmNote: undefined })).toBeNull()
   })
 })

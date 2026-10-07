@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 评审卡注册接线回归锁（1.1.0 A6 实机缺陷，2026-09-04）。
+ * 评审卡注册接入回归锁（1.1.0 A6 实机缺陷，2026-09-04）。
  *
  * 实机缺陷：bundle 装载时序下 uiConversation 服务晚于本插件 client apply
  * （dsh-web-app 系服务异步就绪）——一次性守卫读 `ctx.get('uiConversation')`
@@ -58,7 +58,7 @@ function makeCtx(opts: FakeCtxOptions = {}): FakeCtx {
   return ctx
 }
 
-describe('client apply：评审卡注册接线（A6 实机缺陷回归锁）', () => {
+describe('client apply：评审卡注册接入（A6 实机缺陷回归锁）', () => {
   it('uiConversation 已就绪：立即注册 review + revise 两个 Definition（原路径不回退）', () => {
     const face = makeFace()
     const ctx = makeCtx({ uiConversation: face })

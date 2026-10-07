@@ -7,7 +7,7 @@
  *   1. sidecar 生命周期：save → load（source 'sidecar'）→ 损坏（.corrupt
  *      保留 + 回退 patch）→ import（文件整表替换 / 内联 YAML 合并补丁）
  *   2. 双源优先级：sidecar 与 patch 静态块并存时 sidecar 胜出
- *   3. decide 级：显式 @ / 规则命中 / 打底 / image 规则（via 语义）
+ *   3. decide 级：显式 @ / 规则命中 / 默认目标 / image 规则（via 语义）
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -296,7 +296,7 @@ describe('integration: 双源优先级（sidecar > patch）', () => {
     expect(snapshot.router).toMatchObject({ activePreset: 'saving' })   // mode cost → saving
   })
 
-  it('apply() 端到端 0.6.0 接线：图轮落多模态 + 后续文本轮锁存留多模态（状态表 = 0.5.0 布尔锁存语义）', async () => {
+  it('apply() 端到端 0.6.0 接入：图轮落多模态 + 后续文本轮锁存留多模态（状态表 = 0.5.0 布尔锁存语义）', async () => {
     writeFileSync(
       patchFile,
       '- id: dsh-kimi-tide\n  config:\n    router:\n      mode: cost\n      primary: { provider: deepseek-official, model: deepseek-v4-flash }\n      premium: { provider: kimi-coding, model: kimi-for-coding }\n',
@@ -392,7 +392,7 @@ describe('integration: decide 级规则路由（via 语义）', () => {
     }
   })
 
-  it('未命中规则 → 打底路由到预设默认（via default）', () => {
+  it('未命中规则 → 默认目标路由到预设默认（via default）', () => {
     const router = new KimiRouter(v4cfg('saving'), metas, silentLog)
     const decision = router.decide([text('今天天气不错')], 1)
     expect(decision.kind).toBe('route')

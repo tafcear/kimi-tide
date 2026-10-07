@@ -226,7 +226,7 @@ describe('SettingsCard 评审修复批次2（2026-08-29）', () => {
   })
 
   it('P2-2 武装态 3 秒自动解除（误击窗口有限）', async () => {
-    // 真实定时器等待（fake timers 与 React 调度器相互打架，2026-08-29 实测）：
+    // 真实定时器等待（fake timers 与 React 调度器相互冲突，2026-08-29 实测）：
     // 3.2 秒 > 3 秒解除阈值，确定性换速度。
     const { store, publish } = makeDeferredStore()
     await mount(store)
@@ -1591,7 +1591,7 @@ describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / �
     expect(container.textContent).toContain('依据：unclaimed')
   })
 
-  it('B5「从词表生成角色」：悬空词表组批量生成角色（目标 = 激活预设默认模型，同「填入三条示例」兜底）', async () => {
+  it('B5「从词表生成角色」：未接入词表组批量生成角色（目标 = 激活预设默认模型，同「填入三条示例」兜底）', async () => {
     const saveRoles = vi.fn(async () => {})
     const { store, publish } = makeDeferredStore({ saveRoles })
     await mount(store)
@@ -1602,7 +1602,7 @@ describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / �
     expect(btn.disabled).toBe(false)
     await act(async () => { btn.click() })
     // Fails if: ① 生成不经 saveRoles 守卫通道（认领冲突失去拒写保护）；② 目标
-    // 不是激活预设默认模型（§5.4 与「填入三条示例」同款兜底）；③ 把非悬空组
+    // 不是激活预设默认模型（§5.4 与「填入三条示例」同款兜底）；③ 把非未接入组
     // （已被规则引用的内置 7 组）也生成了角色。
     expect(saveRoles).toHaveBeenCalledTimes(1)
     const record = saveRoles.mock.calls[0]![0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>

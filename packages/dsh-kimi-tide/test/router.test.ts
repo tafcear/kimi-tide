@@ -29,7 +29,7 @@ describe('KimiRouter v4 decide', () => {
     const r = new KimiRouter(cfg(null), METAS, log)
     expect(r.decide([textMsg('代码')], 1)).toEqual({ kind: 'keep', reason: 'router off' })
   })
-  it('未命中规则 → via:default 路由到预设默认（打底语义）', () => {
+  it('未命中规则 → via:default 路由到预设默认（默认目标语义）', () => {
     const r = new KimiRouter(cfg('saving'), METAS, log)
     expect(r.decide([textMsg('今天天气不错')], 1)).toEqual({
       kind: 'route', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -86,10 +86,10 @@ describe('KimiRouter v4 decide', () => {
     const r = new KimiRouter(cfg('saving'), metas, log)
     expect(r.decide([textMsg('重构函数')], 1)).toMatchObject({ via: 'default', target: { model: 'deepseek-v4-flash' } })
   })
-  it('能力预设：闲聊→flash，其余→k3 打底', () => {
+  it('能力预设：闲聊→flash，其余→k3 默认目标', () => {
     const r = new KimiRouter(cfg('capability'), METAS, log)
     expect(r.decide([textMsg('你好呀')], 1)).toMatchObject({ via: 'rule', target: { model: 'deepseek-v4-flash' } })
-    // 0.8.0 math 组含「推导」——原「推导这个式子」夹具改无命中说法，钉「未命中→打底」语义
+    // 0.8.0 math 组含「推导」——原「推导这个式子」夹具改无命中说法，钉「未命中→默认目标」语义
     expect(r.decide([textMsg('给我讲讲这个思路')], 1)).toMatchObject({ via: 'default', target: { model: 'k3' } })
   })
   it('显式 @kimi 优先于规则与默认（Q3：池内选择确定化 + 可解释）', () => {
@@ -147,14 +147,14 @@ describe('KimiRouter v4 decide', () => {
     const r = new KimiRouter(cfg('saving'), metas, log)
     const d = r.decide([textMsg('@zai-coding-cn 你好')], 1)
     // Fails if: knownProviders 只收 available 者 ⇒ @zai-coding-cn 被判成误判、丢进
-    // 规则链（未命中词即落打底），而不是 Q3 要求的不静默改道。
+    // 规则链（未命中词即落默认目标），而不是 Q3 要求的不静默改道。
     expect(d).toMatchObject({ kind: 'keep' })
     expect((d as { reason: string }).reason).toContain('无可用候选')
   })
-  it('Q6（有意变更）：未识别的 @provider 落打底，不再 keep', () => {
+  it('Q6（有意变更）：未识别的 @provider 落默认目标，不再 keep', () => {
     // 原断言为 keep（夹具 @anthropic）。词法上 @anthropic 与 @README 完全同形、不可
     // 区分 ⇒ 二选一：「误判时静默短路整条规则链」（2026-09-15 已造成实机损失）或
-    // 「真指令但 provider 未知时落打底 + 原因串写明被忽略」。选后者：打底可预测，
+    // 「真指令但 provider 未知时落默认目标 + 原因串写明被忽略」。选后者：默认目标可预测，
     // keep 取决于上一轮是谁；且不是静默。
     const r = new KimiRouter(cfg('saving'), METAS, log)
     const d = r.decide([textMsg('@anthropic 你好')], 1)
@@ -190,7 +190,7 @@ describe('KimiRouter v4 decide', () => {
     // Q6 评审「未覆盖的失败模式」：decide 第 4 参（omittedRuleIds）与门控的交错。
     const r = new KimiRouter(cfg('saving'), METAS, log)
     const d = r.decide([textMsg('见 @README.md 的说明，帮我重构这段周报')], 1, undefined, new Set(['code-kfc']))
-    // code 规则被否 ⇒ 落打底；noteHead 不因走的是打底分支而丢失
+    // code 规则被否 ⇒ 落默认目标；noteHead 不因走的是默认目标分支而丢失
     expect(d).toMatchObject({ kind: 'route', via: 'default' })
     expect((d as { reason: string }).reason).toContain('已忽略')
   })
@@ -603,14 +603,14 @@ describe('v2.0.0：via:\'role\' 与 shouldKeepExternalTarget', () => {
 })
 
 describe('v2.0.0：applyRoleDecision（role 覆盖纯函数，优先级链第 3 档）', () => {
-  it('打底决策 + role 命中 → via:role，目标换成角色目标，原因带分工表与队友名', () => {
+  it('默认目标决策 + role 命中 → via:role，目标换成角色目标，原因带分工表与队友名', () => {
     const d = applyRoleDecision(defaultDecision(), roleHitFront)
     expect(d).toMatchObject({
       kind: 'route', via: 'role', target: { provider: 'kimi-coding', model: 'k3' },
     })
     expect(d.reason).toBe('分工表「前端」→ kimi-coding/k3（队友 frontend）')
   })
-  it('规则命中决策同样被覆盖（role 优先于关键词规则与打底）', () => {
+  it('规则命中决策同样被覆盖（role 优先于关键词规则与默认目标）', () => {
     const rule: RouteDecision = { kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '规则「code」命中 1 词', via: 'rule' }
     expect(applyRoleDecision(rule, roleHitFront)).toMatchObject({ via: 'role', target: { provider: 'kimi-coding', model: 'k3' } })
   })
@@ -652,7 +652,7 @@ describe('v2.0.0：子代理跳关键词规则（D6，decide 第 5 参）', () =
     const r = new KimiRouter(childCfg(), METAS, log)
     expect(r.decide([textMsg('帮我重构这段代码')], 1)).toMatchObject({ via: 'rule', target: { model: 'kimi-for-coding' } })
   })
-  it('skipKeywordRules=true：关键词规则被跳过，落打底（via:default）', () => {
+  it('skipKeywordRules=true：关键词规则被跳过，落默认目标（via:default）', () => {
     const r = new KimiRouter(childCfg(), METAS, log)
     const d = r.decide([textMsg('帮我重构这段代码')], 1, undefined, undefined, { skipKeywordRules: true })
     // Fails if: decide 不认第 5 参，关键词规则照常命中（子代理被规则劫持）
@@ -676,14 +676,14 @@ describe('v2.0.0：主驱动恒定（D1，decide 层等价形）', () => {
   // driverSticky 的生效点在 pre-step 闭包而非 decide（子代理门控需要 delegationDepth，
   // decide 拿不到 agent）——本组只钉「decide 不被 sticky 污染」的等价形，
   // 三变体行为由下方 applyDriverSticky 纯函数覆盖，实机验收在任务 8 清单 A1a/A1b/A1c。
-  it('driverSticky=false ⇒ 行为与 v1.4.1 一致（打底 = 预设默认）', () => {
+  it('driverSticky=false ⇒ 行为与 v1.4.1 一致（默认目标 = 预设默认）', () => {
     const r = new KimiRouter(cfg6('saving', { driverSticky: false }), METAS, log)
     expect(r.decide([textMsg('随便聊聊')], 1)).toMatchObject({
       via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     })
   })
-  it('driverSticky=true ⇒ decide 层不受理（等价形：预设打底已是该目标时与 driver 一致）', () => {
-    // saving 预设默认即 deepseek-v4-flash = driver：decide 原样返回打底即等价
+  it('driverSticky=true ⇒ decide 层不受理（等价形：预设默认目标已是该目标时与 driver 一致）', () => {
+    // saving 预设默认即 deepseek-v4-flash = driver：decide 原样返回默认目标即等价
     const c = cfg6('saving', { driverSticky: true, driver: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
     expect(new KimiRouter(c, METAS, log).decide([textMsg('随便聊聊')], 1)).toMatchObject({
       via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -702,7 +702,7 @@ describe('v2.0.0：applyDriverSticky（主驱动恒定纯函数，优先级链�
     const d = defaultDecision()
     expect(applyDriverSticky(d, true, DRIVER, true)).toBe(d)
   })
-  it('主会话 + sticky + driver 非空 + 打底决策 → 目标换成 driver，原因带（主驱动）', () => {
+  it('主会话 + sticky + driver 非空 + 默认目标决策 → 目标换成 driver，原因带（主驱动）', () => {
     const d = applyDriverSticky(defaultDecision(), false, DRIVER, true)
     expect(d).toMatchObject({ kind: 'route', via: 'default', target: DRIVER })
     expect(d.reason).toBe('预设「省钱」默认（主驱动）')
@@ -713,7 +713,7 @@ describe('v2.0.0：applyDriverSticky（主驱动恒定纯函数，优先级链�
     expect(applyDriverSticky(defaultDecision(), false, undefined, true))
       .toEqual({ kind: 'keep', reason: '主驱动跟随宿主默认' })
   })
-  it('非打底决策一律不动（规则/显式/role/flow/keep 均原引用返回）', () => {
+  it('非默认目标决策一律不动（规则/显式/role/flow/keep 均原引用返回）', () => {
     const rule: RouteDecision = { kind: 'route', target: DRIVER, reason: 'r', via: 'rule' }
     const explicit: RouteDecision = { kind: 'route', target: DRIVER, reason: 'r', via: 'explicit' }
     const role: RouteDecision = { kind: 'route', target: DRIVER, reason: 'r', via: 'role' }

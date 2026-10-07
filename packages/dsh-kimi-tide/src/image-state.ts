@@ -13,7 +13,7 @@ export interface ImageStateEntry {
 /**
  * 按 agent 隔离的 per-image 三态状态表（0.6.0 协作编排：布尔锁存的替代基元）。
  * WeakMap 键 = Agent 实例（引用语义，不阻止 GC）；值 = attachmentId → 条目。
- * Task 8（imageFallback）/ Task 9（转述接线）消费。
+ * Task 8（imageFallback）/ Task 9（转述接入）消费。
  */
 export class ImageStateStore {
   private readonly perAgent = new WeakMap<Agent, Map<string, ImageStateEntry>>()

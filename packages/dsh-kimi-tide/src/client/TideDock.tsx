@@ -495,7 +495,7 @@ export function TideDock(props: TideDockProps) {
       ? '配额取数时间（取数失败，配额不可用）'
       : '配额取数时间（当前目标无配额数据）'
   // ---- 紧凑态（v1.4.x，工具行右端）派生值 ----
-  // 目标链：本步决策目标优先，回落预设打底（与 r1 的 ⟶/→ 同语义，只是合成一个按钮）。
+  // 目标链：本步决策目标优先，回落预设默认目标（与 r1 的 ⟶/→ 同语义，只是合成一个按钮）。
   const compactTarget = panel.decision?.chosen ?? (router.activePreset !== null ? router.defaultTarget ?? null : null)
   // 配额摘要一格：余额源给 `¥xx`，用量源给 `周剩NN%`，无数据给 null（退化为 ▤ 图标）。
   const compactQuota = balance !== null
@@ -558,7 +558,7 @@ export function TideDock(props: TideDockProps) {
         </>
       ) : (
       <>
-      {/* ⑥-B 第一行（锁单行）：身份 + 路由链（预设 → 打底 ⟶ 决策目标）+ 右贴决策开关。
+      {/* ⑥-B 第一行（锁单行）：身份 + 路由链（预设 → 默认目标 ⟶ 决策目标）+ 右贴决策开关。
           决策原因不进文本流（只在开关 title 与悬浮面板），长原因不再把 r1 挤换行。 */}
       <div className="kt-dock-r1">
         <span
@@ -579,7 +579,7 @@ export function TideDock(props: TideDockProps) {
             <span
               data-kt-el="baseline-chip"
               className="kt-chip kt-slot"
-              title={`预设打底模型 ${router.defaultTarget?.provider ?? ''}/${router.defaultTarget?.model ?? ''}（未命中规则时）`}
+              title={`预设默认模型 ${router.defaultTarget?.provider ?? ''}/${router.defaultTarget?.model ?? ''}（未命中规则时的默认目标）`}
             >
               <Icon name="base" className="kt-ic-base" /> <span className="kt-ellip">{router.defaultTarget?.model}</span>
             </span>

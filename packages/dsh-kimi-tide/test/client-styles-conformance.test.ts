@@ -53,7 +53,7 @@ describe('§9 官方 UI 规则：圆角 token 棘轮', () => {
 })
 
 describe('§9 官方 UI 规则：阴影不得用于分组', () => {
-  it('决策链 / 档位 / 接线徽标 / 重叠解释块内不得出现 box-shadow', () => {
+  it('决策链 / 档位 / 接入徽标 / 重叠解释块内不得出现 box-shadow', () => {
     const chainBlocks = ruleBlocks(SOURCE_CSS).filter((b) =>
       /kt-chain|kt-tier|kt-wire|kt-overlap/.test(b.selector))
     expect(chainBlocks.length, '决策链相关规则块应存在').toBeGreaterThan(0)

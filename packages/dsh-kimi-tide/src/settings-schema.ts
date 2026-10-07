@@ -178,7 +178,7 @@ function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): 
   const routes = (raw as { routes?: unknown }).routes
   if (!Array.isArray(routes)) return 'routes 必须为数组（RouteRowV7[]）'
   // 空 routes 判据收紧（1.4.x 正确性修补）：rowsFromConfig 认「空数组」为 routes
-  // 存在 ⇒ 视图渲染为「无规则、全部走打底」，而 projectRoutesToLegacy 对空数组
+  // 存在 ⇒ 视图渲染为「无规则、全部使用默认目标」，而 projectRoutesToLegacy 对空数组
   // 原引用返回 ⇒ 运行期仍读旧字段——两边静默背离。空数组 × 旧字段非空必须报错；
   // 旧字段同样为空（UI 删光规则与角色）是合法形态，放行。
   if (routes.length === 0) {
@@ -437,7 +437,7 @@ export function mergeResolved(entry: unknown): RouterConfigV6 {
   // schema 解析存量节时 dict 只注 {}，若此处 deepMerge 注入 DEFAULT_FLOWS，
   // settings-migration 的 clean 谓词（deepEqualJson(scope.get(), mergeResolved(entry))，
   // entry=v4 形 base）会误判 dirty 而跳过 sidecar 导入——index-wiring 两条迁移
-  // 测试实证。空 entry/无 version 视为新装（v6 默认全量供给）；Task 12 v5 接线后
+  // 测试实证。空 entry/无 version 视为新装（v6 默认全量供给）；Task 12 v5 接入后
   // base 自带 flows，两式恒等，本收窄保持 v4 存量迁移行为逐字节不变。
   if (typeof e.version === 'number' && !isV5Plus({ version: e.version }) && !('flows' in e)) delete resolved.flows
   // ObjectT 输出形与 RouterConfigV6 的类型差同上（version union 宽于 6、可缺省字段

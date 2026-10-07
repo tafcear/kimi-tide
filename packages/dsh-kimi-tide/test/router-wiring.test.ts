@@ -87,8 +87,8 @@ const FLOW_CONFIG = (): RouterConfigV5 => {
 
 /**
  * v6 夹具（v2.0.0 团队派发）：与 CONFIG() 同款 review 关键词组规则，
- * 供 rulesApplyToChildren / 分工表 / driverSticky 闭包接线测试覆写分工层字段。
- * 注意 DEFAULT_CONFIG_V6 内置 driverSticky: true + driver: null——主会话打底
+ * 供 rulesApplyToChildren / 分工表 / driverSticky 闭包接入测试覆写分工层字段。
+ * 注意 DEFAULT_CONFIG_V6 内置 driverSticky: true + driver: null——主会话默认目标
  * 会变 keep「主驱动跟随宿主默认」；不涉及该断言的用例一律走子代理或显式覆写。
  */
 const TEAM_CONFIG = (over: Partial<RouterConfigV6> = {}): RouterConfigV6 => {
@@ -104,7 +104,7 @@ const TEAM_CONFIG = (over: Partial<RouterConfigV6> = {}): RouterConfigV6 => {
 }
 
 // 与省钱预设默认（deepseek-official/deepseek-v4-flash）不同的哨兵路由：
-// 打底语义下「普通任务」route 到预设默认，若 baseConfig 与预设默认相同，
+// 默认目标语义下「普通任务」route 到预设默认，若 baseConfig 与预设默认相同，
 // `toEqual(baseConfig)` 会失去 route/keep 判别力（评审建议，T3 延期 Minor）。
 const baseConfig = { provider: 'sentinel-provider', model: 'sentinel-model' }
 const SAVING_DEFAULT = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
@@ -322,7 +322,7 @@ describe('installRouter step contract (regression: step===0 gate idled the route
     // Realistic loop shape: pre-step(1) → request(1) → pre-step(2) → request(2).
     await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const first = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
-    expect(first).toEqual(SAVING_DEFAULT) // 未命中规则 → 打底路由到预设默认（≠ baseConfig，判别力）
+    expect(first).toEqual(SAVING_DEFAULT) // 未命中规则 → 默认目标路由到预设默认（≠ baseConfig，判别力）
 
     await dispatch.preStep({ agent, messages: [], turn: 1, step: 2, signal: signal() })
     const second = await dispatch.request({ agent, turn: 1, step: 2, signal: signal() }, baseConfig)
@@ -334,7 +334,7 @@ describe('installRouter step contract (regression: step===0 gate idled the route
 describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1：spec §5 承诺项补交）', () => {
   // Q6 把「显式 @ 轮」的定义从「词法命中」收窄为「已知 provider」。语义闸的前置
   // 短路（router.ts 用同一判据）随之受益：`@README.md` 这类误判轮**现在会问判官**，
-  // 而不是被当成显式轮白跳过。本组用例钉住这条接线——回退成词法判定即红。
+  // 而不是被当成显式轮白跳过。本组用例钉住这条接入——回退成词法判定即红。
   const gateConfig = (): RouterConfigV4 => {
     const c = CONFIG()
     c.presets.saving.hitConfirm = { enabled: true }
@@ -398,9 +398,9 @@ describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1
   })
 
   // v1.3.0 可观测性补链：判词必须穿到**最终决策对象**上。判否 ⇒ 被否规则出链 ⇒
-  // 落打底（via:'default'），而打底按既有 gating 不上报面板——A7 实机失效正是被
+  // 落默认目标（via:'default'），而默认目标按既有 gating 不上报面板——A7 实机失效正是被
   // 这一点掩盖的。本组钉住「注记确实到达最终决策」，回退 withConfirmNote 即红。
-  it('判否（omit）⇒ 决策带 confirmNote 且 reason 前置判词（落打底形态也不再隐形）', async () => {
+  it('判否（omit）⇒ 决策带 confirmNote 且 reason 前置判词（落默认目标形态也不再隐形）', async () => {
     const { ctx, dispatch } = makeCtx()
     const fixture = makeDeps()
     installRouter(ctx as never, new KimiRouter(gateConfig(), METAS, { info: () => {} }), {
@@ -415,7 +415,7 @@ describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1
     const last = fixture.decisions.at(-1)?.decision
     expect(last?.confirmNote).toBe('语义闸判否「引用语境」')
     expect(last?.reason).toContain('语义闸判否「引用语境」')
-    // 判否 ⇒ 规则出链 ⇒ 打底
+    // 判否 ⇒ 规则出链 ⇒ 默认目标
     expect(last?.kind === 'route' && last.via).toBe('default')
   })
 
@@ -438,9 +438,9 @@ describe('语义闸前置短路 × Q6 已知 provider 门控（Q6 评审中等#1
 })
 
 /**
- * v1.3.0 A7 定向修复的接线面：判官的**支持集**必须从运行期候选池取得。
+ * v1.3.0 A7 定向修复的接入面：判官的**支持集**必须从运行期候选池取得。
  *
- * 为什么这条接线值得单独钉：判官档位取自 `metas[].reasoningEfforts`，它在
+ * 为什么这条接入值得单独钉：判官档位取自 `metas[].reasoningEfforts`，它在
  * `index.ts` 的候选枚举里由 `resolveModelInfo` 填充。若这里传空/传错，判官要么
  * 退回「不钉档位」（实机取证：推理把 maxTokens 预算吃光 ⇒ 正文 0 字符 ⇒ 判词恒
  * 不可解析），要么钉一个目标不支持的档位（适配器抛 UNSUPPORTED_REASONING_EFFORT
@@ -628,7 +628,7 @@ describe('installRouter session image latch (regression: text turn after an imag
     const other = {}
     await dispatch.preStep({ agent: other, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: other, turn: 1, step: 1, signal: signal() }, baseConfig)
-    expect(config).toEqual(SAVING_DEFAULT) // 打底路由到预设默认（≠ baseConfig，判别力）
+    expect(config).toEqual(SAVING_DEFAULT) // 默认目标路由到预设默认（≠ baseConfig，判别力）
   })
 
   // I-1 钉桩（spec §5.1 新语义）：0.5.0 布尔锁存使「带图轮之后的文本轮」
@@ -1290,10 +1290,10 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
 })
 
 /**
- * B-1a（2026-09-20 缺陷修复）：打底不改道**委派子代理**的外部显式目标。
+ * B-1a（2026-09-20 缺陷修复）：默认目标不改道**委派子代理**的外部显式目标。
  *
  * 背景（缺陷记录 `docs/audit/2026-09-20-defect-explicit-model-pin-overridden-by-preset-default.md`）：
- * `decide()` 的「未命中 ≠ keep → 打底到预设默认」对每个 agent 都生效，而它只吃
+ * `decide()` 的「未命中 ≠ keep → 默认目标到预设默认」对每个 agent 都生效，而它只吃
  * 消息文本、**结构上看不到调用方已经点名了模型** ⇒ `workflow`/`subagent` 的
  * `agentOptions.provider/model`（或被点名的宿主会话模型）会被静默改写。实机两次
  * 对照探针：同一 pin `kimi-coding/k3`，中性文本落预设默认、带 `@kimi` 落 k3。
@@ -1302,7 +1302,7 @@ describe('createStreamVisionCaller（生产 VisionCaller，Ruling 2）', () => {
  * 那份目标是对**具体任务**的点名；主会话的模型选择则是预设**本来就要覆盖**的对象
  * （spec §5.1 未命中⇒预设默认，v0.5.0 以来的核心语义），故主会话行为一律不变。
  */
-describe('B-1a：打底让位于委派子代理的外部显式目标', () => {
+describe('B-1a：默认目标让位于委派子代理的外部显式目标', () => {
   /**
    * 子代理 fixture：宿主子会话 header 记 `origin`/`delegationDepth`。
    * 实机形（2026-09-20 探针会话 `e1e2d348-…` 第 0 帧）：
@@ -1320,22 +1320,22 @@ describe('B-1a：打底让位于委派子代理的外部显式目标', () => {
     return { dispatch, fixture, logs }
   }
 
-  it('子代理外部目标 ≠ 预设默认 ⇒ keep（不打底）＋决策注记＋日志留痕', async () => {
+  it('子代理外部目标 ≠ 预设默认 ⇒ keep（不落默认目标）＋决策注记＋日志留痕', async () => {
     const { dispatch, fixture, logs } = mount()
     await dispatch.preStep({ agent: childAgent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, EXTERNAL)
 
-    // 修复前：打底把 kimi-coding/k3 改写成 SAVING_DEFAULT——实机「钉 K3 不生效」即此。
+    // 修复前：默认目标把 kimi-coding/k3 改写成 SAVING_DEFAULT——实机「钉 K3 不生效」即此。
     expect(config).toEqual(EXTERNAL)
     const last = fixture.decisions.at(-1)?.decision
-    // 决策本身仍是打底（未命中≠keep 的语义没变），但带让位注记（面板可见）。
+    // 决策本身仍是默认目标（未命中≠keep 的语义没变），但带让位注记（面板可见）。
     expect(last?.kind === 'route' && last.via).toBe('default')
     expect(last?.confirmNote).toContain('kimi-coding/k3')
-    expect(last?.reason).toContain('打底让位')
-    expect(logs.some((line) => line.includes('打底让位') && line.includes('kimi-coding/k3'))).toBe(true)
+    expect(last?.reason).toContain('默认目标让位')
+    expect(logs.some((line) => line.includes('默认目标让位') && line.includes('kimi-coding/k3'))).toBe(true)
   })
 
-  it('根 agent 行为不变：未命中规则仍打底到预设默认', async () => {
+  it('根 agent 行为不变：未命中规则仍默认目标到预设默认', async () => {
     const { dispatch } = mount()
     await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     expect(await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)).toEqual(SAVING_DEFAULT)
@@ -1349,17 +1349,17 @@ describe('B-1a：打底让位于委派子代理的外部显式目标', () => {
     expect(fixture.decisions.at(-1)?.decision.confirmNote).toBeUndefined()
   })
 
-  it('v2.0.0（D6）：子代理默认不参与关键词规则——审查词落打底，外部显式目标被让位保留', async () => {
+  it('v2.0.0（D6）：子代理默认不参与关键词规则——审查词落默认目标，外部显式目标被让位保留', async () => {
     // 行为变更（设计稿 D6）：≤v1.4.1 本用例断言 review 规则命中改道 k3；v2.0.0 起
     // 关键词规则默认不作用于子代理（rulesApplyToChildren 缺失/false），审查词落
-    // 打底 ⇒ B-1a 让位给外部点名目标（与本 describe 主干语义合流）。
+    // 默认目标 ⇒ B-1a 让位给外部点名目标（与本 describe 主干语义合流）。
     const { dispatch } = mount()
     await dispatch.preStep({ agent: childAgent, messages: [textMessage('帮我审查这段')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: childAgent, turn: 1, step: 1, signal: signal() }, EXTERNAL)
     expect(config).toEqual(EXTERNAL)
   })
 
-  it('显式 rulesApplyToChildren: true ⇒ 旧行为恢复：规则命中照常改道子代理（让位只针对打底）', async () => {
+  it('显式 rulesApplyToChildren: true ⇒ 旧行为恢复：规则命中照常改道子代理（让位只针对默认目标）', async () => {
     const { ctx, dispatch } = makeCtx()
     installRouter(
       ctx as never,
@@ -1374,9 +1374,9 @@ describe('B-1a：打底让位于委派子代理的外部显式目标', () => {
 })
 
 /**
- * v2.0.0 团队派发闭包接线（Task 4）：via:'role' 分工表改道 + 主驱动恒定。
+ * v2.0.0 团队派发闭包接入（Task 4）：via:'role' 分工表改道 + 主驱动恒定。
  * 纯函数层（applyRoleDecision / applyDriverSticky / decide 第 5 参）在 router.test.ts
- * 覆盖；本组钉 pre-step 闭包的接线：teamLookup 注入、R2 字段判据、B-1a 与 role 的
+ * 覆盖；本组钉 pre-step 闭包的接入：teamLookup 注入、R2 字段判据、B-1a 与 role 的
  * 优先级关系、driverSticky 三变体的请求层落点。
  */
 describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => {
@@ -1405,9 +1405,9 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
       { role: 'teammate', name: 'frontend' },
     )
     await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
-    // 外部显式目标 ≠ 角色目标：via:role 非打底，B-1a 首行守卫直接 false，改道生效
+    // 外部显式目标 ≠ 角色目标：via:role 非默认目标，B-1a 首行守卫直接 false，改道生效
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
-    // Fails if: role 分支没接线（落打底被让位）或被让位吞掉（config 保持 EXTERNAL）
+    // Fails if: role 分支没接入（落默认目标被让位）或被让位吞掉（config 保持 EXTERNAL）
     expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
     const last = fixture.decisions.at(-1)?.decision
     expect(last?.kind === 'route' && last.via).toBe('role')
@@ -1426,7 +1426,7 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
     expect(config).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
   })
 
-  it('未认领队友与 teamLookup 缺席同形：role 不命中 → 落打底 → B-1a 让位外部目标', async () => {
+  it('未认领队友与 teamLookup 缺席同形：role 不命中 → 落默认目标 → B-1a 让位外部目标', async () => {
     for (const membership of [{ role: 'teammate', name: 'ghost' }, undefined]) {
       const { dispatch } = mountTeam(TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), membership)
       await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
@@ -1442,15 +1442,15 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
     const { dispatch } = mountTeam(legacyShape, { role: 'teammate', name: 'frontend' })
     await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
-    // Fails if: 实现用 config.version === 6 门控（分工表静默失效 → 落打底被让位）
+    // Fails if: 实现用 config.version === 6 门控（分工表静默失效 → 落默认目标被让位）
     expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
   })
 
-  it('主驱动恒定：主会话 + sticky + driver 非空 → 打底目标换成 driver', async () => {
+  it('主驱动恒定：主会话 + sticky + driver 非空 → 默认目标换成 driver', async () => {
     const { dispatch, fixture } = mountTeam(TEAM_CONFIG({ driverSticky: true, driver: { provider: 'kimi-coding', model: 'k3' } }))
     await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
-    // Fails if: sticky 没在闭包接线（落预设默认 deepseek-v4-flash）
+    // Fails if: sticky 没在闭包接入（落预设默认 deepseek-v4-flash）
     expect(config).toEqual({ provider: 'kimi-coding', model: 'k3' })
     expect(fixture.decisions.at(-1)?.decision.reason).toContain('（主驱动）')
   })
@@ -1463,29 +1463,29 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
     expect(config).toEqual(baseConfig)
   })
 
-  it('driverSticky: false（存量迁移形态）→ 打底 = 预设默认，与 v1.4.1 一致', async () => {
+  it('driverSticky: false（存量迁移形态）→ 默认目标 = 预设默认，与 v1.4.1 一致', async () => {
     const { dispatch } = mountTeam(TEAM_CONFIG({ driverSticky: false, driver: { provider: 'kimi-coding', model: 'k3' } }))
     await dispatch.preStep({ agent, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent, turn: 1, step: 1, signal: signal() }, baseConfig)
     expect(config).toEqual(SAVING_DEFAULT)
   })
 
-  it('子代理不受 driverSticky 影响（sticky 只作用于主会话打底）', async () => {
+  it('子代理不受 driverSticky 影响（sticky 只作用于主会话默认目标）', async () => {
     const { dispatch } = mountTeam(TEAM_CONFIG({ driverSticky: true, driver: { provider: 'kimi-coding', model: 'k3' } }))
     await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
-    // 子代理落打底 ⇒ B-1a 让位外部目标；driver 不得插手子代理路由
+    // 子代理落默认目标 ⇒ B-1a 让位外部目标；driver 不得插手子代理路由
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
     expect(config).toEqual(EXTERNAL)
   })
 })
 
 /**
- * v2.0.0 派发台账接线（Task 5，Task 4 评审 Minor④）：槽位 dispatch → onDispatch
+ * v2.0.0 派发台账接入（Task 5，Task 4 评审 Minor④）：槽位 dispatch → onDispatch
  * 记账回调的直接断言。子代理轮（delegationDepth > 0，pre-step 槽位带 dispatch
  * 元信息）请求层记一条；主会话轮槽位无 dispatch，不产生记账。台账本体
- * （DispatchLedger）单测在 dispatch-ledger.test.ts；面板聚合接线在 index-wiring.test.ts。
+ * （DispatchLedger）单测在 dispatch-ledger.test.ts；面板聚合接入在 index-wiring.test.ts。
  */
-describe('v2.0.0 派发台账接线：槽位 dispatch → onDispatch 记账', () => {
+describe('v2.0.0 派发台账接入：槽位 dispatch → onDispatch 记账', () => {
   const childWithParent = {
     id: 'child-1',
     session: { header: { origin: 'subagent', delegationDepth: 1, parentSession: 'lead-session' } },
@@ -1554,7 +1554,7 @@ describe('v2.0.0 派发台账接线：槽位 dispatch → onDispatch 记账', ()
 /**
  * §8-6 可用性护栏（R7 修复轮 1；R8 修复轮 2 补显式轮记账优先级）：role 目标
  * 不可用（不在候选池 / available:false）⇒ 不套用 role 决策——走既有决策路径
- * （子代理落打底，再由 B-1a 让位保持继承值，不静默换人），派发元信息记
+ * （子代理落默认目标，再由 B-1a 让位保持继承值，不静默换人），派发元信息记
  * basis='keep' 且带 roleLabel/teammate（面板据此逐字显示
  * 「「前端」目标不可用 → 保持继承（…）」）。队友显式 @ 轮例外：记 basis='explicit'
  * 不记 keep。目标可用 ⇒ 照常改道（回归保护）。
@@ -1584,7 +1584,7 @@ describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（�
     const { dispatch, fixture, entries } = mountGuard(METAS)
     await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
-    // Fails if: 可用性护栏误伤可用目标（不改道 ⇒ 落打底被让位，config 保持 EXTERNAL）
+    // Fails if: 可用性护栏误伤可用目标（不改道 ⇒ 落默认目标被让位，config 保持 EXTERNAL）
     expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
     expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('role')
     expect(entries[0]).toMatchObject({ basis: 'role', teammate: 'frontend', roleLabel: '前端' })
@@ -1598,7 +1598,7 @@ describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（�
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
     // Fails if: 无可用性检查 ⇒ 照常改道到池外目标 kimi-for-coding
     expect(config).toEqual(EXTERNAL)
-    // 决策落既有路径：打底（随后被 B-1a 让位，保持继承值）
+    // 决策落既有路径：默认目标（随后被 B-1a 让位，保持继承值）
     expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('default')
     // 派发元信息：keep ＋ 角色名（面板逐字显示「「前端」目标不可用 → 保持继承（kimi-coding/k3）」）
     expect(entries).toHaveLength(1)

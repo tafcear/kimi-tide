@@ -45,7 +45,7 @@ export class DispatchLedger {
   }
 
   /**
-   * 父会话销毁时清掉其名下全部条目（agent/disposed 接线用，入参 = 被销毁 agent 的 id）。
+   * 父会话销毁时清掉其名下全部条目（agent/disposed 挂接用，入参 = 被销毁 agent 的 id）。
    * 口径按 **parentSession** 而非 agentId：记账的 agentId 是子代理自身 id，而面板按
    * 父会话过滤——子代理「干完即销毁」若按 agentId 清，会把它刚写进父会话面板的行
    * 一并删掉（实机缺陷：派发区永远为空）。子代理销毁时其 id 不等于任何 parentSession

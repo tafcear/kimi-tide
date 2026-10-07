@@ -25,3 +25,7 @@ Every new version's GitHub Release body must be **bilingual** (a 简体中文 bl
 ### README pair — both languages, same commit
 
 `README.md` (Chinese, primary) and `README.en.md` (English) are one document in two languages: any user-visible change must land in both in the same commit. CI enforces the version line, section skeleton, badges, and local doc-link set through `scripts/check-readme-sync.mjs`. Rules and the human-judgement half: `docs/agents/readme-pair.md`.
+
+### Terminology & copy register — one concept, one word, product-grade tone
+
+**User-visible copy is product text, not agent narration.** One concept gets exactly one word, labels are noun phrases, explanations are declarative — no colloquialisms, anthropomorphism, or metaphors. The word table, the register rules, the rename procedure, and the list of history that must **not** be rewritten live in `docs/agents/terminology.md`; `scripts/check-terminology.mjs` (wired into `npm run check`) fails the build on a banned word in any scanned surface. Why it exists: a phrase improvised in a design doc once travelled "design → dispatch → review → test assertion → four doc surfaces" and shipped to users as protocol — **no link in that chain asked "does this read like product copy?"**. The other half (is it *good* copy?) is human: review tasks must quote the rewritten strings and check them against the register rules.

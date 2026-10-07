@@ -53,13 +53,13 @@ declare module '@deepseek-ai/dsh-client-ui-chat/client' {
  * 「让它重做」的宿主通道（v1.4.0 §3.1）：评审卡按钮 → `/kimi-tide revise` 命令 →
  * `deps.onManualRevise` 登记的编排实现 → `agent.steer`。与 dock 的
  * `tideDockBridge` 同款模块单例（槽渲染器由宿主传 props，本插件自己的取数/动作
- * 面走单例更省心，也便于测试替换）。`client/index.ts` 的 apply() 里接线；
- * 未接线（旧宿主/单测）时按钮呈禁用态，不假装能点。
+ * 面走单例更省心，也便于测试替换）。`client/index.ts` 的 apply() 里接入；
+ * 未接入（旧宿主/单测）时按钮呈禁用态，不假装能点。
  */
 export const reviewReviseBridge: {
   revise: (sessionId: string, line: string) => Promise<unknown>
 } = {
-  revise: () => Promise.reject(new Error('退回通道未接线（client 未 apply？）')),
+  revise: () => Promise.reject(new Error('退回通道未接入（client 未 apply？）')),
 }
 
 // ---- 宿主契约最小结构面（LocaleFace 先例：只取本文件用到的字段）----
@@ -258,7 +258,7 @@ export function ReviewCard(props: ReviewCardProps): JSX.Element {
             type="button"
             className="kt-review-revise"
             disabled={props.sessionId === undefined || busy}
-            title={props.sessionId === undefined ? '本会话身份不可用，退回通道未接线' : '按这次评审意见让主模型重做（计修订上限）'}
+            title={props.sessionId === undefined ? '本会话身份不可用，退回通道未接入' : '按这次评审意见让主模型重做（计修订上限）'}
             onClick={() => { void revise() }}
           >
             {busy ? '退回中…' : '让它重做'}

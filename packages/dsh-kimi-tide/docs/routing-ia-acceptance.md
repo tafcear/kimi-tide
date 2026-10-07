@@ -1,7 +1,7 @@
 # 路由信息架构统一实机验收 runbook（v2.1.0 发版门禁）
 
 > 对象：2.1.0「路由信息架构统一」——A 决策链一屏 / B 作用域与重叠解释 / C1 统一视图模型 /
-> C2 配置面 v7（`routes` 统一表）/ C2b 运行期投影接线。
+> C2 配置面 v7（`routes` 统一表）/ C2b 运行期投影接入。
 > 架构说明见 [`router.md`](./router.md)；设计稿 `docs/superpowers/specs/2026-10-07-routing-ia-unification-design.md` §8。
 > **逐条留证**：每条以**请求头解码**或**面板目视**为证据，结果回填 §4 表后作为发版依据。
 > 门禁语义：本清单全绿 ＋ 用户裁定 tag，二者齐备方可发版。
@@ -22,7 +22,7 @@
    ```
 
    输出含：A-1 摘要行应显示的原文、A-3 五档链（每档「已就绪 / 按需 / 未启用」三态）、
-   打底档、A-4 词表接线、B-2 重叠、派发面行。**退出码 0 = 配置校验通过**；
+   默认目标档、A-4 词表接入、B-2 重叠、派发面行。**退出码 0 = 配置校验通过**；
    非 0 会打印校验错误串（先修配置再验收）。`--json` 可出机器可读结果。
 
 3. **B-4 判据也是命令**（重启前后都能跑）——`routes`（真源）与镜像旧字段是否逐行一致，
@@ -61,10 +61,10 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 
 | # | 判据 | 方法 | 期望 |
 |---|---|---|---|
-| **A-1** | 摘要行与实配一致 | 打开设置 → 月汐 → 路由页，读顶部摘要 | 逐项吻合实配：主会话说打底模型、命中哪些组走哪个目标、派发角色与目标；与本机 `cordis.patch.yml` 无出入 |
-| **A-2** | 空状态说人话 | 激活 `capability` 预设（`rules: []`，但有 7 组词表） | 出现「未命中任何规则 ⇒ 全部走打底（\<目标\>）」＋「已备 N 组词表…现在都不生效」；且**实发一句话** → `request/header` = 打底模型（两处一致） |
-| **A-3** | 打底档三变体 | ① `driverSticky: true` + driver=flash ⇒ 非关键词轮 ② `driver=null` ③ 关键词轮 | ① 请求头 = driver ② 请求头 = 宿主默认 ③ **规则仍赢**（打底被规则覆盖）；链第 5 档「当前生效值」三态逐一对上 |
-| **A-4** | 词表接线徽标 | 关键词组区逐组看徽标 | `code/chitchat/review/writing/translate/longdoc/math` 中：被规则引用者标「被 N 条规则引用（列 id）」；`review` 标「被协作流认领」；其余标「⚠ 悬空」 |
+| **A-1** | 摘要行与实配一致 | 打开设置 → 月汐 → 路由页，读顶部摘要 | 逐项吻合实配：主会话的默认目标、命中哪些组改用哪个目标、派发角色与目标；与本机 `cordis.patch.yml` 无出入 |
+| **A-2** | 空状态说明 | 激活 `capability` 预设（`rules: []`，但有 7 组词表） | 出现「主会话没有可命中的规则，全部使用默认目标（\<目标\>）」＋「另有 N 组关键词组未接入任何规则，暂不生效」；且**实发一句话** → `request/header` = 默认目标（两处一致） |
+| **A-3** | 默认目标档三变体 | ① `driverSticky: true` + driver=flash ⇒ 非关键词轮 ② `driver=null` ③ 关键词轮 | ① 请求头 = driver ② 请求头 = 宿主默认 ③ **规则仍赢**（默认目标被规则覆盖）；链第 5 档「当前取值」三态逐一对上 |
+| **A-4** | 词表接入徽标 | 关键词组区逐组看徽标 | `code/chitchat/review/writing/translate/longdoc/math` 中：被规则引用者标「被 N 条规则引用（列 id）」；`review` 标「被协作流认领」；其余标「⚠ 未接入」 |
 | **A-5** | driver 消歧 | `driverSticky` 开/关各看一次预设「默认模型」行 | 开 ⇒ 标注「仅主驱动关闭时生效」；driver 与预设默认同值时出现同值提示 |
 
 ## 2. B 组 —— 作用域与协调
@@ -81,7 +81,7 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 
 | # | 判据 | 方法 | 期望 |
 |---|---|---|---|
-| **C-1** | 迁移等价 | 记录迁移前 4 个探针的 `request/header`（含一条关键词轮、一条带图轮、一条打底轮、一条派发给 `backend`） | 迁移后**逐条一致**（零行为变更） |
+| **C-1** | 迁移等价 | 记录迁移前 4 个探针的 `request/header`（含一条关键词轮、一条带图轮、一条默认目标轮、一条派发给 `backend`） | 迁移后**逐条一致**（零行为变更） |
 | **C-2** | 单表 | 看 `cordis.patch.yml` 的 `routes` 段 | session 行带 `preset`、dispatch 行无 `preset`；数组序与 UI 列表序一致；手改其一后 UI 立即反映（读投影生效） |
 | **C-3** | 冲突拦截 | 手改：让 `routes` 里某行目标与旧字段不一致 → 存盘 → 触发一次校验（重开设置页或重启） | 校验**报错拒绝**（不静默择一）；错误信息点明冲突位置 |
 | **C-4** | 回退安全 | 备份当前 `cordis.patch.yml`；手工删掉 `routes` 段 → 重启 | 路由行为回到旧字段口径，功能不崩（旧字段是镜像，语义等价） |
@@ -99,9 +99,9 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 | # | 结果 | 证据（命令输出 / 文件 / 会话 seq） | 备注 |
 |---|---|---|---|
 | A-1 | ✅ 文案已验（页面渲染待目检） | `routing-view-preview.mjs` 2026-10-07 `exit=0`，摘要原文见 §5 | 预检与本机配置同源 |
-| A-2 | ✅ 文案已验 | 同上一行：「未命中任何规则 ⇒ 全部走打底（…）；已备 6 组词表无规则引用，暂不生效」 | 实发一句话的 `request/header` 待用户 |
+| A-2 | ✅ 文案已验 | 同上一行：「主会话没有可命中的规则，全部使用默认目标（…）；另有 6 组关键词组未接入任何规则，暂不生效」 | 实发一句话的 `request/header` 待用户 |
 | A-3 | ✅ 五档三态已验 | 同上：第 1/2 档=按需、第 3 档=已就绪、第 4 档=未启用、第 5 档=已就绪 | `driverSticky` 三变体的请求头待用户 |
-| A-4 | ✅ 已验 | 同上：`code`=被引用（`code-glm`）、其余 6 组=⚠ 悬空 | 与预期完全一致 |
+| A-4 | ✅ 已验 | 同上：`code`=被引用（`code-glm`）、其余 6 组=⚠ 未接入 | 与预期完全一致 |
 | A-5 | ⏳ 待目检 | — | `driverSticky` 开关两侧文案 |
 | B-1 | ⏳ 待目检 | — | 渲染侧有 `SettingsCard.test.tsx` 断言兜底 |
 | B-2 | ✅（当前配置无重叠） | 预检【B-2 重叠】= 无 | 要目检得先造一条"词与角色身份词重叠且目标不同"的配置 |
@@ -134,25 +134,25 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 配置来源：profiles/desktop/cordis.patch.yml（条目 dsh-kimi-tide）
 版本：6 ｜ 激活预设：capability（能力）   校验：✓ 通过
 
-【A-1 摘要行】主会话：未命中任何规则 ⇒ 全部走打底（deepseek-official/deepseek-flash）；
-             已备 6 组词表无规则引用，暂不生效 ｜ 派发：前端→kimi-coding/k3、后端→zai-coding-cn/glm-5.3
+【A-1 摘要行】主会话没有可命中的规则，全部使用默认目标（deepseek-official/deepseek-flash）；
+             另有 6 组关键词组未接入任何规则，暂不生效 ｜ 派发：前端→kimi-coding/k3、后端→zai-coding-cn/glm-5.3
              ｜ 带图：锁存视觉模型
 
 【A-3 五档决策链】
   1. 显式 @指令    [按需]    按需：消息里写 @provider 或 @provider/model 时才参与裁决
-  2. 调用方点名    [按需]    按需：仅子代理；调用方点名的模型与打底不同时保持该模型不变
+  2. 调用方点名    [按需]    按需：仅子代理；调用方点名的模型与默认目标不同时保持该模型不变
   3. 分工表角色    [已就绪]  2 个角色参与派发改道
-  4. 关键词规则    [未启用]  预设「能力」无规则，未命中即走打底
-  5. 打底         [已就绪]  deepseek-official/deepseek-flash（主驱动恒定（deepseek-official/deepseek-flash））
+  4. 关键词规则    [未启用]  预设「能力」无规则，未命中即使用默认目标
+  5. 默认目标      [已就绪]  deepseek-official/deepseek-flash（主驱动恒定（deepseek-official/deepseek-flash））
 
-【A-4 词表接线】code 17 词 被引用（code-glm）｜ chitchat 6 悬空 ｜ review 9 悬空 ｜
-              writing 10 悬空 ｜ translate 6 悬空 ｜ longdoc 6 悬空 ｜ math 8 悬空
+【A-4 词表接入】code 17 词 被引用（code-glm）｜ chitchat 6 未接入 ｜ review 9 未接入 ｜
+              writing 10 未接入 ｜ translate 6 未接入 ｜ longdoc 6 未接入 ｜ math 8 未接入
 【B-2 重叠】无
 【派发面】session 行 0 条 ｜ dispatch 行 2 条：frontend → kimi-coding/k3 ；backend → zai-coding-cn/glm-5.3
 ```
 
 **两处易误判，先说明白**：
-- `code` 组显示「**被引用**」不算错——它被**省钱预设**的 `code-glm` 规则引用（词表接线是**跨全部预设**扫的），
-  所以"悬空"是 6 组而不是 7 组。
-- `review` 组显示「⚠ 悬空」也是对的——评审流的 `trigger` 是 `manual`，按 `claimedReviewGroups` 口径
+- `code` 组显示「**被引用**」不算错——它被**省钱预设**的 `code-glm` 规则引用（词表接入是**跨全部预设**扫的），
+  所以"未接入"是 6 组而不是 7 组。
+- `review` 组显示「⚠ 未接入」也是对的——评审流的 `trigger` 是 `manual`，按 `claimedReviewGroups` 口径
   **只有 `trigger: keywords` 才认领**该组。若把评审流触发方式改成"关键词组"，这行才会变成「被协作流认领」。

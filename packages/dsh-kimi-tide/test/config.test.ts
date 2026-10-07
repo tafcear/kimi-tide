@@ -19,7 +19,7 @@ describe('DEFAULT_CONFIG_V4', () => {
     expect(Object.keys(c.presets).sort()).toEqual(['capability', 'saving'])
     expect(Object.keys(c.keywordGroups).sort()).toEqual(['chitchat', 'code', 'longdoc', 'math', 'review', 'translate', 'writing'])
   })
-  it('省钱预设：flash 打底 + 带图→k3 + 代码→kimi-for-coding（0.8.0 追加 翻译→flash 见下方钉桩）', () => {
+  it('省钱预设：flash 默认目标 + 带图→k3 + 代码→kimi-for-coding（0.8.0 追加 翻译→flash 见下方钉桩）', () => {
     const p = DEFAULT_CONFIG_V4().presets.saving
     expect(p.name).toBe('省钱')
     expect(p.default).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
@@ -31,7 +31,7 @@ describe('DEFAULT_CONFIG_V4', () => {
     expect(p.rules[0].target).toEqual({ provider: 'kimi-coding', model: 'k3' })
     expect(p.rules[1].target).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
   })
-  it('0.8.0 内置预设接线：capability 序 image→review→code→math→longdoc→writing→translate→chitchat', () => {
+  it('0.8.0 内置预设接入：capability 序 image→review→code→math→longdoc→writing→translate→chitchat', () => {
     const p = DEFAULT_CONFIG_V4().presets.capability
     expect(p.rules.map((r) => r.id)).toEqual([
       'image-k3', 'review-k3', 'code-kfc', 'math-v4p', 'longdoc-k3', 'writing-v4p', 'translate-v4f', 'chitchat-flash',
@@ -44,7 +44,7 @@ describe('DEFAULT_CONFIG_V4', () => {
     expect(p.rules[5].target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
     expect(p.rules[6].target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
   })
-  it('0.8.0 内置预设接线：saving 只加 translate→flash（其余不动）', () => {
+  it('0.8.0 内置预设接入：saving 只加 translate→flash（其余不动）', () => {
     const p = DEFAULT_CONFIG_V4().presets.saving
     expect(p.rules.map((r) => r.id)).toEqual(['image-k3', 'code-kfc', 'translate-v4f'])
     expect(p.rules[2]).toEqual({

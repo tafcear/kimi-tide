@@ -2,7 +2,7 @@
 /**
  * kimi-tide 路由视图预检 —— 用**真实配置**算出「设置页应该显示什么」。
  *
- * 为什么需要它：2.1.0 的 A/B 项把设置页改成「五档决策链 + 人话摘要 + 接线徽标」，
+ * 为什么需要它：2.1.0 的 A/B 项把设置页改成「五档决策链 + 摘要说明 + 接入徽标」，
  * 这些内容全部来自纯函数 `buildRoutingView` / `describeRouting`。于是在实机验收
  * （需要重启宿主）之前，就能用同一份配置把预期结果算出来，做到：
  *   ① 预判 A-1/A-2/A-4 应该看到什么（验收时逐字对照）；
@@ -87,7 +87,7 @@ if (args.json) {
 
 const active = config.activePreset
 const preset = active === null ? null : config.presets?.[active]
-const wiringMark = { referenced: '被引用', 'claimed-by-flow': '被协作流认领', orphan: '⚠ 悬空' }
+const wiringMark = { referenced: '被引用', 'claimed-by-flow': '被协作流认领', orphan: '⚠ 未接入' }
 
 console.log(`配置来源：${configPath}（条目 ${entryId}）`)
 console.log(`版本：${config.version ?? '（未声明）'} ｜ 激活预设：${active ?? '（路由已关闭）'}${preset ? `（${preset.name ?? active}）` : ''}`)
@@ -103,10 +103,10 @@ for (const tier of view.precedence) {
   if (tier.detail !== undefined && tier.detail !== '') console.log(`     ${tier.detail}`)
 }
 console.log('')
-console.log('【打底档】')
-console.log(`  ${view.fallback.target === null ? '（无打底目标）' : `${view.fallback.target.provider}/${view.fallback.target.model}`} ｜ ${view.fallback.reason}`)
+console.log('【默认目标档】')
+console.log(`  ${view.fallback.target === null ? '（无默认目标）' : `${view.fallback.target.provider}/${view.fallback.target.model}`} ｜ ${view.fallback.reason}`)
 console.log('')
-console.log('【A-4 词表接线】')
+console.log('【A-4 词表接入】')
 for (const group of view.groups) {
   const by = group.referencedBy.length > 0 ? `（${group.referencedBy.join(', ')}）` : ''
   console.log(`  ${group.name}：${group.words} 词 ｜ ${wiringMark[group.wiring] ?? group.wiring}${by}`)

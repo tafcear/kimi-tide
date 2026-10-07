@@ -1,6 +1,6 @@
 // test/routes-runtime.test.ts
-// C2b 运行期接线（设计稿 2026-10-07 §6.4）：projectRoutesToLegacy 纯函数 +
-// 读边界（applyConfig / import / persist）接线的行为判据。
+// C2b 运行期接入（设计稿 2026-10-07 §6.4）：projectRoutesToLegacy 纯函数 +
+// 读边界（applyConfig / import / persist）接入的行为判据。
 // 核心验收：① 无 routes ⇒ 原引用返回、零行为变更；② routes ≡ 旧字段（迁移
 // 产物）⇒ 投影前后 matchingRules / previewRoute / buildRoutingView 逐字节相等；
 // ③ 只改 routes、旧字段陈旧 ⇒ 投影后运行期按 routes 走（本任务的关键新行为）。
@@ -115,7 +115,7 @@ describe('C2b：projectRoutesToLegacy 纯函数', () => {
     // 经 rowsFromConfig 读 routes，本行钉住投影后的最终形态）
     const view = buildRoutingView(projected)
     expect(previewDispatch(view, 'backend')?.target).toEqual(FLASH)
-    // 反证：吃旧字段的 matchingRules 仍是旧目标——钉住「接线前后的行为差」
+    // 反证：吃旧字段的 matchingRules 仍是旧目标——钉住「接入前后的行为差」
     expect(matchingRules(cfg, '帮我看看这段代码报错', false).find((r) => r.id === 'code-kfc')?.target).toEqual(K3)
   })
 
@@ -170,7 +170,7 @@ describe('C2b：读边界对畸形 routes 的防御（S1，2026-10-07 复核）'
   // 手改 cordis.patch.yml 的用户可能写出 routes: 后跟空项（YAML 解析为 null）等
   // 畸形行——写入期 validateRoutes 会拒，但读路径（attach / volatile-update /
   // persist 投影）不经过校验，必须不因畸形行崩溃。口径：非对象/非法 scope 的行
-  // **保守丢弃**并 warn（沿用「悬空 preset 行保守丢弃」的既有口径）。
+  // **保守丢弃**并 warn（沿用「无效 preset 行保守丢弃」的既有口径）。
   const valid = migrateV6(v6())
 
   it('routes 含 null 行 ⇒ 不抛、null 被丢弃、合法行照常投影，并 warn', () => {
@@ -214,7 +214,7 @@ describe('C2b：读边界对畸形 routes 的防御（S1，2026-10-07 复核）'
 })
 
 describe('C2b：projectRoutesToLegacy 纯函数（续）', () => {
-  it('无 session 行的 preset ⇒ rules 还原为空数组；悬空 preset 行被丢弃', () => {
+  it('无 session 行的 preset ⇒ rules 还原为空数组；无效 preset 行被丢弃', () => {
     const cfg = migrateV6(v6())
     cfg.routes = cfg.routes.filter((r) => r.preset !== 'spare')
     const projected = projectRoutesToLegacy(cfg)

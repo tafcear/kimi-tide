@@ -32,7 +32,7 @@ export interface RouterPreset {
   /** imageFallback 为 'transcribe-lazy' 时引用的 flows 键。 */
   imageFallbackFlow?: string
   /**
-   * 预设级语义命中确认闸（v1.3.0）：关键词命中时先让**本预设的打底模型**
+   * 预设级语义命中确认闸（v1.3.0）：关键词命中时先让**本预设的默认模型**
    * 判定真伪，判否则跳过该规则继续后续规则。缺省/`enabled !== true` = 关闭
    * （存量行为零突变）。
    *
@@ -132,7 +132,7 @@ export interface RouterConfigV6 {
   auxTargets?: Record<string, RouteTarget>
   /** 主驱动目标；null / 缺失 = 跟随宿主 agent-default-model（设计稿 D1）。 */
   driver?: RouteTarget | null
-  /** true 时主会话打底 = driver（新装默认 true；存量迁移显式 false）。 */
+  /** true 时主会话默认目标 = driver（新装默认 true；存量迁移显式 false）。 */
   driverSticky?: boolean
   /** 子代理是否参与关键词规则；缺失/false = 不参与（设计稿 D6，v2.0.0 行为变更）。 */
   rulesApplyToChildren?: boolean
@@ -202,7 +202,7 @@ export function DEFAULT_CONFIG_V7(): RouterConfigV7 {
  * S1 防御（2026-10-07 复核）：读路径不经过写入期 validateRoutes 校验，而本项目的
  * 用户正是手改 cordis.patch.yml 的人——YAML 里 `routes:` 后跟空项（解析为 null）
  * 等畸形行不得让读边界崩溃。口径：非对象 / scope 非法（∉ session|dispatch）的行
- * **保守丢弃**并 warn（沿用「悬空 preset 行保守丢弃」的既有口径）；干净数组仍
+ * **保守丢弃**并 warn（沿用「无效 preset 行保守丢弃」的既有口径）；干净数组仍
  * **原引用返回**（既有零开销路径不变）；routes 非数组（如误写成映射）⇒ 回落
  * 旧字段投影（字段判据的失败面不吞掉合法配置）。
  */
@@ -258,7 +258,7 @@ export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; 
 }
 
 /**
- * routes → 旧字段反投影（C2b 运行期接线，设计稿 §6.4）：routes 存在且非空时按其
+ * routes → 旧字段反投影（C2b 运行期接入，设计稿 §6.4）：routes 存在且非空时按其
  * 重建 `presets[*].rules`（session 行，按**在本数组中的相对顺序**落回所属 preset）
  * 与 `roles`（dispatch 行 → v6 RoleEntry），使只读旧字段的下游（matchingRules /
  * roleClaimSet / renderTeamSkill / 台账）不改一行即按 routes 走——routes 是唯一
@@ -273,7 +273,7 @@ export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; 
  *   「routes ≡ 旧字段」的迁移产物因此逐字节还原）；
  * - dispatch 行还原 id / label / target / teammate / aliases / note 逐字段等价，
  *   缺省字段**不落键**；label 缺省回落 id（RoleEntry.label 必填）；
- * - 悬空 preset 引用的 session 行保守丢弃（写入期 validateRoutes 已拒，读边界不抛错）；
+ * - 无效 preset 引用的 session 行保守丢弃（写入期 validateRoutes 已拒，读边界不抛错）；
  * - 畸形行（null / 非对象 / scope 非法——手改 YAML 的常见产物）同样保守丢弃并
  *   warn，读路径不因畸形行崩溃（S1，2026-10-07 复核；读边界不经过写入期校验）。
  */

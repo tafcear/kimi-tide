@@ -19,7 +19,7 @@ const text = (t: string): UserMessage =>
   ({ role: 'user', content: [{ type: 'text', text: t }] }) as unknown as UserMessage
 
 // 候选池须含断言涉及的规则目标（router.test.ts METAS 同款惯例）：
-// code-kfc → kimi-for-coding、image-k3/打底 → k3——缺 kimi-for-coding 时
+// code-kfc → kimi-for-coding、image-k3/默认目标 → k3——缺 kimi-for-coding 时
 // decide 按目标不可用降级到默认，测不到「他组规则照常」。
 const metas = (available = true) => [
   { provider: 'kimi-coding', model: 'k3', modalities: ['text', 'image'], available },
@@ -310,7 +310,7 @@ describe('/kimi-tide review 命令', () => {
     expect(seen).toEqual([agent])
     expect(result).toContain('评审已发起')
   })
-  it('apply：manualReview 缺省（宿主未接线/路由关闭）→ 未挂载文案回显', async () => {
+  it('apply：manualReview 缺省（宿主未挂载/路由关闭）→ 未挂载文案回显', async () => {
     const result = await applyKimiTideCommand({ kind: 'review' } as never, commandDeps(), NO_AGENT_YET)
     expect(result).toContain('评审流未挂载（路由关闭中）')
   })
@@ -330,7 +330,7 @@ describe('/kimi-tide revise 命令（v1.4.0 手动退回）', () => {
     expect(seen).toEqual([agent])
     expect(result).toContain('退回重做')
   })
-  it('apply：manualRevise 缺省（宿主未接线/路由关闭）→ 未挂载文案回显', async () => {
+  it('apply：manualRevise 缺省（宿主未挂载/路由关闭）→ 未挂载文案回显', async () => {
     const result = await applyKimiTideCommand({ kind: 'revise' } as never, commandDeps(), NO_AGENT_YET)
     expect(result).toContain('退回未挂载（路由关闭中）')
   })

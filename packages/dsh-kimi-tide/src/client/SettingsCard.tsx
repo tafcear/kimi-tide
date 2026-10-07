@@ -44,7 +44,7 @@
  * ⇒ 词表行与角色行两侧各挂解释条 + 「规则跟随该角色 / 词并入该角色别名」
  * 两个一键动作，走 storeWriter 既有写通道）；B4 测试场「派给谁」（previewDispatch 预判队友
  * 改道目标与依据 role/unclaimed，文案点明 D6 两套作用域）；B5 词表 → 角色
- * 接线（orphan 词表组批量生成角色，目标兜底同「填入三条示例」）。
+ * 接入（orphan 词表组批量生成角色，目标兜底同「填入三条示例」）。
  */
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
@@ -191,7 +191,7 @@ const omitKey = (obj: Record<string, string[]>, key: string): Record<string, str
 /**
  * A 项（2026-10-07 设计稿 §3/§4）：统一视图模型的防御性构建——§9.3 硬规则
  * 「render 路径抛错会把 slot 条目整块搞白」，buildRoutingView 任何异常都回落
- * null（决策链/摘要/接线徽标整组跳过，预设选择行与编辑控件不受影响）。
+ * null（决策链/摘要/接入徽标整组跳过，预设选择行与编辑控件不受影响）。
  */
 const safeBuildRoutingView = (config: RoutingConfigLike, availability: Record<string, boolean> | null): RoutingView | null => {
   try {
@@ -203,31 +203,31 @@ const safeBuildRoutingView = (config: RoutingConfigLike, availability: Record<st
 
 /**
  * A-② 决策链档位说明文案（实现锚点 = src/router.ts 优先级链）：档位序号/标题/
- * active/detail 由 view.precedence 单源给出，本表只补「什么时候轮到它 / 关掉它
- * 会怎样」两行静态说明——纯展示层文案，不参与任何决策。
+ * active/detail 由 view.precedence 单源给出，本表只补「触发条件 / 关闭后的
+ * 影响」两行静态说明——纯展示层文案，不参与任何决策。
  */
 const TIER_WHEN: Record<number, string> = {
-  1: '消息里显式写了 @provider 或 @provider/model',
+  1: '消息里写了 @provider 或 @provider/model 时',
   // 2026-10-07 复核修：只有子代理（delegationDepth > 0）才保留调用方目标，
   // 主会话点名会被预设覆盖（router.ts shouldKeepExternalTarget）——与同屏
   // 第 2 档 detail「按需：仅子代理」（routing-view.ts）同口径，不得再写「宿主」。
-  2: '调用方（子代理）点名了模型，且与打底不同',
-  3: '请求派给被分工表认领的队友',
-  4: '主会话消息命中激活预设的某条规则',
-  5: '以上各档都没接住',
+  2: '子代理调用方指定了模型，且与默认目标不同时',
+  3: '请求来自被分工表认领的队友时',
+  4: '主会话消息命中激活预设的某条规则时',
+  5: '以上各档都没接住时',
 }
 const TIER_OFF: Record<number, string> = {
-  1: '无开关——始终最先裁决',
-  2: '无开关——随调用方约定',
+  1: '无开关，始终最先判定',
+  2: '无开关，按调用方指定',
   // 2026-10-07 复核修：D6 起子代理默认不参与关键词规则，清空分工表后队友请求
-  // 只落到打底——「落到下一档（关键词规则/打底）」是旧口径，已按实修正。
-  3: '清空分工表 ⇒ 队友请求落到打底（子代理默认不参与关键词规则；仅开启「子代理参与关键词规则」时才可能被规则接管）',
-  4: '关闭路由或清空规则 ⇒ 主会话全部走打底',
-  5: '关闭路由 ⇒ 所有请求保持宿主当前模型',
+  // 只落到默认目标——「落到下一档（关键词规则/默认目标）」是旧口径，已按实修正。
+  3: '清空分工表后，队友请求落到默认目标（子代理默认不参与关键词规则；仅开启「子代理参与关键词规则」时才可能被规则接管）',
+  4: '关闭路由或清空规则后，主会话全部使用默认目标',
+  5: '无开关，它是最后一档',
 }
 
 /**
- * A-⑤ 词表接线徽标（§4.5）：三态文案 + 色调。流认领优先于规则引用（与
+ * A-⑤ 词表接入徽标（§4.5）：三态文案 + 色调。流认领优先于规则引用（与
  * buildRoutingView 的徽标单值口径一致）；视图缺该组数据 → null（行不渲染徽标）。
  */
 const wiringBadge = (group: GroupInfo | undefined): { text: string; tone: 'ok' | 'flow' | 'warn' } | null => {
@@ -236,7 +236,7 @@ const wiringBadge = (group: GroupInfo | undefined): { text: string; tone: 'ok' |
   if (group.wiring === 'referenced') {
     return { text: `被 ${group.referencedBy.length} 条规则引用（${group.referencedBy.join('、')}）`, tone: 'ok' }
   }
-  return { text: '⚠ 悬空', tone: 'warn' }
+  return { text: '⚠ 未接入', tone: 'warn' }
 }
 
 /** 目标下拉：只列可用（已挂载）模型；当前值未挂载时不作为 option 兜底，改灰字提示
@@ -340,12 +340,12 @@ function EffortSelect(props: {
   )
 }
 
-/** 关键词组行：组名 + 接线徽标（A-⑤，可选）+ 词表 textarea（失焦整段保存）+ 删除组。 */
+/** 关键词组行：组名 + 接入徽标（A-⑤，可选）+ 词表 textarea（失焦整段保存）+ 删除组。 */
 function KeywordGroupRow(props: {
   name: string
   words: string[]
   writable: boolean
-  /** A-⑤ 接线徽标（§4.5）：被 N 条规则引用 / 被协作流认领 / ⚠ 悬空；缺省不渲染。 */
+  /** A-⑤ 接入徽标（§4.5）：被 N 条规则引用 / 被协作流认领 / ⚠ 未接入；缺省不渲染。 */
   badge?: string
   badgeTone?: 'ok' | 'flow' | 'warn'
   onSave: (words: string[]) => void
@@ -513,7 +513,7 @@ function RoleRow(props: {
 function FlowRow(props: {
   id: string
   flow: CollaborationFlow
-  /** 预置流：可改不可删（防规则悬空）。 */
+  /** 预置流：可改不可删（防规则失去引用目标）。 */
   preset: boolean
   /** 仍被规则 target / imageFallbackFlow 引用：禁用删除按钮。 */
   referenced: boolean
@@ -822,7 +822,7 @@ export function SettingsCard(props: SettingsCardProps) {
   }, [])
 
   // A 项（2026-10-07 设计稿 §3/§4）：统一视图模型——顶部摘要、五档决策链、
-  // 词表接线徽标、打底档全部单源消费 buildRoutingView，不自己拼摘要文案。
+  // 词表接入徽标、默认目标档全部单源消费 buildRoutingView，不自己拼摘要文案。
   // 防御：构建异常回落 null（§9.3：render 抛错会把 slot 条目整块搞白）——
   // 链区/徽标/空状态整组跳过，预设选择行与编辑控件照常（见渲染处兜底分支）。
   const routingView = useMemo(
@@ -1034,7 +1034,7 @@ export function SettingsCard(props: SettingsCardProps) {
   }
 
   /**
-   * B5 词表 → 角色接线（§5.4）：把「已备但没有任何规则引用」的词表组
+   * B5 词表 → 角色接入（§5.4）：把「已备但没有任何规则引用」的词表组
    * （view.groups 中 wiring=orphan 的组）批量生成分工角色；目标先取当前预设
    * 默认模型（与「填入三条示例」同款兜底策略，roleFallbackTarget）。生成仍走
    * 既有写入期校验（saveRoles 守卫：认领名跨角色唯一，冲突拒写并上浮）。
@@ -1239,7 +1239,7 @@ export function SettingsCard(props: SettingsCardProps) {
                 void storeWriter.savePreset(activeId, { ...active, default: next })
               }}
             />
-            {/* A-⑥ driver 消歧（§4.6）：driverSticky 开启时主会话打底恒定取主驱动，
+            {/* A-⑥ driver 消歧（§4.6）：driverSticky 开启时主会话默认目标恒定取主驱动，
                 预设「默认模型」只在主驱动关闭（跟随宿主默认）时生效。 */}
             {driverSticky && <span className="kt-hint">仅主驱动关闭时生效</span>}
           </label>
@@ -1412,9 +1412,9 @@ export function SettingsCard(props: SettingsCardProps) {
               )
             })}
             </div>
-            {/* A-④ 空状态说人话（§4.4）：rules 为空时不再是一张空表——明示「全部走
-                打底（<打底目标>）」；有悬空词表（已备但无规则引用）时点名数量与后果。
-                打底目标与摘要同口径（view.fallback；视图缺席回落本预设默认模型）。 */}
+            {/* A-④ 空状态说明（§4.4）：rules 为空时不再是一张空表——明示「全部使用
+                默认目标（<目标>）」；有未接入词表（已备但无规则引用）时点名数量与后果。
+                默认目标与摘要同口径（view.fallback；视图缺席回落本预设默认模型）。 */}
             {active.rules.length === 0 && (() => {
               const orphans = (routingView?.groups ?? []).filter((group) => group.wiring === 'orphan').length
               const base = routingView === null
@@ -1422,8 +1422,8 @@ export function SettingsCard(props: SettingsCardProps) {
                 : routingView.fallback.target !== null ? configKey(routingView.fallback.target) : '宿主默认'
               return (
                 <div className="kt-rules-empty">
-                  <div>未命中任何规则 ⇒ 全部走打底（{base}）。</div>
-                  {orphans > 0 && <div>你已备 {orphans} 组词表，但没有任何规则引用它们 ⇒ 现在都不生效。</div>}
+                  <div>主会话没有可命中的规则，全部使用默认目标（{base}）。</div>
+                  {orphans > 0 && <div>另有 {orphans} 组关键词组未接入任何规则，暂不生效。</div>}
                 </div>
               )
             })()}
@@ -1475,7 +1475,7 @@ export function SettingsCard(props: SettingsCardProps) {
           )}
 
           {/* 语义命中确认闸（v1.3.0，仅 v5+；spec §8.1）：默认关闭。开启后关键词命中
-              先由**本预设的打底模型**确认意图真伪，判否跳过该规则、继续后续规则；
+              先由**本预设的默认模型**确认意图真伪，判否跳过该规则、继续后续规则；
               超时/目标不可用/解析失败一律按原关键词结果走（fail-open）。 */}
           {isV5Plus && (
             <div className="kt-card kt-hit-confirm">
@@ -1571,7 +1571,7 @@ export function SettingsCard(props: SettingsCardProps) {
           >
             填入三条示例
           </button>
-          {/* B5 词表 → 角色接线（§5.4）：orphan 词表组（无规则引用）批量生成分工角色。 */}
+          {/* B5 词表 → 角色接入（§5.4）：orphan 词表组（无规则引用）批量生成分工角色。 */}
           <button
             type="button"
             disabled={!writable || orphanGroups.length === 0}
@@ -1621,12 +1621,12 @@ export function SettingsCard(props: SettingsCardProps) {
         {savedFlash && <span className="kt-saved" role="status">已保存</span>}
       </div>
 
-      {/* 路由页容器（A 项重排 2026-10-07，设计稿 §4）：人话摘要 → 预设选择行 →
+      {/* 路由页容器（A 项重排 2026-10-07，设计稿 §4）：顶部摘要 → 预设选择行 →
           竖直决策链（第 3 档内联分工表 / 第 4 档内联预设编辑器）→ 预设操作 →
           关键词组 → 主驱动——信息架构从「四个并列控件」改为「一条决策链」。 */}
       <div className="kt-tabpanel kt-route" role="tabpanel" id={panelId('route')} aria-labelledby={tabId('route')} tabIndex={0} hidden={activeTab !== 'route'}>
 
-      {/* A-① 顶部人话摘要：describeRouting 单源输出（routingView.summary），一行，
+      {/* A-① 顶部摘要：describeRouting 单源输出（routingView.summary），一行，
           不自己拼文案（三处共用防漂移——设置页/技能描述/show 命令）。 */}
       {routingView !== null && <p className="kt-route-summary">{routingView.summary}</p>}
 
@@ -1662,9 +1662,9 @@ export function SettingsCard(props: SettingsCardProps) {
       </div>
 
       {/* A-② 竖直决策链（§4.2）：五档直渲 view.precedence（序号/标题/active/detail
-          单源），顺序 = 显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 打底。
+          单源），顺序 = 显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 默认目标。
           第 3 档内联分工表、第 4 档内联当前预设编辑器——两表改为链上档位容器，
-          不再并列。每档三行式：什么时候轮到它 / 当前生效值 / 关掉它会怎样。
+          不再并列。每档三行式：触发条件 / 当前取值 / 关闭后的影响。
           未激活档位只靠语义分层（透明度 + 状态字），§9.2 禁第二道边框/阴影。 */}
       {routingView !== null ? (
         <ol className="kt-chain">
@@ -1679,10 +1679,10 @@ export function SettingsCard(props: SettingsCardProps) {
                 {tier.state === 'off' && <span className="kt-tier-state">未启用</span>}
                 {tier.state === 'on-demand' && <span className="kt-tier-state">按需</span>}
               </div>
-              <p className="kt-tier-line"><span className="kt-tier-tag">什么时候轮到它</span>{TIER_WHEN[tier.tier] ?? '—'}</p>
+              <p className="kt-tier-line"><span className="kt-tier-tag">触发条件</span>{TIER_WHEN[tier.tier] ?? '—'}</p>
               <p className="kt-tier-line">
-                <span className="kt-tier-tag">当前生效值</span>
-                {/* A-③ 打底档显式渲染 view.fallback（来源 + reason；activePreset=null
+                <span className="kt-tier-tag">当前取值</span>
+                {/* A-③ 默认目标档显式渲染 view.fallback（来源 + reason；activePreset=null
                     ⇒「路由已关闭」），其余档位渲染视图模型给出的 detail。 */}
                 {tier.tier === 5
                   ? routingView.fallback.target !== null
@@ -1690,7 +1690,7 @@ export function SettingsCard(props: SettingsCardProps) {
                     : routingView.fallback.reason
                   : tier.detail !== '' ? tier.detail : '—'}
               </p>
-              <p className="kt-tier-line"><span className="kt-tier-tag">关掉它会怎样</span>{TIER_OFF[tier.tier] ?? '—'}</p>
+              <p className="kt-tier-line"><span className="kt-tier-tag">关闭后的影响</span>{TIER_OFF[tier.tier] ?? '—'}</p>
               {tier.tier === 3 && rolesBlock}
               {tier.tier === 4 && editorBlock}
             </li>
@@ -1739,8 +1739,8 @@ export function SettingsCard(props: SettingsCardProps) {
         )}
       </div>
 
-      {/* 关键词组管理区：组列表（A-⑤ 每行带接线徽标：被 N 条规则引用 / 被协作流
-          认领 / ⚠ 悬空）+ 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
+      {/* 关键词组管理区：组列表（A-⑤ 每行带接入徽标：被 N 条规则引用 / 被协作流
+          认领 / ⚠ 未接入）+ 每组词表编辑（逗号/换行分隔）+ 新建/删除组。 */}
       <details className="kt-groups kt-card">
         <summary>关键词组</summary>
         {groupNames.map((name) => {
@@ -1787,10 +1787,10 @@ export function SettingsCard(props: SettingsCardProps) {
       <details className="kt-driver kt-card" data-kt-section="driver">
         <summary>主驱动（团队派发）</summary>
         <p className="kt-hint">
-          主驱动目标 = 主会话打底的常驻模型；选「跟随宿主默认」= 不锁定（driver = null）。
+          主驱动目标 = 主会话默认目标的常驻来源；选「跟随宿主默认」= 不锁定（driver = null）。
         </p>
         {/* ③ driver 消歧（§4.6，2026-10-07 复核修）：driverSticky 关闭时主驱动目标
-            暂不生效（主会话打底跟随预设默认模型）——行置灰走透明度 + 状态字分层
+            暂不生效（主会话默认目标跟随预设默认模型）——行置灰走透明度 + 状态字分层
             （§9.2 禁边框/阴影分组），并明示未启用原因；开关行保持原样——它是启用
             入口，不能灰。 */}
         <div className={driverSticky ? 'kt-driver-row' : 'kt-driver-row kt-driver-off'}>
@@ -1809,7 +1809,7 @@ export function SettingsCard(props: SettingsCardProps) {
         </div>
         {!driverSticky && (
           <span className="kt-hint">
-            未启用：「主驱动恒定」已关闭，主会话打底跟随预设默认模型——此目标暂不生效，开启主驱动恒定后才接管打底
+            未启用：「主驱动恒定」已关闭，主会话默认目标跟随预设默认模型——此目标暂不生效，开启主驱动恒定后才接管默认目标
           </span>
         )}
         <label className="kt-row">
@@ -1821,7 +1821,7 @@ export function SettingsCard(props: SettingsCardProps) {
             disabled={!writable}
             onChange={(e) => void storeWriter.saveDriverSticky(e.target.checked)}
           />
-          <span className="kt-hint">开启后主会话打底恒定用主驱动目标（目标是「跟随宿主默认」时不改道）</span>
+          <span className="kt-hint">开启后主会话默认目标恒定用主驱动目标（目标是「跟随宿主默认」时不改道）</span>
         </label>
         <label className="kt-row">
           <span className="kt-field-label">子代理参与关键词规则</span>

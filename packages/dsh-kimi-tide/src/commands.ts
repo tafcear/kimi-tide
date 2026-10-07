@@ -55,10 +55,10 @@ export type KimiTideCommand =
   | { kind: 'help' }
   | { kind: 'error'; message: string }
 
-/** 手动评审未接线/路由关闭时的命令回显文案（index.ts 兜底共用，单源防漂移）。 */
+/** 手动评审未挂载/路由关闭时的命令回显文案（index.ts 兜底共用，单源防漂移）。 */
 export const REVIEW_UNMOUNTED_MESSAGE = '评审流未挂载（路由关闭中）'
 
-/** 手动退回未接线/路由关闭时的命令回显文案（v1.4.0，同款单源）。 */
+/** 手动退回未挂载/路由关闭时的命令回显文案（v1.4.0，同款单源）。 */
 export const REVISE_UNMOUNTED_MESSAGE = '退回未挂载（路由关闭中）'
 
 /** Settings namespace port: primary read/write channel for the router config. */
@@ -95,7 +95,7 @@ export interface KimiTideCommandDeps {
   claimedGroups?: Set<string>
   /**
    * 1.2.0 面板取数（dock 拉模型，spec：会话事件解耦）。返回该 agent 的实时面板
-   * 快照；undefined agent（调用处漏传）或未接线时返回 null——命令层据此报错，
+   * 快照；undefined agent（调用处漏传）或未挂载时返回 null——命令层据此报错，
    * 绝不返回一份无主数据冒充某会话的面板。
    */
   panel?: (agent: Agent | undefined) => unknown | null
@@ -175,10 +175,10 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       return 'kimi-tide: quota refreshed'
     case 'panel': {
       // 1.2.0 面板取数：dock 经 remote.commands.execute 拉本会话快照。
-      // 无 agent（调用处漏传）或未接线 → 明确报错，让 dock 走降级态而不是把
+      // 无 agent（调用处漏传）或未挂载 → 明确报错，让 dock 走降级态而不是把
       // 一份无主面板渲染成某个会话的真实状态。
       if (deps.panel === undefined || agent === undefined) {
-        throw new Error('面板取数通道不可用（panel 未接线或调用缺 agent）')
+        throw new Error('面板取数通道不可用（panel 未挂载或调用缺 agent）')
       }
       const snapshot = deps.panel(agent)
       if (snapshot === null || snapshot === undefined) {
@@ -192,7 +192,7 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
       // 1.1.0 §8：手动评审（spec §8）——armed 语义外唯一入口；命令幂等（连发两次
       // 各评审一次，用户显式行为不去重，runner 侧无缓存即返回「无可评审的上一轮」）。
       // agent 缺失只可能出现在漏传 agent 的调用处（dsh-commands handler 恒传
-      // invocation.agent）；与 manualReview 未接线同语义降级为未挂载文案。
+      // invocation.agent）；与 manualReview 未挂载同语义降级为未挂载文案。
       const r = deps.manualReview === undefined || agent === undefined
         ? { ok: false, message: REVIEW_UNMOUNTED_MESSAGE }
         : await deps.manualReview(agent)
@@ -200,7 +200,7 @@ export async function applyKimiTideCommand(cmd: KimiTideCommand, deps: KimiTideC
     }
     case 'revise': {
       // v1.4.0 §3.1：手动退回（评审卡按钮与打字命令共用同一入口）。与 review
-      // 同款降级：命令层未接线/无 agent/路由关闭 → 单源文案，不静默成功。
+      // 同款降级：命令层未挂载/无 agent/路由关闭 → 单源文案，不静默成功。
       const r = deps.manualRevise === undefined || agent === undefined
         ? { ok: false, message: REVISE_UNMOUNTED_MESSAGE }
         : await deps.manualRevise(agent)
@@ -455,7 +455,7 @@ export function registerKimiTideCommands(ctx: Context, deps: KimiTideCommandDeps
           const text = await applyKimiTideCommand(cmd, deps, invocation.agent)
           return cmd.kind === 'error' ? { kind: 'error', text } : { kind: 'success', text }
         } catch (error) {
-          // panel 分支以抛错表达「取数不可用」（缺 agent / 未接线 / 快照空）——
+          // panel 分支以抛错表达「取数不可用」（缺 agent / 未挂载 / 快照空）——
           // 收敛成 error 结果回给调用方（dock 据此走降级），不让异常穿透命令运行时。
           return { kind: 'error', text: `kimi-tide: ${(error as Error).message}` }
         }

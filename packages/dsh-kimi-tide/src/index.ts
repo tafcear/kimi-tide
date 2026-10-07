@@ -140,15 +140,15 @@ export function defaultSidecarFile(): string {
 /**
  * Summarize one routing decision for the panel (spec §2.7). Returns null for
  * anything that must NOT surface: keep decisions, no-decision states, and
- * default-preset (miss → 打底) routes. Route decisions carry the reason
- * truncated to 120 characters. Flow decisions (0.6.0, Task 9 接线) surface
+ * default-preset (miss → default target) routes. Route decisions carry the reason
+ * truncated to 120 characters. Flow decisions (0.6.0, Task 9 接入) surface
  * with `flow:{flowId}` semantics — chosen = { provider: 'flow', model: flowId }.
  * Pure — no agent/ctx access.
  *
- * v1.3.0 例外（可观测性补链）：带**语义闸注解**（`confirmNote`）的打底决策要上报。
- * 判否 ⇒ 被否规则过滤出路由链 ⇒ 最终必然落打底，若沿用「打底不上报」，那么
+ * v1.3.0 例外（可观测性补链）：带**语义闸注解**（`confirmNote`）的默认目标决策要上报。
+ * 判否 ⇒ 被否规则过滤出路由链 ⇒ 最终必然落默认目标，若沿用「默认目标不上报」，那么
  * 「判否」这个最需要被看见的结果反而完全不可见——A7 实机失效正是被这一点掩盖的。
- * 无注解的打底仍不上报（既有语义逐字节不变）。
+ * 无注解的默认目标仍不上报（既有语义逐字节不变）。
  */
 export function buildDecisionSummary(decision: RouteDecision): DecisionSummary | null {
   if (decision.kind === 'flow') {
@@ -694,7 +694,7 @@ export function apply(ctx: Context, config: Config = {}) {
   const rolesOf = (router: RouterConfigAny): Record<string, RoleEntry> =>
     (router as { roles?: Record<string, RoleEntry> }).roles ?? {}
 
-  // 0.6.0 协作编排（Task 9 最小接线）：按图状态表 + 转述器随 apply 生命周期
+  // 0.6.0 协作编排（Task 9 最小接入）：按图状态表 + 转述器随 apply 生命周期
   // 创建一次——配置变更/候选枚举重挂路由器时，转述缓存与图像状态不丢。生产
   // VisionCaller = ctx.llm.stream 直调；0.8.0（D3/M6）：visionModel.effort 经
   // metas 支持集判定后显式下发，不支持/未配置不携带（Ruling 2 默认语义保持）。
@@ -1129,7 +1129,7 @@ export function apply(ctx: Context, config: Config = {}) {
     onError: warn,
   })
   if (port !== null) {
-    // 1) 首个生效值：存量残留（v1/v4 词汇）走 coerce 链，否则直接用快照。
+    // 1) 首个解析值：存量残留（v1/v4 词汇）走 coerce 链，否则直接用快照。
     //    声明面用 RouterConfigAny（as 加宽防赋值窄化回 v5）：迁移后升为 v6。
     let applied: RouterConfigAny = readRouterConfig(config) as RouterConfigAny
     // 2) v6 一次性迁移：存量条目若还是 v1/v4 词汇则搬到 v6 并落盘；写失败只降级

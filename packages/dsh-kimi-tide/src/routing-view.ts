@@ -1,7 +1,7 @@
 // src/routing-view.ts
 /**
  * C1 统一视图模型（设计稿 2026-10-07 §3）：把「关键词规则（session 作用域）」
- * 与「分工表（dispatch 作用域）」投影成同一张路由表，附人话摘要、词表接线、
+ * 与「分工表（dispatch 作用域）」投影成同一张路由表，附摘要说明、词表接入状态、
  * 重叠解释与决策链数据——A（决策链一屏）/ B（作用域标签 + 派发预览）的公共
  * 基础设施。
  *
@@ -27,7 +27,7 @@ export type RoutingConfigLike = RouterConfigAny | RouterConfigV7
 /** 行作用域：session = 主会话关键词/带图规则；dispatch = 分工表角色改道。 */
 export type RouteScope = 'session' | 'dispatch'
 
-/** 词表接线状态：被规则引用 / 被协作流认领（规则被静态抑制）/ 悬空。 */
+/** 词表接入状态：被规则引用 / 被协作流认领（规则被静态抑制）/ 未接入。 */
 export type WiringState = 'referenced' | 'claimed-by-flow' | 'orphan'
 
 /**
@@ -56,7 +56,7 @@ export interface RoutingRow {
   unavailable: boolean
 }
 
-/** 词表接线徽标数据（§4.5）。 */
+/** 词表接入徽标数据（§4.5）。 */
 export interface GroupInfo {
   name: string
   words: number
@@ -101,7 +101,7 @@ export interface PrecedenceTier {
 }
 
 /**
- * 打底行（§4.3 打底可见）。target 为 null 表示「无打底目标可展示」：
+ * 默认目标行（§4.3 默认目标可见）。target 为 null 表示「无默认目标可展示」：
  * 路由关闭（activePreset=null）/ 激活预设缺失 / driverSticky 且 driver=null
  * （主驱动跟随宿主默认）——与 decide 的 keep 分支同款形态。
  */
@@ -119,7 +119,7 @@ export interface RoutingView {
   dispatch: RoutingRow[]
   groups: GroupInfo[]
   overlaps: OverlapInfo[]
-  /** 人话摘要（= describeRouting 的单源产物）。 */
+  /** 摘要说明（= describeRouting 的单源产物）。 */
   summary: string
   precedence: PrecedenceTier[]
 }
@@ -203,7 +203,7 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
       unavailable: unavailableTarget(row.target),
     }))
 
-  /* ---- 词表接线：跨全部 session 行扫规则引用（= v6 跨全部预设扫规则）；
+  /* ---- 词表接入：跨全部 session 行扫规则引用（= v6 跨全部预设扫规则）；
      流认领优先于规则引用（徽标单值）。 ---- */
   const referencedBy = new Map<string, string[]>()
   for (const row of sessionSource) {
@@ -246,7 +246,7 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
     }
   }
 
-  /* ---- 打底（§4.3）：driverSticky ? driver : 预设默认；关闭/缺失 ⇒ null + 原因。 ---- */
+  /* ---- 默认目标（§4.3）：driverSticky ? driver : 预设默认；关闭/缺失 ⇒ null + 原因。 ---- */
   let fallback: FallbackInfo
   if (config.activePreset === null) fallback = { target: null, reason: '路由已关闭' }
   else if (preset === undefined) fallback = { target: null, reason: '激活预设不存在' }
@@ -269,7 +269,7 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
   const tier5: TierState = preset !== undefined ? 'ready' : 'off'
   const precedence: PrecedenceTier[] = [
     { tier: 1, title: '显式 @指令', state: 'on-demand', active: false, detail: '按需：消息里写 @provider 或 @provider/model 时才参与裁决' },
-    { tier: 2, title: '调用方点名', state: 'on-demand', active: false, detail: '按需：仅子代理；调用方点名的模型与打底不同时保持该模型不变' },
+    { tier: 2, title: '调用方点名', state: 'on-demand', active: false, detail: '按需：仅子代理；调用方点名的模型与默认目标不同时保持该模型不变' },
     {
       tier: 3,
       title: '分工表角色',
@@ -284,11 +284,11 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
       title: '关键词规则',
       state: tier4,
       active: tier4 === 'ready',
-      detail: preset === undefined ? '路由未激活' : session.length > 0 ? `预设「${preset.name}」共 ${session.length} 条规则（仅主会话参与）` : `预设「${preset.name}」无规则，未命中即走打底`,
+      detail: preset === undefined ? '路由未激活' : session.length > 0 ? `预设「${preset.name}」共 ${session.length} 条规则（仅主会话参与）` : `预设「${preset.name}」无规则，未命中即使用默认目标`,
     },
     {
       tier: 5,
-      title: '打底',
+      title: '默认目标',
       state: tier5,
       active: tier5 === 'ready',
       detail: fallback.target === null ? fallback.reason : `${configKey(fallback.target)}（${fallback.reason}）`,
@@ -299,14 +299,14 @@ export function buildRoutingView(config: RoutingConfigLike, deps: ViewDeps = {})
   return { fallback, session, dispatch, groups, overlaps, summary, precedence }
 }
 
-/** 行条件的人话标签（摘要用；image → 带图，keywords → 组名，role → 显示名）。 */
+/** 行条件的显示标签（摘要用；image → 带图，keywords → 组名，role → 显示名）。 */
 function conditionLabel(condition: RoutingRowCondition): string {
   if (condition.kind === 'image') return '带图'
   if (condition.kind === 'keywords') return condition.group
   return condition.label
 }
 
-/** 行目标的人话键（摘要用；模型 → provider/model，流引用 → 协作流 flow）。 */
+/** 行目标的显示键（摘要用；模型 → provider/model，流引用 → 协作流 flow）。 */
 function targetLabel(target: RuleTarget): string {
   return isFlowTarget(target) ? `协作流 ${target.flow}` : configKey(target)
 }
@@ -323,7 +323,7 @@ export const IMAGE_FALLBACK_SHORT: Record<ImageFallback, string> = {
   'transcribe-lazy': '懒转述',
 }
 
-/** 摘要组装（describeRouting 的单一实现，纯中文人话、不含内部字段名）。 */
+/** 摘要组装（describeRouting 的单一实现，纯中文、不含内部字段名）。 */
 function summarize(parts: {
   config: RoutingConfigLike
   preset: RouterPreset | undefined
@@ -339,24 +339,24 @@ function summarize(parts: {
   const orphan = groups.filter((g) => g.wiring === 'orphan').length
   const chunks: string[] = []
   if (session.length === 0) {
-    // 空状态说人话（§4.4，实机 capability rules:[] 形态）。
-    chunks.push(`主会话：未命中任何规则 ⇒ 全部走打底（${base}）${orphan > 0 ? `；已备 ${orphan} 组词表无规则引用，暂不生效` : ''}`)
+    // 空状态说明（§4.4，实机 capability rules:[] 形态）。
+    chunks.push(`主会话没有可命中的规则，全部使用默认目标（${base}）${orphan > 0 ? `；另有 ${orphan} 组关键词组未接入任何规则，暂不生效` : ''}`)
   } else {
     const effective = session.filter((r) => r.wiring !== 'claimed-by-flow')
     const listed = (effective.length > 0 ? effective : session).slice(0, 3)
-      .map((r) => `命中「${conditionLabel(r.condition)}」走 ${targetLabel(r.target)}`)
-    chunks.push(`主会话：${base} 打底 → ${listed.join('、')}`)
+      .map((r) => `命中「${conditionLabel(r.condition)}」时改用 ${targetLabel(r.target)}`)
+    chunks.push(`主会话以 ${base} 为默认目标，${listed.join('、')}`)
   }
   if (dispatch.length > 0) {
     chunks.push(`派发：${dispatch.map((r) => `${conditionLabel(r.condition)}→${targetLabel(r.target)}`).join('、')}`)
   }
-  // §4.1 第三段：带图兜底同样是"谁来决定"的一部分（缺省 latch，与卡片下拉缺省一致）。
+  // §4.1 第三段：带图一项同样是"谁来决定"的一部分（缺省 latch，与卡片下拉缺省一致）。
   chunks.push(`带图：${IMAGE_FALLBACK_SHORT[preset.imageFallback ?? 'latch']}`)
   return chunks.join(' ｜ ')
 }
 
 /**
- * 路由人话摘要（**单源**）：= buildRoutingView(...).summary。设置页顶部摘要 /
+ * 路由摘要说明（**单源**）：= buildRoutingView(...).summary。设置页顶部摘要 /
  * renderTeamSkill 的 description / `/kimi-tide show` 三处共用，不得各自拼文案。
  */
 export function describeRouting(config: RoutingConfigLike, deps: ViewDeps = {}): string {

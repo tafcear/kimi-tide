@@ -204,7 +204,7 @@ export interface CardStore {
    * （如目标不完整）经 saveTop 的「意图值 vs 实读值」比对上浮 error 通道。
    */
   saveDriver(driver: RouteTarget | null): Promise<void>
-  /** 主驱动恒定开关（v6 顶层 driverSticky）：true = 主会话打底恒用 driver。 */
+  /** 主驱动恒定开关（v6 顶层 driverSticky）：true = 主会话默认目标恒用 driver。 */
   saveDriverSticky(sticky: boolean): Promise<void>
   /** 子代理参与关键词规则开关（v6 顶层 rulesApplyToChildren）：缺省/false = 不参与（v2.0.0 新语义）。 */
   saveRulesApplyToChildren(apply: boolean): Promise<void>
@@ -503,7 +503,7 @@ export function createCardStore(
     field: 'presets' | 'roles',
     value: Record<string, RouterPreset> | Record<string, RoleEntry>,
   ): Promise<void> => {
-    // 另一半取当前生效值（读边界已投影：routes 存在时 = routes 反投影结果，
+    // 另一半取解析后的当前值（读边界已投影：routes 存在时 = routes 反投影结果，
     // 重推行集不丢 routes 独有的内容）。
     const presets = (field === 'presets' ? value : snapshot.config?.presets ?? {}) as Record<string, RouterPreset>
     const roles = (field === 'roles' ? value : (snapshot.config as { roles?: Record<string, RoleEntry> } | null)?.roles ?? {}) as Record<string, RoleEntry>
@@ -588,7 +588,7 @@ export function createCardStore(
   /**
    * 删流守卫（2026-08-21 避坑：宿主 validate-on-write，每条写后中间态必须
    * 合法——被引用的流删掉会产生「规则/兜底指向不存在流」的非法中间态）。
-   * 预置流恒不可删（防规则悬空）；引用检查覆盖规则 target 与
+   * 预置流恒不可删（防规则失去引用目标）；引用检查覆盖规则 target 与
    * imageFallbackFlow 显式引用。拒绝一律走 error 通道，不写盘。
    */
   const deleteFlow = async (id: string): Promise<void> => {
@@ -598,7 +598,7 @@ export function createCardStore(
       return
     }
     if (Object.hasOwn(DEFAULT_FLOWS(), id)) {
-      fail(new Error(`协作流 '${id}' 是预置流，不可删除（防规则悬空）`))
+      fail(new Error(`协作流 '${id}' 是预置流，不可删除（防规则失去引用目标）`))
       return
     }
     if (!Object.hasOwn(config.flows, id)) {

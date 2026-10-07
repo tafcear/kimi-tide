@@ -54,10 +54,10 @@
 When a message arrives, kimi-tide decides in this order (**five tiers**, aligned tier by tier with the decision chain in the settings page):
 
 1. **Explicit pick**: the message says `@kimi` (provider level: the model you configured in the preset) or `@kimi/k3` (pins that exact model) → highest priority.
-2. **The caller's pick**: a subagent's caller already named a model (different from the baseline) → it is kept, not overridden.
+2. **The caller's pick**: a subagent's caller already named a model (different from the default target) → it is kept, not overridden.
 3. **Roster role (teammates only)**: the request comes from a teammate claimed by the roster → rerouted to that role's target model (see "Team dispatch" below).
 4. **Keyword rules (main session only)**: score the preset's rules — has an image? how many keyword-group words matched? → rules are sorted by **specificity** (more matched words first, image always first, ties keep list order) and the **first rule with an available target** wins (unavailable targets fall through to the next rule). Child agents skip keyword rules by default (switchable in Settings).
-5. **Baseline**: nothing fires → the main session uses the "pinned baseline" target (or the preset default when that is off); a child agent keeps the model it inherited.
+5. **Default target**: nothing fires → the main session uses the "pinned driver" target (or the preset default when that is off); a child agent keeps the model it inherited.
 6. **Image guard**: even if a text-only model was picked, an image-bearing message is rerouted to a model that can see — no crashes.
 
 ```mermaid
@@ -68,7 +68,7 @@ flowchart LR
     R -- "yes (teammate)" --> S["🧑🔧 Roster role<br>reroute to that role's target"]
     R -- no --> C["📏 Preset rule chain (main session)<br>image / keyword groups<br>sorted by specificity · first available wins"]
     C -- hit --> D["🌙 Rule target: model | flow<br>(skipped if unavailable)"]
-    C -- miss --> E["💰 Baseline: pinned driver / preset default"]
+    C -- miss --> E["💰 Default target: pinned driver / preset default"]
     H --> J
     S --> J
     D -- "target = flow" --> T["🌊 Transcribe flow<br>vision model turns images into text"]
@@ -87,8 +87,8 @@ flowchart LR
 
 Open "Settings → 月汐 → Route": from top to bottom it *is* a **five-tier decision chain** — who gets to decide which model runs this step, the higher the stronger:
 
-1. **Summary line**: one plain-language sentence about the current state, like this — main session: flash as baseline → a 「code」 hit goes to k3 ｜ dispatch: frontend→k3, backend→glm-5.3 ｜ images: latch to the vision model. With no rules configured at all it still speaks: no rule matches ⇒ everything goes to the baseline (…); several keyword groups are defined but referenced by no rule, so none of them takes effect — **an empty table is not broken, it is unwired**.
-2. **The five tiers**: explicit @ > caller's pick > roster role > keyword rules > baseline. Each tier shows three lines — when it is reached / its current effective value / what turning it off would do. The **roster** is inlined in tier 3 and the **rule editor** in tier 4. Every tier carries a state badge — **ready** (it really participates now) / **on demand** (only when you type `@` or a caller names a model; not dimmed) / **not enabled** (nothing configured; dimmed) — so you can tell at a glance who decides this turn.
+1. **Summary line**: one plain-language sentence about the current state, like this — main session uses flash as the default target, a 「code」 hit switches to k3 ｜ dispatch: frontend→k3, backend→glm-5.3 ｜ images: latch to the vision model. With no rules configured at all it still says so: the main session has no rule that can match, everything uses the default target (…); several more keyword groups are not wired into any rule, so none takes effect for now — **an empty table is not broken, it is not wired yet**.
+2. **The five tiers**: explicit @ > caller's pick > roster role > keyword rules > default target. Each tier shows three lines — trigger / current value / when disabled. The **roster** is inlined in tier 3 and the **rule editor** in tier 4. Every tier carries a state badge — **ready** (it really participates now) / **on demand** (only when you type `@` or a caller names a model; not dimmed) / **not enabled** (nothing configured; dimmed) — so you can tell at a glance who decides this turn.
 3. **Scope badges**: rule rows read "**main session**", roster rows read "**on dispatch**" — two configurations, two halves, and the badges are the dividing line. In the config file they are two kinds of rows in **one routing table**, `routes` (`scope: session` / `scope: dispatch`):
 
    ```yaml
@@ -228,7 +228,7 @@ Routing decides "who runs this step" and the review flow decides "was this step 
 - **Write a roster** (Settings → Kimi Tide → Roster): one row per role — id (also the teammate-name claim key), label and target model, e.g. "frontend → `kimi-coding/k3`", "backend → `zai-coding-cn/glm-5.3`". Two roles claiming the same teammate name are **rejected at save time**.
 - **The teammate name is the claim**: create a teammate named after the role id (or its alias) and every request from it is re-routed to the target model; unknown names are left untouched (they keep the model they were created with), and child-agent turns are never re-routed by keywords in the task text.
 - **The model can read the roster**: while routing is on and the roster is non-empty, the plugin registers a runtime skill (`kimi-tide-team`) — read before delegating, then follow one of two recipes: a **one-shot task** (`workflow`, naming the model) or a **persistent teammate** (`spawn_teammate`, name taken from the claim column). Edit the roster and the card in live sessions is replaced on the next turn; empty the roster and the card disappears.
-- **Pinned baseline**: if you want the main session's **baseline** to always be one model instead of the preset default, turn on "pin the baseline" and name the target — keyword rules and explicit `@kimi` still win. Leave it empty to follow the host's default model.
+- **Pinned driver**: if you want the main session's **default target** to always be one model instead of the preset default, turn on "pin the driver" and name the target — keyword rules and explicit `@kimi` still win. Leave it empty to follow the host's default model.
 - **Every dispatch leaves a trace**: the decision panel's "recent dispatches" lists the basis (`role` / `unclaimed` / `explicit` / `keep`), the teammate, the role label and the **effective** model (latest 20 per parent session); when a role target is unavailable the plugin **never swaps anyone silently** — the panel states, word for word, "「<role>」target unavailable → keeping the inherited model (<effective target>)".
 
 Config fields (`roles` / `driver` / `driverSticky` / `rulesApplyToChildren`), the five-step decision priority and the migration rules live in the [router architecture](packages/dsh-kimi-tide/docs/router.md) "2.0.0 team dispatch" and "2.1.0 unified routing table (v7)" sections; the live acceptance criteria and results are in [team-dispatch-acceptance.md](packages/dsh-kimi-tide/docs/team-dispatch-acceptance.md).
@@ -247,7 +247,7 @@ A: No. One Console API key + the official Models page.
 A: With the default "latch" behavior, a session that has seen an image stays locked to the vision-capable model — if its quota fails, that session can't fall back to text; open a new one. To avoid this: set the preset's image fallback to "lazy transcribe" (images become text, the text model takes over) or "blind" (treat images as absent). Transcriptions are cached and never retried.
 
 **Q: I heard about a "capability scoring engine"?**
-A: Retired. Scoring by machine was a black box; routing now follows rules you can read and edit — a hit routes, a miss falls to the baseline. Old scoring configs migrate into presets automatically on upgrade.
+A: Retired. Scoring by machine was a black box; routing now follows rules you can read and edit — a hit routes, a miss falls to the default target. Old scoring configs migrate into presets automatically on upgrade.
 
 **Q: Where is the router config stored? Will upgrades lose it?**
 A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades migrate automatically and archive the old config; details in the "migration chain" section of the [router architecture](packages/dsh-kimi-tide/docs/router.md).

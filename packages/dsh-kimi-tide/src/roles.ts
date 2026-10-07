@@ -96,7 +96,7 @@ export function renderTeamSkill(
   if (list.length === 0) return undefined
   const one = (r: RoleEntry): string => `${r.label}→${r.target.provider}/${r.target.model}`
   // M5（2026-10-07 复核）：传入路由配置（宿主挂载侧恒传）时 description 消费
-  // describeRouting 的**同源片段**（主会话打底 + 命中走哪 + 派发到哪）——摘要
+  // describeRouting 的**同源片段**（主会话默认目标 + 命中走哪 + 派发到哪）——摘要
   // 的「派发：」段即旧角色索引，信息不丢；不再自拼文案防跨模块漂移。routing
   // 缺席（旧调用方）维持旧文案，零行为变更。
   const summary = routing === undefined ? undefined : describeRouting(routing)

@@ -1,6 +1,6 @@
 // test/routing-view.test.ts
 // C1 统一视图模型（设计稿 2026-10-07 §3）：session/dispatch 双作用域投影、
-// 词表接线、重叠解释、打底可见、决策链五档、派发预览、人话摘要单源。
+// 词表接入、重叠解释、默认目标可见、决策链五档、派发预览、摘要单源。
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_KEYWORD_GROUPS, type ReviewFlow, type RoleEntry, type RouteTarget, type RouterConfigV6, type RouterPreset, type RouterRule } from '../src/config.js'
 import { buildRoutingView, describeRouting, IMAGE_FALLBACK_SHORT, previewDispatch } from '../src/routing-view.js'
@@ -29,15 +29,15 @@ const reviewFlow = (group: string): Record<string, ReviewFlow> => ({
   review: { type: 'review', reviewer: K3, trigger: 'keywords', keywordGroup: group, rounds: 1, autoRevise: false },
 })
 
-describe('C1：groups 接线状态', () => {
-  it('空规则 + 有词表 ⇒ 全部 orphan，摘要明写「全部走打底」与悬空组数（实机 capability rules:[] 形态）', () => {
+describe('C1：groups 接入状态', () => {
+  it('空规则 + 有词表 ⇒ 全部 orphan，摘要明写「全部使用默认目标」与未接入组数（实机 capability rules:[] 形态）', () => {
     const view = buildRoutingView(v6())
     expect(Object.keys(DEFAULT_KEYWORD_GROUPS)).toHaveLength(7)
     expect(view.groups).toHaveLength(7)
     expect(view.groups.every((g) => g.wiring === 'orphan')).toBe(true)
     expect(view.session).toEqual([])
-    expect(view.summary).toContain('全部走打底')
-    expect(view.summary).toContain('7 组词表')
+    expect(view.summary).toContain('全部使用默认目标')
+    expect(view.summary).toContain('另有 7 组关键词组未接入任何规则')
   })
 
   it('词表被规则引用 ⇒ referenced + referencedBy 列出规则 id（含非激活预设的规则）', () => {
@@ -91,7 +91,7 @@ describe('C1：overlaps 重叠解释', () => {
   })
 })
 
-describe('C1：fallback 打底行', () => {
+describe('C1：fallback 默认目标行', () => {
   it('driverSticky=true 时取 driver；false 时取激活预设 default', () => {
     const sticky = buildRoutingView(v6({ driver: GLM, driverSticky: true }))
     expect(sticky.fallback.target).toEqual(GLM)
@@ -115,13 +115,13 @@ describe('C1：fallback 打底行', () => {
 })
 
 describe('C1：precedence 决策链五档', () => {
-  it('五档齐全且顺序 = 显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 打底', () => {
+  it('五档齐全且顺序 = 显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 默认目标', () => {
     const view = buildRoutingView(v6({
       presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3)] satisfies RouterPreset } },
       roles: { frontend: { id: 'frontend', label: '前端', target: K3 } },
     }))
     expect(view.precedence.map((p) => p.tier)).toEqual([1, 2, 3, 4, 5])
-    expect(view.precedence.map((p) => p.title)).toEqual(['显式 @指令', '调用方点名', '分工表角色', '关键词规则', '打底'])
+    expect(view.precedence.map((p) => p.title)).toEqual(['显式 @指令', '调用方点名', '分工表角色', '关键词规则', '默认目标'])
     // 三态（2026-10-07 修）：1/2 档是按需触发，不得再写死 active=true
     // ——否则界面出现「5 档里 4 档都亮着」，看不出谁在决定这一轮。
     expect(view.precedence.map((p) => p.state)).toEqual(['on-demand', 'on-demand', 'ready', 'ready', 'ready'])
@@ -155,7 +155,7 @@ describe('C1：previewDispatch 派发预览', () => {
 })
 
 describe('C1：describeRouting 摘要单源', () => {
-  it('= view.summary（单源），输出为纯中文人话，不含内部字段名', () => {
+  it('= view.summary（单源），输出为纯中文，不含内部字段名', () => {
     const cfg = v6({
       presets: { main: { name: '主力', default: FLASH, rules: [rule('code-kfc', 'code', K3)] satisfies RouterPreset } },
       roles: { frontend: { id: 'frontend', label: '前端', target: K3 }, backend: { id: 'backend', label: '后端', target: GLM } },
