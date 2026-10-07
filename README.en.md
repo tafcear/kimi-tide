@@ -51,21 +51,26 @@
 
 ## Routing logic in 30 seconds
 
-When a message arrives, kimi-tide decides in this order:
+When a message arrives, kimi-tide decides in this order (**five tiers**, aligned tier by tier with the decision chain in the settings page):
 
 1. **Explicit pick**: the message says `@kimi` (provider level: the model you configured in the preset) or `@kimi/k3` (pins that exact model) → highest priority.
-2. **Rule hit**: score the preset's rules — has an image? how many keyword-group words matched? → rules are sorted by **specificity** (more matched words first, image always first, ties keep list order) and the **first rule with an available target** wins (unavailable targets fall through to the next rule).
-3. **Baseline**: nothing fires → use the preset's default model.
-4. **Image guard**: even if a text-only model was picked, an image-bearing message is rerouted to a model that can see — no crashes.
+2. **The caller's pick**: a subagent's caller already named a model (different from the baseline) → it is kept, not overridden.
+3. **Roster role (teammates only)**: the request comes from a teammate claimed by the roster → rerouted to that role's target model (see "Team dispatch" below).
+4. **Keyword rules (main session only)**: score the preset's rules — has an image? how many keyword-group words matched? → rules are sorted by **specificity** (more matched words first, image always first, ties keep list order) and the **first rule with an available target** wins (unavailable targets fall through to the next rule). Child agents skip keyword rules by default (switchable in Settings).
+5. **Baseline**: nothing fires → the main session uses the "pinned baseline" target (or the preset default when that is off); a child agent keeps the model it inherited.
+6. **Image guard**: even if a text-only model was picked, an image-bearing message is rerouted to a model that can see — no crashes.
 
 ```mermaid
 flowchart LR
     A["💬 Your message<br>(new this turn)"] --> B{"Explicit @model?"}
     B -- "@kimi etc." --> H["🎯 Explicit directive<br>highest priority"]
-    B -- no --> C["📏 Preset rule chain<br>image / keyword groups<br>sorted by specificity · first available wins"]
+    B -- no --> R{"Dispatched to a roster role?"}
+    R -- "yes (teammate)" --> S["🧑🔧 Roster role<br>reroute to that role's target"]
+    R -- no --> C["📏 Preset rule chain (main session)<br>image / keyword groups<br>sorted by specificity · first available wins"]
     C -- hit --> D["🌙 Rule target: model | flow<br>(skipped if unavailable)"]
-    C -- miss --> E["💰 Preset default<br>(baseline)"]
+    C -- miss --> E["💰 Baseline: pinned driver / preset default"]
     H --> J
+    S --> J
     D -- "target = flow" --> T["🌊 Transcribe flow<br>vision model turns images into text"]
     D -- "target = model" --> F
     E --> F{"Image on a<br>text-only target?"}
@@ -77,6 +82,26 @@ flowchart LR
 ```
 
 > A "flow" is a small automation pipeline (e.g.: images are turned into text first, then a cheap text model takes over); "vision" means a model that can read images; the "dock panel" is the "🌙 MoonTide" panel below the input box.
+
+## How to read the Settings page (Route tab)
+
+Open "Settings → 月汐 → Route": from top to bottom it *is* a **five-tier decision chain** — who gets to decide which model runs this step, the higher the stronger:
+
+1. **Summary line**: one plain-language sentence about the current state, like this — main session: flash as baseline → a 「code」 hit goes to k3 ｜ dispatch: frontend→k3, backend→glm-5.3. With no rules configured at all it still speaks: no rule matches ⇒ everything goes to the baseline (…); 7 keyword groups are defined but referenced by no rule, so none of them takes effect — **an empty table is not broken, it is unwired**.
+2. **The five tiers**: explicit @ > caller's pick > roster role > keyword rules > baseline. Each tier shows three lines — when it is reached / its current effective value / what turning it off would do. The **roster** is inlined in tier 3 and the **rule editor** in tier 4; inactive tiers are dimmed, yet you can still see why.
+3. **Scope badges**: rule rows read "**main session**", roster rows read "**on dispatch**" — two configurations, two halves, and the badges are the dividing line. In the config file they are two kinds of rows in **one routing table**, `routes` (`scope: session` / `scope: dispatch`):
+
+   ```yaml
+   routes:
+     - { id: code-kfc, scope: session, preset: capability, when: { kind: keywords, group: code }, target: { provider: kimi-coding, model: kimi-for-coding } }
+     - { id: backend,  scope: dispatch, when: { kind: role }, label: 后端, target: { provider: zai-coding-cn, model: glm-5.3 } }
+   ```
+
+   `session` rows serve the main session only, `dispatch` rows serve teammates only; **once `routes` exists it is the single source of truth**, and the legacy fields (`presets[*].rules` / `roles`) stay as a mirror — delete the `routes` block and the old-field reading applies again, nothing breaks.
+4. **Overlap notes**: when one word (say "code") is both the subject of a keyword rule and a role's identity word, both sides show a note: "by design: saying 'code' in the main session goes to A; delegating 'code' work to 'backend' goes to B" — **not a conflict, a division of labour**.
+5. **The playground's "dispatch to" box**: type a role or teammate name and see which model it will be rerouted to and on what basis (`role` / `unclaimed`). It is a **different scope** from "try a sentence": "try a sentence" predicts the main session's keyword rules, "dispatch to" predicts the roster reroute at delegation time.
+
+> For the config shape, ordering and migration rules (`scope` semantics and conflict validation included), see the [router architecture](packages/dsh-kimi-tide/docs/router.md) "2.1.0 unified routing table (v7)" section.
 
 ## What it looks like
 
@@ -154,7 +179,7 @@ The quota slots on the panel's second row **follow the current routed target** a
 
 ### Help tab & semantic hit confirmation
 
-- **"Settings → 月汐 → 说明"** explains every panel element and every settings field across eight sections, with key entries carrying the **current value** (e.g. "trigger: manual ⇒ keyword hits will not fire a review"), plus a **symptom → cause** table.
+- **"Settings → 月汐 → Help"** explains every panel element and every settings field across its sections (with a "what's new" section on top covering this release's five-tier chain, scopes and unified routing table), with key entries carrying the **current value** (e.g. "trigger: manual ⇒ keyword hits will not fire a review"), plus a **symptom → cause** table.
 - **Semantic hit confirmation** (off by default, needs config): with it enabled a keyword hit no longer reroutes immediately — the **preset's own default model** first confirms "is this really this turn's intent?", and an "omit" verdict skips that rule and keeps matching the rest. Timeout / unavailable judge / unparseable output all **fall back to the plain keyword result**; explicit `@` turns and turns where an image rule already leads make **no judge call at all**. Config knob: `preset.hitConfirm`.
 - **The verdict lands in the decision reason**: omit / hit / no-verdict is prepended to the panel's decision reason (e.g. "semantic gate: no verdict 1200ms (code-kfc)"). Because an omit drops the rule from the chain and therefore lands on the default route, **default-route decisions carrying a verdict note are now surfaced too** — otherwise the omit itself, the one outcome you most need to see, would stay invisible.
 - **The judge's thinking is turned off when the target allows it**: the judge is a reasoning model but this gate gives it a 64-token budget — left thinking, it spends the whole budget on reasoning, returns **not a single character of output**, and the verdict becomes unparseable (the gate then fails open and changes nothing). So when the judge target declares an "off" effort level, the plugin disables thinking explicitly; targets that do not (k3, for instance) get no effort sent at all — never an enum they would reject.
@@ -206,7 +231,7 @@ Routing decides "who runs this step" and the review flow decides "was this step 
 - **Pinned baseline**: if you want the main session's **baseline** to always be one model instead of the preset default, turn on "pin the baseline" and name the target — keyword rules and explicit `@kimi` still win. Leave it empty to follow the host's default model.
 - **Every dispatch leaves a trace**: the decision panel's "recent dispatches" lists the basis (`role` / `unclaimed` / `explicit` / `keep`), the teammate, the role label and the **effective** model (latest 20 per parent session); when a role target is unavailable the plugin **never swaps anyone silently** — the panel states, word for word, "「<role>」target unavailable → keeping the inherited model (<effective target>)".
 
-Config fields (`roles` / `driver` / `driverSticky` / `rulesApplyToChildren`), the five-step decision priority and the migration rules live in the [router architecture](packages/dsh-kimi-tide/docs/router.md) "2.0.0 team dispatch" section; the live acceptance criteria and results are in [team-dispatch-acceptance.md](packages/dsh-kimi-tide/docs/team-dispatch-acceptance.md).
+Config fields (`roles` / `driver` / `driverSticky` / `rulesApplyToChildren`), the five-step decision priority and the migration rules live in the [router architecture](packages/dsh-kimi-tide/docs/router.md) "2.0.0 team dispatch" and "2.1.0 unified routing table (v7)" sections; the live acceptance criteria and results are in [team-dispatch-acceptance.md](packages/dsh-kimi-tide/docs/team-dispatch-acceptance.md).
 
 ---
 
@@ -231,11 +256,11 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v2.0.0 (2026-10-06)**
+> Current version: **v2.1.0 (2026-10-07)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
-- Planned: live re-verification of the v2.0.0 "role × image" combination (once the host GUI allows image attachments in teammate sessions), subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
+- Planned: live acceptance for v2.1.0 (the Route-page A/B checks plus the v7 write channel landing on disk, see [routing-ia-acceptance.md](packages/dsh-kimi-tide/docs/routing-ia-acceptance.md)); live re-verification of the v2.0.0 "role × image" combination (once the host GUI allows image attachments in teammate sessions), subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
 
 ---
 

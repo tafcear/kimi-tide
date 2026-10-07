@@ -2,7 +2,7 @@
 
 DeepSeek Harness（DSH）的「每一步自动选模型」插件：命名预设 + 有序规则 + 协作流——贴图自动走能看图的模型，代码自动走编码模型，闲聊翻译自动走便宜模型；没有规则命中时走预设默认模型（打底）。带图像护栏、图像转述流、多 plan 配额显示，每次选了谁、为什么，面板上看得见。
 
-> **当前状态**：v1.3.1（2026-09-28，[Releases](https://github.com/tafcear/kimi-tide/releases)），700/700 测试绿。本版修复设置页模型下拉：目录通道迁移到宿主官方模型目录接口（DSH 0.1.5-rc.1 起不再丢掉 DeepSeek 整组）+ 下拉按提供方分组、显示官方友好名。1.2.0 起面板数据退出会话日志。版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)；项目介绍与快速开始见[根 README](../../README.md)。匹配语义（词边界/特异度排序/最少命中词数）、effort 推理档位与路由配置全字段，见 [docs/router.md](docs/router.md)。
+> **当前状态**：v2.1.0（2026-10-07，[Releases](https://github.com/tafcear/kimi-tide/releases)），991/991 测试绿。本版把路由页从「四个并列控件」重排成**一条五档决策链**（显式 @ > 调用方点名 > 分工表 role > 关键词规则 > 打底）＋顶部人话摘要，并新增作用域徽标（主会话 / 派发时）、重叠解释条、测试场「派给谁」与统一路由表 `routes`（v7 配置）。**路由决策语义零变更**——配置里没有 `routes` 的文档行为逐字节不变。版本历史见仓库根 [CHANGELOG](../../CHANGELOG.md)；项目介绍与快速开始见[根 README](../../README.md)。匹配语义（词边界/特异度排序/最少命中词数）、effort 推理档位、v7 配置全字段与迁移口径，见 [docs/router.md](docs/router.md)；v2.1.0 实机验收清单见 [docs/routing-ia-acceptance.md](docs/routing-ia-acceptance.md)。
 
 0.4.x 起插件**零接入层代码**——Kimi 模型经官方 pi-ai 原生 `kimi-coding` 路由（设置 → Models 配一把 Console API Key）进 DSH LLM 注册表，自研 OAuth 接入层（约 740 行）整体退役。插件只保留官方生态没有的能力：**路由、护栏、协作编排、观测**。
 
@@ -42,11 +42,17 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 | `patchFile` | `$DSH_HOME/profiles/web/cordis.patch.yml` | legacy 路由静态种子的部署基座（仅 base 层） |
 | `sidecarFile` | `<patch 目录>/kimi-tide-router.yml` | 无设置服务宿主的回退存储 |
 
-> 路由配置本体持久化在官方设置面板「设置 → 月汐」（DSH 设置命名空间
-> `kimi-tide-router`），配置形状为 v5（`activePreset` / `presets`（默认模型 +
-> 有序规则 + `imageFallback` 三态）/ `keywordGroups`（内置 7 组）/ `flows`
-> （协作流注册表）/ `auxTargets` 辅助请求改道表）；存量配置经迁移链自动桥接并留档。
-> 配置全字段见 [docs/router.md](docs/router.md) 的「配置参考」与「0.6.0 协作编排扩展」（v5 增量速览）两节；迁移链见「迁移链」节。
+> 路由配置本体持久化在官方设置面板「设置 → 月汐」，落在**本插件条目配置的
+> `router` 段**（命名空间 `dsh-kimi-tide`，profile 的 `cordis.patch.yml`）。
+> 配置形状以 **v7** 为准：`routes`（**统一路由表**——session 行 = 主会话关键词/带图
+> 规则，dispatch 行 = 分工角色）＋ `presets`（默认模型 + 打底 + `imageFallback` 三态）
+> / `keywordGroups`（内置 7 组）/ `flows`（协作流注册表）/ `auxTargets` /
+> `roles` / `driver` / `driverSticky` / `rulesApplyToChildren`。迁移后 `routes`
+> 是**唯一真源**，`presets[*].rules` 与 `roles` 保留为**镜像**（删掉 `routes`
+> 段即回退旧字段口径，功能不崩）；**没有 `routes` 的存量文档照旧按旧字段读**，
+> 行为逐字节不变。存量配置经迁移链自动桥接并留档。
+> 配置全字段见 [docs/router.md](docs/router.md) 的「配置参考（v7 全字段）」与
+> 「2.1.0 统一路由表（v7）」两节；迁移链见「迁移链」节。
 
 ## 月汐状态行（只读仪表）
 
@@ -77,6 +83,28 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 - `/kimi-tide help`（命令用法一览）
 
 规则驱动路由架构详见 [docs/router.md](docs/router.md)。
+
+## 路由页（v2.1.0：一条决策链 + 统一路由表）
+
+「设置 → 月汐 → 路由」从四个并列控件改为**一条五档决策链**（与 `src/router.ts`
+的优先级链逐档对齐）：
+
+- **顶部摘要**：`buildRoutingView().summary` 一句话说清现状（打底是谁、命中什么走哪、
+  派发到哪）；规则为空时明写「未命中任何规则 ⇒ 全部走打底（…）；已备 N 组词表无规则
+  引用，暂不生效」。
+- **五档链**：每档三行（什么时候轮到它 / 当前生效值 / 关掉它会怎样）；第 3 档内联
+  **分工表**、第 4 档内联**预设编辑器**；**打底档显式渲染**（来源：主驱动恒定 /
+  预设默认 / 跟随宿主默认）。
+- **作用域徽标**：规则行「**主会话**」、角色行「**派发时**」；词表行另有接线徽标
+  （被 N 条规则引用 / 被协作流认领 / ⚠ 悬空）。
+- **重叠解释条**：词表的词同时是某角色身份词且两边目标不同 ⇒ 词表行与角色行各挂一条
+  解释条（**不是报错**）＋「规则跟随该角色」一键动作。
+- **测试场「派给谁」**：按角色 / 队友名预判改道目标与依据（`role` / `unclaimed`），
+  与「试一句」（主会话关键词规则）分属**两套作用域**；分工表另有「从词表生成角色」，
+  把无规则引用的词表组批量生成角色行。
+- **写通道双写**：保存规则 / 角色时同一笔写同时下发 `routes` 与镜像旧字段——scope
+  通道上是**三笔序列** `unset routes → set 旧字段 → set routes`（宿主逐笔校验新旧
+  字段一致性，顺序是硬约束）；写后比对「意图值 vs 实读值」，被拒明确报错、不静默。
 
 ## 带图行为与已知限制
 
