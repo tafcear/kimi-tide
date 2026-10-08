@@ -129,6 +129,24 @@
 
 ---
 
+### Q11 · 按角色配 skills（角色 → 技能白名单，**未设计**）
+
+- **来源**：用户 2026-10-08 提出「后续需要增加根据角色配 skills」（承接 v2.1.0 的分工表）。
+- **需求**：分工表的角色除了「目标模型」，还要能声明**这个角色该用哪些 skill**——把活派给该队友时，它看到的技能面应当收敛到这一组（或至少被明确告知用哪些）。
+- **现存取证（2026-10-08，asar 内包 + 官方文档逐条核）**：
+  - **Agent Teams 没有 skills 入参**：`TeamMemberSnapshot { id, name, description, provider, context, phase }`（`docs/subsystems/agent-team.zh.md` 身份与 roster 节）与 `spawn_teammate` 的入参（name / description / prompt / context）**都不含 skills** ⇒ 不能经 spawn 参数直达，必须旁路。
+  - **技能注册表是 host + per-scope 分层**：注册落入「调用方上下文 scope 对应的层」，读取经 `SkillViewOptions.scope`（原文：*「消费方传入调用中的 agent，agent 本身就是自己的 scope key」*）⇒ **理论上存在按 agent 收窄的技能面**，但需 spike 验证。
+  - `ctx.skills.register()` 接受 runtime skill contribution（`dsh-skill` 服务面）；文件系统 provider（`dsh-skill-filesystem`）落的是**全局层**（`<projectRoot>/.agents/skills` 等 rank 表）。
+  - **消费者是 `dsh-tool-skill`**：在存活会话第一个非空完整视图的 `agent/pre-step` 注入持久 `<system-reminder>` 里的 `<available_skills>`（**只含 name + 规范化 description**，不含正文/路径/来源），此后每步按 digest 变化增量注入；`skill({ name })` 工具校验 kebab-case，并在加载前用 `isModelInvocable` **拒绝无权访问者**。
+- **三条候选路线（按代价升序，未定）**：
+  - **A · 提示级（可当版交付）**：角色加可选 `skills: []`（+ 可选 `skillsDeny: []`），由 `renderTeamSkill`（`src/roles.ts`）把「角色 → 建议技能」写进团队技能描述，Lead 派发时照抄进队友的 prompt。零宿主依赖、零风险；**只是提示，不阻止队友用别的 skill**。
+  - **B · 工具面硬约束（推荐先做 spike）**：月汐已经在 `agent/pre-step` 上有决策点；对**认领到角色的队友会话**用 `ctx.tools.guard()`（官方「最弱的够用机制」：只拒绝）拦 `skill({name})` 未在白名单内的调用，拒绝理由写清「哪个角色、白名单是什么、怎么改」。需核：guard 的作用域是否按 agent、是否拦得到 `skill` 工具。
+  - **C · 注册表层（最彻底、最不确定）**：向该 agent 的 scope 注入一个收窄的 skill provider，让目录本身就只含白名单。需 spike：per-scope 层能否覆盖/收窄全局层，宿主消费者是否真按 agent scope 读取。
+- **验收判据（做完怎么算成）**：① 角色可配 `skills`（可空，空即今天行为）；② 队友会话里 `<available_skills>` 只出现白名单（C）或越权调用得到可解释拒绝（B）或团队技能描述如实列出（A）；③ 未配置的角色**行为与今天逐字节一致**；④ 设置卡有编辑面 + 单测 + 负控；⑤ 双语 README / CHANGELOG / 发版正文 / 门禁照旧。
+- **状态**：**排队（2026-10-08，用户提出「后续需要增加」）**——建议节奏：A 随下一个功能版落地；B/C 各一次 spike（半天量级）后再定路线。
+
+---
+
 ## 处置记录
 
 | 日期 | 条目 | 处置 |
