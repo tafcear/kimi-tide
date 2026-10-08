@@ -106,7 +106,7 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 | B-1 | ⏳ 待目检 | — | 渲染侧有 `SettingsCard.test.tsx` 断言兜底 |
 | B-2 | ✅（当前配置无重叠） | 预检【B-2 重叠】= 无 | 要目检得先造一条"词与角色身份词重叠且目标不同"的配置 |
 | B-3 | ⏳ 待目检 | — | DOM 测试兜底 |
-| **B-4** | ✅ **PASS（`exit=0`）** | `check-routes-dualwrite.mjs`：`routes` 4 行（session 1 / dispatch 3）与镜像旧字段**逐行一致**且校验通过；`cordis.patch.yml` mtime **19:52:02** / 8389 B（此前 7260 且无 `routes`） | **本项通过 ⇒ 发版门禁的技术面解除** |
+| **B-4** | ✅ **PASS（`exit=0`）** | `check-routes-dualwrite.mjs`：`routes` 4 行（session 1 / dispatch 3）与镜像旧字段**逐行一致**且校验通过；`cordis.patch.yml` mtime **19:52:02** / 8389 B（此前 7260 且无 `routes`）。**2026-10-08 复跑（用户新增示例角色后）：`routes` 9 行（session 1 / dispatch 8）与镜像旧字段逐行一致、校验通过，仍 `exit=0`** | **本项通过 ⇒ 发版门禁的技术面解除** |
 | B-5 | ⏳ 待目检 | — | |
 | C-1 | ✅ 语义已验（离线）＋**运行期半边已实机验证** | 离线：迁移前后视图**逐字节相同** + `matchingRules` **28 组探针零差异**；**实机**：用户在设置页把角色改为「写作 → `qwen-token-plan-cn/qwen3.8-max`」后，宿主注入的技能描述**当场反映该变更**（⇒ 运行期确实按 `routes` 读） | |
 | C-2 | ✅ **PASS** | 文件 `routes` 段已逐行读出：session 行带 `preset: saving`，dispatch 行带 `label`/`teammate`/`aliases` | |
@@ -116,6 +116,19 @@ node scripts/acceptance/session-dump.mjs <会话目录>/session.v4.jsonl.zstd --
 > **结论（2026-10-07 19:5x）**：**B-4 与 C-2 通过**——v2.1.0 发版门禁的**技术面已解除**。
 > 剩余为**纯目检项**（A-1 渲染、A-5、B-1/B-3/B-5 的视觉与交互、B-2 需造重叠样例、明暗双主题），
 > 以及 A-2/A-3 的"实发消息 → `request/header`"对照。未验项一律保持 ⏳，**不视为通过**。
+
+### 4.1 v2.1.0 追加面实机核对（2026-10-08，用户重启宿主后目检）
+
+v2.1.0 在 runbook 之外还新增了四处用户可见面（文案 locale 化 / 设置卡「界面语言」行 / 分工表示例两组按钮 / 插件行展示元数据）。**用户 2026-10-08 重启宿主后逐项目检通过**：
+
+| # | 面 | 结果 | 机器侧旁证（可复核） |
+|---|---|---|---|
+| D-1 | 设置卡「界面语言」行 | ✅ 可用 | `cordis.patch.yml` 出现 `- id: locale` / `@deepseek-ai/dsh-client-locale` / `config.preference`（语言服务已显式持久化偏好 ⇒ 写通道可用；现值 `zh`） |
+| D-2 | 英文界面 | ✅ 生效 | 文案全部走 `src/locales/**` 表（600 键 × 2 语言）；`check-client-i18n` 18 文件 0 违规 |
+| D-3 | 分工表示例两个按钮 | ✅ 按组填入 | 宿主注入的技能描述**派发面由 3 条变为 8 条**（前端/后端/写作 + 运维部署/测试/数据/安全 + 市场）；`check-routes-dualwrite.mjs` → `exit=0`（`routes` 9 行与镜像逐行一致） |
+| D-4 | Plugin Manager / 设置页插件行标题与描述 | ✅ 有 | `locale/{zh,en}.json` 的 `meta.title`/`meta.description`；`npm pack` 核对在包内（542,351 B / 83 文件） |
+
+> **仍未验**：本 runbook §4 里保持 ⏳ 的原目检项（A-1 页面渲染、A-5、B-1/B-2/B-3/B-5、明暗双主题）与 A-2/A-3 的「实发消息 → `request/header`」对照——这些属**路由信息架构**那一批，与上表四项无关，不计入 v2.1.0 的已验证范围。
 
 > 附录：官方 UI 硬规则（圆角 token / 禁加第二道边框与阴影 / 明暗双主题 / 键盘焦点）
 > 见设计稿 §9；本次 A/B 改动均按 token 实现，**明暗双主题实机渲染尚未截图核对**，
