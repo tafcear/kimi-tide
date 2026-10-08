@@ -147,6 +147,33 @@ prompt 要素（见 docs/templates/recheck-task.md 完整模板）：
 | 接力（`kimi_steer` 续会话） | 长任务分段、方向调整 |
 | 自审查（同模型回看） | 快速检查，但存在"思维惯性"，不如独立上下文可靠 |
 
+### 5.1 派活机制的选型判据（2026-10-08 讨论留档，**待议**）
+
+> 背景：用户问「相比现在这套智能体团队，有没有更好的」。结论是**没有哪一档全面更好，只有形状匹配**——下表是判据，留档备查（尚未形成决议，也未改动任何实现）。
+
+DSH 当前有四档派活机制，按「上下文隔离 / 时长 / 可交互性」区分：
+
+| 形状 | 用哪档 | 代价与边界 |
+|---|---|---|
+| 独立、可完全托付、只要结果 | `subagent`（一次性、独立上下文） | 最便宜；**不能追问**，任务书必须自包含 |
+| 需要它懂「我们现在在干嘛」 | `subagent_fork`（继承本会话上下文） | 上下文贵 |
+| **N 个同质件并行** + 要**结构化结果**（审计 N 文件 / 多角度调研 / 批量迁移） | `workflow`（脚本编排 `agent()` + `pipeline()`/`parallel()`，带 phase 与 schema） | 一次扇出几十个、各自独立、无交互 |
+| 多轮、要中途 steer、要共享任务板与文件状态 | **Agent Teams**（常驻队友 + mailbox + 任务板） | 最贵：每个队友一个会话，每条消息一次上下文重建 |
+
+**三种主流团队范式**（本项目选的是第一种，也是单人/成本敏感/要留痕场景的推荐解）：
+
+- **orchestrator–worker**：一个 Lead 派单、专家干活；审计性最好、成本最可控（＝本项目现状，即"快速主模型全程驱动 + 专项活派专家"，见 [team-dispatch 设计稿](superpowers/specs/2026-10-05-team-dispatch-design.md)）。
+- **peer / blackboard**：成员互发消息、共享黑板；收益在"多专家互纠"，代价是消息风暴与难以审计（社区重型实现如 `@nanmicoder/dsh-agent-teams`：共享任务 DAG + 成员信箱 + Web 团队面板 + quality gates）。
+- **pipeline / 显式图**（LangGraph 式状态机）：适合流程固定、可复现的产线；探索式开发先付建模成本不划算。
+
+**留档的三条待议改进项**（用户 2026-10-08 表示「后面再想想」，未实施）：
+
+1. **角色的 `note` 与 `aliases` 字段空着**：`note` 会进自动生成的 `kimi-tide-team` 技能描述，也就是主模型派活时读的那段文字——把「这个角色怎么做、验收看什么」写进去，等于常驻任务书模板。收益上限高，因为本项目第一号坑就是「审查 prompt 信息不足 ＝ 审查质量塌方」（§4-1）。
+2. **按角色收敛 skills**：见 [backlog Q11](superpowers/backlog.md)（Agent Teams 无 skills 入参；技能注册表是 host + per-scope 分层，三条候选路线 A/B/C）。
+3. **换执行体 ≠ 换模型**：月汐只换模型（同一 DSH 执行体）；若要派给别的 CLI（Codex / Claude Code / Qwen CLI…），属另一类做法（如社区 `dsh-agent-conductor`），与月汐可叠但不重叠。
+
+> 另附一条事实更新：`dsh-dispatch-research-2026-10-01.md` 曾记「官方未找到智能体团队、该能力只存在于社区插件」——**该条已过期**：官方实验性 Agent Teams 已随宿主发布（`@deepseek-ai/dsh-experimental-agent-team-profile` 桌面端已启用，官方文档 `docs/subsystems/agent-team.zh.md` 在位），资料仓已就地加订正行。
+
 ---
 
 ## 6. 模板
