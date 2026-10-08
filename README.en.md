@@ -267,7 +267,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v2.1.3 (2026-10-08)**
+> Current version: **v2.1.4 (2026-10-08)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
