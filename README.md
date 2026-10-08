@@ -29,6 +29,14 @@
 **适合谁**：在用 DSH、且接了不止一个模型的人。
 **不适合**：只用一个模型，或还没跑起 DSH 的人（先把 DSH 用起来，再回来装这个）。
 
+**遇到问题或有建议？** 三个入口任选：
+
+- **报缺陷**：[Issues](https://github.com/tafcear/kimi-tide/issues/new/choose)（带模板）。请写清五样：kimi-tide 版本、DSH 版本、桌面端还是网页端、复现步骤、`/kimi-tide show` 的输出。
+- **使用体验与建议**：置顶讨论 [Feedback](https://github.com/tafcear/kimi-tide/discussions/7)。
+- **使用提问**：[Q&A](https://github.com/tafcear/kimi-tide/discussions/new?category=q-a)。
+
+中文、English 都可以。
+
 ---
 
 ## 它解决什么问题
@@ -259,7 +267,7 @@ A：存在 DSH 设置里（「设置 → 月汐」编辑，重启保持）。跨
 
 ## 版本与路线
 
-> 当前版本：**v2.1.2（2026-10-08）**
+> 当前版本：**v2.1.3（2026-10-08）**
 
 - 每个版本你得到了什么：[CHANGELOG.md](CHANGELOG.md)
 - 维护者证据链（commit 锚点 / 验收记录）：[docs/release-evidence.md](docs/release-evidence.md)

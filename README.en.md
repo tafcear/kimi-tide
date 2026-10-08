@@ -29,6 +29,14 @@
 **For you if**: you use DSH with more than one model connected.
 **Not for you if**: you use a single model, or haven't set up DSH yet (set up DSH first, then come back).
 
+**Hit a problem or have a suggestion?** Three entry points:
+
+- **Report a defect**: [Issues](https://github.com/tafcear/kimi-tide/issues/new/choose) (a form is provided). Please include five items: the kimi-tide version, the DSH version, desktop or web, reproduction steps, and the output of `/kimi-tide show`.
+- **Experience and suggestions**: the pinned [Feedback discussion](https://github.com/tafcear/kimi-tide/discussions/7).
+- **Usage questions**: [Q&A](https://github.com/tafcear/kimi-tide/discussions/new?category=q-a).
+
+Both 中文 and English are welcome.
+
 ---
 
 ## What problem it solves
@@ -259,7 +267,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v2.1.2 (2026-10-08)**
+> Current version: **v2.1.3 (2026-10-08)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)

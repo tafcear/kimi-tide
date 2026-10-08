@@ -1,0 +1,70 @@
+name: Bug Report
+description: 报告 kimi-tide 的缺陷（中英文均可 / English is welcome）
+title: "[bug] "
+labels: [bug, needs-triage]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 实际看到的行为。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 预期应该发生什么。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: kimi-tide-version
+    attributes:
+      label: kimi-tide 版本
+      description: 「设置 → 月汐」卡片上显示的版本号，如 2.1.2。
+      placeholder: 2.1.2
+    validations:
+      required: true
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      description: 宿主 DSH 的版本号，如 0.1.5-rc.1。
+      placeholder: 0.1.5-rc.1
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: 运行形态
+      description: 桌面端（desktop）还是网页端（web）。
+      options:
+        - desktop
+        - web
+    validations:
+      required: true
+  - type: textarea
+    id: show-output
+    attributes:
+      label: /kimi-tide show 的输出
+      description: 在会话中输入 /kimi-tide show，将输出原文粘贴到此处。
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图（可选）
+      description: 相关日志片段或界面截图。
+    validations:
+      required: false
