@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme/hero-en.gif" width="100%" alt="kimi-tide — a small plugin for DSH that picks the AI for you: routine work on the cheap model, key work on the smarter one, no manual switching">
+  <img src="docs/assets/readme/hero-en.gif" width="100%" alt="kimi-tide — a small plugin for DSH that orchestrates your workflow and agents by model strength: which model runs each step follows the routing you write once">
 </p>
 <p align="center">
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
@@ -15,14 +15,15 @@
 
 **kimi-tide (MoonTide) is a small plugin you install into DSH — the tool you use to work and write code together with an AI (open-sourced by DeepSeek).**
 
-**It does one job: it swaps in a better-suited AI for you, automatically.** You usually have several AIs connected — one cheap, one smart, one that can read screenshots. Until now you had to switch by hand, and often forgot to switch back; with kimi-tide it picks for you on every turn: **everyday work goes to the cheap one first, the important work goes to the smarter one, images go to the one that can see them.**
+**It does one job: it turns "which model runs this step" into something you can orchestrate.** You usually have several AIs connected, each good at something — one has a great frontend feel, one writes solid code, one can read screenshots, one is fast and cheap. Until now "which one" was a **session-level switch**, and delegated work was never yours to choose; with kimi-tide you write those strengths down once — as **presets + ordered rules + a role table** — and every step afterwards (delegated ones included) follows your call.
 
 **Three things you get:**
 
-- **Save money** — don't pay where you don't need to. Chat, translation, copy edits and tidying up keep using your cheapest AI; **the good steel goes only where the blade is**.
-- **No weak links** — the critical parts are backed by a strong model: coding, code review and math each go to the stronger one, and output that matters can be checked by a strong model first (issues by severity + advice + a pass/fail verdict) before it reaches you.
+- **Every model does only what it is best at** — frontend goes to `kimi-coding/k3`, backend logic to `zai-coding-cn/glm-5.3`, reasoning-heavy work to a stronger model, while **the fastest, cheapest one drives the session** (reading files, running commands, dispatching). You used to switch by hand three times; now you write the routing once.
+- **Delegated work follows roles too** — create roles for your teammates (`frontend` / `backend` / `qa` / `writer`…) and the role table wires each role to a model: **the role *is* the route**. It lives in a scope separate from main-session keyword rules; a bare subagent dispatch that hits a role's domain can be refused by the guard, which tells you who it should go to instead.
 - **No more switching back** — after a screenshot, only that turn moves to a vision AI; the next turn returns to the one you were using. **The pricey AI is billed by the slice, not by the whole session.**
-- **English UI built in** — when the host language is English, the settings card, dock and decision panel, review and send-back cards, and the help tab all render in English; the Chinese UI stays byte-identical. The Plugin Manager and the plugin row in Settings also gain a title and description (previously absent).
+
+**And as a side effect:** output that matters can be checked by a strong model first (issues by severity + advice + a pass/fail verdict); chat, translation and copy edits keep using your cheapest AI; the quota chip and the decision panel make "which model ran this, and why" answerable; and when the host language is English, the whole UI (settings card, dock and decision panel, review and send-back cards, help tab) renders in English, with the Chinese UI byte-identical.
 
 (In the rest of this document, "AI" and "model" mean the same thing — DSH calls them models.)
 
@@ -41,20 +42,22 @@ Both 中文 and English are welcome.
 
 ## What problem it solves
 
-**Scenario 1: you paste a screenshot, and the model says it can't see images**
+**Scenario 1: one task should really be split across three models**
 
-- Before: switch to a vision model by hand → paste → ask → remember to switch back.
-- After: just paste. Image-bearing messages go to a model that can see; the next text-only message returns to your default model automatically.
+- Before: switch for the page, switch again for the API, switch a third time for the review — and forget to switch back.
+- After: write those three into rules or the role table — "component / style / UI" goes to `kimi-coding/k3`, "API / database / logic" to `zai-coding-cn/glm-5.3`, review to another tier. The rules are yours: ordered, specificity-sorted, **first match wins**; nothing matched → the preset's default target.
 
-**Scenario 2: you switched models and forgot to switch back**
+**Scenario 2: let the fastest model drive while the strongest works**
 
-- Before: one screenshot moved you to the expensive model — and the rest of the session kept burning it.
-- After: kimi-tide decides **per step**, not per session — once the image is handled, your next message is back on the default model.
+- Before: either the whole session runs on the most expensive model (slow, pricey) or everything runs on the fast one (quality by luck).
+- After: the session's routine motions — reading files, running commands, tidying context, dispatching subagents — go to the fast, cheap model; **the step that actually produces something re-routes to the strongest model for that field**. You get both the feel and the quality.
 
-**Scenario 3: your quota burns faster than expected**
+**Scenario 3: delegating to teammates, and picking models for them**
 
-- Before: every message — including "hello" and "translate this" — runs on the most expensive model.
-- After: pick the "saving" preset (a ready-made bundle of default model + rules) — small talk, translation, and daily chores go to the cheap model; only code and images touch the expensive ones. The panel shows your plan's remaining quota in real time (Kimi/GLM plans; models without a plan stay greyed out).
+- Before: you had to think "who gets this, and which model will *it* use" — and once delegated, the model was not yours to choose.
+- After: **the role is the route.** The role table says "frontend → K3, backend → GLM-5.3, qa → a reasoning-strong model, writer → a cheap one"; you delegate by role name. A bare subagent dispatch that hits a role's domain is refused by the guard, which tells you who it should go to.
+
+**A side effect: it saves money.** Chat, translation and copy edits go to the cheapest model; an image-bearing turn routes to a vision model and the next turn returns; the panel and the quota chip make "who ran this, and why" answerable (Kimi/GLM plans show balances; models without a plan stay greyed out).
 
 ---
 
