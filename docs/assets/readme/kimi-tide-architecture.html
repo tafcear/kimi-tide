@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="generator" content="archify 2.14.0">
-  <title>kimi-tide（月汐）1.0.0 架构：协作编排——转述流 · 按图三态 · 智能投影 Diagram</title>
+  <title>kimi-tide（月汐）v2.1.x 架构：每一步选模型——五档决策链 · 统一路由表 · 分工表与派发护栏 Diagram</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
     // see a dark flash. The toolbar script below re-applies with UI state.
@@ -4836,12 +4836,12 @@
     <div class="header">
       <div class="header-row">
         <div class="pulse-dot"></div>
-        <h1>kimi-tide（月汐）1.0.0 架构：协作编排——转述流 · 按图三态 · 智能投影</h1>
+        <h1>kimi-tide（月汐）v2.1.x 架构：每一步选模型——五档决策链 · 统一路由表 · 分工表与派发护栏</h1>
       </div>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"main-request","label":"主请求路径","focus":["user","events","router","registry","piai","kimiapi"],"note":"一条消息从进入宿主到命中模型的完整链路：事件缝 → 路由器决策 → 官方接入层。"},{"id":"flow-branch","label":"协作流分支","focus":["router","flows","visionexp","piai","dsapi"],"note":"规则目标指向转述流时：vision-exp 读图转文字，文本模型凭转述接力（0.6.0）。"},{"id":"observe-and-config","label":"观测与配置","focus":["dock","card","router"],"note":"决策观测走 dock 投影，路由配置落在官方设置页——读写同源。"},{"id":"v10-additions","label":"1.0.0 增量","focus":["router","dock","registry","piai"],"note":"辅助请求按 auxTargets 改道（0.8.x⑧）；额度槽跟随命中目标自动切源 kimi/GLM（1.0.0）；决策原因带命中词数（0.8.0）。"}]</script>
-    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/tafcear/kimi-tide","revision":"4b183c2f974c4c21c490bd8cea859a8c6368538f","shortRevision":"4b183c2"},"referenceCount":8,"nodes":{"dock":[{"path":"packages/dsh-kimi-tide/src/client/TideDock.tsx","line":1,"label":"面板 UI","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/client/TideDock.tsx#L1"},{"path":"packages/dsh-kimi-tide/src/zai-usage.ts","line":1,"label":"GLM 配额源","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/zai-usage.ts#L1"}],"card":[{"path":"packages/dsh-kimi-tide/src/client/SettingsCard.tsx","line":1,"label":"设置 UI","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/client/SettingsCard.tsx#L1"}],"events":[{"path":"packages/dsh-kimi-tide/src/router.ts","line":552,"label":"监听器 prepend 恒外层","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/router.ts#L552"}],"router":[{"path":"packages/dsh-kimi-tide/src/router.ts","line":229,"label":"decide 决策链","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/router.ts#L229"},{"path":"packages/dsh-kimi-tide/src/image-state.ts","line":5,"label":"native/transcribed/blind","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/image-state.ts#L5"}],"flows":[{"path":"packages/dsh-kimi-tide/src/config.ts","line":145,"label":"预置 transcribe/review 流","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/config.ts#L145"},{"path":"packages/dsh-kimi-tide/src/transcribe.ts","line":67,"label":"转述核心引擎","href":"https://github.com/tafcear/kimi-tide/blob/4b183c2f974c4c21c490bd8cea859a8c6368538f/packages/dsh-kimi-tide/src/transcribe.ts#L67"}]}}</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"live-turn","label":"一轮怎么选模型","focus":["user","event","router","tiers","session","models"],"note":"消息进来 → 事件缝每轮首步判定一次 → 五档决策链 → 统一路由表 → 官方 llm 服务。"},{"id":"two-scopes","label":"两个作用域","focus":["session","dispatch","guard"],"note":"同一张 routes 表：session 行只服务主会话，dispatch 行只服务队友；护栏拦主会话的裸子代理派发。"},{"id":"image-branch","label":"带图侧枝","focus":["image","router","models"],"note":"按图三态 native / transcribed / blind，保证带图轮一定落在能看图的模型上。"}]</script>
+    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/tafcear/kimi-tide","revision":"efeff8721b5aacee522c14be27596ce68977f4e8","shortRevision":"efeff87"},"referenceCount":17,"nodes":{"user":[{"path":"packages/dsh-kimi-tide/src/rules.ts","line":105,"label":"latestUserMessage","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/rules.ts#L105"}],"event":[{"path":"packages/dsh-kimi-tide/src/router.ts","line":839,"label":"installRouter","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L839"},{"path":"packages/dsh-kimi-tide/src/index.ts","line":440,"label":"apply","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/index.ts#L440"}],"router":[{"path":"packages/dsh-kimi-tide/src/router.ts","line":346,"label":"decide 五档","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L346"},{"path":"packages/dsh-kimi-tide/src/router.ts","line":122,"label":"applyRoleDecision","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L122"}],"tiers":[{"path":"packages/dsh-kimi-tide/src/config.ts","line":179,"label":"RouterConfigV7","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/config.ts#L179"},{"path":"packages/dsh-kimi-tide/src/config.ts","line":227,"label":"rowsFromConfig","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/config.ts#L227"}],"image":[{"path":"packages/dsh-kimi-tide/src/image-state.ts","line":18,"label":"ImageStateStore","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/image-state.ts#L18"},{"path":"packages/dsh-kimi-tide/src/router.ts","line":178,"label":"resolveImageFallback","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L178"}],"session":[{"path":"packages/dsh-kimi-tide/src/rules.ts","line":185,"label":"matchingScored","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/rules.ts#L185"},{"path":"packages/dsh-kimi-tide/src/config.ts","line":157,"label":"RouteRowV7","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/config.ts#L157"}],"dispatch":[{"path":"packages/dsh-kimi-tide/src/roles.ts","line":25,"label":"roleClaimSet","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/roles.ts#L25"},{"path":"packages/dsh-kimi-tide/src/roles.ts","line":32,"label":"claimConflict","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/roles.ts#L32"}],"guard":[{"path":"packages/dsh-kimi-tide/src/guard.ts","line":124,"label":"dispatchGuardRejection","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/guard.ts#L124"},{"path":"packages/dsh-kimi-tide/src/index.ts","line":766,"label":"ctx.tools.guard","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/index.ts#L766"}],"models":[{"path":"packages/dsh-kimi-tide/src/index.ts","line":1111,"label":"refreshModelOptions","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/index.ts#L1111"},{"path":"packages/dsh-kimi-tide/src/router.ts","line":483,"label":"applyTo 替换 callConfig","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L483"}]}}</script>
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
       <div class="guided-view-copy">
@@ -4883,8 +4883,8 @@
 
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read">
-      <svg viewBox="0 0 1360 734" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
-        <title id="archify-diagram-title">kimi-tide（月汐）1.0.0 架构：协作编排——转述流 · 按图三态 · 智能投影</title>
+      <svg viewBox="0 0 1480 620" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+        <title id="archify-diagram-title">kimi-tide（月汐）v2.1.x 架构：每一步选模型——五档决策链 · 统一路由表 · 分工表与派发护栏</title>
         <desc id="archify-diagram-description">A architecture diagram generated by Archify.</desc>
         <!-- Definitions -->
         <defs>
@@ -4909,227 +4909,194 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="420" y="30" width="550" height="114" rx="12" class="c-region" stroke-width="1"/>
-        <text x="428" y="48" class="t-cloud" font-size="9" font-weight="600">浏览器</text>
-
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" x="210" y="300" width="930" height="254" rx="12" class="c-region" stroke-width="1"/>
-        <text x="218" y="318" class="t-cloud" font-size="9" font-weight="600">DSH 宿主进程</text>
-
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="2" x="450" y="530" width="870" height="114" rx="12" class="c-region" stroke-width="1"/>
-        <text x="458" y="548" class="t-cloud" font-size="9" font-weight="600">云 API</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="10" y="0" width="1320" height="560" rx="12" class="c-region" stroke-width="1"/>
+        <text x="18" y="18" class="t-cloud" font-size="9" font-weight="600">DSH 宿主进程（plugin apply）</text>
 
         <!-- Connection paths (before components for correct z-order) -->
-        <path data-edge-from="user" data-edge-to="events" data-edge-label="prompt" data-edge-key="0" data-edge-id="user-to-events" data-composition-points="170,360;240,360" d="M 170 360 L 240 360" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="events" data-edge-to="router" data-edge-label="每轮首步" data-edge-key="1" data-edge-id="events-to-router" data-composition-points="430,360;480,360" d="M 430 360 L 480 360" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="router" data-edge-to="flows" data-edge-label="规则目标=流" data-edge-key="2" data-edge-id="router-to-flows" data-composition-points="570,390;570,430;655,430;655,470" d="M 570 390 L 570 422 Q 570 430 578 430 L 647 430 Q 655 430 655 438 L 655 470" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="flows" data-edge-to="visionexp" data-edge-label="转述读图" data-edge-key="3" data-edge-id="flows-to-visionexp" data-composition-points="655,534;655,547;575,547;575,560" d="M 655 534 L 655 540.5 Q 655 547 648.5 547 L 581.5 547 Q 575 547 575 553.5 L 575 560" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="router" data-edge-to="registry" data-edge-label="改道 LlmCallConfig（含 effort）" data-edge-key="4" data-edge-id="router-to-registry" data-composition-points="660,360;700,360" d="M 660 360 L 700 360" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="registry" data-edge-to="piai" data-edge-label="prepareCall" data-edge-key="5" data-edge-id="registry-to-piai" data-composition-points="860,360;930,360" d="M 860 360 L 930 360" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="piai" data-edge-to="kimiapi" data-edge-label="anthropic-messages · Bearer key" data-edge-key="6" data-edge-id="piai-to-kimi" data-composition-points="1020,390;1020,475;925,475;925,560" d="M 1020 390 L 1020 467 Q 1020 475 1012 475 L 933 475 Q 925 475 925 483 L 925 560" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="piai" data-edge-to="dsapi" data-edge-label="openai-completions" data-edge-key="7" data-edge-id="piai-to-deepseek" data-composition-points="1020,390;1020,475;1210,475;1210,560" d="M 1020 390 L 1020 467 Q 1020 475 1028 475 L 1202 475 Q 1210 475 1210 483 L 1210 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="router" data-edge-to="dock" data-edge-label="panel 投影 v6" data-edge-key="8" data-edge-id="router-to-dock" data-composition-points="570,330;570,227;535,227;535,124" d="M 570 330 L 570 235 Q 570 227 562 227 L 543 227 Q 535 227 535 219 L 535 124" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="card" data-edge-to="router" data-edge-label="配置读写 · 命名空间 v5" data-edge-key="9" data-edge-id="card-to-router" data-composition-points="850,124;850,240;570,240;570,330" d="M 850 124 L 850 232 Q 850 240 842 240 L 578 240 Q 570 240 570 248 L 570 330" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="user" data-edge-to="event" data-edge-label="本轮消息" data-edge-key="0" data-edge-id="user-to-event" data-composition-points="190,62;260,62" d="M 190 62 L 260 62" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="event" data-edge-to="router" data-edge-label="每轮首步判定" data-edge-key="1" data-edge-id="event-to-router" data-composition-points="450,55;520,55" d="M 450 55 L 520 55" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="router" data-edge-to="tiers" data-edge-label="五档求值" data-edge-key="2" data-edge-id="router-to-tiers" data-composition-points="750,62;850,62" d="M 750 62 L 850 62" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="tiers" data-edge-to="session" data-edge-label="scope: session" data-edge-key="3" data-edge-id="tiers-to-session" data-composition-points="948,94;948,173.5;915,173.5;915,253" d="M 948 94 L 948 165.5 Q 948 173.5 940 173.5 L 923 173.5 Q 915 173.5 915 181.5 L 915 253" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="tiers" data-edge-to="dispatch" data-edge-label="scope: dispatch" data-edge-key="4" data-edge-id="tiers-to-dispatch" data-composition-points="962,94;962,173.5;1185,173.5;1185,253" d="M 962 94 L 962 165.5 Q 962 173.5 970 173.5 L 1177 173.5 Q 1185 173.5 1185 181.5 L 1185 253" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="session" data-edge-to="models" data-edge-label="命中即改道" data-edge-key="5" data-edge-id="session-to-models" data-composition-points="915,317;915,341;784,341;784,515;760,515" d="M 915 317 L 915 333 Q 915 341 907 341 L 792 341 Q 784 341 784 349 L 784 507 Q 784 515 776 515 L 760 515" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="dispatch" data-edge-to="models" data-edge-label="队友身份改道" data-edge-key="6" data-edge-id="dispatch-to-models" data-composition-points="1178,317;1178,341;784,341;784,501;760,501" d="M 1178 317 L 1178 333 Q 1178 341 1170 341 L 792 341 Q 784 341 784 349 L 784 493 Q 784 501 776 501 L 760 501" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="guard" data-edge-to="dispatch" data-edge-label="拒绝并指向该角色的队友" data-edge-key="7" data-edge-id="guard-to-dispatch" data-composition-points="1300,508;1324,508;1324,341;1192,341;1192,317" d="M 1300 508 L 1316 508 Q 1324 508 1324 500 L 1324 349 Q 1324 341 1316 341 L 1200 341 Q 1192 341 1192 333 L 1192 317" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="image" data-edge-to="models" data-edge-label="多模态候选" data-edge-key="8" data-edge-id="image-to-models" data-composition-points="155,317;155,341;496,341;496,508;520,508" d="M 155 317 L 155 333 Q 155 341 163 341 L 488 341 Q 496 341 496 349 L 496 500 Q 496 508 504 508 L 520 508" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="router" data-edge-to="image" data-edge-label="带图轮按状态定策略" data-edge-key="9" data-edge-id="router-to-image" data-composition-points="520,69;496,69;496,229;155,229;155,253" d="M 520 69 L 504 69 Q 496 69 496 77 L 496 221 Q 496 229 488 229 L 163 229 Q 155 229 155 237 L 155 253" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
 
         <!-- Components -->
-        <g id="node-dock" data-node-id="dock" data-node-label="月汐 dock 面板" tabindex="0" role="button" aria-label="Focus 月汐 dock 面板, 多 plan 配额 · 决策 chip · 图像上下文行, 浏览器" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="多 plan 配额 · 决策 chip · 图像上下文行" data-node-context="浏览器">
-          <title>月汐 dock 面板 · 多 plan 配额 · 决策 chip · 图像上下文行 · 浏览器</title>
-          <rect x="450" y="60" width="170" height="64" rx="6" class="c-mask"/>
-          <rect x="450" y="60" width="170" height="64" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(456 66) scale(0.6875)">
-            <rect x="2" y="3" width="12" height="10" rx="2"/>
-            <path d="M2 6.5h12"/>
-            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
-            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
-          </g>
-          <text data-detail-anchor x="535" y="90" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">月汐 dock 面板</text>
-        <text data-detail="context" x="535" y="106" class="t-muted" font-size="6.9" text-anchor="middle">多 plan 配额 · 决策 chip · 图像上下文行</text>
-        </g>
-
-        <g id="node-card" data-node-id="card" data-node-label="设置卡片「月汐」" tabindex="0" role="button" aria-label="Focus 设置卡片「月汐」, 预设 · 规则 · effort · 试一句 · 流注册表, 浏览器" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="预设 · 规则 · effort · 试一句 · 流注册表" data-node-context="浏览器">
-          <title>设置卡片「月汐」 · 预设 · 规则 · effort · 试一句 · 流注册表 · 浏览器</title>
-          <rect x="760" y="60" width="180" height="64" rx="6" class="c-mask"/>
-          <rect x="760" y="60" width="180" height="64" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(766 66) scale(0.6875)">
-            <rect x="2" y="3" width="12" height="10" rx="2"/>
-            <path d="M2 6.5h12"/>
-            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
-            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
-          </g>
-          <text data-detail-anchor x="850" y="90" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">设置卡片「月汐」</text>
-        <text data-detail="context" x="850" y="106" class="t-muted" font-size="7.1" text-anchor="middle">预设 · 规则 · effort · 试一句 · 流注册表</text>
-        </g>
-
         <g id="node-user" data-node-id="user" data-node-label="用户消息" tabindex="0" role="button" aria-label="Focus 用户消息, 文本 / 图片, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="文本 / 图片" data-node-context="Architecture component">
           <title>用户消息 · 文本 / 图片 · Architecture component</title>
-          <rect x="40" y="330" width="130" height="60" rx="6" class="c-mask"/>
-          <rect x="40" y="330" width="130" height="60" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(46 336) scale(0.6875)">
+          <rect x="40" y="30" width="150" height="64" rx="6" class="c-mask"/>
+          <rect x="40" y="30" width="150" height="64" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(46 36) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-detail-anchor x="105" y="358" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">用户消息</text>
-        <text data-detail="context" x="105" y="374" class="t-muted" font-size="9" text-anchor="middle">文本 / 图片</text>
+          <text data-detail-anchor x="115" y="60" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">用户消息</text>
+        <text data-detail="context" x="115" y="76" class="t-muted" font-size="9" text-anchor="middle">文本 / 图片</text>
         </g>
 
-        <g id="node-events" data-node-id="events" data-node-label="Agent 事件缝" tabindex="0" role="button" aria-label="Focus Agent 事件缝, pre-step · request · stream · admission, DSH 宿主进程" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="pre-step · request · stream · admission" data-node-context="DSH 宿主进程">
-          <title>Agent 事件缝 · pre-step · request · stream · admission · DSH 宿主进程</title>
-          <rect x="240" y="330" width="190" height="60" rx="6" class="c-mask"/>
-          <rect x="240" y="330" width="190" height="60" rx="6" class="c-messagebus" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(246 336) scale(0.6875)">
+        <g id="node-event" data-node-id="event" data-node-label="宿主事件缝" tabindex="0" role="button" aria-label="Focus 宿主事件缝, agent/pre-step · agent/request, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="agent/pre-step · agent/request" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>宿主事件缝 · agent/pre-step · agent/request · DSH 宿主进程（plugin apply）</title>
+          <rect x="260" y="30" width="190" height="64" rx="6" class="c-mask"/>
+          <rect x="260" y="30" width="190" height="64" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(266 36) scale(0.6875)">
             <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
             <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
             <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
             <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
           </g>
-          <text data-detail-anchor x="335" y="358" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Agent 事件缝</text>
-        <text data-detail="context" x="335" y="374" class="t-muted" font-size="7.7" text-anchor="middle">pre-step · request · stream · admission</text>
+          <text data-detail-anchor x="355" y="60" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">宿主事件缝</text>
+        <text data-detail="context" x="355" y="76" class="t-muted" font-size="9" text-anchor="middle">agent/pre-step · agent/request</text>
         </g>
 
-        <g id="node-router" data-node-id="router" data-node-label="KimiRouter 路由器" tabindex="0" role="button" aria-label="Focus KimiRouter 路由器, 预设 + 规则 + 特异度 + effort + 三态护栏, DSH 宿主进程" aria-pressed="false" data-node-kind="backend" data-node-sublabel="预设 + 规则 + 特异度 + effort + 三态护栏" data-node-tag="kimi-tide 独占" data-node-context="DSH 宿主进程">
-          <title>KimiRouter 路由器 · 预设 + 规则 + 特异度 + effort + 三态护栏 · DSH 宿主进程 · kimi-tide 独占</title>
-          <rect x="480" y="330" width="180" height="60" rx="6" class="c-mask"/>
-          <rect x="480" y="330" width="180" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(486 336) scale(0.6875)">
+        <g id="node-router" data-node-id="router" data-node-label="KimiRouter · 五档决策链" tabindex="0" role="button" aria-label="Focus KimiRouter · 五档决策链, 显式 @ &gt; 调用方点名 &gt; role &gt; 规则 &gt; 默认, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="显式 @ &gt; 调用方点名 &gt; role &gt; 规则 &gt; 默认" data-node-tag="唯一决策点" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>KimiRouter · 五档决策链 · 显式 @ &gt; 调用方点名 &gt; role &gt; 规则 &gt; 默认 · DSH 宿主进程（plugin apply） · 唯一决策点</title>
+          <rect x="520" y="30" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="520" y="30" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(526 36) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="570" y="358" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">KimiRouter 路由器</text>
-        <text data-detail="context" x="570" y="374" class="t-muted" font-size="7.1" text-anchor="middle">预设 + 规则 + 特异度 + effort + 三态护栏</text>
-        <text data-detail="fine" x="570" y="382" class="t-backend" font-size="7" text-anchor="middle">kimi-tide 独占</text>
+          <text data-detail-anchor x="635" y="60" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">KimiRouter · 五档决策链</text>
+        <text data-detail="context" x="635" y="76" class="t-muted" font-size="9" text-anchor="middle">显式 @ &gt; 调用方点名 &gt; role &gt; 规则 &gt; 默认</text>
+        <text data-detail="fine" x="635" y="86" class="t-backend" font-size="7" text-anchor="middle">唯一决策点</text>
         </g>
 
-        <g id="node-flows" data-node-id="flows" data-node-label="协作流编排" tabindex="0" role="button" aria-label="Focus 协作流编排, transcribe eager/lazy · review(P2) · LRU · 30s, DSH 宿主进程" aria-pressed="false" data-node-kind="backend" data-node-sublabel="transcribe eager/lazy · review(P2) · LRU · 30s" data-node-tag="0.6.0" data-node-context="DSH 宿主进程">
-          <title>协作流编排 · transcribe eager/lazy · review(P2) · LRU · 30s · DSH 宿主进程 · 0.6.0</title>
-          <rect x="560" y="470" width="190" height="64" rx="6" class="c-mask"/>
-          <rect x="560" y="470" width="190" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(566 476) scale(0.6875)">
+        <g id="node-tiers" data-node-id="tiers" data-node-label="统一路由表 routes" tabindex="0" role="button" aria-label="Focus 统一路由表 routes, 存在即真源；旧字段仅镜像, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="存在即真源；旧字段仅镜像" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>统一路由表 routes · 存在即真源；旧字段仅镜像 · DSH 宿主进程（plugin apply）</title>
+          <rect x="850" y="30" width="210" height="64" rx="6" class="c-mask"/>
+          <rect x="850" y="30" width="210" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(856 36) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="655" y="500" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">协作流编排</text>
-        <text data-detail="context" x="655" y="516" class="t-muted" font-size="6.5" text-anchor="middle">transcribe eager/lazy · review(P2) · LRU · 30s</text>
-        <text data-detail="fine" x="655" y="526" class="t-backend" font-size="7" text-anchor="middle">0.6.0</text>
+          <text data-detail-anchor x="955" y="60" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">统一路由表 routes</text>
+        <text data-detail="context" x="955" y="76" class="t-muted" font-size="9" text-anchor="middle">存在即真源；旧字段仅镜像</text>
         </g>
 
-        <g id="node-registry" data-node-id="registry" data-node-label="ctx.llm 注册表" tabindex="0" role="button" aria-label="Focus ctx.llm 注册表, provider 路由 + 模态元数据, DSH 宿主进程" aria-pressed="false" data-node-kind="backend" data-node-sublabel="provider 路由 + 模态元数据" data-node-context="DSH 宿主进程">
-          <title>ctx.llm 注册表 · provider 路由 + 模态元数据 · DSH 宿主进程</title>
-          <rect x="700" y="330" width="160" height="60" rx="6" class="c-mask"/>
-          <rect x="700" y="330" width="160" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(706 336) scale(0.6875)">
+        <g id="node-image" data-node-id="image" data-node-label="图像护栏 · 按图三态" tabindex="0" role="button" aria-label="Focus 图像护栏 · 按图三态, native / transcribed / blind, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="native / transcribed / blind" data-node-tag="转述流接力" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>图像护栏 · 按图三态 · native / transcribed / blind · DSH 宿主进程（plugin apply） · 转述流接力</title>
+          <rect x="40" y="253" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="40" y="253" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 259) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="780" y="358" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">ctx.llm 注册表</text>
-        <text data-detail="context" x="780" y="374" class="t-muted" font-size="9" text-anchor="middle">provider 路由 + 模态元数据</text>
+          <text data-detail-anchor x="155" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">图像护栏 · 按图三态</text>
+        <text data-detail="context" x="155" y="299" class="t-muted" font-size="9" text-anchor="middle">native / transcribed / blind</text>
+        <text data-detail="fine" x="155" y="309" class="t-backend" font-size="7" text-anchor="middle">转述流接力</text>
         </g>
 
-        <g id="node-piai" data-node-id="piai" data-node-label="官方 dsh-llm-pi-ai" tabindex="0" role="button" aria-label="Focus 官方 dsh-llm-pi-ai, kimi-coding · deepseek-official 路由, DSH 宿主进程" aria-pressed="false" data-node-kind="backend" data-node-sublabel="kimi-coding · deepseek-official 路由" data-node-tag="官方接入层" data-node-context="DSH 宿主进程">
-          <title>官方 dsh-llm-pi-ai · kimi-coding · deepseek-official 路由 · DSH 宿主进程 · 官方接入层</title>
-          <rect x="930" y="330" width="180" height="60" rx="6" class="c-mask"/>
-          <rect x="930" y="330" width="180" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(936 336) scale(0.6875)">
+        <g id="node-session" data-node-id="session" data-node-label="session 行 · 关键词规则" tabindex="0" role="button" aria-label="Focus session 行 · 关键词规则, 只服务主会话 · 特异度首命中, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="只服务主会话 · 特异度首命中" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>session 行 · 关键词规则 · 只服务主会话 · 特异度首命中 · DSH 宿主进程（plugin apply）</title>
+          <rect x="800" y="253" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="800" y="253" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(806 259) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="1020" y="358" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">官方 dsh-llm-pi-ai</text>
-        <text data-detail="context" x="1020" y="374" class="t-muted" font-size="7.9" text-anchor="middle">kimi-coding · deepseek-official 路由</text>
-        <text data-detail="fine" x="1020" y="382" class="t-backend" font-size="7" text-anchor="middle">官方接入层</text>
+          <text data-detail-anchor x="915" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">session 行 · 关键词规则</text>
+        <text data-detail="context" x="915" y="299" class="t-muted" font-size="9" text-anchor="middle">只服务主会话 · 特异度首命中</text>
         </g>
 
-        <g id="node-kimiapi" data-node-id="kimiapi" data-node-label="api.kimi.com/coding" tabindex="0" role="button" aria-label="Focus api.kimi.com/coding, k3 系列 · 多模态 · 1M 长窗, 云 API" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="k3 系列 · 多模态 · 1M 长窗" data-node-context="云 API">
-          <title>api.kimi.com/coding · k3 系列 · 多模态 · 1M 长窗 · 云 API</title>
-          <rect x="840" y="560" width="170" height="64" rx="6" class="c-mask"/>
-          <rect x="840" y="560" width="170" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(846 566) scale(0.6875)">
+        <g id="node-dispatch" data-node-id="dispatch" data-node-label="dispatch 行 · 分工表角色" tabindex="0" role="button" aria-label="Focus dispatch 行 · 分工表角色, 只服务队友 · 认领集合, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="只服务队友 · 认领集合" data-node-tag="角色即路由" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>dispatch 行 · 分工表角色 · 只服务队友 · 认领集合 · DSH 宿主进程（plugin apply） · 角色即路由</title>
+          <rect x="1070" y="253" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="1070" y="253" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1076 259) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor x="1185" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">dispatch 行 · 分工表角色</text>
+        <text data-detail="context" x="1185" y="299" class="t-muted" font-size="9" text-anchor="middle">只服务队友 · 认领集合</text>
+        <text data-detail="fine" x="1185" y="309" class="t-backend" font-size="7" text-anchor="middle">角色即路由</text>
+        </g>
+
+        <g id="node-guard" data-node-id="guard" data-node-label="派发护栏" tabindex="0" role="button" aria-label="Focus 派发护栏, 裸 subagent 派发 · 默认关, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="security" data-node-sublabel="裸 subagent 派发 · 默认关" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>派发护栏 · 裸 subagent 派发 · 默认关 · DSH 宿主进程（plugin apply）</title>
+          <rect x="1070" y="476" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="1070" y="476" width="230" height="64" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1076 482) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-detail-anchor x="1185" y="506" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">派发护栏</text>
+        <text data-detail="context" x="1185" y="522" class="t-muted" font-size="9" text-anchor="middle">裸 subagent 派发 · 默认关</text>
+        </g>
+
+        <g id="node-models" data-node-id="models" data-node-label="官方 llm 服务 · 模型注册表" tabindex="0" role="button" aria-label="Focus 官方 llm 服务 · 模型注册表, listProviders / listModels · stream, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="listProviders / listModels · stream" data-node-tag="云模型 API" data-node-context="DSH 宿主进程（plugin apply）">
+          <title>官方 llm 服务 · 模型注册表 · listProviders / listModels · stream · DSH 宿主进程（plugin apply） · 云模型 API</title>
+          <rect x="520" y="476" width="240" height="64" rx="6" class="c-mask"/>
+          <rect x="520" y="476" width="240" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(526 482) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-detail-anchor x="925" y="590" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">api.kimi.com/coding</text>
-        <text data-detail="context" x="925" y="606" class="t-muted" font-size="9" text-anchor="middle">k3 系列 · 多模态 · 1M 长窗</text>
-        </g>
-
-        <g id="node-dsapi" data-node-id="dsapi" data-node-label="api.deepseek.com" tabindex="0" role="button" aria-label="Focus api.deepseek.com, V4 文本主力 · 低成本, 云 API" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="V4 文本主力 · 低成本" data-node-context="云 API">
-          <title>api.deepseek.com · V4 文本主力 · 低成本 · 云 API</title>
-          <rect x="1130" y="560" width="160" height="64" rx="6" class="c-mask"/>
-          <rect x="1130" y="560" width="160" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1136 566) scale(0.6875)">
-            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
-          </g>
-          <text data-detail-anchor x="1210" y="590" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">api.deepseek.com</text>
-        <text data-detail="context" x="1210" y="606" class="t-muted" font-size="9" text-anchor="middle">V4 文本主力 · 低成本</text>
-        </g>
-
-        <g id="node-visionexp" data-node-id="visionexp" data-node-label="deepseek-v4-flash-vision-exp" tabindex="0" role="button" aria-label="Focus deepseek-v4-flash-vision-exp, 读图转述专用 · 视觉模型, 云 API" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="读图转述专用 · 视觉模型" data-node-tag="eager/lazy 目标" data-node-context="云 API">
-          <title>deepseek-v4-flash-vision-exp · 读图转述专用 · 视觉模型 · 云 API · eager/lazy 目标</title>
-          <rect x="480" y="560" width="190" height="64" rx="6" class="c-mask"/>
-          <rect x="480" y="560" width="190" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(486 566) scale(0.6875)">
-            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
-          </g>
-          <text data-detail-anchor x="575" y="590" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">deepseek-v4-flash-vision-exp</text>
-        <text data-detail="context" x="575" y="606" class="t-muted" font-size="9" text-anchor="middle">读图转述专用 · 视觉模型</text>
-        <text data-detail="fine" x="575" y="616" class="t-cloud" font-size="7" text-anchor="middle">eager/lazy 目标</text>
+          <text data-detail-anchor x="640" y="506" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">官方 llm 服务 · 模型注册表</text>
+        <text data-detail="context" x="640" y="522" class="t-muted" font-size="9" text-anchor="middle">listProviders / listModels · stream</text>
+        <text data-detail="fine" x="640" y="532" class="t-cloud" font-size="7" text-anchor="middle">云模型 API</text>
         </g>
 
         <!-- Connection labels -->
-        <g data-detail="context" data-edge-from="user" data-edge-to="events" data-edge-label="prompt" data-edge-key="0" data-edge-id="user-to-events">
-          <rect x="185.6" y="340" width="38.8" height="14" rx="3" class="c-mask"/>
-          <text x="205" y="350" class="t-backend" font-size="8" text-anchor="middle">prompt</text>
+        <g data-detail="context" data-edge-from="user" data-edge-to="event" data-edge-label="本轮消息" data-edge-key="0" data-edge-id="user-to-event">
+          <rect x="200.8" y="42" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="225" y="52" class="t-backend" font-size="8" text-anchor="middle">本轮消息</text>
         </g>
-        <g data-detail="context" data-edge-from="events" data-edge-to="router" data-edge-label="每轮首步" data-edge-key="1" data-edge-id="events-to-router">
-          <rect x="430.8" y="340" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="455" y="350" class="t-muted" font-size="8" text-anchor="middle">每轮首步</text>
+        <g data-detail="context" data-edge-from="event" data-edge-to="router" data-edge-label="每轮首步判定" data-edge-key="1" data-edge-id="event-to-router">
+          <rect x="451.2" y="35" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="485" y="45" class="t-muted" font-size="8" text-anchor="middle">每轮首步判定</text>
         </g>
-        <g data-detail="context" data-edge-from="router" data-edge-to="flows" data-edge-label="规则目标=流" data-edge-key="2" data-edge-id="router-to-flows">
-          <rect x="581.1" y="410" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="612.5" y="420" class="t-backend" font-size="8" text-anchor="middle">规则目标=流</text>
+        <g data-detail="context" data-edge-from="router" data-edge-to="tiers" data-edge-label="五档求值" data-edge-key="2" data-edge-id="router-to-tiers">
+          <rect x="775.8" y="42" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="800" y="52" class="t-muted" font-size="8" text-anchor="middle">五档求值</text>
         </g>
-        <g data-detail="context" data-edge-from="flows" data-edge-to="visionexp" data-edge-label="转述读图" data-edge-key="3" data-edge-id="flows-to-visionexp">
-          <rect x="475.8" y="535" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="500" y="545" class="t-backend" font-size="8" text-anchor="middle">转述读图</text>
+        <g data-detail="context" data-edge-from="tiers" data-edge-to="session" data-edge-label="scope: session" data-edge-key="3" data-edge-id="tiers-to-session">
+          <rect x="848.9" y="153.5" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="887.5" y="163.5" class="t-muted" font-size="8" text-anchor="middle">scope: session</text>
         </g>
-        <g data-detail="context" data-edge-from="router" data-edge-to="registry" data-edge-label="改道 LlmCallConfig（含 effort）" data-edge-key="4" data-edge-id="router-to-registry">
-          <rect x="600.6" y="394" width="158.79999999999998" height="14" rx="3" class="c-mask"/>
-          <text x="680" y="404" class="t-muted" font-size="8" text-anchor="middle">改道 LlmCallConfig（含 effort）</text>
+        <g data-detail="context" data-edge-from="tiers" data-edge-to="dispatch" data-edge-label="scope: dispatch" data-edge-key="4" data-edge-id="tiers-to-dispatch">
+          <rect x="1032.5" y="153.5" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="1073.5" y="163.5" class="t-muted" font-size="8" text-anchor="middle">scope: dispatch</text>
         </g>
-        <g data-detail="context" data-edge-from="registry" data-edge-to="piai" data-edge-label="prepareCall" data-edge-key="5" data-edge-id="registry-to-piai">
-          <rect x="863.6" y="340" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="895" y="350" class="t-muted" font-size="8" text-anchor="middle">prepareCall</text>
+        <g data-detail="context" data-edge-from="session" data-edge-to="models" data-edge-label="命中即改道" data-edge-key="5" data-edge-id="session-to-models">
+          <rect x="820.5" y="321" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="849.5" y="331" class="t-muted" font-size="8" text-anchor="middle">命中即改道</text>
         </g>
-        <g data-detail="context" data-edge-from="piai" data-edge-to="kimiapi" data-edge-label="anthropic-messages · Bearer key" data-edge-key="6" data-edge-id="piai-to-kimi">
-          <rect x="800.6" y="435" width="158.79999999999998" height="14" rx="3" class="c-mask"/>
-          <text x="880" y="445" class="t-backend" font-size="8" text-anchor="middle">anthropic-messages · Bearer key</text>
+        <g data-detail="context" data-edge-from="dispatch" data-edge-to="models" data-edge-label="队友身份改道" data-edge-key="6" data-edge-id="dispatch-to-models">
+          <rect x="947.2" y="321" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="981" y="331" class="t-muted" font-size="8" text-anchor="middle">队友身份改道</text>
         </g>
-        <g data-detail="context" data-edge-from="piai" data-edge-to="dsapi" data-edge-label="openai-completions" data-edge-key="7" data-edge-id="piai-to-deepseek">
-          <rect x="1066.8" y="455" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="1115" y="465" class="t-muted" font-size="8" text-anchor="middle">openai-completions</text>
+        <g data-detail="context" data-edge-from="guard" data-edge-to="dispatch" data-edge-label="拒绝并指向该角色的队友" data-edge-key="7" data-edge-id="guard-to-dispatch">
+          <rect x="1266.2" y="404.5" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="1324" y="414.5" class="t-security" font-size="8" text-anchor="middle">拒绝并指向该角色的队友</text>
         </g>
-        <g data-detail="context" data-edge-from="router" data-edge-to="dock" data-edge-label="panel 投影 v6" data-edge-key="8" data-edge-id="router-to-dock">
-          <rect x="516.3" y="207" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="552.5" y="217" class="t-messagebus" font-size="8" text-anchor="middle">panel 投影 v6</text>
+        <g data-detail="context" data-edge-from="image" data-edge-to="models" data-edge-label="多模态候选" data-edge-key="8" data-edge-id="image-to-models">
+          <rect x="296.5" y="321" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="325.5" y="331" class="t-muted" font-size="8" text-anchor="middle">多模态候选</text>
         </g>
-        <g data-detail="context" data-edge-from="card" data-edge-to="router" data-edge-label="配置读写 · 命名空间 v5" data-edge-key="9" data-edge-id="card-to-router">
-          <rect x="652.2" y="220" width="115.6" height="14" rx="3" class="c-mask"/>
-          <text x="710" y="230" class="t-messagebus" font-size="8" text-anchor="middle">配置读写 · 命名空间 v5</text>
+        <g data-detail="context" data-edge-from="router" data-edge-to="image" data-edge-label="带图轮按状态定策略" data-edge-key="9" data-edge-id="router-to-image">
+          <rect x="447.8" y="129" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="496" y="139" class="t-messagebus" font-size="8" text-anchor="middle">带图轮按状态定策略</text>
         </g>
 
         <!-- Legend -->
         <g data-legend data-legend-bridge>
-          <text x="40" y="698" class="t-primary" font-size="12" font-weight="650">Legend</text>
-          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="Frontend" data-legend-x="40" data-legend-baseline="718" data-legend-width="83">
-            <rect x="40" y="709" width="16" height="10" rx="2.5" class="c-frontend" stroke-width="1"/>
-            <text x="62" y="718" class="t-muted" font-size="10" font-weight="500">Frontend</text>
+          <text x="40" y="584" class="t-primary" font-size="12" font-weight="650">Legend</text>
+          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Backend" data-legend-x="40" data-legend-baseline="604" data-legend-width="78">
+            <rect x="40" y="595" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
+            <text x="62" y="604" class="t-muted" font-size="10" font-weight="500">Backend</text>
           </g>
-          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Backend" data-legend-x="145" data-legend-baseline="718" data-legend-width="78">
-            <rect x="145" y="709" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
-            <text x="167" y="718" class="t-muted" font-size="10" font-weight="500">Backend</text>
+          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud" data-legend-x="140" data-legend-baseline="604" data-legend-width="68">
+            <rect x="140" y="595" width="16" height="10" rx="2.5" class="c-cloud" stroke-width="1"/>
+            <text x="162" y="604" class="t-muted" font-size="10" font-weight="500">Cloud</text>
           </g>
-          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud" data-legend-x="245" data-legend-baseline="718" data-legend-width="68">
-            <rect x="245" y="709" width="16" height="10" rx="2.5" class="c-cloud" stroke-width="1"/>
-            <text x="267" y="718" class="t-muted" font-size="10" font-weight="500">Cloud</text>
+          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="Security" data-legend-x="230" data-legend-baseline="604" data-legend-width="83">
+            <rect x="230" y="595" width="16" height="10" rx="2.5" class="c-security" stroke-width="1"/>
+            <text x="252" y="604" class="t-muted" font-size="10" font-weight="500">Security</text>
           </g>
-          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="Message bus" data-legend-x="335" data-legend-baseline="718" data-legend-width="98">
-            <rect x="335" y="709" width="16" height="10" rx="2.5" class="c-messagebus" stroke-width="1"/>
-            <text x="357" y="718" class="t-muted" font-size="10" font-weight="500">Message bus</text>
+          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="Message bus" data-legend-x="335" data-legend-baseline="604" data-legend-width="98">
+            <rect x="335" y="595" width="16" height="10" rx="2.5" class="c-messagebus" stroke-width="1"/>
+            <text x="357" y="604" class="t-muted" font-size="10" font-weight="500">Message bus</text>
           </g>
-          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="455" data-legend-baseline="718" data-legend-width="83">
-            <rect x="455" y="709" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
-            <text x="477" y="718" class="t-muted" font-size="10" font-weight="500">External</text>
+          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="455" data-legend-baseline="604" data-legend-width="83">
+            <rect x="455" y="595" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
+            <text x="477" y="604" class="t-muted" font-size="10" font-weight="500">External</text>
           </g>
         </g>
       </svg>
@@ -5318,33 +5285,44 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>官方承接（不重复造轮）</h3>
+          <h3>五档决策链（src/router.ts）</h3>
         </div>
         <ul>
-          <li>&bull; 接入层 = pi-ai 原生 kimi-coding 路由（API key 直连）</li>
-          <li>&bull; 凭据 = apiKeyEnv 引用按请求解析，密钥不落插件配置</li>
+          <li>&bull; 显式 @ &gt; 调用方点名 &gt; 分工表 role &gt; 关键词规则 &gt; 默认目标；目标不可用即跳过该档降级</li>
+          <li>&bull; 默认目标 = 主驱动恒定开启时的 driver，否则激活预设的默认模型</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>kimi-tide 独占价值</h3>
+          <h3>统一路由表（v7 · src/config.ts）</h3>
         </div>
         <ul>
-          <li>&bull; 规则驱动路由：显式 @ → 特异度首命中 → 预设打底（0.7.0 词边界 / 0.8.0 effort）</li>
-          <li>&bull; 按图三态 + 图像护栏 + auxTargets 辅助改道，决策可观测</li>
+          <li>&bull; routes 一张表两个作用域：session 行只服务主会话，dispatch 行只服务队友</li>
+          <li>&bull; routes 存在即真源，presets[*].rules 与 roles 降为镜像；写期校验不一致直接拒绝</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>分工表与派发护栏（v2.0.0 / v2.2.0）</h3>
+        </div>
+        <ul>
+          <li>&bull; 队友名 ∈ 认领集合（teammate[] ∪ {id}）即改道到角色目标，via 记 role</li>
+          <li>&bull; 护栏默认关：命中角色领域的裸 subagent 调用被拒，理由写明该派给谁</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>0.6.0 协作编排 · 1.0.0 大版本</h3>
+          <h3>图像安全与观测</h3>
         </div>
         <ul>
-          <li>&bull; transcribe 流：vision-exp 读图，eager/lazy · LRU · 30s · 失败不重打</li>
-          <li>&bull; 多 plan 配额跟随命中目标（kimi/GLM）+ 月汐品牌主题化</li>
+          <li>&bull; 按图三态叠加模型级图像护栏，转述流让视觉模型读图、文本模型接力</li>
+          <li>&bull; dock 面板现算决策原因 / 配额 chip / 最近派发，宿主语言切换即整卡换语言</li>
         </ul>
       </div>
     </div>
