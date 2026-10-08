@@ -124,6 +124,32 @@ prompt 要素（见 docs/templates/recheck-task.md 完整模板）：
 
 复检发现新问题 → 回到 Phase 3 继续修 → 再复检，直到无新问题或仅剩可接受项。
 
+### 3.6 派发后核验（必做）
+
+**为什么**：子代理跑在哪个模型上，**只有子会话首条 `request/header` 的 config 靠得住**。会话头、`subagent/descriptor.agentModel`、`list_agents` 在改道后不回写（展示层漂移），照它们判会判错；派发说明更只是意图，不是事实。
+
+**何时**：**每次派发的收工步**——尤其在向人汇报「多模型 / 按角色」之前。没有这一步，改道判断即使全对，「实际落点」也无从对证。
+
+**怎么做**（下例的 `--expect` 期望值取自 2026-10-08 23:03 那批重派子会话的一次真实比对，只是当时时点的快照；父会话仍在派发时最近 N 个会漂移到更新的批次，直接照抄复现会 exit 1——判读见下方「时点注意」）：
+
+```bash
+node scripts/acceptance/check-dispatch-routing.mjs <父会话id> --last 3 \
+  --expect zai-coding-cn/glm-5.3,zai-coding-cn/glm-5.3,qwen-token-plan-cn/qwen3.8-max
+```
+
+退出码即结论（`0` 逐项一致 / `1` 不一致、零子会话或缺请求头 / `2` 参数或读取错误）。三条对照：
+
+1. **子会话数 = 派发数**（`--last` 前的总数，JSON 里的 `totalChildren`）；
+2. **逐个 provider/model 与期望逐字一致**（`--expect` 按顺序比对）；
+3. **有没有整批落到默认目标**——`deepseek-official/deepseek-flash` 整批同名是「`agent(prompt)` 没传 provider/model」的典型指纹。
+
+**时点注意（`--last N --expect`）**：脚本按 createdAt 升序取最近 N 个再逐项比。父会话仍在活跃派发时，这个窗口可能**跨批次**——混入旧子会话、或新子会话还没收齐，于是同一条命令两次跑出不同结果（实测：M3 会话的子会话数在一轮里从 12 涨到 19），报『不一致』可能只是时序而非真没改道。**先确认父会话派发已结束（或子会话总数已稳定）再跑 `--last N --expect`**；失败时先分清『真没改道』与『窗口跨批次』；不确定就读不带 `--last` 的全量输出再比对。
+
+**真实反面案例**：2026-10-08 M3 三方独立评审——一个主会话用 workflow 派了 3 个『独立评审』子代理，`agent(prompt, { label, phase, schema })` **没传 provider/model**，3 个子会话全部落在 `deepseek-official/deepseek-flash`，而派发说明写着『三个不同模型』。事后查明：改道判断做过、也做对了，但**没有任何一步的动作叫『核对路由』**。派生纪律：**description 不是证据**——派发说明、label、phase 都不进判据，判据只有请求头。
+
+**失败怎么办**：重派必须显式点名 `agent(prompt, { provider, model })`，或改用 `spawn_teammate(name: "<角色 id>")` 派给该角色的队友（队友名取自月汐分工表，月汐据此改道）——然后再跑一次上面的命令，直到 exit 0。
+
+
 ---
 
 ## 4. 踩过的坑（供后来者参考）
@@ -171,6 +197,8 @@ DSH 当前有四档派活机制，按「上下文隔离 / 时长 / 可交互性�
 1. **角色的 `note` 与 `aliases` 字段空着**：`note` 会进自动生成的 `kimi-tide-team` 技能描述，也就是主模型派活时读的那段文字——把「这个角色怎么做、验收看什么」写进去，等于常驻任务书模板。收益上限高，因为本项目第一号坑就是「审查 prompt 信息不足 ＝ 审查质量塌方」（§4-1）。
 2. **按角色收敛 skills**：见 [backlog Q11](superpowers/backlog.md)（Agent Teams 无 skills 入参；技能注册表是 host + per-scope 分层，三条候选路线 A/B/C）。
 3. **换执行体 ≠ 换模型**：月汐只换模型（同一 DSH 执行体）；若要派给别的 CLI（Codex / Claude Code / Qwen CLI…），属另一类做法（如社区 `dsh-agent-conductor`），与月汐可叠但不重叠。
+
+> 派活落点的核验动作（不分档、每次派发后都要跑）见 §3.6「派发后核验（必做）」——四档机制都绕不开「description 不是证据」这条。
 
 > 另附一条事实更新：`dsh-dispatch-research-2026-10-01.md` 曾记「官方未找到智能体团队、该能力只存在于社区插件」——**该条已过期**：官方实验性 Agent Teams 已随宿主发布（`@deepseek-ai/dsh-experimental-agent-team-profile` 桌面端已启用，官方文档 `docs/subsystems/agent-team.zh.md` 在位），资料仓已就地加订正行。
 

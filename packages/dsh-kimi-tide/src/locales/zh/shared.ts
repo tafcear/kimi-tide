@@ -51,6 +51,10 @@ export const zh = {
   'shared.roles.guard.roleKeywordsFallback': '角色「{0}」未配置 keywords，本次判定回退到它的显示名与别名；想收紧/放宽请在设置页填该角色的 keywords。',
   /* ↑ fixHint 与 roleKeywordsFallback 的 {0} 都是**角色显示名（label）**——同一条拒绝理由里
      与「角色「{1}」」保持同一称呼，不混用 id（id 只在 rejectSubagent 的 {0} 出现）。 */
+  /* workflow 分支拒绝理由（2026-10-08 护栏扩面）：脚本的 agent() 一次都没点名目标 ⇒
+     全部跑默认目标。四件事一次说清：①为什么会全跑默认目标 ②分工表/关键词规则不参与
+     的原因 ③两条正确改法 ④确实要走默认目标的出路（显式点名即放行）。 */
+  'shared.roles.guard.rejectWorkflow': '这次 workflow 的 `agent()` 一次都没点名目标——所有子代理都会跑在**默认目标**上，分工表与关键词规则都不会参与（workflow 的子代理不是队友，分工表改道对它不适用）。两种改法：① 给每次 `agent(prompt, { provider, model })` 点名目标；② 改用 `spawn_teammate(name="<角色 id>")` 派给该角色的队友。确实要走默认目标的话，把默认目标显式写进 `provider` / `model` 即可——本护栏对点过名的派发一律放行。',
   /* 分工表 skill 正文（模型面向的宿主侧注入文本，不经浏览器渲染；逐字保留）。 */
   'shared.roles.skill.title': '# 月汐分工表（团队派发）',
   'shared.roles.skill.intro': '当任务属于某个专项领域时，**用 `spawn_teammate` 派给该角色的队友**（队友名取自上表的「队友名（认领）」一列或角色 id），不要自己硬做、也不要派给普通子代理。',
@@ -64,6 +68,15 @@ export const zh = {
   'shared.roles.skill.whenNot1': '- 琐碎到不值得起一个子代理的活（改个错别字、一句话问答）；',
   'shared.roles.skill.whenNot2': '- 没有对应角色的领域 —— 要么自己答，要么先请用户在设置里加一个角色；',
   'shared.roles.skill.whenNot3': '- 需要与本轮上下文强耦合的连续操作（子代理只有你给它的提示词）。',
+  /* 派完怎么验（2026-10-08 实测事故的另一半修法）：派完必须回读宿主持久真源，
+     展示层字段改道后不回写。 */
+  'shared.roles.skill.verifyTitle': '## 派完怎么验（必做）',
+  'shared.roles.skill.verify1': '1. **派完必验**：回读每个子会话的**首条 `request/header` 事件**（宿主持久真源），与你要派的目标逐字对照。',
+  'shared.roles.skill.verify2': '2. **只有 `request/header` 靠得住**：会话头、`subagent` 返回的 `descriptor.agentModel`、`list_agents` 在改道后都不会回写（展示层漂移）——照它们判会判错。',
+  'shared.roles.skill.verify3': '3. 在 kimi-tide 仓内一条命令：`node scripts/acceptance/check-dispatch-routing.mjs <父会话 id> [--last N] [--expect provider/model,...]`（退出码 0=通过 / 1=不一致 / 2=用法或读取错误）。',
+  'shared.roles.skill.verify4': '4. 不在本仓时的通用做法：解 `$DSH_HOME/sessions/<工作区 slug>/<子会话 id>/session.v4.jsonl.zstd`（回落 `~/.dsh/sessions/...`），取首条 `request/header` 事件。',
+  'shared.roles.skill.verify5': '5. 没验成怎么办：重派时显式点名 `provider` / `model`，或改用 `spawn_teammate` 派给该角色的队友。',
+  'shared.roles.skill.verify6': '6. 一句实话：「我以为我传了」不算证据。',
   /* ---- review-verdict.ts：结论标签（注入文本与面板摘要共用单源；W6） ----
      word* 两键是解析词表（匹配数据），render 侧不用；与 label 同表仅为键集对称。 */
   'shared.verdict.pass': '通过',

@@ -16,6 +16,16 @@
 
 ---
 
+## 未发布（v2.2.1 候选）
+
+**派发护栏扩到 `workflow`——脚本里的 `agent()` 一次都没点名目标也会被拒绝**；分工表技能正文补「派完怎么验」一节。护栏默认关闭不变：不开启时行为与 v2.2.0 逐字节一致。来源是 2026-10-08 一次实测事故：主会话用 `workflow` 派 3 个『独立评审』子代理，脚本写 `agent(prompt, { label, phase, schema })` 没传 `provider` / `model`，3 个子代理全部跑默认目标——而 v2.2.0 把 `workflow` 写成「设计上的出口」，这个出口正是漏洞。
+
+- **变更 · 派发护栏拦截范围扩大**：`DISPATCH_GUARD_TOOLS` 加入 `workflow`，判据是**「一次都没点名」**——`args.script` 含 `agent(` 且全文没有词边界级的 `provider` / `model` 任一（大小写不敏感）⇒ 拒绝。拒绝理由（新键 `shared.roles.guard.rejectWorkflow`）一次写清四件事：全部会跑**默认目标**、分工表与关键词规则都不参与（workflow 子代理不是队友）、两条正确改法（`agent(prompt, { provider, model })` 点名 / 改用 `spawn_teammate(name="<角色 id>")`）、**确实要走默认目标的出路**（把默认目标显式写进 `provider` / `model` 即放行）。新判据做成导出的纯函数 `workflowScriptUnnamed()`（可单测）；`workflow` 分支**不复用** `taskTextOf`（实参形状是 `meta` / `script`），也不看分工表。`subagent` / `subagent_fork` 的既有行为**逐字节不变**，红线照旧（绝不抛异常、畸形实参一律放行、关闭态与队友调用放行）。
+- **新增 · 分工表技能「派完怎么验」一节**：正文末尾（「什么时候不要派」之后）新增六条——**派完必验**（回读每个子会话的**首条 `request/header` 事件**，宿主持久真源，与目标逐字对照）；**只有 `request/header` 靠得住**（会话头 / `descriptor.agentModel` / `list_agents` 改道后不回写，是展示层漂移）；本仓一条命令 `node scripts/acceptance/check-dispatch-routing.mjs <父会话 id> [--last N] [--expect provider/model,...]`（退出码 0=通过 / 1=不一致 / 2=用法或读取错误）；不在本仓时的通用做法（解 `$DSH_HOME/sessions/<工作区 slug>/<子会话 id>/session.v4.jsonl.zstd`，回落 `~/.dsh/sessions/...`）；没验成怎么办（重派显式点名，或改 `spawn_teammate`）；一句实话（「我以为我传了」不算证据）。
+- **交付面同步**：说明页「派发护栏（dispatchGuard）」条目改到新范围（两类被拒派发 + 各自改法）；设置卡「派发护栏」提示同步；设计说明 [dispatch-guard.md](packages/dsh-kimi-tide/docs/dispatch-guard.md) 更新拦截范围 / 判据 / 已知限制三处并删掉「设计上的出口」旧口径；根 README 双语与包 README 补同一句话。
+- **已知限制（如实标注）**：workflow 判据是**词级启发式，宁可漏拦不可误拦**——脚本里出现 `model` 一词（哪怕只是提示词正文）即视为点过名而放行，`models` / `providerX` 不算点名；点错模型或用变量间接传目标的形态不判。
+- **未验项**：护栏的**运行期**行为（含 workflow 新分支）仍未在真实宿主里判读（v2.2.0 起就挂着的未验项）；宿主是否把 `workflow` 调用送进 `ctx.tools.guard` 回调同样待实机判读。
+
 ## v2.2.0（2026-10-08）
 
 **派发护栏——命中角色领域的普通子代理派发被拒绝，拒绝理由直接给出正确的下一步**。默认关闭：不开启时行为与本版之前逐字节一致。本版另含一轮**对外定位与素材换代**（见末两条）。

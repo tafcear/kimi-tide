@@ -140,6 +140,17 @@ export function renderTeamSkill(
     copyNow('shared.roles.skill.whenNot1'),
     copyNow('shared.roles.skill.whenNot2'),
     copyNow('shared.roles.skill.whenNot3'),
+    '',
+    // 派完怎么验（2026-10-08 护栏扩面的另一半）：派发后必须回读宿主持久真源
+    // （子会话首条 request/header 事件）——展示层字段改道后不回写，照它们判会判错。
+    copyNow('shared.roles.skill.verifyTitle'),
+    '',
+    copyNow('shared.roles.skill.verify1'),
+    copyNow('shared.roles.skill.verify2'),
+    copyNow('shared.roles.skill.verify3'),
+    copyNow('shared.roles.skill.verify4'),
+    copyNow('shared.roles.skill.verify5'),
+    copyNow('shared.roles.skill.verify6'),
   ].join('\n')
 
   return { description, body }

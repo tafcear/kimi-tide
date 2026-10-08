@@ -171,9 +171,9 @@ export const en: Record<keyof typeof zh, string> = {
   'help.section.routing.driver.body2': 'See the dispatch slot on the dock for dispatch reasons: role = role table / explicit = explicit nomination / unclaimed = not in role table / keep = kept as-is.',
 
   'help.section.routing.guard.title': 'Dispatch guard (dispatchGuard)',
-  'help.section.routing.guard.body0': 'dispatchGuard is off by default; once on, a dispatch is **rejected** when the task matches a role\'s domain but goes to a bare subagent (subagent / subagent_fork).',
-  'help.section.routing.guard.body1': 'The match uses the role\'s domain words (keywords); when a role has none, the match falls back to its label, aliases and id.',
-  'help.section.routing.guard.body2': 'After a rejection, create that role\'s teammate with spawn_teammate and dispatch the task to it.',
+  'help.section.routing.guard.body0': 'dispatchGuard is off by default; once on, two kinds of dispatch are **rejected**: a task that matches a role\'s domain but goes to a bare subagent (subagent / subagent_fork), or a workflow script whose agent() calls never name a target (every subagent in such a script runs on the default target).',
+  'help.section.routing.guard.body1': 'The bare-subagent match uses the role\'s domain words (keywords); when a role has none, the match falls back to its label, aliases and id.',
+  'help.section.routing.guard.body2': 'After a rejection, create that role\'s teammate with spawn_teammate and dispatch the task to it; in a workflow script, name provider / model on agent() (when the default target is genuinely intended, write it in explicitly and the call passes).',
   'help.section.routing.guard.body3': '**The guard can only reject; it never reroutes**: rerouting still takes another spawn_teammate call.',
 
   /* ======== §4 keywords — keywords and matching ======== */

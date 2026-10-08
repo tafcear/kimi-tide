@@ -167,9 +167,9 @@ export const zh = {
   'help.section.routing.driver.body2': '派发依据见 dock 的派发槽：role=分工表角色 / explicit=显式点名 / unclaimed=未在分工表 / keep=保持原样。',
 
   'help.section.routing.guard.title': '派发护栏（dispatchGuard）',
-  'help.section.routing.guard.body0': '`dispatchGuard` 默认关闭；开启后，任务命中某角色的领域、却派给普通子代理（`subagent` / `subagent_fork`）时，这次派发被**拒绝**。',
-  'help.section.routing.guard.body1': '判定依据是角色的领域词（`keywords`）；角色没填时，判定回退到它的显示名、别名与 id。',
-  'help.section.routing.guard.body2': '被拒绝后，用 `spawn_teammate` 建起该角色的队友并把任务派给它。',
+  'help.section.routing.guard.body0': '`dispatchGuard` 默认关闭；开启后两类派发会被**拒绝**：任务命中某角色的领域、却派给普通子代理（`subagent` / `subagent_fork`）；或 `workflow` 脚本里的 `agent()` 一次都没点名目标（这种脚本的所有子代理都会跑在默认目标上）。',
+  'help.section.routing.guard.body1': '普通子代理这条的判定依据是角色的领域词（`keywords`）；角色没填时，判定回退到它的显示名、别名与 id。',
+  'help.section.routing.guard.body2': '被拒绝后，用 `spawn_teammate` 建起该角色的队友并把任务派给它；workflow 脚本则给 `agent()` 点名 `provider` / `model`（确实要走默认目标时，把默认目标显式写进去即放行）。',
   'help.section.routing.guard.body3': '**护栏只能拒绝、不能自动改派**：改派仍要另一次 `spawn_teammate` 调用。',
 
   /* ======== §4 keywords — 关键词与匹配 ======== */

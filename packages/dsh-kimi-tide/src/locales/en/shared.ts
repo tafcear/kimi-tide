@@ -50,6 +50,11 @@ export const en: Record<keyof typeof zh, string> = {
   'shared.roles.guard.roleKeywordsFallback': 'Role "{0}" declares no keywords, so this match fell back to its label and aliases; add keywords for that role in settings to tighten or widen it.',
   /* ↑ both {0}s above are the role LABEL: one denial reason keeps one name for the role
      (the id appears only as rejectSubagent's {0}, i.e. the teammate name to dispatch to). */
+  /* Denial reason for the workflow branch: agent() never named a target, so every
+     subagent runs on the default target. States four things: why everything lands on
+     the default target, why the assignment table / keyword rules take no part, the two
+     correct fixes, and the explicit way out when the default target is intended. */
+  'shared.roles.guard.rejectWorkflow': 'This workflow\'s `agent()` never names a target — every subagent will run on the **default target**, and neither the assignment table nor keyword rules takes part (workflow subagents are not teammates, so assignment-table rerouting does not apply). Two fixes: 1. name a target on every call — `agent(prompt, { provider, model })`; 2. dispatch to the role\'s teammate instead with `spawn_teammate(name="<role id>")`. When the default target is genuinely intended, write it into `provider` / `model` explicitly — the guard lets every named dispatch through.',
   'shared.roles.skill.title': '# Kimi Tide assignment table (team dispatch)',
   'shared.roles.skill.intro': 'When a task belongs to a specific domain, **spawn the role\'s teammate with `spawn_teammate`** (the teammate name comes from the "Teammate names (claimed)" column above or the role id) instead of doing it yourself — and never hand it to a bare subagent.',
   'shared.roles.skill.tableHeader': '| Role | id | Target model | Teammate names (claimed) | Aliases | Note |',
@@ -62,6 +67,15 @@ export const en: Record<keyof typeof zh, string> = {
   'shared.roles.skill.whenNot1': '- Work too trivial to justify a subagent (fixing a typo, a one-line question);',
   'shared.roles.skill.whenNot2': '- Domains with no matching role — answer it yourself, or ask the user to add a role in settings first;',
   'shared.roles.skill.whenNot3': '- Continuous operations tightly coupled to the current context (a subagent only has the prompt you give it).',
+  /* How to verify after dispatching: the host-persisted request/header event is the
+     only trustworthy source; display-layer fields are not rewritten after rerouting. */
+  'shared.roles.skill.verifyTitle': '## How to verify after dispatching (required)',
+  'shared.roles.skill.verify1': '1. **Verify after every dispatch**: read back the **first `request/header` event** of each child session (the host-persisted source of truth) and compare it word for word with the target you meant to dispatch to.',
+  'shared.roles.skill.verify2': '2. **Only `request/header` is trustworthy**: the session header, the `descriptor.agentModel` returned by `subagent`, and `list_agents` are not rewritten after rerouting (display-layer drift) — judging by them misjudges.',
+  'shared.roles.skill.verify3': '3. One command inside the kimi-tide repo: `node scripts/acceptance/check-dispatch-routing.mjs <parent session id> [--last N] [--expect provider/model,...]` (exit code 0 = pass / 1 = mismatch / 2 = usage or read error).',
+  'shared.roles.skill.verify4': '4. Outside this repo, the generic path: unpack `$DSH_HOME/sessions/<workspace slug>/<child session id>/session.v4.jsonl.zstd` (fall back to `~/.dsh/sessions/...`) and take the first `request/header` event.',
+  'shared.roles.skill.verify5': '5. When verification fails: re-dispatch with an explicit `provider` / `model`, or switch to `spawn_teammate` for that role\'s teammate.',
+  'shared.roles.skill.verify6': '6. In plain terms: "I thought I passed it" is not evidence.',
   /* ---- review-verdict.ts ---- */
   'shared.verdict.pass': 'Pass',
   'shared.verdict.conditional': 'Conditional pass',

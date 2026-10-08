@@ -249,7 +249,7 @@ dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
 - **模型看得见这张表**：分工表非空且路由开启时，月汐自动注册一张运行时技能（`kimi-tide-team`）——派活前读它，按两种配方之一办事：**一次性任务**（`workflow` 点名目标）或**常驻队友**（`spawn_teammate`，名字取认领列）。你改表，存活会话的技能卡下一轮自动换新；表清空则整张卡退出。
 - **主驱动恒定**：想让主会话的**默认目标**永远是某个模型（而不是预设默认），在设置里打开「主驱动恒定」并指定目标即可——关键词规则与 `@kimi` 指定照样优先。主驱动留空＝跟随宿主默认模型。
 - **每次派发都留痕**：决策面板的「最近派发」列出依据（`role` / `unclaimed` / `explicit` / `keep`）、队友、角色标签与**最终生效**的模型（每父会话最近 20 条）；角色目标不可用时**不静默换人**，面板逐字写明「「〈角色名〉」目标不可用 → 保持继承（〈实际生效目标〉）」。
-- **派发护栏（默认关）**：设置里「派发护栏」打开后，任务命中某个角色的领域、却派给**普通子代理**（`subagent` / `subagent_fork`）时，这次派发会被拒绝，拒绝理由写明「该派给哪个队友、怎么建」——因为普通子代理不参与分工表改道，会在默认模型上跑。领域判定看角色的**领域词（keywords）**，留空则回退到显示名、别名与 id（id 按词边界，`qa` 不会在 `qatar` 里误命中）。**护栏只能拒绝、不能自动改派**（改派仍要一次 `spawn_teammate`）；`workflow` 点名模型的派发、以及队友自己的派发都不拦。
+- **派发护栏（默认关）**：设置里「派发护栏」打开后，任务命中某个角色的领域、却派给**普通子代理**（`subagent` / `subagent_fork`）时，这次派发会被拒绝，拒绝理由写明「该派给哪个队友、怎么建」——因为普通子代理不参与分工表改道，会在默认模型上跑。领域判定看角色的**领域词（keywords）**，留空则回退到显示名、别名与 id（id 按词边界，`qa` 不会在 `qatar` 里误命中）。**护栏只能拒绝、不能自动改派**（改派仍要一次 `spawn_teammate`）；`workflow` 脚本里的 `agent()` 一次都没点名目标时同样会被拒绝（点过名的派发、以及队友自己的派发都不拦）。
 
 配置字段（`roles` / `driver` / `driverSticky` / `rulesApplyToChildren` / `dispatchGuard`，角色行另有 `keywords`）、五档决策优先级与迁移口径见[路由器架构详解](packages/dsh-kimi-tide/docs/router.md)的「2.0.0 团队派发」节与「2.1.0 统一路由表（v7）」节；护栏的设计与自查见 [dispatch-guard.md](packages/dsh-kimi-tide/docs/dispatch-guard.md)；实机验收判据与结果见 [team-dispatch-acceptance.md](packages/dsh-kimi-tide/docs/team-dispatch-acceptance.md)。
 

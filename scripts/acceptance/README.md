@@ -75,6 +75,39 @@ node scripts/acceptance/hit-confirm-sentinel.mjs --json
 
 这 5 次的会话日志被 LRU 语义确证过：缓存**一次都没命中**，因此 hit/omit 两种「成功」都被排除，只剩「无结论」与「判词不可解析」两种失败形态。
 
+## 派发路由核验（`check-dispatch-routing.mjs`）——**每次派发的收工步**
+
+### 它治的是什么
+
+「这批子代理到底跑在哪个模型上」的失效是**静默**的：workflow 的 `agent(prompt, { label, phase, schema })` 不传 `provider/model` 时全部落默认目标，派发说明照样能写「三个不同模型」——2026-10-08 实测就是这么翻的车（3 个『独立评审』子会话全落 `deepseek-official/deepseek-flash`）。事后复盘：改道的判断做过也做对了，但**没有任何一步的动作叫『核对路由』**。这个脚本把该动作固化成一条命令。
+
+判据口径：**只有子会话首条 `request/header` 的 config（provider/model）靠得住**——会话头、`subagent/descriptor.agentModel`、`list_agents` 在改道后不回写（展示层漂移），照它们判会判错。
+
+### 怎么跑
+
+```bash
+# 列出某父会话的全部子会话及其首条请求头的 provider/model/effort/maxTokens
+node scripts/acceptance/check-dispatch-routing.mjs <父会话id | 会话文件 | 会话目录>
+
+# 只看最近 N 个，并逐项比对期望路由
+node scripts/acceptance/check-dispatch-routing.mjs session-a539ab51-… --last 3 \
+  --expect zai-coding-cn/glm-5.3,zai-coding-cn/glm-5.3,qwen-token-plan-cn/qwen3.8-max
+
+# 会话根解析：--sessions-root > $DSH_HOME/sessions > ~/.dsh/sessions
+node scripts/acceptance/check-dispatch-routing.mjs <父会话id> --json   # 机器可读
+```
+
+退出码：`0` 全部对得上（给了 `--expect` 且逐项一致；或没给且至少列出 1 个子会话） · `1` 不一致 / 零子会话 / 有子会话缺 `request/header`（显式标 `NO_HEADER`） · `2` 参数或路径或读取错误（**未知参数一律 exit 2 并打印用法**，同本目录 2026-10-08 的参数纪律）。
+
+### 判读要点
+
+- 三条对照：**子会话数 = 派发数**；逐个 provider/model 与期望**逐字一致**（`--expect` 按列出顺序逐项比，不一致时『期望 vs 实际』两行原样打出）；**有没有整批落到默认目标**（`deepseek-official/deepseek-flash` 整批同名是「没传 provider/model」的典型指纹）。
+- `--last N` 按 createdAt 取最近 N 个；同批派发的毫秒差常为 0–2ms，排序按 createdAt 升序、同毫秒按会话 id 兜底，输出确定。
+- **`--last N --expect` 的时点脆弱性**：父会话仍在活跃派发时，最近 N 个的窗口可能**跨批次**——混入旧子会话、或新子会话还没收齐，同一条命令两次跑出不同结果（实测：M3 会话的子会话数在一轮里从 12 涨到 19）。**先确认父会话派发已结束（或子会话总数已稳定）再跑**；失败时先分清『真没改道』与『窗口跨批次』；不确定就读不带 `--last` 的全量输出再比对。
+- **description 不是证据**：派发说明、label、phase 都不进判据；判据只有请求头。
+- 与 `hit-confirm-sentinel.mjs --session <会话目录>` 的分工：那边看**单个会话的全部请求头**（逐 turn 的路由轨迹）；本工具看**一个父会话下所有子会话各自的首条请求头**（整批派发的路由核对）。收工步与反面案例见 [agent-collaboration-loop.md §3.6](../../docs/agent-collaboration-loop.md)。
+- 实现上复用 `session-dump.mjs` 导出的 `scanZstdFrames()` 逐帧解码（不扫 magic——那会在压缩数据里误命中）；扫描阶段只解首帧拿首行 session 头判 `parentSession`，不整卷解码。
+
 ## 旧面板载荷离线验收（`panel-legacy-scan.mjs`）
 
 治的是交接单里那句「待实机验收」——**「老会话能不能投影出来」是纯函数问题**（`panelSchema.parse`），不必开界面：把样例会话里**真实的**旧面板事件喂给发货中的同一份 schema 即可判定。

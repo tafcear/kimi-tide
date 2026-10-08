@@ -6,12 +6,21 @@
  * （改派 = 另一次 `spawn_teammate` 调用）⇒ 本护栏只做「拒绝 + 把正确的下一步写进
  * 拒绝理由」。本模块零副作用、零宿主依赖：宿主接入、disposer 与开关读取归 `src/index.ts`。
  *
- * 判据：
- * - 拦 `DISPATCH_GUARD_TOOLS`（`subagent` / `subagent_fork`）且**调用方是主会话**；
- * - 任务文本 = `args.description` + `args.prompt`（能取到的字符串，换行拼接）；
- * - 按分工表**键序**逐角色判定，**只报第一个命中**：该角色 `keywords` 非空 ⇒ 优先只按
- *   keywords 做大小写不敏感子串匹配；留空/缺失/空数组 ⇒ 回退 label + aliases
- *   （大小写不敏感子串）与 id（词边界：两侧非 `[a-z0-9-]`，防 `qa` 命中 `qatar`）。
+ * 判据（两类，按工具名分路）：
+ * - `subagent` / `subagent_fork`（调用方是主会话时拦）：任务文本 = `args.description`
+ *   + `args.prompt`（能取到的字符串，换行拼接）；按分工表**键序**逐角色判定，**只报
+ *   第一个命中**：该角色 `keywords` 非空 ⇒ 优先只按 keywords 做大小写不敏感子串匹配；
+ *   留空/缺失/空数组 ⇒ 回退 label + aliases（大小写不敏感子串）与 id（词边界：
+ *   两侧非 `[a-z0-9-]`，防 `qa` 命中 `qatar`）。
+ * - `workflow`：脚本判据「**一次都没点名**」——`args.script` 含 `agent(` 且全文没有
+ *   词边界级的 `provider` / `model` 任一（大小写不敏感）⇒ 未点名 ⇒ 拒绝（2026-10-08
+ *   实测事故：meta.description 写了『三个不同模型各一视角』，但 agent() 没传
+ *   provider/model，三个子代理全部跑默认目标）。与分工表无关：`workflow` 的子代理
+ *   在宿主里不是队友，分工表与关键词规则本就不参与。
+ *
+ * 已知取舍（判据是子串/词边界级，**宁可漏拦不可误拦**——护栏是单调最终拒绝）：脚本里
+ * 出现 `model` / `provider` 这两个词（哪怕只是提示词正文提到）即视为「点过名」放行；
+ * 反向形态（点名了但点错模型）本护栏不判。
  *
  * 红线：
  * - **绝不抛异常、绝不因实参形状异常拒绝**——`args` / `roles` 畸形一律放行
@@ -23,11 +32,12 @@ import type { RoleEntry } from './config.js'
 import { copyNow } from './copy.js'
 
 /**
- * 护栏拦截的工具名白名单。**只有这两个**：`workflow` / `spawn_teammate` /
- * `send_message` 一律不拦——前两者本就是分工表 skill 推荐的派发形态，
+ * 护栏拦截的工具名白名单。`subagent` / `subagent_fork` 按角色领域判；`workflow`
+ * 按「脚本一次都没点名」判（两类判据见模块头注释）。`spawn_teammate` / `send_message`
+ * 一律不拦——前者本就是分工表 skill 推荐的派发形态（也是护栏拒绝理由指的去路），
  * 后者是队友协作面（改派失败后的补救动作）。
  */
-export const DISPATCH_GUARD_TOOLS = ['subagent', 'subagent_fork'] as const
+export const DISPATCH_GUARD_TOOLS = ['subagent', 'subagent_fork', 'workflow'] as const
 
 /** 判据输入：宿主 guard 回调按此投影（纯数据，无宿主类型依赖）。 */
 export interface DispatchGuardInput {
@@ -91,6 +101,22 @@ function taskTextOf(args: unknown): string | undefined {
   return parts.length === 0 ? undefined : parts.join('\n')
 }
 
+/**
+ * workflow 脚本判据「**一次都没点名**」（2026-10-08 护栏扩面，纯函数可单测）：
+ * 脚本含 `agent(`（真的在派子代理）且全文**没有**词边界级的 `provider` / `model`
+ * 任一（大小写不敏感）⇒ true = 未点名（所有子代理都会跑默认目标）。
+ * 词边界沿用 `[a-z0-9-]` 字符集：`models` / `providerX` 不算点名（漏拦方向）；
+ * 提示词正文提到 `model` 一词即算点名（放行方向）——`provider` / `model` 两侧的取舍
+ * 都是「宁可漏拦不可误拦」。注意 `agent(` 是**字面子串**匹配（不是 AST）：注释或字符串
+ * 字面量里出现 `agent(` 也会被当作「在派子代理」——这一侧的取舍与 `provider` / `model`
+ * 相反（那边宁可漏拦，这边宁可误拦），代价很低：脚本里加一个 `provider` / `model` 即放行。
+ */
+export function workflowScriptUnnamed(script: string): boolean {
+  if (typeof script !== 'string') return false
+  if (!script.includes('agent(')) return false
+  return !containsWord(script, 'provider') && !containsWord(script, 'model')
+}
+
 /** 角色的显式领域词（只认非空字符串项；非数组/畸形项一律丢弃 ⇒ 回退路径）。 */
 function keywordsOf(role: Record<string, unknown>): string[] {
   const raw = role.keywords
@@ -128,6 +154,16 @@ export function dispatchGuardRejection(input: DispatchGuardInput): string | unde
   if (raw.callerIsTeammate === true) return undefined
   const toolName = raw.toolName
   if (typeof toolName !== 'string' || !(DISPATCH_GUARD_TOOLS as readonly string[]).includes(toolName)) return undefined
+  // workflow 分支：实参形状是 meta/script（没有 description/prompt），**不复用**
+  // taskTextOf；`args.script` 非字符串一律放行（红线：畸形实参不拒绝）。判据与
+  // 分工表无关（workflow 子代理不是队友），故不看 roles。
+  if (toolName === 'workflow') {
+    const workflowArgs = asRecord(raw.args)
+    if (workflowArgs === undefined) return undefined
+    const script = workflowArgs.script
+    if (typeof script !== 'string') return undefined
+    return workflowScriptUnnamed(script) ? copyNow('shared.roles.guard.rejectWorkflow') : undefined
+  }
   const text = taskTextOf(raw.args)
   if (text === undefined) return undefined
   const roles = raw.roles

@@ -74,7 +74,7 @@ export const zh = {
   'settings.field.hitMaxTokensAria': '判官输出上限',
   'settings.field.hitFailOpen': '问不到（超时/模型不可用/输出读不出）一律不过闸；显式 @ 轮与「带图规则已排首位」的轮不会调用判官。',
   'settings.field.dispatchGuard': '派发护栏',
-  'settings.field.dispatchGuardHint': '默认关闭。开启后：命中角色领域词的普通子代理派发会被拒绝，拒绝理由写明改用该角色的队友（`spawn_teammate`）；宿主只能拒绝、不能自动改派。',
+  'settings.field.dispatchGuardHint': '默认关闭。开启后：命中角色领域词的普通子代理派发会被拒绝，`workflow` 脚本里 `agent()` 一次都没点名目标也会被拒绝；拒绝理由写明下一步（改用 `spawn_teammate` 或点名 `provider` / `model`）；宿主只能拒绝、不能自动改派。',
 
   /* ---- 规则表 ---- */
   'settings.rules.title': '规则',

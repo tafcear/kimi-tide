@@ -107,6 +107,17 @@ describe('roles：分工表 skill 正文', () => {
     const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`r${i}`, role(`r${i}`)]))
     expect(renderTeamSkill(many)!.description.length).toBeLessThanOrEqual(480)
   })
+
+  it('正文末尾含「派完怎么验」一节（2026-10-08 护栏扩面配套，防日后被删）', () => {
+    // 放在 roles.test.ts 的依据：被测的是 renderTeamSkill（roles.ts）的正文拼装，
+    // team-skill.test.ts 只管 installTeamSkill 的注册/降级管线。
+    const rendered = renderTeamSkill({ frontend: role('frontend', { label: '前端' }) })!
+    expect(rendered.body).toContain('## 派完怎么验')
+    expect(rendered.body).toContain('request/header')
+    expect(rendered.body).toContain('check-dispatch-routing.mjs')
+    // 次序：该节在「什么时候不要派」之后（正文末尾）。
+    expect(rendered.body.indexOf('## 派完怎么验')).toBeGreaterThan(rendered.body.indexOf('## 什么时候不要派'))
+  })
 })
 
 describe('roles：分工表 skill description 消费 describeRouting 单源（复核⑤ M5）', () => {

@@ -1,4 +1,5 @@
-// test/guard.test.ts（v2.2.0 派发护栏纯函数层：判据 + 畸形输入 + 文案渲染 + 配置载体）
+// test/guard.test.ts（派发护栏纯函数层：判据 + 畸形输入 + 文案渲染 + 配置载体；
+// v2.2.1 候选起拦 workflow——判据 = 脚本「一次都没点名」）
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, DEFAULT_CONFIG_V7, projectRoutesToLegacy, rowsFromLegacy,
@@ -6,7 +7,9 @@ import {
 } from '../src/config.js'
 import { coerceRouterConfigV6, migrateV5, migrateV6 } from '../src/migrate.js'
 import { routerConfigSchema, validateRouterConfig } from '../src/settings-schema.js'
-import { DISPATCH_GUARD_TOOLS, dispatchGuardRejection, missingKeywordsText, parseKeywords } from '../src/guard.js'
+import {
+  DISPATCH_GUARD_TOOLS, dispatchGuardRejection, missingKeywordsText, parseKeywords, workflowScriptUnnamed,
+} from '../src/guard.js'
 
 const TARGET = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
 
@@ -44,9 +47,9 @@ describe('dispatchGuardRejection：放行面（关闭态 / 队友调用 / 非派
     expect(reject(hitRoles, prompt('派给 qa 做测试'), { callerIsTeammate: true })).toBeUndefined()
   })
 
-  it('② 只拦 DISPATCH_GUARD_TOOLS：workflow / spawn_teammate / send_message / 未知名一律放行', () => {
-    expect([...DISPATCH_GUARD_TOOLS]).toEqual(['subagent', 'subagent_fork'])
-    for (const toolName of ['workflow', 'spawn_teammate', 'send_message', 'read', 'Subagent', '']) {
+  it('② 只拦 DISPATCH_GUARD_TOOLS：spawn_teammate / send_message / 未知名一律放行', () => {
+    expect([...DISPATCH_GUARD_TOOLS]).toEqual(['subagent', 'subagent_fork', 'workflow'])
+    for (const toolName of ['spawn_teammate', 'send_message', 'read', 'Subagent', '']) {
       expect(reject(hitRoles, prompt('派给 qa 做测试'), { toolName })).toBeUndefined()
     }
   })
@@ -150,6 +153,76 @@ describe('dispatchGuardRejection：畸形输入绝不抛异常（一律放行）
   it('⑦c 判定输入本身畸形（null）⇒ 放行', () => {
     expect(() => dispatchGuardRejection(null as never)).not.toThrow()
     expect(dispatchGuardRejection(null as never)).toBeUndefined()
+  })
+})
+
+describe('workflowScriptUnnamed：脚本判据「一次都没点名」（纯函数）', () => {
+  it('含 agent( 且全文无 provider/model ⇒ 未点名；点名任一 ⇒ 放行', () => {
+    expect(workflowScriptUnnamed('const r = await agent("评审一下", { label: "a", phase: "p" })')).toBe(true)
+    expect(workflowScriptUnnamed('agent("评审一下", { provider: "kimi-coding", model: "k3" })')).toBe(false)
+    expect(workflowScriptUnnamed('agent("评审一下", { provider: "kimi-coding" })')).toBe(false)
+    expect(workflowScriptUnnamed('agent("评审一下", { model: "k3" })')).toBe(false)
+  })
+
+  it('不含 agent( ⇒ 不拦（脚本根本没派子代理）', () => {
+    expect(workflowScriptUnnamed('log("hello")')).toBe(false)
+    expect(workflowScriptUnnamed('const agents = 3')).toBe(false)
+    expect(workflowScriptUnnamed('')).toBe(false)
+  })
+
+  it('大小写不敏感、词边界：PROVIDER / Model 算点名；models / providerX 不算（漏拦方向）', () => {
+    expect(workflowScriptUnnamed('agent(p, { PROVIDER: x })')).toBe(false)
+    expect(workflowScriptUnnamed('agent(p) // check the Model output')).toBe(false)
+    expect(workflowScriptUnnamed('agent(p) // models comparison')).toBe(true)
+    expect(workflowScriptUnnamed('agent(p) // providerX')).toBe(true)
+  })
+
+  it('宁可漏拦不可误拦：提示词正文提到 model 一词即视为点过名（已知取舍，钉住防回退）', () => {
+    expect(workflowScriptUnnamed('agent("review this model output")')).toBe(false)
+  })
+
+  it('非字符串输入安全（恒 false，不抛）', () => {
+    for (const bad of [42, null, undefined, {}, []]) {
+      expect(() => workflowScriptUnnamed(bad as never)).not.toThrow()
+      expect(workflowScriptUnnamed(bad as never)).toBe(false)
+    }
+  })
+})
+
+describe('dispatchGuardRejection：workflow 分支（判据 = 一次都没点名）', () => {
+  const roles = { qa: role('qa', '质量', { keywords: ['测试'] }) }
+  const unnamed = { script: 'const r = await agent("评审一下", { label: "a", phase: "p" })' }
+  const named = { script: 'agent("评审一下", { provider: "kimi-coding", model: "k3" })' }
+
+  it('未点名 ⇒ 拒绝；理由写清四件事（默认目标 / 不参与原因 / 两条改法 / 显式出路）', () => {
+    const reason = reject(roles, unnamed, { toolName: 'workflow' }) as string
+    expect(reason).toBeTypeOf('string')
+    expect(reason).toContain('默认目标')
+    expect(reason).toContain('不是队友')
+    expect(reason).toContain('spawn_teammate')
+    expect(reason).toContain('provider')
+    expect(reason).toContain('model')
+  })
+
+  it('点名过（provider 或 model 任一）⇒ 放行；确实要走默认目标的显式写法同样放行', () => {
+    expect(reject(roles, named, { toolName: 'workflow' })).toBeUndefined()
+    const explicitDefault = { script: 'agent("评审一下", { provider: "deepseek-official", model: "deepseek-flash" })' }
+    expect(reject(roles, explicitDefault, { toolName: 'workflow' })).toBeUndefined()
+  })
+
+  it('与分工表无关：空表 / 畸形表照样拦（workflow 子代理不是队友，判据不看 roles）', () => {
+    expect(reject({}, unnamed, { toolName: 'workflow' })).toBeTypeOf('string')
+    expect(reject(null as never, unnamed, { toolName: 'workflow' })).toBeTypeOf('string')
+  })
+
+  it('args 非对象 / script 非字符串 ⇒ 一律放行（畸形实参红线）；关闭态与队友调用放行', () => {
+    const argsCases: unknown[] = [null, undefined, 42, 'x', [], {}, { script: 42 }, { meta: { name: 'x' } }]
+    for (const args of argsCases) {
+      expect(() => reject(roles, args, { toolName: 'workflow' })).not.toThrow()
+      expect(reject(roles, args, { toolName: 'workflow' })).toBeUndefined()
+    }
+    expect(reject(roles, unnamed, { toolName: 'workflow', guarded: false })).toBeUndefined()
+    expect(reject(roles, unnamed, { toolName: 'workflow', callerIsTeammate: true })).toBeUndefined()
   })
 })
 

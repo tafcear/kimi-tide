@@ -76,7 +76,7 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.field.hitMaxTokensAria': 'Judge output cap',
   'settings.field.hitFailOpen': 'If the judge cannot answer (timeout / model unavailable / unreadable output), the gate never passes; explicit-@ turns and turns where a with-image rule already leads never call the judge.',
   'settings.field.dispatchGuard': 'Dispatch guard',
-  'settings.field.dispatchGuardHint': 'Off by default. When on: a plain subagent dispatch whose task matches a role\'s domain words is rejected, and the reason names the teammate to use instead (`spawn_teammate`). The host can only reject — it never re-dispatches.',
+  'settings.field.dispatchGuardHint': 'Off by default. When on: a plain subagent dispatch whose task matches a role\'s domain words is rejected, and so is a workflow script whose agent() calls never name a target; the reason states the next step (switch to `spawn_teammate`, or name `provider` / `model`). The host can only reject — it never re-dispatches.',
 
   /* ---- Rules table ---- */
   'settings.rules.title': 'Rules',
