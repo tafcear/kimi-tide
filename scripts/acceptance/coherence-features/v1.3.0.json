@@ -1,0 +1,9 @@
+[
+  { "id": "余额/用量双形态", "phrases": ["余额", "balance"], "surfaces": 3 },
+  { "id": "用量总览三态", "phrases": ["用量总览", "无公开 API", "Overview"], "surfaces": 3 },
+  { "id": "说明页签", "phrases": ["说明", "Help tab"], "surfaces": 3 },
+  { "id": "语义命中确认闸", "phrases": ["语义确认", "命中确认", "semantic hit", "hitConfirm"], "surfaces": 3 },
+  { "id": "配额条剩余语义", "phrases": ["剩余", "remaining"], "surfaces": 3 },
+  { "id": "显式 @ 精确寻址", "phrases": ["@provider/model", "@kimi/k3", "精确寻址", "精确钉到", "pins that exact model", "pins that model"], "surfaces": 4 },
+  { "id": "@ 误判面收窄", "phrases": ["已知 provider", "known provider"], "surfaces": 3 }
+]

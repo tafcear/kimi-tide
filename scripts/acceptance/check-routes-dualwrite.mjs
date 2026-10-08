@@ -13,10 +13,15 @@
  * 这类冲突）。两边任一不成立即 FAIL。
  *
  * 用法（仓库根执行）：
- *   node scripts/acceptance/check-routes-dualwrite.mjs              # 读本机 desktop profile
- *   node scripts/acceptance/check-routes-dualwrite.mjs --config <文件>
- *   node scripts/acceptance/check-routes-dualwrite.mjs --entry <条目 id>   # 默认 dsh-kimi-tide
+ *   node scripts/acceptance/check-routes-dualwrite.mjs                    # 默认读本机 desktop profile
+ *   node scripts/acceptance/check-routes-dualwrite.mjs --profile <名字>   # 指定 profile（如 web）
+ *   node scripts/acceptance/check-routes-dualwrite.mjs --config <文件>    # 指定 cordis.patch.yml
+ *   node scripts/acceptance/check-routes-dualwrite.mjs --entry <条目 id>  # 默认 dsh-kimi-tide
  *   node scripts/acceptance/check-routes-dualwrite.mjs --json
+ *
+ * 参数纪律（2026-10-08 修）：**未知参数一律报错退出（exit 2）**。此前 parseArgs 静默忽略
+ * 任何 `--k v`，于是 `--profile web` 被无视、照旧读 desktop 默认值并报 PASS —— 参数写错
+ * 却报绿。profile 名一律经 `$DSH_HOME`（回落 `~/.dsh`）解析，不再硬编码绝对路径。
  *
  * 退出码：0 = 两边一致且校验通过；1 = 不一致 / 校验失败；2 = 文件里还没有 routes
  *        （说明设置页尚未写过一次——先去改一个字段再重跑）。
@@ -25,6 +30,8 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import { resolveConfigArgs } from './_config-args.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PKG = resolve(HERE, '../../packages/dsh-kimi-tide')
@@ -35,22 +42,11 @@ const load = (rel) => import(pathToFileURL(resolve(PKG, rel)).href)
 const { rowsFromLegacy } = await load('lib/config.js')
 const { validateRouterConfig } = await load('lib/settings-schema.js')
 
-function parseArgs(argv) {
-  const out = {}
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i]
-    if (!token.startsWith('--')) continue
-    const key = token.slice(2)
-    const next = argv[i + 1]
-    if (next === undefined || next.startsWith('--')) out[key] = true
-    else { out[key] = next; i += 1 }
-  }
-  return out
-}
-
-const args = parseArgs(process.argv.slice(2))
-const configPath = args.config ?? 'C:/Users/tafce/.dsh/profiles/desktop/cordis.patch.yml'
-const entryId = args.entry ?? 'dsh-kimi-tide'
+const { configPath, entryId, flags } = resolveConfigArgs(process.argv.slice(2), {
+  usage: `用法：
+  node scripts/acceptance/check-routes-dualwrite.mjs [--profile <名字>] [--config <文件>] [--entry <条目 id>] [--json]`,
+  flags: ['json'],
+})
 
 function readRouterConfig(text, id) {
   const doc = YAML.parse(text)
@@ -81,7 +77,7 @@ const counts = (rows) => ({
   dispatch: rows.filter((r) => r.scope === 'dispatch').length,
 })
 
-if (args.json) {
+if (flags.json) {
   const equal = routes !== null && JSON.stringify(routes) === JSON.stringify(legacyRows)
   console.log(JSON.stringify({
     configPath,

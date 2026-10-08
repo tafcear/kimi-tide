@@ -4,15 +4,19 @@
 
 ## 路由视图预检（`routing-view-preview.mjs`）——**v2.1.0 起，发版前第一步**
 
-读**真实** `cordis.patch.yml`（默认取 desktop profile 的 `dsh-kimi-tide` 条目，可用参数换 profile），跑 `coerceRouterConfigV6 → validateRouterConfig → buildRoutingView`，把「设置页应该显示什么」逐项打印出来：A-1 摘要原文 / A-3 五档链与三态 / 默认目标档 / A-4 词表接入 / B-2 重叠 / 派发面行数与逐行目标。
+读**真实** `cordis.patch.yml`（**默认 desktop profile**；用 `--profile <名字>` 换 profile、`--config <文件>` 指具体文件），跑 `coerceRouterConfigV6 → validateRouterConfig → buildRoutingView`，把「设置页应该显示什么」逐项打印出来：A-1 摘要原文 / A-3 五档链与三态 / 默认目标档 / A-4 词表接入 / B-2 重叠 / 派发面行数与逐行目标。
 
-**用法与判据**：`node scripts/acceptance/routing-view-preview.mjs` —— 退出码即**配置校验结果**（0 通过 / 1 不通过）；**不需要重启宿主**，适合改配置后、重启前先核对「应然长什么样」。实机验收时把它当对照物（runbook §0 第 1 步、§5 附录「本机应然快照」）。
+**用法与判据**：`node scripts/acceptance/routing-view-preview.mjs [--profile web] [--config <文件>] [--entry <id>] [--json]` —— 退出码即**配置校验结果**（0 通过 / 1 不通过）；**不需要重启宿主**，适合改配置后、重启前先核对「应然长什么样」。实机验收时把它当对照物（runbook §0 第 1 步、§5 附录「本机应然快照」）。
+
+> ⚠ **profile 别搞混**（2026-10-08 实测）：本机 `desktop` profile 有 `routes`（9 行）与 8 个派发角色；`web` profile 是「**路由已关闭**、且文件里没有 `routes`」——两份配置的应然值完全不同。宿主 GUI 由哪个 profile 服务**要按进程核**（本机 19387 端口＝桌面端 `dsh-desktop-host`），别按端口猜。
 
 ## 写通道双写判据（`check-routes-dualwrite.mjs`）——**B-4，不过不得发版**
 
 判据不是「看着像」，而是**语义等价**：`routes ≡ rowsFromLegacy(presets[*].rules ∪ roles)`（行集、顺序、作用域、label/teammate/aliases、目标与 effort 逐项比），外加一次完整 `validateRouterConfig`（后者已覆盖「空 `routes` × 非空旧字段」这类冲突）。
 
-**用法与退出码**：`node scripts/acceptance/check-routes-dualwrite.mjs` —— **0** 一致且校验通过 / **1** 分叉或校验失败（把分叉的两行原样打出）/ **2** 文件里还没有 `routes`（设置页自本版以来尚未写过一次）。**判读要点**：`exit=2` 表示「写通道还没被使用过」，**不是通过**；SETTINGS 页保存过规则或角色之后应为 `exit=0`。实机验收记录见 [routing-ia-acceptance.md](../../packages/dsh-kimi-tide/docs/routing-ia-acceptance.md) 的 B-4 行（2026-10-08 在 8 角色配置下复跑仍 `exit=0`）。
+**用法与退出码**：`node scripts/acceptance/check-routes-dualwrite.mjs [--profile <名字>] [--config <文件>] [--entry <id>] [--json]` —— **0** 一致且校验通过 / **1** 分叉或校验失败（把分叉的两行原样打出）/ **2** 文件里还没有 `routes`（设置页自本版以来尚未写过一次）。**判读要点**：`exit=2` 表示「写通道还没被使用过」，**不是通过**；SETTINGS 页保存过规则或角色之后应为 `exit=0`。实机验收记录见 [routing-ia-acceptance.md](../../packages/dsh-kimi-tide/docs/routing-ia-acceptance.md) 的 B-4 行（2026-10-08 在 8 角色配置下复跑仍 `exit=0`）。
+
+> ⚠ **参数纪律（2026-10-08 修）**：本目录三个读配置的脚本**只认白名单参数，未知参数一律 `exit 2`**。此前 `parseArgs` 静默忽略任何 `--k v`——传 `--profile web` 会被无视、照旧读 desktop 默认值并**报 PASS**，而同一份文件用 `--config` 读出来是「还没有 `routes`」。**参数写错却报绿**是验收里最坏的一种失败。共用解析器见 `_config-args.mjs`（同时把 profile 路径从硬编码绝对路径改为按 `$DSH_HOME`（回落 `~/.dsh`）解析）。
 
 ## 语义闸哨兵（`hit-confirm-sentinel.mjs`）
 
@@ -99,6 +103,8 @@ node scripts/acceptance/session-dump.mjs <路径> --errors          # 错误/失
 node scripts/acceptance/session-dump.mjs <路径> --grep <文本>     # 任意事件原文匹配（字面量子串）
 node scripts/acceptance/session-dump.mjs <路径> --json
 ```
+
+> **v4 会话形态（2026-10-08 修）**：会话库已升级为 `session.v4.jsonl.zstd`，而 `resolveSessionFile` 原先只找 v3/v0 ⇒ `--list` 恒报「0 个」、传目录报「找不到会话文件」，**验收仪器对新会话全面失效**（本会话 691 帧/1258 事件明明就在盘上）。现为 **v4 优先、回落 v3/v0**——三种形态共用同一套 zstd 逐帧解析，不需要别的改动。
 
 **`--grep` 是字面量子串匹配，不是正则**（2026-09-15 修正）：把命令行传进来的字符串编译成正则，会让仓库常驻一条高风险告警（CodeQL `js/regexp-injection`，CWE-400 / CWE-730 —— 安全页告警 #4）。而这个入口真正要回答的几乎只有「这段原文在不在」，字面量匹配把它 100% 覆盖，还天然免于 ReDoS：正则元字符按字面处理，`--grep 'a.*b'` 找的就是字面 `a.*b`。
 

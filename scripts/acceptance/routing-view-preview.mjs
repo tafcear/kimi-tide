@@ -10,10 +10,14 @@
  *   ③ 不依赖宿主、不写任何文件（只读）。
  *
  * 用法：
- *   node scripts/acceptance/routing-view-preview.mjs                      # 默认读本机 desktop profile
+ *   node scripts/acceptance/routing-view-preview.mjs                       # 默认读本机 desktop profile
+ *   node scripts/acceptance/routing-view-preview.mjs --profile <名字>      # 指定 profile（如 web）
  *   node scripts/acceptance/routing-view-preview.mjs --config <文件>       # 指定 cordis.patch.yml
  *   node scripts/acceptance/routing-view-preview.mjs --entry <条目 id>     # 默认 dsh-kimi-tide
  *   node scripts/acceptance/routing-view-preview.mjs --json               # 输出机器可读结果
+ *
+ * 参数纪律（2026-10-08 修）：未知参数一律报错退出（exit 2）；profile 名经 `$DSH_HOME`
+ * （回落 `~/.dsh`）解析，不再硬编码某台机器的绝对路径。
  *
  * 退出码：0 = 校验通过；1 = 校验报错或配置缺失（便于当门禁用）。
  */
@@ -21,6 +25,8 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import { resolveConfigArgs } from './_config-args.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PKG = resolve(HERE, '../../packages/dsh-kimi-tide')
@@ -35,23 +41,11 @@ const { coerceRouterConfigV6 } = await load('lib/migrate.js')
 const { validateRouterConfig } = await load('lib/settings-schema.js')
 const { buildRoutingView } = await load('lib/routing-view.js')
 
-/** 极简参数解析：只认 --k v / --k 两种形态。 */
-function parseArgs(argv) {
-  const out = {}
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i]
-    if (!token.startsWith('--')) continue
-    const key = token.slice(2)
-    const next = argv[i + 1]
-    if (next === undefined || next.startsWith('--')) out[key] = true
-    else { out[key] = next; i += 1 }
-  }
-  return out
-}
-
-const args = parseArgs(process.argv.slice(2))
-const configPath = args.config ?? 'C:/Users/tafce/.dsh/profiles/desktop/cordis.patch.yml'
-const entryId = args.entry ?? 'dsh-kimi-tide'
+const { configPath, entryId, flags } = resolveConfigArgs(process.argv.slice(2), {
+  usage: `用法：
+  node scripts/acceptance/routing-view-preview.mjs [--profile <名字>] [--config <文件>] [--entry <条目 id>] [--json]`,
+  flags: ['json'],
+})
 
 /** 从 cordis.patch.yml 里取指定条目的 config.router（insert/config 两种行形态都认）。 */
 function readRouterConfig(text, id) {
@@ -80,7 +74,7 @@ const config = coerceRouterConfigV6(router, () => {})
 const invalid = validateRouterConfig(config)
 const view = buildRoutingView(config, {})
 
-if (args.json) {
+if (flags.json) {
   console.log(JSON.stringify({ configPath, entryId, invalid: invalid ?? null, view }, null, 2))
   process.exit(invalid === undefined ? 0 : 1)
 }

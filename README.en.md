@@ -8,6 +8,7 @@
 <p align="center">
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
   <a href="https://github.com/tafcear/kimi-tide/releases"><img src="https://img.shields.io/github/v/release/tafcear/kimi-tide" alt="Release"></a>
+  <a href="https://www.npmjs.com/package/dsh-kimi-tide"><img src="https://img.shields.io/npm/v/dsh-kimi-tide" alt="npm"></a>
   <a href="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml"><img src="https://github.com/tafcear/kimi-tide/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/tafcear/kimi-tide/blob/main/LICENSE"><img src="https://img.shields.io/github/license/tafcear/kimi-tide" alt="License"></a>
   <a href="https://github.com/tafcear/kimi-tide/graphs/contributors"><img src="https://img.shields.io/github/contributors/tafcear/kimi-tide?color=blue" alt="Contributors"></a>
