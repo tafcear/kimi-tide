@@ -4,29 +4,29 @@
   <title id="title">kimi-tide 月汐 — 装在 DSH 上的小插件：按模型的强项编排工作流与各路代理</title>
   <desc id="desc">月汐 hero：左侧是项目名与一句话价值；右侧分流图——一条消息经「按你写的口径挑」的分流点，走进不同强项的模型，底下四个芯片说明「前端 → K3」「后端 → GLM-5.3」「驱动 → flash」以及决策看得见。</desc>
 
-  <rect width="1200" height="340" rx="26" fill="#0B1B2B"/>
+  <rect width="1200" height="340" rx="26" fill="#0d0b1f"/>
 
   <!-- 潮汐背景：两条轻浪，来自项目名意象 -->
   <path d="M 0 306 C 100 296, 200 316, 300 306 S 500 296, 600 306 S 800 316, 900 306 S 1100 296, 1200 306"
-        fill="none" stroke="#1E5A8A" stroke-width="2" opacity="0.55"/>
+        fill="none" stroke="#4c4193" stroke-width="2" opacity="0.55"/>
   <path d="M 0 324 C 100 314, 200 334, 300 324 S 500 314, 600 324 S 800 334, 900 324 S 1100 314, 1200 324"
-        fill="none" stroke="#7DD3FC" stroke-width="1.5" opacity="0.28"/>
+        fill="none" stroke="#a78bfa" stroke-width="1.5" opacity="0.28"/>
 
   <!-- 左：标题区（58%） -->
   <g id="title-block" transform="translate(56 66)">
     <text x="0" y="0" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="16" letter-spacing="3" fill="#5B7A93">DSH 插件 · 按强项派模型</text>
+          font-size="16" letter-spacing="3" fill="#94a3b8">DSH 插件 · 按强项派模型</text>
     <text x="0" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="72" font-weight="700" fill="#E6F3FF">kimi-tide</text>
+          font-size="72" font-weight="700" fill="#e4e7ee">kimi-tide</text>
     <text x="368" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="44" font-weight="600" fill="#7DD3FC">月汐</text>
+          font-size="44" font-weight="600" fill="#a78bfa">月汐</text>
     <text x="0" y="138" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="30" fill="#E6F3FF">每个模型，只干它最擅长的那一步</text>
+          font-size="30" fill="#e4e7ee">每个模型，只干它最擅长的那一步</text>
     <text x="0" y="184" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="22" fill="#9CC3E0">写一次口径，之后每一步都按它走</text>
+          font-size="22" fill="#d4d9e3">写一次口径，之后每一步都按它走</text>
     <!-- 三原则微标 -->
     <g id="principles" transform="translate(0 214)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-       font-size="16" fill="#5B7A93">
+       font-size="16" fill="#94a3b8">
       <text x="0" y="0">预设 · 有序规则 · 分工表 · 协作流</text>
       <text x="0" y="26">最快最便宜的驱动主会话，最强的干活</text>
     </g>
@@ -35,9 +35,9 @@
   <!-- 右：开放分流图（42%）——一条消息 → 决策点 → N 条 provider 通道 -->
   <g id="project-proof" transform="translate(700 34)">
     <!-- 输入：消息 -->
-    <rect x="0" y="86" width="112" height="56" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
+    <rect x="0" y="86" width="112" height="56" rx="12" fill="#141230" stroke="#4c4193" stroke-width="1.5"/>
     <text x="56" y="121" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-          font-size="20" fill="#E6F3FF">消息</text>
+          font-size="20" fill="#e4e7ee">消息</text>
 
     <!-- 决策点（琥珀菱形） -->
     <rect x="157" y="81" width="66" height="66" rx="6" fill="#211708" stroke="#F59E0B" stroke-width="1.5"
@@ -46,48 +46,48 @@
           font-size="18" fill="#F59E0B">按口径挑</text>
 
     <!-- 分流线：两条实线（示例 provider）+ 一条虚线（开放池） -->
-    <path d="M 112 114 L 143 114" stroke="#5B7A93" stroke-width="1.5" fill="none"/>
+    <path d="M 112 114 L 143 114" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
     <g id="flow-lines">
-      <path d="M 237 114 C 262 114, 258 28, 306 28" stroke="#7DD3FC" stroke-width="1.5" fill="none"/>
-      <path d="M 237 114 C 262 114, 258 100, 306 100" stroke="#1E5A8A" stroke-width="2" fill="none"/>
-      <path d="M 237 114 C 262 114, 258 172, 306 172" stroke="#9CC3E0" stroke-width="1.5" fill="none" stroke-dasharray="5 5"/>
+      <path d="M 237 114 C 262 114, 258 28, 306 28" stroke="#a78bfa" stroke-width="1.5" fill="none"/>
+      <path d="M 237 114 C 262 114, 258 100, 306 100" stroke="#4c4193" stroke-width="2" fill="none"/>
+      <path d="M 237 114 C 262 114, 258 172, 306 172" stroke="#d4d9e3" stroke-width="1.5" fill="none" stroke-dasharray="5 5"/>
     </g>
 
     <!-- 通道 1：Kimi（示例·多模态） -->
     <g id="ch-1">
-      <rect x="306" y="-2" width="176" height="60" rx="12" fill="#10233A" stroke="#7DD3FC" stroke-width="1.5"/>
+      <rect x="306" y="-2" width="176" height="60" rx="12" fill="#161232" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="394" y="24" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-            font-size="20" fill="#E6F3FF">kimi-coding · k3</text>
+            font-size="20" fill="#e4e7ee">kimi-coding · k3</text>
       <text x="394" y="46" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-            font-size="16" fill="#7DD3FC">前端手感好</text>
+            font-size="16" fill="#a78bfa">前端手感好</text>
     </g>
 
     <!-- 通道 2：DeepSeek（示例·文本） -->
     <g id="ch-2">
-      <rect x="306" y="70" width="176" height="60" rx="12" fill="#0F2436" stroke="#1E5A8A" stroke-width="1.5"/>
+      <rect x="306" y="70" width="176" height="60" rx="12" fill="#141230" stroke="#4c4193" stroke-width="1.5"/>
       <text x="394" y="96" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-            font-size="20" fill="#E6F3FF">deepseek · v4-flash</text>
+            font-size="20" fill="#e4e7ee">deepseek · v4-flash</text>
       <text x="394" y="118" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-            font-size="16" fill="#6B9AC0">最快 · 驱动主会话</text>
+            font-size="16" fill="#8b93a7">最快 · 驱动主会话</text>
     </g>
 
     <!-- 通道 3：开放候选池（虚线 = 任意已挂载模型） -->
     <g id="ch-3">
-      <rect x="306" y="142" width="176" height="60" rx="12" fill="#0B1B2B" stroke="#9CC3E0" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <rect x="306" y="142" width="176" height="60" rx="12" fill="#0d0b1f" stroke="#d4d9e3" stroke-width="1.5" stroke-dasharray="6 5"/>
       <text x="394" y="168" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-            font-size="20" fill="#9CC3E0">你的其他模型</text>
+            font-size="20" fill="#d4d9e3">你的其他模型</text>
       <text x="394" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-            font-size="16" fill="#5B7A93">接上就参与编排</text>
+            font-size="16" fill="#94a3b8">接上就参与编排</text>
     </g>
 
     <!-- 规则芯片行：项目核心内容（预设 + 规则 + @指令） -->
     <g id="rule-chips" transform="translate(-8 224)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-       font-size="16" fill="#E6F3FF">
-      <rect x="0" y="0" width="98" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
+       font-size="16" fill="#e4e7ee">
+      <rect x="0" y="0" width="98" height="30" rx="15" fill="#161232" stroke="#a78bfa" stroke-width="1.2"/>
       <text x="49" y="20" text-anchor="middle">前端 → K3</text>
-      <rect x="108" y="0" width="150" height="30" rx="15" fill="#10233A" stroke="#7DD3FC" stroke-width="1.2"/>
+      <rect x="108" y="0" width="150" height="30" rx="15" fill="#161232" stroke="#a78bfa" stroke-width="1.2"/>
       <text x="183" y="20" text-anchor="middle">后端 → GLM-5.3</text>
-      <rect x="268" y="0" width="150" height="30" rx="15" fill="#10233A" stroke="#1E5A8A" stroke-width="1.2"/>
+      <rect x="268" y="0" width="150" height="30" rx="15" fill="#161232" stroke="#4c4193" stroke-width="1.2"/>
       <text x="343" y="20" text-anchor="middle">驱动 → flash</text>
       <rect x="428" y="0" width="66" height="30" rx="15" fill="none" stroke="#F59E0B" stroke-width="1.2"/>
       <text x="461" y="20" text-anchor="middle" fill="#F59E0B">看得见</text>
