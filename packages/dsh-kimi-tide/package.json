@@ -1,6 +1,6 @@
 {
   "name": "dsh-kimi-tide",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "description": "kimi-tide（月汐）— preset-and-rule model router for DeepSeek Harness（预设+规则驱动的逐步模型路由）：named presets with ordered image/keyword-group rules route each agent step across ANY mounted provider/model (candidate pool = full host catalog enumeration, no whitelist), with collaboration flows (image transcription), image guard, Kimi quota panel, and per-session decision observability.",
   "type": "module",
   "main": "lib/index.js",
@@ -41,6 +41,15 @@
     "model-routing"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tafcear/kimi-tide.git",
+    "directory": "packages/dsh-kimi-tide"
+  },
+  "homepage": "https://github.com/tafcear/kimi-tide#readme",
+  "bugs": {
+    "url": "https://github.com/tafcear/kimi-tide/issues"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

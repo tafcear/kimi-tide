@@ -141,6 +141,10 @@ Add a model source (example: **`kimi-coding`** with `apiKeyEnv` set to `KIMI_API
 ### 3. Install the plugin
 
 ```bash
+# Option 1 (recommended): install straight from npm
+dsh plugin --profile web add dsh-kimi-tide
+
+# Option 2: build the tarball from source (when you want to change the code)
 cd packages/dsh-kimi-tide
 npm install && npm run build && npm pack
 dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
@@ -272,11 +276,11 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v2.1.4 (2026-10-08)**
+> Current version: **v2.2.0 (2026-10-08)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)
-- Planned: live acceptance for v2.1.0 (the Route-page A/B checks plus the v7 write channel landing on disk, see [routing-ia-acceptance.md](packages/dsh-kimi-tide/docs/routing-ia-acceptance.md)); live re-verification of the v2.0.0 "role × image" combination (once the host GUI allows image attachments in teammate sessions), subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
+- Planned: **live acceptance of the dispatch guard** (the guard is a host-side hook, so its refusal path has to be read in a real session after the host restarts — see [dispatch-guard.md](packages/dsh-kimi-tide/docs/dispatch-guard.md)); live re-verification of the v2.0.0 "role × image" combination (once the host GUI allows image attachments in teammate sessions), subagent transcription, the 0.8.5 "hardening & packaging" release — tracked in the [evidence doc](docs/release-evidence.md).
 
 ---
 

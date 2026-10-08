@@ -141,6 +141,10 @@ flowchart LR
 ### 3. 安装插件
 
 ```bash
+# 方式一（推荐）：直接从 npm 装
+dsh plugin --profile web add dsh-kimi-tide
+
+# 方式二：从源码出包再装（要改代码时走这条）
 cd packages/dsh-kimi-tide
 npm install && npm run build && npm pack
 dsh plugin --profile web add ./dsh-kimi-tide-<version>.tgz
@@ -272,11 +276,11 @@ A：存在 DSH 设置里（「设置 → 月汐」编辑，重启保持）。跨
 
 ## 版本与路线
 
-> 当前版本：**v2.1.4（2026-10-08）**
+> 当前版本：**v2.2.0（2026-10-08）**
 
 - 每个版本你得到了什么：[CHANGELOG.md](CHANGELOG.md)
 - 维护者证据链（commit 锚点 / 验收记录）：[docs/release-evidence.md](docs/release-evidence.md)
-- 规划中：v2.1.0 的实机验收（路由页 A/B 判据 + v7 写通道落盘，见 [routing-ia-acceptance.md](packages/dsh-kimi-tide/docs/routing-ia-acceptance.md)）；v2.0.0 的「角色 × 带图」组合实机补验（等宿主 GUI 开放队友会话的图片附件）、子代理转述、0.8.5「强化与包装」小版本——详见[证据链文档](docs/release-evidence.md)「规划中」条。
+- 规划中：**派发护栏的实机验收**（护栏是宿主侧接入，拒绝行为要在重启宿主后的真实会话里判读，见 [dispatch-guard.md](packages/dsh-kimi-tide/docs/dispatch-guard.md)）；v2.0.0 的「角色 × 带图」组合实机补验（等宿主 GUI 开放队友会话的图片附件）、子代理转述、0.8.5「强化与包装」小版本——详见[证据链文档](docs/release-evidence.md)「规划中」条。
 
 ---
 
