@@ -22,7 +22,7 @@
  *   node scripts/acceptance/session-dump.mjs <路径> --json            # 结构化输出
  *   node scripts/acceptance/session-dump.mjs --list [--minutes 60]    # 不传路径时：列出最近更新的会话（含事件数与面板事件数）
  *
- * 支持两种磁盘形态：v3（`session.v3.jsonl.zstd`）与 v0（`session.jsonl.zstd`）。
+ * 支持三种磁盘形态：v4（`session.v4.jsonl.zstd`）、v3（`session.v3.jsonl.zstd`）与 v0（`session.jsonl.zstd`）。
  * 退出码：0 正常；2 参数/读取错误。
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
@@ -92,12 +92,12 @@ export function decodeSessionFile(file) {
   return { events, frames: frames.length, skipped, truncated: truncated === true, badMagicAt }
 }
 
-/** 路径 → 会话文件（目录则找 v3 优先、回落 v0）。 */
+/** 路径 → 会话文件（目录则 v4 优先、回落 v3、再回落 v0）。 */
 export function resolveSessionFile(input) {
   const p = isAbsolute(input) ? input : resolve(process.cwd(), input)
   if (!existsSync(p)) return null
   if (statSync(p).isDirectory()) {
-    for (const name of ['session.v3.jsonl.zstd', 'session.jsonl.zstd']) {
+    for (const name of ['session.v4.jsonl.zstd', 'session.v3.jsonl.zstd', 'session.jsonl.zstd']) {
       const f = join(p, name)
       if (existsSync(f)) return f
     }
