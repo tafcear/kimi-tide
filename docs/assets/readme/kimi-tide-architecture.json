@@ -5,13 +5,13 @@
     "title": "kimi-tide（月汐）v2.1.x 架构：每一步选模型——五档决策链 · 统一路由表 · 分工表与派发护栏",
     "output": "kimi-tide-architecture.html",
     "quality_profile": "showcase",
-    "viewBox": [1480, 620],
+    "viewBox": [1480, 480],
     "repository": {
       "url": "https://github.com/tafcear/kimi-tide",
       "revision": "efeff8721b5aacee522c14be27596ce68977f4e8"
     },
     "views": [
-      { "id": "live-turn", "label": "一轮怎么选模型", "focus": ["user", "event", "router", "tiers", "session", "models"], "note": "消息进来 → 事件缝每轮首步判定一次 → 五档决策链 → 统一路由表 → 官方 llm 服务。" },
+      { "id": "live-turn", "label": "一轮怎么选模型", "focus": ["user", "event", "router", "session", "models"], "note": "消息进来 → 事件缝每轮首步判定一次 → 五档决策链 → 命中 session 行 → 官方 llm 服务。" },
       { "id": "two-scopes", "label": "两个作用域", "focus": ["session", "dispatch", "guard"], "note": "同一张 routes 表：session 行只服务主会话，dispatch 行只服务队友；护栏拦主会话的裸子代理派发。" },
       { "id": "image-branch", "label": "带图侧枝", "focus": ["image", "router", "models"], "note": "按图三态 native / transcribed / blind，保证带图轮一定落在能看图的模型上。" }
     ]
@@ -20,12 +20,12 @@
     { "id": "user", "type": "external", "label": "用户消息", "sublabel": "文本 / 图片", "pos": [40, 30], "size": [150, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/rules.ts", "line": 105, "label": "latestUserMessage" }] },
     { "id": "event", "type": "messagebus", "label": "宿主事件缝", "sublabel": "agent/pre-step · agent/request", "pos": [260, 30], "size": [190, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/router.ts", "line": 839, "label": "installRouter" }, { "path": "packages/dsh-kimi-tide/src/index.ts", "line": 440, "label": "apply" }] },
     { "id": "router", "type": "backend", "label": "KimiRouter · 五档决策链", "sublabel": "显式 @ > 调用方点名 > role > 规则 > 默认", "pos": [520, 30], "size": [230, 64], "tag": "唯一决策点", "sources": [{ "path": "packages/dsh-kimi-tide/src/router.ts", "line": 346, "label": "decide 五档" }, { "path": "packages/dsh-kimi-tide/src/router.ts", "line": 122, "label": "applyRoleDecision" }] },
-    { "id": "tiers", "type": "backend", "label": "统一路由表 routes", "sublabel": "存在即真源；旧字段仅镜像", "pos": [850, 30], "size": [210, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/config.ts", "line": 179, "label": "RouterConfigV7" }, { "path": "packages/dsh-kimi-tide/src/config.ts", "line": 227, "label": "rowsFromConfig" }] },
-    { "id": "image", "type": "backend", "label": "图像护栏 · 按图三态", "sublabel": "native / transcribed / blind", "pos": [40, 253], "size": [230, 64], "tag": "转述流接力", "sources": [{ "path": "packages/dsh-kimi-tide/src/image-state.ts", "line": 18, "label": "ImageStateStore" }, { "path": "packages/dsh-kimi-tide/src/router.ts", "line": 178, "label": "resolveImageFallback" }] },
-    { "id": "session", "type": "backend", "label": "session 行 · 关键词规则", "sublabel": "只服务主会话 · 特异度首命中", "pos": [800, 253], "size": [230, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/rules.ts", "line": 185, "label": "matchingScored" }, { "path": "packages/dsh-kimi-tide/src/config.ts", "line": 157, "label": "RouteRowV7" }] },
-    { "id": "dispatch", "type": "backend", "label": "dispatch 行 · 分工表角色", "sublabel": "只服务队友 · 认领集合", "pos": [1070, 253], "size": [230, 64], "tag": "角色即路由", "sources": [{ "path": "packages/dsh-kimi-tide/src/roles.ts", "line": 25, "label": "roleClaimSet" }, { "path": "packages/dsh-kimi-tide/src/roles.ts", "line": 32, "label": "claimConflict" }] },
-    { "id": "guard", "type": "security", "label": "派发护栏", "sublabel": "裸 subagent 派发 · 默认关", "pos": [1070, 476], "size": [230, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/guard.ts", "line": 124, "label": "dispatchGuardRejection" }, { "path": "packages/dsh-kimi-tide/src/index.ts", "line": 766, "label": "ctx.tools.guard" }] },
-    { "id": "models", "type": "cloud", "label": "官方 llm 服务 · 模型注册表", "sublabel": "listProviders / listModels · stream", "pos": [520, 476], "size": [240, 64], "tag": "云模型 API", "sources": [{ "path": "packages/dsh-kimi-tide/src/index.ts", "line": 1111, "label": "refreshModelOptions" }, { "path": "packages/dsh-kimi-tide/src/router.ts", "line": 483, "label": "applyTo 替换 callConfig" }] }
+    { "id": "tiers", "type": "backend", "label": "统一路由表 routes", "sublabel": "存在即真源；旧字段仅镜像", "pos": [830, 30], "size": [210, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/config.ts", "line": 179, "label": "RouterConfigV7" }, { "path": "packages/dsh-kimi-tide/src/config.ts", "line": 227, "label": "rowsFromConfig" }] },
+    { "id": "image", "type": "backend", "label": "图像护栏 · 按图三态", "sublabel": "native / transcribed / blind", "pos": [480, 190], "size": [230, 64], "tag": "转述流接力", "sources": [{ "path": "packages/dsh-kimi-tide/src/image-state.ts", "line": 18, "label": "ImageStateStore" }, { "path": "packages/dsh-kimi-tide/src/router.ts", "line": 178, "label": "resolveImageFallback" }] },
+    { "id": "session", "type": "backend", "label": "session 行 · 关键词规则", "sublabel": "只服务主会话 · 特异度首命中", "pos": [820, 190], "size": [230, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/rules.ts", "line": 185, "label": "matchingScored" }, { "path": "packages/dsh-kimi-tide/src/config.ts", "line": 157, "label": "RouteRowV7" }] },
+    { "id": "dispatch", "type": "backend", "label": "dispatch 行 · 分工表角色", "sublabel": "只服务队友 · 认领集合", "pos": [1090, 190], "size": [230, 64], "tag": "角色即路由", "sources": [{ "path": "packages/dsh-kimi-tide/src/roles.ts", "line": 25, "label": "roleClaimSet" }, { "path": "packages/dsh-kimi-tide/src/roles.ts", "line": 32, "label": "claimConflict" }] },
+    { "id": "guard", "type": "security", "label": "派发护栏", "sublabel": "裸 subagent 派发 · 默认关", "pos": [1090, 350], "size": [230, 64], "sources": [{ "path": "packages/dsh-kimi-tide/src/guard.ts", "line": 124, "label": "dispatchGuardRejection" }, { "path": "packages/dsh-kimi-tide/src/index.ts", "line": 766, "label": "ctx.tools.guard" }] },
+    { "id": "models", "type": "cloud", "label": "官方 llm 服务 · 模型注册表", "sublabel": "listProviders / listModels · stream", "pos": [640, 334], "size": [240, 64], "tag": "云模型 API", "sources": [{ "path": "packages/dsh-kimi-tide/src/index.ts", "line": 1111, "label": "refreshModelOptions" }, { "path": "packages/dsh-kimi-tide/src/router.ts", "line": 483, "label": "applyTo 替换 callConfig" }] }
   ],
   "boundaries": [
     { "kind": "region", "label": "DSH 宿主进程（plugin apply）", "wraps": ["event", "router", "tiers", "guard", "session", "dispatch", "models", "image"] }
@@ -34,8 +34,8 @@
     { "id": "user-to-event", "from": "user", "to": "event", "label": "本轮消息", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
     { "id": "event-to-router", "from": "event", "to": "router", "label": "每轮首步判定", "fromSide": "right", "toSide": "left" },
     { "id": "router-to-tiers", "from": "router", "to": "tiers", "label": "五档求值", "fromSide": "right", "toSide": "left" },
-    { "id": "tiers-to-session", "from": "tiers", "to": "session", "label": "scope: session", "fromSide": "bottom", "toSide": "top", "labelDx": -44 },
-    { "id": "tiers-to-dispatch", "from": "tiers", "to": "dispatch", "label": "scope: dispatch", "fromSide": "bottom", "toSide": "top" },
+    { "id": "tiers-to-session", "from": "tiers", "to": "session", "label": "session 行", "fromSide": "bottom", "toSide": "top", "labelDy": 24, "labelDx": -70 },
+    { "id": "tiers-to-dispatch", "from": "tiers", "to": "dispatch", "label": "dispatch 行", "fromSide": "bottom", "toSide": "top", "labelDx": -70, "labelDy": 56 },
     { "id": "session-to-models", "from": "session", "to": "models", "label": "命中即改道", "fromSide": "bottom", "toSide": "right" },
     { "id": "dispatch-to-models", "from": "dispatch", "to": "models", "label": "队友身份改道", "fromSide": "bottom", "toSide": "right" },
     { "id": "guard-to-dispatch", "from": "guard", "to": "dispatch", "label": "拒绝并指向该角色的队友", "variant": "security", "fromSide": "right", "toSide": "bottom" },

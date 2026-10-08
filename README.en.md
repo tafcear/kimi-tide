@@ -120,7 +120,7 @@ At the very top of the card sits an **interface-language row**: it lists every l
 
 ## What it looks like
 
-[![kimi-tide 1.0.0 architecture (collaboration flows)](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
+[![kimi-tide (MoonTide) v2.1.x architecture: picking a model at every step — five-tier decision chain · unified route table · role table & dispatch guard](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
 *Click for full size; download the linked HTML and open it in a browser for the interactive diagram (pan/zoom/search, light & dark themes).*
 

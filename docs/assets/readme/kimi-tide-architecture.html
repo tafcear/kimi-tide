@@ -4840,7 +4840,7 @@
       </div>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"live-turn","label":"一轮怎么选模型","focus":["user","event","router","tiers","session","models"],"note":"消息进来 → 事件缝每轮首步判定一次 → 五档决策链 → 统一路由表 → 官方 llm 服务。"},{"id":"two-scopes","label":"两个作用域","focus":["session","dispatch","guard"],"note":"同一张 routes 表：session 行只服务主会话，dispatch 行只服务队友；护栏拦主会话的裸子代理派发。"},{"id":"image-branch","label":"带图侧枝","focus":["image","router","models"],"note":"按图三态 native / transcribed / blind，保证带图轮一定落在能看图的模型上。"}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"live-turn","label":"一轮怎么选模型","focus":["user","event","router","session","models"],"note":"消息进来 → 事件缝每轮首步判定一次 → 五档决策链 → 命中 session 行 → 官方 llm 服务。"},{"id":"two-scopes","label":"两个作用域","focus":["session","dispatch","guard"],"note":"同一张 routes 表：session 行只服务主会话，dispatch 行只服务队友；护栏拦主会话的裸子代理派发。"},{"id":"image-branch","label":"带图侧枝","focus":["image","router","models"],"note":"按图三态 native / transcribed / blind，保证带图轮一定落在能看图的模型上。"}]</script>
     <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/tafcear/kimi-tide","revision":"efeff8721b5aacee522c14be27596ce68977f4e8","shortRevision":"efeff87"},"referenceCount":17,"nodes":{"user":[{"path":"packages/dsh-kimi-tide/src/rules.ts","line":105,"label":"latestUserMessage","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/rules.ts#L105"}],"event":[{"path":"packages/dsh-kimi-tide/src/router.ts","line":839,"label":"installRouter","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L839"},{"path":"packages/dsh-kimi-tide/src/index.ts","line":440,"label":"apply","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/index.ts#L440"}],"router":[{"path":"packages/dsh-kimi-tide/src/router.ts","line":346,"label":"decide 五档","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L346"},{"path":"packages/dsh-kimi-tide/src/router.ts","line":122,"label":"applyRoleDecision","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L122"}],"tiers":[{"path":"packages/dsh-kimi-tide/src/config.ts","line":179,"label":"RouterConfigV7","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/config.ts#L179"},{"path":"packages/dsh-kimi-tide/src/config.ts","line":227,"label":"rowsFromConfig","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/config.ts#L227"}],"image":[{"path":"packages/dsh-kimi-tide/src/image-state.ts","line":18,"label":"ImageStateStore","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/image-state.ts#L18"},{"path":"packages/dsh-kimi-tide/src/router.ts","line":178,"label":"resolveImageFallback","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L178"}],"session":[{"path":"packages/dsh-kimi-tide/src/rules.ts","line":185,"label":"matchingScored","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/rules.ts#L185"},{"path":"packages/dsh-kimi-tide/src/config.ts","line":157,"label":"RouteRowV7","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/config.ts#L157"}],"dispatch":[{"path":"packages/dsh-kimi-tide/src/roles.ts","line":25,"label":"roleClaimSet","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/roles.ts#L25"},{"path":"packages/dsh-kimi-tide/src/roles.ts","line":32,"label":"claimConflict","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/roles.ts#L32"}],"guard":[{"path":"packages/dsh-kimi-tide/src/guard.ts","line":124,"label":"dispatchGuardRejection","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/guard.ts#L124"},{"path":"packages/dsh-kimi-tide/src/index.ts","line":766,"label":"ctx.tools.guard","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/index.ts#L766"}],"models":[{"path":"packages/dsh-kimi-tide/src/index.ts","line":1111,"label":"refreshModelOptions","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/index.ts#L1111"},{"path":"packages/dsh-kimi-tide/src/router.ts","line":483,"label":"applyTo 替换 callConfig","href":"https://github.com/tafcear/kimi-tide/blob/efeff8721b5aacee522c14be27596ce68977f4e8/packages/dsh-kimi-tide/src/router.ts#L483"}]}}</script>
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
@@ -4883,7 +4883,7 @@
 
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read">
-      <svg viewBox="0 0 1480 620" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1480 480" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">kimi-tide（月汐）v2.1.x 架构：每一步选模型——五档决策链 · 统一路由表 · 分工表与派发护栏</title>
         <desc id="archify-diagram-description">A architecture diagram generated by Archify.</desc>
         <!-- Definitions -->
@@ -4909,20 +4909,20 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="10" y="0" width="1320" height="560" rx="12" class="c-region" stroke-width="1"/>
-        <text x="18" y="18" class="t-cloud" font-size="9" font-weight="600">DSH 宿主进程（plugin apply）</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="230" y="0" width="1120" height="434" rx="12" class="c-region" stroke-width="1"/>
+        <text x="238" y="18" class="t-cloud" font-size="9" font-weight="600">DSH 宿主进程（plugin apply）</text>
 
         <!-- Connection paths (before components for correct z-order) -->
         <path data-edge-from="user" data-edge-to="event" data-edge-label="本轮消息" data-edge-key="0" data-edge-id="user-to-event" data-composition-points="190,62;260,62" d="M 190 62 L 260 62" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="event" data-edge-to="router" data-edge-label="每轮首步判定" data-edge-key="1" data-edge-id="event-to-router" data-composition-points="450,55;520,55" d="M 450 55 L 520 55" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="router" data-edge-to="tiers" data-edge-label="五档求值" data-edge-key="2" data-edge-id="router-to-tiers" data-composition-points="750,62;850,62" d="M 750 62 L 850 62" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="tiers" data-edge-to="session" data-edge-label="scope: session" data-edge-key="3" data-edge-id="tiers-to-session" data-composition-points="948,94;948,173.5;915,173.5;915,253" d="M 948 94 L 948 165.5 Q 948 173.5 940 173.5 L 923 173.5 Q 915 173.5 915 181.5 L 915 253" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="tiers" data-edge-to="dispatch" data-edge-label="scope: dispatch" data-edge-key="4" data-edge-id="tiers-to-dispatch" data-composition-points="962,94;962,173.5;1185,173.5;1185,253" d="M 962 94 L 962 165.5 Q 962 173.5 970 173.5 L 1177 173.5 Q 1185 173.5 1185 181.5 L 1185 253" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="session" data-edge-to="models" data-edge-label="命中即改道" data-edge-key="5" data-edge-id="session-to-models" data-composition-points="915,317;915,341;784,341;784,515;760,515" d="M 915 317 L 915 333 Q 915 341 907 341 L 792 341 Q 784 341 784 349 L 784 507 Q 784 515 776 515 L 760 515" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="dispatch" data-edge-to="models" data-edge-label="队友身份改道" data-edge-key="6" data-edge-id="dispatch-to-models" data-composition-points="1178,317;1178,341;784,341;784,501;760,501" d="M 1178 317 L 1178 333 Q 1178 341 1170 341 L 792 341 Q 784 341 784 349 L 784 493 Q 784 501 776 501 L 760 501" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="guard" data-edge-to="dispatch" data-edge-label="拒绝并指向该角色的队友" data-edge-key="7" data-edge-id="guard-to-dispatch" data-composition-points="1300,508;1324,508;1324,341;1192,341;1192,317" d="M 1300 508 L 1316 508 Q 1324 508 1324 500 L 1324 349 Q 1324 341 1316 341 L 1200 341 Q 1192 341 1192 333 L 1192 317" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="image" data-edge-to="models" data-edge-label="多模态候选" data-edge-key="8" data-edge-id="image-to-models" data-composition-points="155,317;155,341;496,341;496,508;520,508" d="M 155 317 L 155 333 Q 155 341 163 341 L 488 341 Q 496 341 496 349 L 496 500 Q 496 508 504 508 L 520 508" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="router" data-edge-to="image" data-edge-label="带图轮按状态定策略" data-edge-key="9" data-edge-id="router-to-image" data-composition-points="520,69;496,69;496,229;155,229;155,253" d="M 520 69 L 504 69 Q 496 69 496 77 L 496 221 Q 496 229 488 229 L 163 229 Q 155 229 155 237 L 155 253" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="router" data-edge-to="tiers" data-edge-label="五档求值" data-edge-key="2" data-edge-id="router-to-tiers" data-composition-points="750,62;830,62" d="M 750 62 L 830 62" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="tiers" data-edge-to="session" data-edge-label="session 行" data-edge-key="3" data-edge-id="tiers-to-session" data-composition-points="928,94;928,190" d="M 928 94 L 928 190" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="tiers" data-edge-to="dispatch" data-edge-label="dispatch 行" data-edge-key="4" data-edge-id="tiers-to-dispatch" data-composition-points="942,94;942,142;1205,142;1205,190" d="M 942 94 L 942 134 Q 942 142 950 142 L 1197 142 Q 1205 142 1205 150 L 1205 190" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="session" data-edge-to="models" data-edge-label="命中即改道" data-edge-key="5" data-edge-id="session-to-models" data-composition-points="935,254;935,278;904,278;904,373;880,373" d="M 935 254 L 935 270 Q 935 278 927 278 L 912 278 Q 904 278 904 286 L 904 365 Q 904 373 896 373 L 880 373" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="dispatch" data-edge-to="models" data-edge-label="队友身份改道" data-edge-key="6" data-edge-id="dispatch-to-models" data-composition-points="1198,254;1198,278;904,278;904,359;880,359" d="M 1198 254 L 1198 270 Q 1198 278 1190 278 L 912 278 Q 904 278 904 286 L 904 351 Q 904 359 896 359 L 880 359" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="guard" data-edge-to="dispatch" data-edge-label="拒绝并指向该角色的队友" data-edge-key="7" data-edge-id="guard-to-dispatch" data-composition-points="1320,382;1344,382;1344,278;1212,278;1212,254" d="M 1320 382 L 1336 382 Q 1344 382 1344 374 L 1344 286 Q 1344 278 1336 278 L 1220 278 Q 1212 278 1212 270 L 1212 254" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="image" data-edge-to="models" data-edge-label="多模态候选" data-edge-key="8" data-edge-id="image-to-models" data-composition-points="595,254;595,278;616,278;616,366;640,366" d="M 595 254 L 595 270 Q 595 278 603 278 L 608 278 Q 616 278 616 286 L 616 358 Q 616 366 624 366 L 640 366" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="router" data-edge-to="image" data-edge-label="带图轮按状态定策略" data-edge-key="9" data-edge-id="router-to-image" data-composition-points="520,69;496,69;496,166;595,166;595,190" d="M 520 69 L 504 69 Q 496 69 496 77 L 496 158 Q 496 166 504 166 L 587 166 Q 595 166 595 174 L 595 190" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
 
         <!-- Components -->
         <g id="node-user" data-node-id="user" data-node-label="用户消息" tabindex="0" role="button" aria-label="Focus 用户消息, 文本 / 图片, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="文本 / 图片" data-node-context="Architecture component">
@@ -4965,72 +4965,72 @@
 
         <g id="node-tiers" data-node-id="tiers" data-node-label="统一路由表 routes" tabindex="0" role="button" aria-label="Focus 统一路由表 routes, 存在即真源；旧字段仅镜像, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="存在即真源；旧字段仅镜像" data-node-context="DSH 宿主进程（plugin apply）">
           <title>统一路由表 routes · 存在即真源；旧字段仅镜像 · DSH 宿主进程（plugin apply）</title>
-          <rect x="850" y="30" width="210" height="64" rx="6" class="c-mask"/>
-          <rect x="850" y="30" width="210" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(856 36) scale(0.6875)">
+          <rect x="830" y="30" width="210" height="64" rx="6" class="c-mask"/>
+          <rect x="830" y="30" width="210" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(836 36) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="955" y="60" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">统一路由表 routes</text>
-        <text data-detail="context" x="955" y="76" class="t-muted" font-size="9" text-anchor="middle">存在即真源；旧字段仅镜像</text>
+          <text data-detail-anchor x="935" y="60" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">统一路由表 routes</text>
+        <text data-detail="context" x="935" y="76" class="t-muted" font-size="9" text-anchor="middle">存在即真源；旧字段仅镜像</text>
         </g>
 
         <g id="node-image" data-node-id="image" data-node-label="图像护栏 · 按图三态" tabindex="0" role="button" aria-label="Focus 图像护栏 · 按图三态, native / transcribed / blind, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="native / transcribed / blind" data-node-tag="转述流接力" data-node-context="DSH 宿主进程（plugin apply）">
           <title>图像护栏 · 按图三态 · native / transcribed / blind · DSH 宿主进程（plugin apply） · 转述流接力</title>
-          <rect x="40" y="253" width="230" height="64" rx="6" class="c-mask"/>
-          <rect x="40" y="253" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 259) scale(0.6875)">
+          <rect x="480" y="190" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="480" y="190" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(486 196) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="155" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">图像护栏 · 按图三态</text>
-        <text data-detail="context" x="155" y="299" class="t-muted" font-size="9" text-anchor="middle">native / transcribed / blind</text>
-        <text data-detail="fine" x="155" y="309" class="t-backend" font-size="7" text-anchor="middle">转述流接力</text>
+          <text data-detail-anchor x="595" y="220" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">图像护栏 · 按图三态</text>
+        <text data-detail="context" x="595" y="236" class="t-muted" font-size="9" text-anchor="middle">native / transcribed / blind</text>
+        <text data-detail="fine" x="595" y="246" class="t-backend" font-size="7" text-anchor="middle">转述流接力</text>
         </g>
 
         <g id="node-session" data-node-id="session" data-node-label="session 行 · 关键词规则" tabindex="0" role="button" aria-label="Focus session 行 · 关键词规则, 只服务主会话 · 特异度首命中, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="只服务主会话 · 特异度首命中" data-node-context="DSH 宿主进程（plugin apply）">
           <title>session 行 · 关键词规则 · 只服务主会话 · 特异度首命中 · DSH 宿主进程（plugin apply）</title>
-          <rect x="800" y="253" width="230" height="64" rx="6" class="c-mask"/>
-          <rect x="800" y="253" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(806 259) scale(0.6875)">
+          <rect x="820" y="190" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="820" y="190" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(826 196) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="915" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">session 行 · 关键词规则</text>
-        <text data-detail="context" x="915" y="299" class="t-muted" font-size="9" text-anchor="middle">只服务主会话 · 特异度首命中</text>
+          <text data-detail-anchor x="935" y="220" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">session 行 · 关键词规则</text>
+        <text data-detail="context" x="935" y="236" class="t-muted" font-size="9" text-anchor="middle">只服务主会话 · 特异度首命中</text>
         </g>
 
         <g id="node-dispatch" data-node-id="dispatch" data-node-label="dispatch 行 · 分工表角色" tabindex="0" role="button" aria-label="Focus dispatch 行 · 分工表角色, 只服务队友 · 认领集合, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="只服务队友 · 认领集合" data-node-tag="角色即路由" data-node-context="DSH 宿主进程（plugin apply）">
           <title>dispatch 行 · 分工表角色 · 只服务队友 · 认领集合 · DSH 宿主进程（plugin apply） · 角色即路由</title>
-          <rect x="1070" y="253" width="230" height="64" rx="6" class="c-mask"/>
-          <rect x="1070" y="253" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1076 259) scale(0.6875)">
+          <rect x="1090" y="190" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="1090" y="190" width="230" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1096 196) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="1185" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">dispatch 行 · 分工表角色</text>
-        <text data-detail="context" x="1185" y="299" class="t-muted" font-size="9" text-anchor="middle">只服务队友 · 认领集合</text>
-        <text data-detail="fine" x="1185" y="309" class="t-backend" font-size="7" text-anchor="middle">角色即路由</text>
+          <text data-detail-anchor x="1205" y="220" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">dispatch 行 · 分工表角色</text>
+        <text data-detail="context" x="1205" y="236" class="t-muted" font-size="9" text-anchor="middle">只服务队友 · 认领集合</text>
+        <text data-detail="fine" x="1205" y="246" class="t-backend" font-size="7" text-anchor="middle">角色即路由</text>
         </g>
 
         <g id="node-guard" data-node-id="guard" data-node-label="派发护栏" tabindex="0" role="button" aria-label="Focus 派发护栏, 裸 subagent 派发 · 默认关, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="security" data-node-sublabel="裸 subagent 派发 · 默认关" data-node-context="DSH 宿主进程（plugin apply）">
           <title>派发护栏 · 裸 subagent 派发 · 默认关 · DSH 宿主进程（plugin apply）</title>
-          <rect x="1070" y="476" width="230" height="64" rx="6" class="c-mask"/>
-          <rect x="1070" y="476" width="230" height="64" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1076 482) scale(0.6875)">
+          <rect x="1090" y="350" width="230" height="64" rx="6" class="c-mask"/>
+          <rect x="1090" y="350" width="230" height="64" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1096 356) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-detail-anchor x="1185" y="506" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">派发护栏</text>
-        <text data-detail="context" x="1185" y="522" class="t-muted" font-size="9" text-anchor="middle">裸 subagent 派发 · 默认关</text>
+          <text data-detail-anchor x="1205" y="380" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">派发护栏</text>
+        <text data-detail="context" x="1205" y="396" class="t-muted" font-size="9" text-anchor="middle">裸 subagent 派发 · 默认关</text>
         </g>
 
         <g id="node-models" data-node-id="models" data-node-label="官方 llm 服务 · 模型注册表" tabindex="0" role="button" aria-label="Focus 官方 llm 服务 · 模型注册表, listProviders / listModels · stream, DSH 宿主进程（plugin apply）" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="listProviders / listModels · stream" data-node-tag="云模型 API" data-node-context="DSH 宿主进程（plugin apply）">
           <title>官方 llm 服务 · 模型注册表 · listProviders / listModels · stream · DSH 宿主进程（plugin apply） · 云模型 API</title>
-          <rect x="520" y="476" width="240" height="64" rx="6" class="c-mask"/>
-          <rect x="520" y="476" width="240" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(526 482) scale(0.6875)">
+          <rect x="640" y="334" width="240" height="64" rx="6" class="c-mask"/>
+          <rect x="640" y="334" width="240" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(646 340) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-detail-anchor x="640" y="506" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">官方 llm 服务 · 模型注册表</text>
-        <text data-detail="context" x="640" y="522" class="t-muted" font-size="9" text-anchor="middle">listProviders / listModels · stream</text>
-        <text data-detail="fine" x="640" y="532" class="t-cloud" font-size="7" text-anchor="middle">云模型 API</text>
+          <text data-detail-anchor x="760" y="364" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">官方 llm 服务 · 模型注册表</text>
+        <text data-detail="context" x="760" y="380" class="t-muted" font-size="9" text-anchor="middle">listProviders / listModels · stream</text>
+        <text data-detail="fine" x="760" y="390" class="t-cloud" font-size="7" text-anchor="middle">云模型 API</text>
         </g>
 
         <!-- Connection labels -->
@@ -5043,62 +5043,40 @@
           <text x="485" y="45" class="t-muted" font-size="8" text-anchor="middle">每轮首步判定</text>
         </g>
         <g data-detail="context" data-edge-from="router" data-edge-to="tiers" data-edge-label="五档求值" data-edge-key="2" data-edge-id="router-to-tiers">
-          <rect x="775.8" y="42" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="800" y="52" class="t-muted" font-size="8" text-anchor="middle">五档求值</text>
+          <rect x="765.8" y="42" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="790" y="52" class="t-muted" font-size="8" text-anchor="middle">五档求值</text>
         </g>
-        <g data-detail="context" data-edge-from="tiers" data-edge-to="session" data-edge-label="scope: session" data-edge-key="3" data-edge-id="tiers-to-session">
-          <rect x="848.9" y="153.5" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="887.5" y="163.5" class="t-muted" font-size="8" text-anchor="middle">scope: session</text>
+        <g data-detail="context" data-edge-from="tiers" data-edge-to="session" data-edge-label="session 行" data-edge-key="3" data-edge-id="tiers-to-session">
+          <rect x="829" y="98" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="858" y="108" class="t-muted" font-size="8" text-anchor="middle">session 行</text>
         </g>
-        <g data-detail="context" data-edge-from="tiers" data-edge-to="dispatch" data-edge-label="scope: dispatch" data-edge-key="4" data-edge-id="tiers-to-dispatch">
-          <rect x="1032.5" y="153.5" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="1073.5" y="163.5" class="t-muted" font-size="8" text-anchor="middle">scope: dispatch</text>
+        <g data-detail="context" data-edge-from="tiers" data-edge-to="dispatch" data-edge-label="dispatch 行" data-edge-key="4" data-edge-id="tiers-to-dispatch">
+          <rect x="972.1" y="178" width="62.8" height="14" rx="3" class="c-mask"/>
+          <text x="1003.5" y="188" class="t-muted" font-size="8" text-anchor="middle">dispatch 行</text>
         </g>
         <g data-detail="context" data-edge-from="session" data-edge-to="models" data-edge-label="命中即改道" data-edge-key="5" data-edge-id="session-to-models">
-          <rect x="820.5" y="321" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="849.5" y="331" class="t-muted" font-size="8" text-anchor="middle">命中即改道</text>
+          <rect x="890.5" y="258" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="919.5" y="268" class="t-muted" font-size="8" text-anchor="middle">命中即改道</text>
         </g>
         <g data-detail="context" data-edge-from="dispatch" data-edge-to="models" data-edge-label="队友身份改道" data-edge-key="6" data-edge-id="dispatch-to-models">
-          <rect x="947.2" y="321" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="981" y="331" class="t-muted" font-size="8" text-anchor="middle">队友身份改道</text>
+          <rect x="1017.2" y="258" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="1051" y="268" class="t-muted" font-size="8" text-anchor="middle">队友身份改道</text>
         </g>
         <g data-detail="context" data-edge-from="guard" data-edge-to="dispatch" data-edge-label="拒绝并指向该角色的队友" data-edge-key="7" data-edge-id="guard-to-dispatch">
-          <rect x="1266.2" y="404.5" width="115.6" height="14" rx="3" class="c-mask"/>
-          <text x="1324" y="414.5" class="t-security" font-size="8" text-anchor="middle">拒绝并指向该角色的队友</text>
+          <rect x="1286.2" y="310" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="1344" y="320" class="t-security" font-size="8" text-anchor="middle">拒绝并指向该角色的队友</text>
         </g>
         <g data-detail="context" data-edge-from="image" data-edge-to="models" data-edge-label="多模态候选" data-edge-key="8" data-edge-id="image-to-models">
-          <rect x="296.5" y="321" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="325.5" y="331" class="t-muted" font-size="8" text-anchor="middle">多模态候选</text>
+          <rect x="576.5" y="258" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="605.5" y="268" class="t-muted" font-size="8" text-anchor="middle">多模态候选</text>
         </g>
         <g data-detail="context" data-edge-from="router" data-edge-to="image" data-edge-label="带图轮按状态定策略" data-edge-key="9" data-edge-id="router-to-image">
-          <rect x="447.8" y="129" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="496" y="139" class="t-messagebus" font-size="8" text-anchor="middle">带图轮按状态定策略</text>
+          <rect x="447.8" y="97.5" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="496" y="107.5" class="t-messagebus" font-size="8" text-anchor="middle">带图轮按状态定策略</text>
         </g>
 
         <!-- Legend -->
-        <g data-legend data-legend-bridge>
-          <text x="40" y="584" class="t-primary" font-size="12" font-weight="650">Legend</text>
-          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Backend" data-legend-x="40" data-legend-baseline="604" data-legend-width="78">
-            <rect x="40" y="595" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
-            <text x="62" y="604" class="t-muted" font-size="10" font-weight="500">Backend</text>
-          </g>
-          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud" data-legend-x="140" data-legend-baseline="604" data-legend-width="68">
-            <rect x="140" y="595" width="16" height="10" rx="2.5" class="c-cloud" stroke-width="1"/>
-            <text x="162" y="604" class="t-muted" font-size="10" font-weight="500">Cloud</text>
-          </g>
-          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="Security" data-legend-x="230" data-legend-baseline="604" data-legend-width="83">
-            <rect x="230" y="595" width="16" height="10" rx="2.5" class="c-security" stroke-width="1"/>
-            <text x="252" y="604" class="t-muted" font-size="10" font-weight="500">Security</text>
-          </g>
-          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="Message bus" data-legend-x="335" data-legend-baseline="604" data-legend-width="98">
-            <rect x="335" y="595" width="16" height="10" rx="2.5" class="c-messagebus" stroke-width="1"/>
-            <text x="357" y="604" class="t-muted" font-size="10" font-weight="500">Message bus</text>
-          </g>
-          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="455" data-legend-baseline="604" data-legend-width="83">
-            <rect x="455" y="595" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
-            <text x="477" y="604" class="t-muted" font-size="10" font-weight="500">External</text>
-          </g>
-        </g>
+
       </svg>
       <p class="intent-trace-status no-print" id="intent-trace-status" role="status" aria-live="polite" aria-atomic="true"></p>
       <div class="share-chapter-cue no-print" id="share-chapter-cue" hidden role="status" aria-live="polite">

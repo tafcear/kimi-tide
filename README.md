@@ -120,7 +120,7 @@ flowchart LR
 
 ## 它长什么样
 
-[![kimi-tide 1.0.0 架构图（协作编排）](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
+[![kimi-tide（月汐）v2.1.x 架构：每一步选模型——五档决策链 · 统一路由表 · 分工表与派发护栏](docs/assets/readme/architecture-overview.png)](docs/assets/readme/kimi-tide-architecture.html)
 
 *点图看大图。`docs/assets/readme/kimi-tide-architecture.html` 下载后用浏览器打开，是可平移缩放/搜索的交互式架构图（明暗双主题，节点可溯源到源码）。*
 
