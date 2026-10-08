@@ -63,10 +63,18 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
   候选池逐步决策），空态也渲染并解释「暂无本步决策」。
 - **配额/余额 chip**：跟随当前命中目标——余额源显示 `¥3.94`，用量源显示 `周剩NN%`；
   点击展开**用量总览**（全部注册源一屏）。刷新配额走 `/kimi-tide refresh`。
+- **面板滚动**（v2.1.2）：决策面板与用量总览自身可滚动，拖动其滚动条或滚动其内容
+  **不会关闭面板**；页面与聊天区的滚动仍会收起面板（面板为 fixed 定位，页面一滚即错位）。
+  内容不足一屏时面板不可滚动，此时滚轮会滚到页面并收起面板。
 - **kimi 接入指示**：kimi-coding 路由未注册或 Key 不可解析时，主 chip 内嵌 ⚠（title 给出
   设置路径）；其它通道（如 moonshotai-cn）不计入这个判据。
 - **预设管理**（选择/编辑/新建/复制/删除 + 规则表 + 关键词组）在官方设置页「月汐」
   卡片（`settings.section`，id `kimi-tide-router`）。
+- **显示名守卫**（v2.1.3）：预设显示名与角色显示名命中密钥形态（12 组常见前缀，或
+  ≥32 字符且不含空白的随机串）或超过 40 字符时**不保存**，字段下方直接给出原因；
+  `AKIA` / `ASIA` 前缀另设 20 字符下限（真实 AWS 访问密钥 id 恒为该前缀加 16 位），
+  「Asia 团队」这类普通名称不受影响。判据单点实现在 `src/client/preset-name.ts`，
+  预设名与角色名两条输入通道共用。
 - **推理状态**：推理输出已由 DSH 原生渲染（reasoning-delta），无需面板提示。
 
 > 位置沿革（2026-10-03）：原先是 `conversation.composer.dock`（输入框**下方**的两行完整
@@ -134,6 +142,14 @@ DSH 托管凭据存储，**不落任何插件配置文件**。重启 `dsh web` �
 - **界面语言行**：设置卡顶部一行「界面语言」选择器——列出宿主注册的全部语言（当前项选中），切换即调宿主 `setLocale`，整个界面（含月汐卡片本身）立即换语言并由宿主持久化；宿主未提供语言列表（旧宿主）时整行不渲染。
 - **门禁**：`scripts/check-client-i18n.mjs`（接进根 `npm run check`）AST 级扫 **18 个会被浏览器打包的源文件**（`src/client/**`、`src/routing-view.ts`，以及客户端同样会 import 的四个共享模块 `src/config.ts` / `src/rules.ts` / `src/roles.ts` / `src/review-verdict.ts`——它们经 `src/copy.ts` 的 `copyNow()` 取文案；宿主侧缺省恒为中文）的硬编码文案（汉字 / 中文标点 / 全角字符 / `——` / `…`，注释豁免），并校验表结构（zh/en 键集相等、跨表无重复键、值非空、占位符一致）与展示元数据完整。
 - **边界**：宿主侧拼好的中文串（`/kimi-tide …` 命令输出、工具结果、团队技能描述、`decision.reason` / `configSource`）不在本轮范围——上游只提供浏览器侧 locale 服务，宿主没有对应机制。（评审结论标签已收口：`verdictLabel` 走 `shared.verdict.*`。）
+
+## 反馈与提问
+
+- **报缺陷**：[Issues](https://github.com/tafcear/kimi-tide/issues/new/choose)（带模板）——请写清五样：kimi-tide 版本、DSH 版本、桌面端还是网页端、复现步骤、`/kimi-tide show` 的输出。
+- **使用体验与建议**：置顶讨论 [Feedback](https://github.com/tafcear/kimi-tide/discussions/7)。
+- **使用提问**：[Q&A](https://github.com/tafcear/kimi-tide/discussions/new?category=q-a)。
+
+中文、English 都可以。
 
 ## 使用合规提示
 
