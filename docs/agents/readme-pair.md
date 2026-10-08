@@ -28,7 +28,7 @@ CI 位置：`.github/workflows/ci.yml` 的 `Docs consistency` 步骤（与 `chec
 
 ## 与其它门禁的分工
 
-- `check-changelog.mjs`：CHANGELOG 最新版 == `packages/dsh-kimi-tide/package.json` 版本 == **中文 README 的版本行**（三方一致性）。
+- `check-changelog.mjs`：CHANGELOG 最新版 == `packages/dsh-kimi-tide/package.json` 版本 == **中文 README 的版本行** == **包 README 的首屏状态行**（版本号与日期；四方一致性——包 README 随 npm 包一起发布，npm 包页显示的就是它）。
 - `check-readme-sync.mjs`（本规则）：**中文 README ↔ 英文 README** 的四项一致性。
 - `check-doc-links.mjs`：两者引用的本地文件确实存在（不断链）。
 
