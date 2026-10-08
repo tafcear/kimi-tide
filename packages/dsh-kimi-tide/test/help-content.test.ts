@@ -35,6 +35,7 @@ function fullSample(): RouterConfigV5 {
     driver?: { provider: string; model: string } | null
     driverSticky?: boolean
     rulesApplyToChildren?: boolean
+    dispatchGuard?: string
     roles?: Record<string, unknown>
     version?: number
     routes?: unknown[]
@@ -42,7 +43,17 @@ function fullSample(): RouterConfigV5 {
   v6.driver = { provider: 'kimi-coding', model: 'k3' }
   v6.driverSticky = true
   v6.rulesApplyToChildren = false
-  v6.roles = { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+  // v2.2.0 派发护栏：顶层开关 + 角色领域词（两者都进 FEATURE_KEYS 的正向闸——
+  // 样例含全部可选字段才走得通；这里取值不是断言目标，只要路径可达）。
+  v6.dispatchGuard = 'enforce'
+  v6.roles = {
+    frontend: {
+      id: 'frontend',
+      label: '前端',
+      target: { provider: 'kimi-coding', model: 'k3' },
+      keywords: ['前端', '界面'],
+    },
+  }
   // v7（统一路由表）：真源字段。schemastery 对未声明键是**透传保留**（实测往返不丢），
   // 故反向闸扫不到 `routes`；这里靠 FEATURE_KEYS 正向闸保证「样例能走通 routes.* 路径」。
   v6.version = 7

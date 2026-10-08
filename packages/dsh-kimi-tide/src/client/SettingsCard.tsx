@@ -39,6 +39,11 @@
  * rulesApplyToChildren 的设置控件，写通道 = card-store 的 saveDriver /
  * saveDriverSticky / saveRulesApplyToChildren（saveTop 薄封装）。
  *
+ * v2.2.0 派发护栏（客户端面）：主驱动卡追加「派发护栏」开关（v7 顶层
+ * dispatchGuard，勾选态 ⇄ 'enforce'，写通道 = card-store 的 saveDispatchGuard）；
+ * 角色行追加「领域词（keywords）」输入（护栏的领域判据，空输入不落键 = 回退
+ * 显示名与别名；解析走 guard.ts 的 parseKeywords 单源）。
+ *
  * B 项（2026-10-07 设计稿 §5，C1 视图模型消费侧）：B2 作用域徽标（规则行
  * 「主会话」/ 角色行「派发时」，kt-wire 样式）；B3 重叠解释器（view.overlaps
  * ⇒ 词表行与角色行两侧各挂解释条 + 「规则跟随该角色 / 词并入该角色别名」
@@ -57,6 +62,7 @@ import type { CopyKey, CopyParams } from '../locales/index.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import { buildRoutingView, previewDispatch, type GroupInfo, type OverlapInfo, type RoutingConfigLike, type RoutingView } from '../routing-view.js'
+import { parseKeywords } from '../guard.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -437,12 +443,13 @@ function RoleRow(props: {
     id: role.id,
     teammate: (role.teammate ?? []).join(','),
     aliases: (role.aliases ?? []).join(','),
+    keywords: (role.keywords ?? []).join(','),
   }))
   // dracpet UX#3：label 与预设显示名同一「逐字落盘」通道，共用同一判据
   // （preset-name.ts 单点）——疑似密钥/超长拒写，行内报错，draft 保留待改。
   const [labelError, setLabelError] = useState<string | null>(null)
   const rowRef = useRef<HTMLDivElement | null>(null)
-  const joined = `${role.label}\n${role.id}\n${(role.teammate ?? []).join(',')}\n${(role.aliases ?? []).join(',')}`
+  const joined = `${role.label}\n${role.id}\n${(role.teammate ?? []).join(',')}\n${(role.aliases ?? []).join(',')}\n${(role.keywords ?? []).join(',')}`
   useEffect(() => {
     if (rowRef.current === null || !rowRef.current.contains(document.activeElement)) {
       setDraft({
@@ -450,6 +457,7 @@ function RoleRow(props: {
         id: role.id,
         teammate: (role.teammate ?? []).join(','),
         aliases: (role.aliases ?? []).join(','),
+        keywords: (role.keywords ?? []).join(','),
       })
     }
     // draft 不入依赖：仅在权威角色变化时重同步，用户击键不触发。
@@ -545,6 +553,28 @@ function RoleRow(props: {
           if ((aliases ?? []).join(',') !== (role.aliases ?? []).join(',')) {
             const { aliases: _prev, ...rest } = role
             props.onSave(aliases === undefined ? rest : { ...rest, aliases })
+          }
+        }}
+      />
+      {/* v2.2.0 派发护栏的领域判据（RoleEntry.keywords）：解析走 guard.ts 的
+          parseKeywords（半角/全角逗号、trim、丢空、去重保序——与护栏判据同源）；
+          空输入摘键不落空数组，与队友名/别名同款「缺失即省略」口径。
+          写法对齐上面两格（listFromText 的 undefined 哨兵 + 只落关键的那一支），
+          draft 的逗号/空格差异不触发多余写盘。 */}
+      <input
+        aria-label={t('settings.roles.keywordsAria')}
+        className="kt-role-names"
+        value={draft.keywords}
+        disabled={!props.writable}
+        placeholder={t('settings.roles.keywordsPlaceholder')}
+        title={t('settings.roles.keywordsTitle')}
+        onChange={(e) => setDraft({ ...draft, keywords: e.target.value })}
+        onBlur={() => {
+          const parsed = parseKeywords(draft.keywords)
+          const keywords = parsed.length > 0 ? parsed : undefined
+          if ((keywords ?? []).join(',') !== (role.keywords ?? []).join(',')) {
+            const { keywords: _prev, ...rest } = role
+            props.onSave(keywords === undefined ? rest : { ...rest, keywords })
           }
         }}
       />
@@ -878,6 +908,7 @@ export function SettingsCard(props: SettingsCardProps) {
       saveDriver: wrap('saveDriver'),
       saveDriverSticky: wrap('saveDriverSticky'),
       saveRulesApplyToChildren: wrap('saveRulesApplyToChildren'),
+      saveDispatchGuard: wrap('saveDispatchGuard'),
       resetField: wrap('resetField'),
     }
     // store 由 useState 惰性初始化，实例恒定；flash 闭包稳定。
@@ -1128,6 +1159,9 @@ export function SettingsCard(props: SettingsCardProps) {
   const driver = (config as { driver?: RouteTarget | null }).driver ?? null
   const driverSticky = (config as { driverSticky?: boolean }).driverSticky === true
   const rulesApplyToChildren = (config as { rulesApplyToChildren?: boolean }).rulesApplyToChildren === true
+  /* v2.2.0 派发护栏开关：同一字段判据纪律——只认 'enforce'，'off'/缺失/非法值
+     一律回显为关闭（与宿主接入侧 `=== 'enforce'` 同口径）。 */
+  const dispatchGuardEnforce = (config as { dispatchGuard?: string }).dispatchGuard === 'enforce'
 
   // 规则编辑：全部组装 next 后经 store 整段写。
   const updateRules = (presetId: string, rules: RouterRule[]): void => {
@@ -1951,6 +1985,20 @@ export function SettingsCard(props: SettingsCardProps) {
             onChange={(e) => void storeWriter.saveRulesApplyToChildren(e.target.checked)}
           />
           <span className="kt-hint">{t('settings.driver.rulesForChildrenHint')}</span>
+        </label>
+        {/* v2.2.0 派发护栏：v7 顶层 dispatchGuard（缺失 = 关闭）。勾选 ⇒ 'enforce'，
+            取消 ⇒ 'off'（两者都是显式落值；off 与缺失同义）。护栏语义与「只能拒绝、
+            不能自动改派」的限制写在 hint 里——护栏不是自动分流。 */}
+        <label className="kt-row">
+          <span className="kt-field-label">{t('settings.field.dispatchGuard')}</span>
+          <input
+            type="checkbox"
+            aria-label={t('settings.field.dispatchGuard')}
+            checked={dispatchGuardEnforce}
+            disabled={!writable}
+            onChange={(e) => void storeWriter.saveDispatchGuard(e.target.checked)}
+          />
+          <span className="kt-hint">{t('settings.field.dispatchGuardHint')}</span>
         </label>
       </details>
 

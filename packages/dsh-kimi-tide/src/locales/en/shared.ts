@@ -42,8 +42,16 @@ export const en: Record<keyof typeof zh, string> = {
   'shared.roles.readFirst': 'Read before dispatching: {0}',
   'shared.roles.readFirstOverflow': 'Read before dispatching: {0} role(s) in total ({1}…)',
   'shared.roles.effortSuffix': ' (effort {0})',
+  /* ---- dispatch guard: denial reason when a role's domain goes to a bare subagent.
+     The guard is host `ctx.tools.guard` — deny only, never reroute — so the copy must
+     carry the next step itself; {0}=role id/teammate name {1}=role label {2}=fix hint. ---- */
+  'shared.roles.guard.rejectSubagent': 'This task matches role "{1}": dispatch it to that role\'s teammate `{0}`. A bare subagent never takes part in assignment-table rerouting and runs on the default model. Do: `spawn_teammate(name="{0}", …)` to create the teammate (dispatch straight to it when it already exists), then send the same task; when the task does not belong to that role, drop the "{1}" domain word and dispatch again. Alternative: {2}',
+  'shared.roles.guard.fixHint': 'give role "{0}" a keywords list (comma-separated): once set it takes precedence over the domain match, and an empty list falls back to the label and aliases.',
+  'shared.roles.guard.roleKeywordsFallback': 'Role "{0}" declares no keywords, so this match fell back to its label and aliases; add keywords for that role in settings to tighten or widen it.',
+  /* ↑ both {0}s above are the role LABEL: one denial reason keeps one name for the role
+     (the id appears only as rejectSubagent's {0}, i.e. the teammate name to dispatch to). */
   'shared.roles.skill.title': '# Kimi Tide assignment table (team dispatch)',
-  'shared.roles.skill.intro': 'When a task belongs to a specific domain, **dispatch it to a subagent on the corresponding model** instead of doing it yourself.',
+  'shared.roles.skill.intro': 'When a task belongs to a specific domain, **spawn the role\'s teammate with `spawn_teammate`** (the teammate name comes from the "Teammate names (claimed)" column above or the role id) instead of doing it yourself — and never hand it to a bare subagent.',
   'shared.roles.skill.tableHeader': '| Role | id | Target model | Teammate names (claimed) | Aliases | Note |',
   'shared.roles.skill.howto': '## How to dispatch (both forms required)',
   'shared.roles.skill.oneShot': '1. **One-shot tasks** (disposed when done): use `workflow`\'s `agent(prompt, { provider, model })` with a target from the table above; the prompt must carry all context the task needs.',

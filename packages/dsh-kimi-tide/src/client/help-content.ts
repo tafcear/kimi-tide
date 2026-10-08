@@ -87,6 +87,10 @@ export const FEATURE_KEYS = [
   'driverSticky',
   'rulesApplyToChildren',
   'roles',
+  // v2.2.0 派发护栏：开关是顶层键（说明条目 routing-guard），领域词挂在角色行上
+  // （`roles.<id>.keywords`，投影后由 `routes` 的 dispatch 行承载）。
+  'dispatchGuard',
+  'roles.frontend.keywords',
   // v7（统一路由表）：`routes` 是 v2.1.0 起的**真源**（旧字段降为镜像）。
   // 它不在 routerConfigSchema 的顶层键里（schemastery 未知键透传，实测往返不丢），
   // 所以反向闸扫不到它——这里显式登记，保证「样例配置能走通」这条正向闸覆盖它。
@@ -467,6 +471,17 @@ export function buildHelpSections(t: T): readonly HelpSection[] {
             t('help.section.routing.driver.body0'),
             t('help.section.routing.driver.body1'),
             t('help.section.routing.driver.body2'),
+          ],
+        },
+        {
+          id: 'routing-guard',
+          title: t('help.section.routing.guard.title'),
+          anchors: ['driver', 'roles'],
+          body: [
+            t('help.section.routing.guard.body0'),
+            t('help.section.routing.guard.body1'),
+            t('help.section.routing.guard.body2'),
+            t('help.section.routing.guard.body3'),
           ],
         },
       ],

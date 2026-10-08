@@ -122,6 +122,13 @@ export interface RoleEntry {
   aliases?: string[]
   /** 给模型的补充说明。 */
   note?: string
+  /**
+   * 派发护栏的领域词（v2.2.0）：填了就优先只按它判领域（大小写不敏感子串匹配）；
+   * 留空/缺失（含空数组）⇒ 回退到 label + aliases（子串）与 id（词边界）。
+   * 语义与搬运口径：缺失即缺失（不注入默认值），但 v6→v7 双向投影按字段搬运
+   * （见 rowsFromLegacy / projectRoutesToLegacy）——护栏读的是投影结果。
+   */
+  keywords?: string[]
 }
 
 /** v6 配置：v5 之上新增分工层（driver / driverSticky / rulesApplyToChildren / roles）。 */
@@ -159,6 +166,8 @@ export interface RouteRowV7 {
   teammate?: string[]
   aliases?: string[]
   note?: string
+  /** dispatch 行专用（= v6 `RoleEntry.keywords`：派发护栏领域词）；缺省不落键。 */
+  keywords?: string[]
 }
 
 /**
@@ -181,6 +190,13 @@ export interface RouterConfigV7 {
   roles: Record<string, RoleEntry>
   /** 统一路由表（唯一真源）。 */
   routes: RouteRowV7[]
+  /**
+   * 子代理派发护栏（v2.2.0）：`'enforce'` = 主会话用 `subagent` / `subagent_fork`
+   * 派发时，任务文本命中某角色的领域词即拒绝该次调用，拒绝理由写明「派给该角色的
+   * 队友」；`'off'` / 缺失 = 关闭（逐字节维持今天行为）。**不写默认值**——缺失即缺失，
+   * 运行期语义在消费侧（宿主接入按 `=== 'enforce'` 判定）。
+   */
+  dispatchGuard?: 'off' | 'enforce'
 }
 
 /**
@@ -234,7 +250,7 @@ function isWellFormedRouteRow(row: unknown): row is RouteRowV7 {
 /** 旧字段 → v7 行集投影（rowsFromConfig 的 legacy 支路，迁移 migrateV6 共用；
  *  B 项写通道双写亦由本函数从「将要写入的 presets/roles」推出同源 routes 行集
  *  ——读写两侧同一实现，防两处投影逻辑漂移）：
- *  预设序 × 规则序保序填 preset；roles 键序保序搬 label/teammate/aliases/note。
+ *  预设序 × 规则序保序填 preset；roles 键序保序搬 label/teammate/aliases/note/keywords。
  *  when/target 直接共享原引用（纯投影，不改写不克隆）。 */
 export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; roles?: Record<string, RoleEntry> }): RouteRowV7[] {
   const rows: RouteRowV7[] = []
@@ -254,6 +270,9 @@ export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; 
       ...(role.teammate === undefined ? {} : { teammate: role.teammate }),
       ...(role.aliases === undefined ? {} : { aliases: role.aliases }),
       ...(role.note === undefined ? {} : { note: role.note }),
+      // v2.2.0 派发护栏：keywords 是**护栏判据的载体**（roles 与 routes 双向投影都搬，
+      // 否则 projectRoutesToLegacy 用 routes 覆盖 roles 时把用户填的词静默抹掉）。
+      ...(role.keywords === undefined ? {} : { keywords: role.keywords }),
     })
   }
   return rows
@@ -273,8 +292,8 @@ export function rowsFromLegacy(config: { presets: Record<string, RouterPreset>; 
  * - presets 逐项浅拷贝（name / default / imageFallback 等原引用保留），仅 rules 重建；
  * - session 行的 when / target 与行内共享原引用（与 rowsFromLegacy 投影方向互逆，
  *   「routes ≡ 旧字段」的迁移产物因此逐字节还原）；
- * - dispatch 行还原 id / label / target / teammate / aliases / note 逐字段等价，
- *   缺省字段**不落键**；label 缺省回落 id（RoleEntry.label 必填）；
+ * - dispatch 行还原 id / label / target / teammate / aliases / note / keywords 逐字段
+ *   等价，缺省字段**不落键**；label 缺省回落 id（RoleEntry.label 必填）；
  * - 无效 preset 引用的 session 行保守丢弃（写入期 validateRoutes 已拒，读边界不抛错）；
  * - 畸形行（null / 非对象 / scope 非法——手改 YAML 的常见产物）同样保守丢弃并
  *   warn，读路径不因畸形行崩溃（S1，2026-10-07 复核；读边界不经过写入期校验）。
@@ -309,6 +328,9 @@ export function projectRoutesToLegacy<T extends RouterConfigV4 | RouterConfigV5P
         ...(row.teammate === undefined ? {} : { teammate: row.teammate }),
         ...(row.aliases === undefined ? {} : { aliases: row.aliases }),
         ...(row.note === undefined ? {} : { note: row.note }),
+        // v2.2.0 派发护栏：与 rowsFromLegacy 互逆（缺省字段不落键）——护栏读投影后的
+        // roles，丢了这一笔 = 用户显式填的领域词在 routes 为真源时静默失效。
+        ...(row.keywords === undefined ? {} : { keywords: row.keywords }),
       }
     }
   }

@@ -42,9 +42,18 @@ export const zh = {
   'shared.roles.readFirst': '派活前读我：{0}',
   'shared.roles.readFirstOverflow': '派活前读我：共 {0} 个角色（{1}…）',
   'shared.roles.effortSuffix': '（effort {0}）',
+  /* ---- 派发护栏（修复路线③，2026-10-08）：命中角色领域却派裸子代理时的拒绝理由。
+     守栏人是宿主 ctx.tools.guard —— 它**只能拒绝、不能改派**，所以文案必须自带
+     「下一步怎么做」；{0}=角色 id/队友名 {1}=角色显示名 {2}=指路串（{2} 内部再带一层
+     {0}=显示名；formatCopy 单遍替换，不会递归展开）。 ---- */
+  'shared.roles.guard.rejectSubagent': '本任务命中角色「{1}」：请派给它的队友 `{0}`。普通子代理不参与分工表改道，会跑在默认模型上。做法：`spawn_teammate(name="{0}", …)` 建起该队友（已存在就直接派给它），任务照原样派过去；若不归它，去掉「{1}」这类领域词后重派。备选：{2}',
+  'shared.roles.guard.fixHint': '给角色「{0}」填 keywords（逗号分隔）：填了就优先按它判领域，留空则回退到显示名与别名。',
+  'shared.roles.guard.roleKeywordsFallback': '角色「{0}」未配置 keywords，本次判定回退到它的显示名与别名；想收紧/放宽请在设置页填该角色的 keywords。',
+  /* ↑ fixHint 与 roleKeywordsFallback 的 {0} 都是**角色显示名（label）**——同一条拒绝理由里
+     与「角色「{1}」」保持同一称呼，不混用 id（id 只在 rejectSubagent 的 {0} 出现）。 */
   /* 分工表 skill 正文（模型面向的宿主侧注入文本，不经浏览器渲染；逐字保留）。 */
   'shared.roles.skill.title': '# 月汐分工表（团队派发）',
-  'shared.roles.skill.intro': '当任务属于某个专项领域时，**派发给对应模型的子代理**，不要自己硬做。',
+  'shared.roles.skill.intro': '当任务属于某个专项领域时，**用 `spawn_teammate` 派给该角色的队友**（队友名取自上表的「队友名（认领）」一列或角色 id），不要自己硬做、也不要派给普通子代理。',
   'shared.roles.skill.tableHeader': '| 角色 | id | 目标模型 | 队友名（认领） | 别名 | 备注 |',
   'shared.roles.skill.howto': '## 怎么派（两种形态，都要）',
   'shared.roles.skill.oneShot': '1. **一次性任务**（做完即回收）：用 `workflow` 的 `agent(prompt, { provider, model })` 指定上表的目标，提示词必须自带任务所需的全部上下文。',

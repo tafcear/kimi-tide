@@ -95,6 +95,9 @@ const roleSchema = Schema.object({
   teammate: Schema.array(Schema.string()),
   aliases: Schema.array(Schema.string()),
   note: Schema.string(),
+  // v2.2.0 派发护栏领域词。数组型字段缺失即注入 []（本文件 71 行的兼容层锚点），
+  // 故它与「留空 = 回退 label/aliases/id」的语义天然同形；无 .default()（红线）。
+  keywords: Schema.array(Schema.string()),
 })
 export const routerConfigSchema = Schema.object({
   // 宽松读取存量 v2/v3/v4 用户层（dsh-settings 契约：存量节校验失败会拒绝整个
@@ -117,6 +120,9 @@ export const routerConfigSchema = Schema.object({
   driverSticky: Schema.boolean(),
   rulesApplyToChildren: Schema.boolean(),
   roles: Schema.dict(roleSchema),
+  // v2.2.0 派发护栏总开关：无默认联合——缺失即缺失（不注入），运行期语义「缺失 = 关闭」
+  // 在消费侧（index.ts 的 guard 宿主接入按 === 'enforce' 判定）。红线：不带 .default()。
+  dispatchGuard: Schema.union([Schema.const('off'), Schema.const('enforce')]),
   // v3 存量兼容（注册期不被拒；migrateV3 需要 mode 存活）：
   mode: Schema.union([Schema.const('off'), Schema.const('cost'), Schema.const('capability')]),
 })
@@ -267,6 +273,10 @@ function validateRoutes(raw: RouterConfigV5 | RouterConfigV6 | RouterConfigV7): 
           && legacy.label === (row.label ?? row.id)
           && JSON.stringify(legacy.aliases ?? []) === JSON.stringify(row.aliases ?? [])
           && (legacy.note ?? '') === (row.note ?? '')
+          // v2.2.0 派发护栏领域词：与其余元数据同款比较——投影侧逐字段搬运时
+          // 「routes 行无 keywords × roles 有 keywords」会被 projectRoutesToLegacy
+          // 静默抹掉，属两处不一致，必须报冲突而不是默默丢字段。
+          && JSON.stringify(legacy.keywords ?? []) === JSON.stringify(row.keywords ?? [])
         if (!same) {
           return `routes 与 roles 冲突：角色 '${row.id}' 两处元数据/目标不一致（routes 为真源；请改回一致或清理旧字段）`
         }

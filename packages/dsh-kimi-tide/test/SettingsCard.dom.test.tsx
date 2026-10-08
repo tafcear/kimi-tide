@@ -1942,3 +1942,123 @@ describe('SettingsCard 显示名密钥闸（dracpet UX#3）', () => {
     expect(container.querySelector('.kt-role-row [role="alert"]')).toBeNull()
   })
 })
+
+describe('SettingsCard 派发护栏（v2.2.0：开关 + 角色领域词输入）', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  /** v2.2.0 夹具：v6 就绪快照 + 一个带领域词的角色；dispatchGuard 由参数决定（缺省 = 字段缺失 = 关闭）。 */
+  const readyGuardSnapshot = (dispatchGuard?: string): CardSnapshot => ({
+    status: 'ready',
+    config: {
+      ...DEFAULT_CONFIG_V6(),
+      activePreset: 'saving',
+      roles: {
+        frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' }, keywords: ['页面', 'React'] },
+      },
+      ...(dispatchGuard === undefined ? {} : { dispatchGuard }),
+    } as CardSnapshot['config'],
+    base: null,
+    user: null,
+    writable: true,
+    error: null,
+    catalog: null,
+    availability: null,
+    efforts: null,
+  })
+
+  const guardCheckbox = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>('input[aria-label="派发护栏"]')!
+
+  const keywordsInput = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>('.kt-role-row input[aria-label="领域词（keywords）"]')!
+
+  const fireInput = (input: HTMLInputElement, value: string): void => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  const blur = (input: HTMLInputElement): void => {
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+  }
+
+  it('派发护栏开关：字段缺失 ⇒ 未勾选（默认关）；勾选 ⇒ saveDispatchGuard(true)；回读 enforce ⇒ 勾选；取消 ⇒ (false)', async () => {
+    // Fails if: 开关按布尔字段判据回显（配置里是 'enforce' 字符串 ⇒ 永远显示为关），
+    // 或组件把布尔直接写进配置（schema 只收 'off' | 'enforce'，写入会被拒）。
+    const saveDispatchGuard = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveDispatchGuard })
+    await mount(store)
+    await act(async () => { publish(readyGuardSnapshot()) })
+    expect(guardCheckbox().checked).toBe(false)
+    await act(async () => { guardCheckbox().click() })
+    expect(saveDispatchGuard).toHaveBeenCalledWith(true)
+    await act(async () => { publish(readyGuardSnapshot('enforce')) })
+    expect(guardCheckbox().checked).toBe(true)
+    await act(async () => { guardCheckbox().click() })
+    expect(saveDispatchGuard).toHaveBeenLastCalledWith(false)
+  })
+
+  it('角色领域词：回显逗号串；改后失焦 ⇒ saveRoles 收到解析结果（全角逗号 + 去重），其余字段照旧透传', async () => {
+    // Fails if: RoleRow 重建 RoleEntry 时丢掉 keywords，或被编辑的词没进载荷——
+    // 保存链路是整表覆盖 roles + rowsFromLegacy 重推 routes，丢字段即静默抹掉
+    // 用户填的领域词（护栏随即退回 label/aliases 判定）。
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    await act(async () => { publish(readyGuardSnapshot()) })
+    const input = keywordsInput()
+    expect(input.value).toBe('页面,React')
+    await act(async () => { fireInput(input, '页面, React，界面') })
+    await act(async () => { blur(input) })
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0]![0] as Record<string, { label: string; target: { model: string }; keywords?: string[] }>
+    expect(record.frontend!.keywords).toEqual(['页面', 'React', '界面'])
+    expect(record.frontend!.label).toBe('前端')
+    expect(record.frontend!.target.model).toBe('k3')
+  })
+
+  it('角色领域词留空 ⇒ 摘键不落空数组（「缺失即省略」口径）', async () => {
+    // Fails if: 空输入落成 [] 或 ''——配置里出现空数组键，与本仓「缺失即省略」
+    // 口径相悖（schema 的数组注入会把它固化进用户层）。
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    await act(async () => { publish(readyGuardSnapshot()) })
+    const input = keywordsInput()
+    await act(async () => { fireInput(input, '  ') })
+    await act(async () => { blur(input) })
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0]![0] as Record<string, Record<string, unknown>>
+    expect('keywords' in record.frontend!).toBe(false)
+  })
+
+  it('不可写态：开关与领域词输入都 disabled', async () => {
+    const { store, publish } = makeDeferredStore()
+    await mount(store)
+    await act(async () => { publish({ ...readyGuardSnapshot('enforce'), writable: false }) })
+    expect(guardCheckbox().disabled).toBe(true)
+    expect(keywordsInput().disabled).toBe(true)
+  })
+})

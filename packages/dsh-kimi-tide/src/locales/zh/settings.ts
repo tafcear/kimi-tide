@@ -73,6 +73,8 @@ export const zh = {
   'settings.field.hitMaxTokens': '判官输出上限（token）',
   'settings.field.hitMaxTokensAria': '判官输出上限',
   'settings.field.hitFailOpen': '问不到（超时/模型不可用/输出读不出）一律不过闸；显式 @ 轮与「带图规则已排首位」的轮不会调用判官。',
+  'settings.field.dispatchGuard': '派发护栏',
+  'settings.field.dispatchGuardHint': '默认关闭。开启后：命中角色领域词的普通子代理派发会被拒绝，拒绝理由写明改用该角色的队友（`spawn_teammate`）；宿主只能拒绝、不能自动改派。',
 
   /* ---- 规则表 ---- */
   'settings.rules.title': '规则',
@@ -127,7 +129,7 @@ export const zh = {
 
   /* ---- 分工表 ---- */
   'settings.roles.summary': '分工表（专项活派给谁）',
-  'settings.roles.intro': '每个角色 = 一个领域 → 一个模型。角色 id 与「队友名」用 lower-kebab-case（如 frontend）； 用这些名字 spawn_teammate，月汐会把它们的请求改道到该角色的目标模型。 认领名（id + 队友名）不得跨角色重复——冲突时保存会被拒绝。',
+  'settings.roles.intro': '每个角色 = 一个领域 → 一个模型。角色 id 与「队友名」用 lower-kebab-case（如 frontend）； 用这些名字 spawn_teammate，月汐会把它们的请求改道到该角色的目标模型。 认领名（id + 队友名）不得跨角色重复——冲突时保存会被拒绝。 「领域词（keywords）」决定派发护栏按什么词判领域；留空则回退到显示名与别名。',
   'settings.roles.labelAria': '角色显示名',
   'settings.roles.idAria': '角色 id',
   'settings.roles.idTitle': 'lower-kebab-case；同时是默认认领的队友名',
@@ -139,6 +141,9 @@ export const zh = {
   'settings.roles.teammatePlaceholder': '额外认领的队友名，逗号分隔',
   'settings.roles.aliasesAria': '别名',
   'settings.roles.aliasesPlaceholder': '供模型识别的别名，逗号分隔',
+  'settings.roles.keywordsAria': '领域词（keywords）',
+  'settings.roles.keywordsPlaceholder': '派发护栏按这些词判领域，逗号分隔',
+  'settings.roles.keywordsTitle': '填了就优先按它判领域；留空则回退到显示名与别名',
   'settings.roles.deleteAria': '删除角色 {0}',
   'settings.roles.add': '新增角色',
   'settings.roles.newLabel': '新角色',

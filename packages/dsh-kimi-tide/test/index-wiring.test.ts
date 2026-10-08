@@ -175,8 +175,8 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
       if (name === 'configEditor') return configEditor
       // 可选宿主服务（acceptance-fix-1）：与生产 cordis 的 ctx.get 同语义——按名
       // 现查 store（调用时读，而非注册时快照），测试可在 apply 前往 ctx 挂
-      // agentTeams 替身，或在 apply 后挂以模拟「晚挂载」。
-      if (name === 'skills' || name === 'agentTeams') return ctx[name]
+      // agentTeams / tools 替身，或在 apply 后挂以模拟「晚挂载」。
+      if (name === 'skills' || name === 'agentTeams' || name === 'tools') return ctx[name]
       return undefined
     },
   }
@@ -588,6 +588,70 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     await tick()
     expect(skillRegister).toHaveBeenCalledTimes(1)
     expect(skillDisposers[0]).toHaveBeenCalled()
+  })
+
+  /**
+   * 派发护栏（修复路线③，2026-10-08）：宿主面接线门控 = 路由开启 **且**
+   * `dispatchGuard === 'enforce'` **且** `ctx.get('tools').guard` 可用。
+   * 断言三件：① 关态/路由关不注册 ② 开启后 guard 回调把判定委托给 guard.ts
+   * 纯函数（这里用「返回 host 拒绝串」替身观察接线是否真的挂上）③ 插件卸载时
+   * 释放 guard（disposer 被调用，不留残影）。
+   * 纯函数自身的判据矩阵在 test/guard.test.ts（guard-impl 的写域）。
+   */
+  it('派发护栏门控：路由关/开关 off 不注册；enforce 后注册并委托判定；卸载即释放', async () => {
+    const roles = {
+      qa: { id: 'qa', label: '测试', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    const guardChecks: Array<(exec: unknown) => string | undefined> = []
+    const guardDisposers: Array<ReturnType<typeof vi.fn>> = []
+    const toolsStub = {
+      guard: (check: (exec: unknown) => string | undefined) => {
+        guardChecks.push(check)
+        const dispose = vi.fn()
+        guardDisposers.push(dispose)
+        return dispose
+      },
+    }
+    // 路由关（activePreset: null）+ 已是 enforce：逃生舱态 ⇒ 不得注册。
+    // 配置形状用 raw v5（不走 sidecar 迁移那只 fire-and-forget 链，避免竞态）。
+    const settings = makeSettings({ ...v5cfg(null), roles, dispatchGuard: 'enforce' } as never)
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, getCommand, detachSettings } = makeCtx([agent], settings)
+    ;(ctx as Record<string, unknown>).tools = toolsStub
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    expect(guardChecks).toHaveLength(0)
+
+    // 路由开 ⇒ 注册一次；回调拿到宿主实参后必须由 guard.ts 判定并回传结论。
+    // 断言只钉「接线真的通了」：拒绝串里带角色 id 或显示名（文案措辞归 guard.test.ts）。
+    await getCommand()!.handler({ rawInput: 'preset capability' })
+    await tick()
+    expect(guardChecks).toHaveLength(1)
+    const rejected = guardChecks[0]!({ name: 'subagent', arguments: { description: '跑一遍测试', prompt: 'qa 检查' } })
+    expect(typeof rejected).toBe('string')
+    expect(rejected!.length).toBeGreaterThan(0)
+    expect(`${rejected}`).toMatch(/qa|测试/)
+    expect(guardChecks[0]!({ name: 'read', arguments: { file_path: 'a.ts' } })).toBeUndefined()
+
+    // 卸载（条目移出 profile / configEditor detach）⇒ guard disposer 被调用。
+    detachSettings()
+    expect(guardDisposers[0]).toHaveBeenCalled()
+  })
+
+  /** 负控：`ctx.get('tools')` 缺席（未挂工具流水线的组合包）⇒ 必须静默不装，且不报错。 */
+  it('派发护栏：tools 服务缺席 ⇒ 不注册、不 warn（未挂工具流水线的组合包照常加载）', async () => {
+    const roles = {
+      qa: { id: 'qa', label: '测试', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    const settings = makeSettings({ ...v5cfg('capability'), roles, dispatchGuard: 'enforce' } as never)
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    // ⚠ 不挂 ctx.tools：探针必须自行降级。
+    const { ctx, warnMessages } = makeCtx([agent], settings)
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    await tick()
+    expect(warnMessages.filter((message) => message.includes('护栏'))).toHaveLength(0)
   })
 
   /**

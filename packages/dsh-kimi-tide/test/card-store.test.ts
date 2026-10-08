@@ -420,3 +420,43 @@ describe('card-store v7 写通道双写（B1，2026-10-07 设计稿 §6.4「写�
     expect(validateRouterConfig(config as RouterConfigV6)).toBeUndefined()
   })
 })
+
+describe('card-store v2.2.0 派发护栏（dispatchGuard 写通道 + keywords 不丢）', () => {
+  it('saveDispatchGuard：勾选 ⇒ 落 \'enforce\'，取消 ⇒ 落 \'off\'；回读一致、无 error', async () => {
+    // Fails if: 卡片把布尔直接写进配置（schema 只收 'off' | 'enforce'）——宿主
+    // validate-on-write 静默拒写：开关看着打开了，护栏实际不生效。
+    const scope = makeScope({ ...DEFAULT_CONFIG_V6(), activePreset: 'saving' })
+    const store = createCardStore(scope, null)
+    await store.saveDispatchGuard(true)
+    expect(scope.writes).toEqual([['dispatchGuard', 'enforce']])
+    expect((store.getSnapshot().config as { dispatchGuard?: string }).dispatchGuard).toBe('enforce')
+    await store.saveDispatchGuard(false)
+    expect(scope.writes[1]).toEqual(['dispatchGuard', 'off'])
+    expect((store.getSnapshot().config as { dispatchGuard?: string }).dispatchGuard).toBe('off')
+    expect(store.getSnapshot().error).toBeNull()
+  })
+
+  it('saveRoles：角色编辑后 keywords 不丢——roles 与 routes 镜像两处都在（护栏判据的载体）', async () => {
+    // Fails if: 角色编辑路径重建 RoleEntry 时丢掉 role.keywords，或 rowsFromLegacy /
+    // projectRoutesToLegacy 不再搬该字段——用户填的领域词在下次保存时被静默抹掉，
+    // 护栏随即退回 label/aliases 判定（本任务收口的数据丢失面）。
+    const scope = makeScope({ ...DEFAULT_CONFIG_V6(), activePreset: 'saving' })
+    const store = createCardStore(scope, null)
+    const keywords = ['页面', 'React']
+    await store.saveRoles({
+      frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' }, keywords },
+    })
+    const saved = store.getSnapshot().config as RouterConfigV6 & { routes?: RouteRowV7[] }
+    expect(saved.roles.frontend!.keywords).toEqual(keywords)                     // 旧字段半边
+    expect(saved.routes!.filter((r) => r.scope === 'dispatch')[0]!.keywords).toEqual(keywords)  // routes 镜像半边
+    expect(validateRouterConfig(saved)).toBeUndefined()
+
+    // 再编辑一次（改 label，模拟 RoleRow 的 {...role, label} 重建）：keywords 仍在两处
+    await store.saveRoles({ frontend: { ...saved.roles.frontend!, label: '前端组' } })
+    const edited = store.getSnapshot().config as RouterConfigV6 & { routes?: RouteRowV7[] }
+    expect(store.getSnapshot().error).toBeNull()
+    expect(edited.roles.frontend!.label).toBe('前端组')
+    expect(edited.roles.frontend!.keywords).toEqual(keywords)
+    expect(edited.routes!.filter((r) => r.scope === 'dispatch')[0]!.keywords).toEqual(keywords)
+  })
+})

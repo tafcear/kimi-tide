@@ -53,6 +53,7 @@ import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
 import { buildEffortCatalog, buildMountedModels } from './effort-catalog.js'
 import { installTeamSkill, type SkillsLike, type TeamSkillHandle } from './team-skill.js'
+import { dispatchGuardRejection } from './guard.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -405,6 +406,37 @@ export function probeAgentTeams(ctx: unknown): AgentTeamsProbe | undefined {
   }
 }
 
+/** 宿主 ToolGuard 形状（官方声明原文：`ToolGuard = (execution) => string | undefined`）。 */
+export type ToolGuardFn = (execution: Readonly<{ name: string; arguments: unknown; agent?: unknown }>) => string | undefined
+
+/**
+ * 工具执行面探测（修复路线③，2026-10-08）：只看 `guard` 这一个面。
+ * 与 probeSkills / probeAgentTeams 同款范式与同款理由——**必须经 `ctx.get`**
+ * （cordis 代理下属性访问必抛，被 catch 静默吞成 undefined ⇒ 护栏永不生效）；
+ * `tools` 同样**不得**进 inject 数组（未挂工具流水线的组合包必须能加载本插件），
+ * 缺席即整链降级为「不装护栏」。`guard` 是官方最弱的够用机制（只拒绝、单调、
+ * 后注册的监听器无法翻案），比 restrict 强、比 waterfall 改写弱。
+ */
+export type ToolsProbe = { guard?: (check: ToolGuardFn) => () => void }
+
+/**
+ * 护栏句柄（与 `TeamSkillHandle` 同款「装好了就能卸」的形状）：`dispose` 直接就是
+ * 宿主 `ctx.tools.guard` 返回的精确 disposer（官方契约：guard 的注销面就是它）。
+ */
+export interface DispatchGuardHandle {
+  installed: true
+  dispose: () => void
+}
+
+export function probeTools(ctx: unknown): ToolsProbe | undefined {
+  try {
+    const tools = (ctx as { get?: (name: string) => unknown }).get?.('tools') as ToolsProbe | undefined
+    return typeof tools?.guard === 'function' ? tools : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function apply(ctx: Context, config: Config = {}) {
   // The shipped cordis.patch.yml documents every knob as a comment, so a
   // profile applying that layer as-is composes `config: null` (YAML null) —
@@ -424,6 +456,9 @@ export function apply(ctx: Context, config: Config = {}) {
   // ctx.get('agentTeams') 探测并缓存（同款范式，v2.0.0 Task 4）：宿主未挂团队服务时
   // teamLookup 为 undefined ⇒ pre-step 的 role 分支自然不命中，行为与主会话同形。
   let agentTeams = probeAgentTeams(ctx)
+  // ctx.get('tools') 探测并缓存（同款范式，修复路线③）：宿主未挂工具服务时护栏整链
+  // 降级为不注册；缓存只为「服务换实例 ⇒ 重挂」这条判据，判定本身仍现读服务。
+  let toolsService = probeTools(ctx)
 
   /**
    * 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：cordis 组合包按 profile 装配，
@@ -436,9 +471,11 @@ export function apply(ctx: Context, config: Config = {}) {
   const refreshHostServices = (): boolean => {
     const nextSkills = probeSkills(ctx)
     const nextTeams = probeAgentTeams(ctx)
-    const changed = nextSkills !== skillsService || nextTeams !== agentTeams
+    const nextTools = probeTools(ctx)
+    const changed = nextSkills !== skillsService || nextTeams !== agentTeams || nextTools !== toolsService
     skillsService = nextSkills
     agentTeams = nextTeams
+    toolsService = nextTools
     return changed
   }
 
@@ -694,6 +731,77 @@ export function apply(ctx: Context, config: Config = {}) {
   const rolesOf = (router: RouterConfigAny): Record<string, RoleEntry> =>
     (router as { roles?: Record<string, RoleEntry> }).roles ?? {}
 
+  /**
+   * 派发护栏开关（v7 顶层 `dispatchGuard`）：**只认字段本身**、不以版本号门控
+   * （与 rolesOf 同一条 R2 裁定）——缺失 / 非 'enforce' 一律视为 off，即今天行为。
+   */
+  const dispatchGuardModeOf = (router: RouterConfigAny): string | undefined =>
+    (router as { dispatchGuard?: unknown }).dispatchGuard === 'enforce' ? 'enforce' : undefined
+
+  /**
+   * 派发护栏句柄（修复路线③，2026-10-08；插件级状态，与 teamSkill 同款范式）。
+   *
+   * 为什么需要它（实证）：分工表的改道是**被动**的——`roles.ts:54` 只认
+   * `membership.role === 'teammate'`，而宿主对直接子代理一律返回 undefined
+   * （`router.ts:929`）⇒ **派给普通 `subagent` 的任务永远命中不了角色**，会在默认
+   * 模型上跑；更糟的是本插件自己注入的技能文本曾写「派发给对应模型的子代理」，
+   * 照它执行必然落空。护栏把这条纪律从"文案劝导"升级为"宿主级拒绝"。
+   *
+   * 语义边界（宿主原文）：`ctx.tools.guard` 是 `tools/pre-execute` 之后的**单调
+   * 最终拒绝**——同步检查，返回字符串即拒绝该次调用，任何插件都无法翻案；它
+   * **只能拒绝、不能改派**（改派＝另一次 `spawn_teammate` 调用）⇒ 拒绝理由里必须
+   * 自带"下一步怎么做"。判据在 `guard.ts` 纯函数里，这里只做宿主形状适配。
+   *
+   * 降级：tools 服务缺席 / guard 不可用 / 路由关闭 / `dispatchGuard !== 'enforce'`
+   * ⇒ 不注册、不报错，行为与无护栏逐字节一致。
+   */
+  let dispatchGuard: DispatchGuardHandle | null = null
+
+  const installDispatchGuard = (): DispatchGuardHandle | null => {
+    if (!hasActivePreset(routerConfig)) return null
+    if (dispatchGuardModeOf(routerConfig) !== 'enforce') return null
+    const tools = probeTools(ctx)
+    if (tools?.guard === undefined) return null
+    try {
+      const dispose = tools.guard((execution) => guardRejectionOf(execution.name, execution.arguments, execution.agent))
+      return { installed: true, dispose }
+    } catch (error) {
+      warn(`dsh-kimi-tide: 派发护栏注册失败（已降级为不装护栏）— ${String(error)}`)
+      return null
+    }
+  }
+
+  /** 重挂派发护栏：先释放旧的，再按当前配置决定是否注册（判据单点在 installDispatchGuard）。 */
+  const remountDispatchGuard = () => {
+    dispatchGuard?.dispose()
+    dispatchGuard = installDispatchGuard()
+  }
+
+  /**
+   * ctx.tools.guard 的宿主回调（同步、必须永不抛）：委托给 guard.ts 的纯函数。
+   * `agentTeams` 每轮现读（不缓存实例）——`refreshHostServices` 会换实例并重挂，
+   * 现读保证判定用的是**当下**的团队服务；服务缺席 ⇒ callerIsTeammate 保持
+   * undefined ⇒ 护栏按"可能是主会话"放行（绝不因探测失败拒绝任何调用）。
+   */
+  const guardRejectionOf = (toolName: string, args: unknown, executor: unknown): string | undefined => {
+    try {
+      const isTeammate = agentTeams === undefined
+        ? undefined
+        : agentTeams.tryMembership?.(executor as Agent) !== undefined
+      return dispatchGuardRejection({
+        toolName,
+        args,
+        roles: rolesOf(routerConfig),
+        guarded: dispatchGuardModeOf(routerConfig) === 'enforce',
+        ...(isTeammate === undefined ? {} : { callerIsTeammate: isTeammate }),
+      })
+    } catch (error) {
+      // 护栏绝不能让一次工具调用因为自身异常而失败（宿主 guard 抛错会中断执行链）。
+      warn(`dsh-kimi-tide: 派发护栏判定异常，本次放行 — ${String(error)}`)
+      return undefined
+    }
+  }
+
   // 0.6.0 协作编排（Task 9 最小接入）：按图状态表 + 转述器随 apply 生命周期
   // 创建一次——配置变更/候选枚举重挂路由器时，转述缓存与图像状态不丢。生产
   // VisionCaller = ctx.llm.stream 直调；0.8.0（D3/M6）：visionModel.effort 经
@@ -822,6 +930,8 @@ export function apply(ctx: Context, config: Config = {}) {
   // 启动初挂（裁决 R3）：路由关闭 ⇒ 不注册（静默）；roles 空 / skills 缺席 /
   // 注册失败的其余降级在 installTeamSkill 内部完成。
   remountTeamSkill()
+  // 派发护栏（修复路线③）：开关缺席 / 路由关闭 / tools 服务缺席 ⇒ 不注册（静默）。
+  remountDispatchGuard()
   refreshCandidates()
 
   // Panel persistence + commands (client→host channel). Commands speak the
@@ -886,6 +996,8 @@ export function apply(ctx: Context, config: Config = {}) {
     if (changed || servicesChanged) {
       mountRouter()
       remountTeamSkill()
+      // 护栏随配置/服务变更重挂（开关 off ↔ enforce 均在 installDispatchGuard 内判定）。
+      remountDispatchGuard()
     }
   }
 
@@ -1199,6 +1311,19 @@ export function apply(ctx: Context, config: Config = {}) {
       .catch((error) => warn(`dsh-kimi-tide: sidecar 迁移失败（${(error as Error).message}）`))
   }
 
+  // 派发护栏的宿主服务补挂（修复路线③）：`ctx.tools` 是**可选服务**——未挂工具流水线
+  // 的组合包必须能加载本插件，故不进 inject 数组，只经 `ctx.get('tools')` 探测。
+  // 就绪即无事（启动初挂已处理）；缺席则用 ctx.inject 的函数形态补挂一次
+  // （与 registerPanelRoute 的 connection、client/locale 同款范式）。
+  // ⚠ 与设置通道无关：本 effect 必须在 `if (port !== null)` 之外——无 configEditor 的
+  // 宿主（sidecar 回退路径）同样要能装上护栏。
+  ctx.effect(() => {
+    if (probeTools(ctx) !== undefined) return () => {}
+    if (typeof ctx.inject !== 'function') return () => {}
+    ctx.inject(['tools'], () => { remountDispatchGuard() })
+    return () => {}
+  })
+
   // Quota polling lifecycle.
   if (config.usagePollOnStart !== false) {
     for (const { monitor } of quotaMonitors) monitor?.start()
@@ -1210,5 +1335,7 @@ export function apply(ctx: Context, config: Config = {}) {
     disposeRouter?.()
     teamSkill?.dispose()
     teamSkill = null
+    dispatchGuard?.dispose()
+    dispatchGuard = null
   })
 }

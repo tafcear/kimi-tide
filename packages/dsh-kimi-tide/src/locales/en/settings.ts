@@ -75,6 +75,8 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.field.hitMaxTokens': 'Judge output cap (tokens)',
   'settings.field.hitMaxTokensAria': 'Judge output cap',
   'settings.field.hitFailOpen': 'If the judge cannot answer (timeout / model unavailable / unreadable output), the gate never passes; explicit-@ turns and turns where a with-image rule already leads never call the judge.',
+  'settings.field.dispatchGuard': 'Dispatch guard',
+  'settings.field.dispatchGuardHint': 'Off by default. When on: a plain subagent dispatch whose task matches a role\'s domain words is rejected, and the reason names the teammate to use instead (`spawn_teammate`). The host can only reject — it never re-dispatches.',
 
   /* ---- Rules table ---- */
   'settings.rules.title': 'Rules',
@@ -129,7 +131,7 @@ export const en: Record<keyof typeof zh, string> = {
 
   /* ---- Assignment table ---- */
   'settings.roles.summary': 'Assignment table (who handles specialized work)',
-  'settings.roles.intro': 'Each role = one domain → one model. Role ids and "teammate names" use lower-kebab-case (e.g. frontend); spawn teammates under these names and Kimi Tide reroutes their requests to the role\'s target model. Claim names (id + teammate names) must not repeat across roles — conflicts are rejected on save.',
+  'settings.roles.intro': 'Each role = one domain → one model. Role ids and "teammate names" use lower-kebab-case (e.g. frontend); spawn teammates under these names and Kimi Tide reroutes their requests to the role\'s target model. Claim names (id + teammate names) must not repeat across roles — conflicts are rejected on save. "Domain words (keywords)" decide which words the dispatch guard matches a domain by; when empty it falls back to the label and aliases.',
   'settings.roles.labelAria': 'Role display name',
   'settings.roles.idAria': 'Role id',
   'settings.roles.idTitle': 'lower-kebab-case; also the default claimed teammate name',
@@ -141,6 +143,9 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.roles.teammatePlaceholder': 'Additional claimed teammate names, comma-separated',
   'settings.roles.aliasesAria': 'Aliases',
   'settings.roles.aliasesPlaceholder': 'Aliases for model recognition, comma-separated',
+  'settings.roles.keywordsAria': 'Domain words (keywords)',
+  'settings.roles.keywordsPlaceholder': 'Domain words for the dispatch guard, comma-separated',
+  'settings.roles.keywordsTitle': 'When filled, these words take priority for domain matching; when empty it falls back to the label and aliases',
   'settings.roles.deleteAria': 'Delete role {0}',
   'settings.roles.add': 'Add role',
   'settings.roles.newLabel': 'New role',

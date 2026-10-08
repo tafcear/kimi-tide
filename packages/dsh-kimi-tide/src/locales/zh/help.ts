@@ -166,6 +166,12 @@ export const zh = {
   'help.section.routing.driver.body1': 'rulesApplyToChildren 关闭（默认）时，子代理的请求不参与关键词规则——只有分工表认领的队友会被改道。',
   'help.section.routing.driver.body2': '派发依据见 dock 的派发槽：role=分工表角色 / explicit=显式点名 / unclaimed=未在分工表 / keep=保持原样。',
 
+  'help.section.routing.guard.title': '派发护栏（dispatchGuard）',
+  'help.section.routing.guard.body0': '`dispatchGuard` 默认关闭；开启后，任务命中某角色的领域、却派给普通子代理（`subagent` / `subagent_fork`）时，这次派发被**拒绝**。',
+  'help.section.routing.guard.body1': '判定依据是角色的领域词（`keywords`）；角色没填时，判定回退到它的显示名、别名与 id。',
+  'help.section.routing.guard.body2': '被拒绝后，用 `spawn_teammate` 建起该角色的队友并把任务派给它。',
+  'help.section.routing.guard.body3': '**护栏只能拒绝、不能自动改派**：改派仍要另一次 `spawn_teammate` 调用。',
+
   /* ======== §4 keywords — 关键词与匹配 ======== */
   'help.section.keywords.title': '关键词与匹配',
   'help.section.keywords.groups.title': '关键词组与词表',

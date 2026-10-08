@@ -209,6 +209,12 @@ export interface CardStore {
   saveDriverSticky(sticky: boolean): Promise<void>
   /** 子代理参与关键词规则开关（v6 顶层 rulesApplyToChildren）：缺省/false = 不参与（v2.0.0 新语义）。 */
   saveRulesApplyToChildren(apply: boolean): Promise<void>
+  /**
+   * 派发护栏总开关（v7 顶层 dispatchGuard）：true ⇒ 落 `'enforce'`（护栏生效），
+   * false ⇒ 落 `'off'`（显式关闭，与字段缺失等价）。写通道 = saveTop
+   * （无前置守卫；非法值由 schema 把关，拒写经 saveTop 比对上传 error 通道）。
+   */
+  saveDispatchGuard(enforce: boolean): Promise<void>
   /** 清除一个顶层字段使其重新继承 base/默认。 */
   resetField(field: string): Promise<void>
   /** 取 per-model 推理档位表与真实挂载表（0.8.0/1.1.0 A8 自有通道）；失败/未提供 → 双 null。 */
@@ -655,6 +661,12 @@ export function createCardStore(
     await saveTop('rulesApplyToChildren', apply)
   }
 
+  /* v2.2.0 派发护栏：勾选态 ⇄ 枚举值（'enforce' | 'off'）——卡片的布尔控件与
+     配置的字符串契约的单点换算，落盘值不在组件里拼。 */
+  const saveDispatchGuard = async (enforce: boolean): Promise<void> => {
+    await saveTop('dispatchGuard', enforce ? 'enforce' : 'off')
+  }
+
   const resetField = async (field: string): Promise<void> => {
     try {
       if (scope !== null) await scope.unset(field)
@@ -685,6 +697,7 @@ export function createCardStore(
     saveDriver,
     saveDriverSticky,
     saveRulesApplyToChildren,
+    saveDispatchGuard,
     resetField,
     loadEfforts: async (fetch) => {
       try {

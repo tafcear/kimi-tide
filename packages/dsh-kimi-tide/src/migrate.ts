@@ -181,6 +181,11 @@ export function migrateV5(raw: unknown): RouterConfigV6 {
     // 「version:5 文档携带 v6/v7 字段」是 R2 字段判据后的合法常态，逐字段重建
     // 会在校验之前把 routes 抹掉（10-06 migrateV5 丢分工表的同型事故），纯静默。
     ...(Array.isArray(r.routes) ? { routes: r.routes } : {}),
+    // v2.2.0 派发护栏（v7 字段）：同 routes 口径按字段判据直通——「version: 5 文档
+    // 携带 v7 字段」是 R2 后的合法常态，逐字段白名单重建会把它静默丢弃
+    // （关掉护栏的后果：用户勾了开关、重启后静默失效）。非法值不搬运（写入期由
+    // schema/validate 拦，读边界保守忽略）。
+    ...(r.dispatchGuard === 'off' || r.dispatchGuard === 'enforce' ? { dispatchGuard: r.dispatchGuard } : {}),
     ...(r.driver === null || isPlainObject(r.driver) ? { driver: r.driver as RouterConfigV6['driver'] } : {}),
     ...(typeof r.rulesApplyToChildren === 'boolean' ? { rulesApplyToChildren: r.rulesApplyToChildren } : {}),
     driverSticky: typeof r.driverSticky === 'boolean' ? r.driverSticky : false,
