@@ -45,6 +45,15 @@ describe('roles：队友 → 角色', () => {
     expect(resolveRoleDecision(roles, { role: 'teammate', name: 'other' })).toBeUndefined()
     expect(resolveRoleDecision(roles, { role: 'teammate', name: 'frontend' })?.role.id).toBe('frontend')
   })
+
+  it('resolveRoleDecision：membership === undefined（普通子代理）返回 undefined —— roles.ts:54 第一分支', () => {
+    // task-2 缺口②：首分支 `membership === undefined ||` 此前无直接单元断言，只被
+    // wiring 级用例间接行使（router-wiring「teamLookup 缺席/在场返回 undefined」两条）。
+    // 生产对应：宿主 roster.tryMembership 对普通子代理返回 undefined（roster.js:79-80）。
+    // Fails if: 有人删掉 `membership === undefined` 判断 ⇒ 下一行对 undefined 读
+    // `.role` 抛 TypeError，本用例红
+    expect(resolveRoleDecision({ frontend: role('frontend') }, undefined)).toBeUndefined()
+  })
 })
 
 describe('roles：派发依据（依据枚举 role|explicit|unclaimed|keep）', () => {

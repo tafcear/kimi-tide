@@ -1385,24 +1385,40 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
   const EXTERNAL: RouteTarget = { provider: 'kimi-coding', model: 'k3' }
   const ROLE_FRONT: RoleEntry = { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } }
 
-  const mountTeam = (
-    config: RouterConfigV6,
-    membership?: { role: string; name: string },
-  ) => {
+  /**
+   * teamLookup 三形态（task-2：调用点显式可辨，不再靠 undefined 二义）：
+   * - `absent`：不注入 teamLookup —— 宿主未挂 agentTeams 服务（deps.teamLookup === undefined）。
+   * - `present-undefined`：注入 teamLookup 但恒返回 undefined —— 服务在场、agent 不在花名册。
+   *   普通子代理的生产形态（宿主 roster.js:79-80：有 subagent descriptor 的直接子代理一律
+   *   undefined；M1 会话 16/16 零改道的实况）。与 absent 在 router.ts:929 得到相同的
+   *   membership（undefined），但该等价仅由可选链的实现细节保证 —— 须独立用例钉住。
+   * - `member`：注入 teamLookup 并返回给定身份。
+   */
+  type TeamLookupShape =
+    | { kind: 'absent' }
+    | { kind: 'present-undefined' }
+    | { kind: 'member'; membership: { role: string; name: string } }
+
+  const mountTeam = (config: RouterConfigV6, team: TeamLookupShape = { kind: 'absent' }) => {
     const { ctx, dispatch, logs } = makeCtx()
     const fixture = makeDeps()
+    const entries: DispatchEntry[] = []
     installRouter(ctx as never, new KimiRouter(config, METAS, { info: () => {} }), {
       ...fixture.deps,
-      // membership 缺席 = teamLookup 缺席（宿主未挂 agentTeams 服务的同形降级）
-      ...(membership === undefined ? {} : { teamLookup: () => membership }),
+      ...(team.kind === 'absent'
+        ? {}
+        : team.kind === 'present-undefined'
+          ? { teamLookup: () => undefined }
+          : { teamLookup: () => team.membership }),
+      onDispatch: (_agent, entry) => { entries.push(entry) },
     })
-    return { dispatch, fixture, logs }
+    return { dispatch, fixture, logs, entries }
   }
 
   it('认领队友 → 分工表改道（via:role），且不被 B-1a 让位吞掉（role ≠ default）', async () => {
     const { dispatch, fixture } = mountTeam(
       TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }),
-      { role: 'teammate', name: 'frontend' },
+      { kind: 'member', membership: { role: 'teammate', name: 'frontend' } },
     )
     await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     // 外部显式目标 ≠ 角色目标：via:role 非默认目标，B-1a 首行守卫直接 false，改道生效
@@ -1418,7 +1434,7 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
   it('显式 @ 不被分工表覆盖（优先级链 1 > 3）', async () => {
     const { dispatch } = mountTeam(
       TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }),
-      { role: 'teammate', name: 'frontend' },
+      { kind: 'member', membership: { role: 'teammate', name: 'frontend' } },
     )
     await dispatch.preStep({ agent: child, messages: [textMessage('@deepseek-official/deepseek-v4-flash 你好')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
@@ -1427,19 +1443,49 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
   })
 
   it('未认领队友与 teamLookup 缺席同形：role 不命中 → 落默认目标 → B-1a 让位外部目标', async () => {
-    for (const membership of [{ role: 'teammate', name: 'ghost' }, undefined]) {
-      const { dispatch } = mountTeam(TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), membership)
+    const teams: TeamLookupShape[] = [
+      { kind: 'member', membership: { role: 'teammate', name: 'ghost' } },
+      { kind: 'absent' },
+    ]
+    for (const team of teams) {
+      const { dispatch } = mountTeam(TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), team)
       await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
       const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
       expect(config).toEqual(EXTERNAL)
     }
   })
 
+  it('teamLookup 在场但返回 undefined（普通子代理生产形态）⇒ role 不点火：B-1a 保持外部目标、台账记 keep', async () => {
+    // 生产形态（M1 会话 16/16 零改道的实况）：宿主 agentTeams 服务已挂载、teamLookup
+    // 已装，但 tryMembership(agent) 对有 subagent descriptor 的普通子代理返回 undefined
+    // （宿主 roster.js:79-80）。与上一条的 absent 分支（宿主未挂服务）形成对照——两形态
+    // 在 router.ts:929 得到相同的 membership（undefined），该等价仅靠可选链实现细节保证。
+    const { dispatch, fixture, entries } = mountTeam(
+      TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }),
+      { kind: 'present-undefined' },
+    )
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // ① role 不命中 ⇒ 落默认目标 ⇒ B-1a 让位保持外部目标（不得被改成 role 目标 kimi-for-coding）
+    expect(config).toEqual(EXTERNAL)
+    // ② 终决策 via ≠ 'role'（该形态下只允许 'default'）
+    // Fails if: 有人把 router.ts:929 的 `deps.teamLookup?.(agent)` 改成对 undefined 兜底
+    // 捏造认领队友身份（如 `?? { role:'teammate', name:'frontend' }`）⇒ role 误点火，
+    // ①②③ 同红（config 被改成 kimi-for-coding、via='role'、basis='role'）
+    expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('default')
+    // ③ 派发台账 basis='keep' 且不带队友名（dispatchMetaOf 的非队友末分支，roles.ts:84）
+    // Fails if: roles.ts:54 的 `membership === undefined` 首分支被删 ⇒ resolveRoleDecision
+    // 对 undefined 读 .role 抛 TypeError，本用例在 pre-step 即红
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ basis: 'keep', target: EXTERNAL })
+    expect(entries[0]!.teammate).toBeUndefined()
+  })
+
   it('R2 字段判据：version 显式写 5 的旧文档形态，roles 字段照样生效（不以版本号门控）', async () => {
     // 控制器裁决 R2：线上 profile patch 常显式写 version: 5——判据须为 roles 字段
     // 本身而非 version === 6。这里把 v6 夹具的 version 强写 5 模拟该形态。
     const legacyShape = { ...TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }), version: 5 } as unknown as RouterConfigV6
-    const { dispatch } = mountTeam(legacyShape, { role: 'teammate', name: 'frontend' })
+    const { dispatch } = mountTeam(legacyShape, { kind: 'member', membership: { role: 'teammate', name: 'frontend' } })
     await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
     const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
     // Fails if: 实现用 config.version === 6 门控（分工表静默失效 → 落默认目标被让位）
