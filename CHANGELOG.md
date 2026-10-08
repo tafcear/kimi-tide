@@ -16,6 +16,17 @@
 
 ---
 
+## v2.1.1（2026-10-08）
+
+**文档与验收回填版本——产品行为与 v2.1.0 完全一致，无功能变更**（`src/**` 与 `test/**` 逐字节相同）。v2.1.0 发布后用户在真机完成目检，本版把验收结论、机器旁证、待办与文档面一并补齐。
+
+- **实机验收闭环**：v2.1.0 的四处新增面（设置卡「界面语言」行、英文界面、分工表示例两个按钮、Plugin Manager 与设置页插件行的标题与描述）经用户重启宿主后**逐项目检通过**；机器侧旁证同时记录——宿主注入的技能描述派发面由 3 条变 8 条（示例按钮生效，且运行期确实按 `routes` 读）、`locale.preference` 已由语言服务写入 `cordis.patch.yml`。结论回填 `docs/release-evidence.md` 与验收 runbook（新增 §4.1）。
+- **B-4 写通道判据复跑通过**：用户把示例角色加进真实配置之后，`scripts/acceptance/check-routes-dualwrite.mjs` 仍 `exit=0`——`routes` 9 行（session 1 / dispatch 8）与镜像旧字段逐行语义一致、配置校验通过。
+- **新增待办 Q11「按角色配 skills」**：让分工角色除目标模型外还能声明该用哪些 skill；含两条硬取证（Agent Teams 的成员快照与 `spawn_teammate` 都没有 skills 入参；技能注册表是 host + per-scope 分层）与 A/B/C 三条候选路线，见 `docs/superpowers/backlog.md`。
+- **协作手册补「派活机制选型判据」**：`subagent` / `subagent_fork` / `workflow` / Agent Teams 四档各自适用的活形状与代价，附三种团队范式（orchestrator–worker / peer·blackboard / pipeline）对比，见 `docs/agent-collaboration-loop.md` §5.1。
+- **文档面同步**：双语 README 补「分工表示例两组」与「界面语言行」；包 README 升到 v2.1.1 并补同两处；`scripts/acceptance/README.md` 补收 v2.1.0 新增的两个验收脚本（`routing-view-preview.mjs` / `check-routes-dualwrite.mjs`）的用途与退出码语义。
+- 验证：**1084/1084 测试绿**（60 个测试文件）+ typecheck 0 + build 双端过 + `npm run check` 五闸全过 + Release 正文双语四段门禁过。
+
 ## v2.1.0（2026-10-08）
 
 路由页从「四个并列控件」变成**一条五档决策链**：谁在什么时候决定用哪个模型，一屏看完；两套本来各管一半的配置（关键词规则、分工表）第一次**分清作用域**，「冲突」变成「分工」。配置文件里它们也合成**一张统一路由表**（`routes`，v7）。**路由决策语义零变更**——这一版改的是信息架构，不是行为。

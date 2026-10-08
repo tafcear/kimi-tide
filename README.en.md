@@ -88,6 +88,8 @@ flowchart LR
 
 Open "Settings → 月汐 → Route": from top to bottom it *is* a **five-tier decision chain** — who gets to decide which model runs this step, the higher the stronger:
 
+At the very top of the card sits an **interface-language row**: it lists every language registered with the host (current one selected); switching applies to the **whole interface** (including the Kimi Tide card itself) immediately and is remembered by the host. On older hosts that provide no language list, the row is not rendered.
+
 1. **Summary line**: one plain-language sentence about the current state, like this — main session uses flash as the default target, a 「code」 hit switches to k3 ｜ dispatch: frontend→k3, backend→glm-5.3 ｜ images: latch to the vision model. With no rules configured at all it still says so: the main session has no rule that can match, everything uses the default target (…); several more keyword groups are not wired into any rule, so none takes effect for now — **an empty table is not broken, it is not wired yet**.
 2. **The five tiers**: explicit @ > caller's pick > roster role > keyword rules > default target. Each tier shows three lines — trigger / current value / when disabled. The **roster** is inlined in tier 3 and the **rule editor** in tier 4. Every tier carries a state badge — **ready** (it really participates now) / **on demand** (only when you type `@` or a caller names a model; not dimmed) / **not enabled** (nothing configured; dimmed) — so you can tell at a glance who decides this turn.
 3. **Scope badges**: rule rows read "**main session**", roster rows read "**on dispatch**" — two configurations, two halves, and the badges are the dividing line. In the config file they are two kinds of rows in **one routing table**, `routes` (`scope: session` / `scope: dispatch`):
@@ -226,7 +228,7 @@ Routing decides *who runs this step*; review decides *whether this step is good 
 
 Routing decides "who runs this step" and the review flow decides "was this step good enough"; the **roster** decides "who owns this kind of work from now on". Kimi Tide ships the roster as a **skill card the model reads** — the main model follows it when delegating, so you never hand-copy model names into a prompt.
 
-- **Write a roster** (Settings → Kimi Tide → Roster): one row per role — id (also the teammate-name claim key), label and target model, e.g. "frontend → `kimi-coding/k3`", "backend → `zai-coding-cn/glm-5.3`". Two roles claiming the same teammate name are **rejected at save time**.
+- **Write a roster** (Settings → Kimi Tide → Roster): one row per role — id (also the teammate-name claim key), label and target model, e.g. "frontend → `kimi-coding/k3`", "backend → `zai-coding-cn/glm-5.3`". Two roles claiming the same teammate name are **rejected at save time**. Two buttons fill in **example roles** in bulk — "**Fill in engineering examples**" (Frontend / Backend / DevOps / QA / Data / Security) and "**Fill in business examples**" (Writing / Marketing / Sales / Support / Finance / Legal), six each; targets start at the active preset's default model (change them in the dropdowns), and **an existing role with the same id is never overwritten**.
 - **The teammate name is the claim**: create a teammate named after the role id (or its alias) and every request from it is re-routed to the target model; unknown names are left untouched (they keep the model they were created with), and child-agent turns are never re-routed by keywords in the task text.
 - **The model can read the roster**: while routing is on and the roster is non-empty, the plugin registers a runtime skill (`kimi-tide-team`) — read before delegating, then follow one of two recipes: a **one-shot task** (`workflow`, naming the model) or a **persistent teammate** (`spawn_teammate`, name taken from the claim column). Edit the roster and the card in live sessions is replaced on the next turn; empty the roster and the card disappears.
 - **Pinned driver**: if you want the main session's **default target** to always be one model instead of the preset default, turn on "pin the driver" and name the target — keyword rules and explicit `@kimi` still win. Leave it empty to follow the host's default model.
@@ -257,7 +259,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v2.1.0 (2026-10-08)**
+> Current version: **v2.1.1 (2026-10-08)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)

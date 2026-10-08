@@ -2,6 +2,18 @@
 
 这里放**读已运行宿主留下的痕迹**做判定的验收工具——与 [`../e2e/`](../e2e/README.md) 互补：那边的 E2E 自己拉起一个隔离宿主跑启动级断言，这边的哨兵不启动任何东西，只解析真实会话日志。
 
+## 路由视图预检（`routing-view-preview.mjs`）——**v2.1.0 起，发版前第一步**
+
+读**真实** `cordis.patch.yml`（默认取 desktop profile 的 `dsh-kimi-tide` 条目，可用参数换 profile），跑 `coerceRouterConfigV6 → validateRouterConfig → buildRoutingView`，把「设置页应该显示什么」逐项打印出来：A-1 摘要原文 / A-3 五档链与三态 / 默认目标档 / A-4 词表接入 / B-2 重叠 / 派发面行数与逐行目标。
+
+**用法与判据**：`node scripts/acceptance/routing-view-preview.mjs` —— 退出码即**配置校验结果**（0 通过 / 1 不通过）；**不需要重启宿主**，适合改配置后、重启前先核对「应然长什么样」。实机验收时把它当对照物（runbook §0 第 1 步、§5 附录「本机应然快照」）。
+
+## 写通道双写判据（`check-routes-dualwrite.mjs`）——**B-4，不过不得发版**
+
+判据不是「看着像」，而是**语义等价**：`routes ≡ rowsFromLegacy(presets[*].rules ∪ roles)`（行集、顺序、作用域、label/teammate/aliases、目标与 effort 逐项比），外加一次完整 `validateRouterConfig`（后者已覆盖「空 `routes` × 非空旧字段」这类冲突）。
+
+**用法与退出码**：`node scripts/acceptance/check-routes-dualwrite.mjs` —— **0** 一致且校验通过 / **1** 分叉或校验失败（把分叉的两行原样打出）/ **2** 文件里还没有 `routes`（设置页自本版以来尚未写过一次）。**判读要点**：`exit=2` 表示「写通道还没被使用过」，**不是通过**；SETTINGS 页保存过规则或角色之后应为 `exit=0`。实机验收记录见 [routing-ia-acceptance.md](../../packages/dsh-kimi-tide/docs/routing-ia-acceptance.md) 的 B-4 行（2026-10-08 在 8 角色配置下复跑仍 `exit=0`）。
+
 ## 语义闸哨兵（`hit-confirm-sentinel.mjs`）
 
 ### 它治的是什么
