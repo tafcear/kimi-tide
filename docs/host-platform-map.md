@@ -8,6 +8,7 @@
 - 复核日期：2026-08-22（rc.2 事实锚点更新）
 - 调研对象：本地 DSH 安装 `C:\Users\tafce\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh`（下称 `$DSH`，各包根为 `$DSH/node_modules/@deepseek-ai/<pkg>`，只有 `lib/` 编译产物 .js/.d.ts）；GitHub 仓库 `deepseek-ai/deepseek-harness`（master）用于补查本地没有源码的内容。
 - 锚点约定：`包名/lib/文件:行号` 指 `$DSH/node_modules/@deepseek-ai/包名/lib/文件` 的绝对行号（实读验证）；`README` 锚点指包根 README.md 行号。
+- ⚠ **包名沿革（2026-10-08 于桌面端 0.2.0-rc.2 复核）**：本文写于 npm 安装线（rc.2 = 0.1.1-rc.2），当时承载会话级模型选择的包名是 `dsh-host-apiproxy`。**该包名在 0.2.0-rc.2 已不存在**（asar 全包清单无此名）；同一机制现由以下挂载点安装：`dsh-agent/lib/types/model-selection.js:45`（`installModelSelection` 本体，`lib/index.js:700` 导出）、`dsh-api-session-controller/lib/types/agent.js:340` 与 `lib/index.js:310`、`dsh-acp/lib/index.js:346`、`dsh-headless/lib/index.js:308`。下文的 `apiproxy` 锚点与行号属**当时引擎的实读记录**，作为历史证据保留；引用前请按上表到当前包名重新核对行号。
 
 ---
 

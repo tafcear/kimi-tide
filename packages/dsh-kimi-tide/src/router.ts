@@ -827,9 +827,12 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
 
   return ctx.effect(() => {
     // 2026-08-23 回归修复：全部监听器 {prepend:true}——宿主 rc.2
-    // dsh-host-apiproxy 在 agent 创建时安装 installModelSelection（agent
-    // 作用域 agent/request 覆盖监听器，selectionFor→installModelSelection，
-    // lib/index.js:1692-1715）。cordis waterfall 结果 = 最外层监听器返回值；
+    // （npm 线 0.1.1-rc.2；dsh-host-apiproxy 此后已并入 dsh-agent /
+    // dsh-api-session-controller，桌面端 0.2.0-rc.2 已无此包名；现行挂载点
+    // dsh-agent/lib/types/model-selection.js:45 installModelSelection）
+    // 在 agent 创建时安装 installModelSelection（agent 作用域 agent/request
+    // 覆盖监听器，selectionFor→installModelSelection，lib/index.js:1692-1715）。
+    // cordis waterfall 结果 = 最外层监听器返回值；
     // 本插件配置变更重挂载（applyConfig → mountRouter → 注销+重注册）会把
     // 监听器 push 到链尾（内层），路由返回值被外层覆盖丢弃（实机：
     // 面板决策=vision-exp 而 assistant/message.source 恒 session 模型）。
