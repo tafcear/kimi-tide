@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // 四处版本面一致性校验：CHANGELOG 最新版本 == 包版本 == 根 README 当前版本行 == 包 README 首屏状态行
 //
-// 为什么带上包 README：它随 npm 包一起发布（`npm pack` 把仓库里这份文件打进 tarball，
-// npm 包页显示的就是它），而双语对门禁只管根 README.md / README.en.md——包 README 的
-// 版本面此前没有任何门禁：v2.1.2 / v2.1.3 两轮发版只升了状态行、正文停在 v2.1.1 的内容面。
+// 为什么带上包 README：`npm pack` 把仓库里这份文件打进插件包 tarball（GitHub Release 资产），
+// 装机用户与第三方插件目录页看到的就是它；而双语对门禁只管根 README.md / README.en.md——
+// 包 README 的版本面此前没有任何门禁：v2.1.2 / v2.1.3 两轮发版只升了状态行、正文停在 v2.1.1。
 // 日期也一并判（状态行日期 != CHANGELOG 标题日期 = 发版日写错），取不到日期时只判版本号。
 //
 // 用法：node scripts/check-changelog.mjs（CI 与发版前手工均可）
@@ -42,7 +42,7 @@ if (cur && cur[1] !== 'v' + pkg.version)
   problems.push(`README ${cur[1]} != package.json v${pkg.version}`);
 if (pkgCur && pkgCur[1] !== pkg.version)
   problems.push(
-    `包 README 状态行 v${pkgCur[1]} != package.json v${pkg.version}（包 README 随 npm 包发布，发版时必须与状态行一起升）`,
+    `包 README 状态行 v${pkgCur[1]} != package.json v${pkg.version}（包 README 随插件包 tarball 分发，发版时必须与状态行一起升）`,
   );
 if (headDate && pkgCurDate && headDate[1] !== pkgCurDate[1])
   problems.push(`包 README 状态行日期 ${pkgCurDate[1]} != CHANGELOG v${head[1]} 日期 ${headDate[1]}`);

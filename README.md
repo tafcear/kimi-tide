@@ -312,7 +312,7 @@ npm run build       # tsc 宿主 + esbuild 浏览器
 
 质量基线：全量测试绿 + typecheck 0 错误 + build 通过方可提交。本仓库实践「实施 → 独立审查 → 修复 → 复检验收」双模型协作闭环（见 [`docs/agent-collaboration-loop.md`](docs/agent-collaboration-loop.md)）。
 
-**文档门禁**：`npm run check` 跑五条机器门禁——CHANGELOG / README / 包 README / package 版本四方一致（含包 README 首屏状态行的版本号与日期，它随 npm 包一起发布）、全库文档链接不断、两个 README 双语对一致（版本行 / 章节骨架 / 徽章 / 本地文档链接集合四项，规则见 [`docs/agents/readme-pair.md`](docs/agents/readme-pair.md)）、术语禁用词扫描（[`docs/agents/terminology.md`](docs/agents/terminology.md)）、客户端硬编码文案与 locale 表结构校验（[`scripts/check-client-i18n.mjs`](scripts/check-client-i18n.mjs)）——任何用户可见改动，中英两份 README 必须同一次提交里一起改。文案语体以 [`docs/agents/style-samples.md`](docs/agents/style-samples.md) 的金标样例为准（效力高于文字描述）。
+**文档门禁**：`npm run check` 跑五条机器门禁——CHANGELOG / README / 包 README / package 版本四方一致（含包 README 首屏状态行的版本号与日期，它随插件包 tarball 一起分发）、全库文档链接不断、两个 README 双语对一致（版本行 / 章节骨架 / 徽章 / 本地文档链接集合四项，规则见 [`docs/agents/readme-pair.md`](docs/agents/readme-pair.md)）、术语禁用词扫描（[`docs/agents/terminology.md`](docs/agents/terminology.md)）、客户端硬编码文案与 locale 表结构校验（[`scripts/check-client-i18n.mjs`](scripts/check-client-i18n.mjs)）——任何用户可见改动，中英两份 README 必须同一次提交里一起改。文案语体以 [`docs/agents/style-samples.md`](docs/agents/style-samples.md) 的金标样例为准（效力高于文字描述）。
 
 **Release 双语四段式**：每个新版本的 Release 正文（= 附注 tag 消息）必须是**双语**——中文整块在上、English 整块在下，每种语言内部四段：① 一句话定位 ② `本次更新` / `What's new` ③ `安装与升级` / `Install & upgrade` ④ `验证与验收` / `Verification & acceptance`。打 tag 前用 `node scripts/check-release-notes.mjs --file <正文草稿>` 自检，Actions 在 `gh release create` 前再拦一次（模板与细则见 [`docs/agents/release-notes.md`](docs/agents/release-notes.md)）。
 
