@@ -16,11 +16,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { SettingsCard } from '../src/client/SettingsCard.js'
+import { EXAMPLE_ROLE_GROUPS, SettingsCard } from '../src/client/SettingsCard.js'
 import type { CardSnapshot, CardStore } from '../src/client/card-store.js'
 import { attachLocaleService } from '../src/client/locale.js'
 import { DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, DEFAULT_CONFIG_V6, type RouterConfigV4 } from '../src/config.js'
 import { formatCopy } from '../src/locales/index.js'
+import { claimConflict } from '../src/roles.js'
 
 declare global {
   // React 18 act 环境开关（react-dom/client 在非测试构建下需要）。
@@ -1329,7 +1330,7 @@ describe('SettingsCard 规则条件互斥（⑥-B 打磨三 2026-08-29）', () =
 
 describe('SettingsCard 分工表卡（Task 7：角色编辑器 + 示例一键填入）', () => {
   let container: HTMLDivElement
-  let root: Root
+  let root: Root | undefined
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -1338,9 +1339,11 @@ describe('SettingsCard 分工表卡（Task 7：角色编辑器 + 示例一键填
   })
 
   afterEach(async () => {
-    await act(async () => {
-      root.unmount()
-    })
+    if (root !== undefined) {
+      const current = root
+      root = undefined
+      await act(async () => { current.unmount() })
+    }
     container.remove()
     globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
   })
@@ -1366,7 +1369,7 @@ describe('SettingsCard 分工表卡（Task 7：角色编辑器 + 示例一键填
     ...overrides,
   })
 
-  it('分工表卡渲染在「路由」页；点「填入三条示例」→ saveRoles 收到 frontend/backend/writer，目标兜底 = 激活预设默认模型', async () => {
+  it('分工表卡渲染在「路由」页；点「填入工程示例」/「填入业务示例」→ saveRoles 各收到本组 6 个角色，目标兜底 = 激活预设默认模型', async () => {
     // 钉住的占位策略（brief 步骤 6 二选一）：宿主 validate 要求 role.target 完整
     // （provider/model 非空），空串占位必被拒写——示例目标取「激活预设 default」
     // 兜底（无激活预设时取候选池首个），用户可再在下拉里改。
@@ -1376,22 +1379,74 @@ describe('SettingsCard 分工表卡（Task 7：角色编辑器 + 示例一键填
     await act(async () => { publish(readyV6Snapshot()) })
     expect(container.textContent).toContain('分工表')
     await act(async () => {
-      ;[...container.querySelectorAll('button')].find((b) => b.textContent === '填入三条示例')!.click()
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === '填入工程示例')!.click()
+    })
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const engineering = saveRoles.mock.calls[0][0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>
+    expect(Object.keys(engineering)).toEqual(['frontend', 'backend', 'devops', 'qa', 'data', 'security'])
+    expect(engineering.frontend).toEqual({ id: 'frontend', label: '前端', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(engineering.backend!.label).toBe('后端')
+    expect(engineering.devops!.label).toBe('运维部署')
+    expect(engineering.qa!.label).toBe('测试')
+    expect(engineering.data!.label).toBe('数据')
+    expect(engineering.security!.label).toBe('安全')
+    for (const role of Object.values(engineering)) {
+      expect(role.target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    }
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === '填入业务示例')!.click()
+    })
+    expect(saveRoles).toHaveBeenCalledTimes(2)
+    const business = saveRoles.mock.calls[1][0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>
+    expect(Object.keys(business)).toEqual(['writer', 'marketing', 'sales', 'support', 'finance', 'legal'])
+    expect(business.writer!.label).toBe('写作')
+    expect(business.marketing!.label).toBe('市场')
+    expect(business.sales!.label).toBe('销售')
+    expect(business.support!.label).toBe('客服')
+    expect(business.finance!.label).toBe('财务')
+    expect(business.legal!.label).toBe('法务')
+    for (const role of Object.values(business)) {
+      expect(role.target).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    }
+    // 回读渲染：发布含示例分工表的快照 → 工程组六条角色行（角色显示名输入框逐行可见）
+    await act(async () => {
+      publish(readyV6Snapshot({ config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', roles: engineering } }))
+    })
+    const labels = [...container.querySelectorAll('input[aria-label="角色显示名"]')] as HTMLInputElement[]
+    expect(labels.map((i) => i.value)).toEqual(['前端', '后端', '运维部署', '测试', '数据', '安全'])
+    const ids = [...container.querySelectorAll('input[aria-label="角色 id"]')] as HTMLInputElement[]
+    expect(ids.map((i) => i.value)).toEqual(['frontend', 'backend', 'devops', 'qa', 'data', 'security'])
+  })
+
+  it('W8 示例集合自身无认领冲突：12 个 id 互不相同，claimConflict 返回 undefined', () => {
+    // 防后人加示例时撞名——claimConflict 的语义：任一认领名（含 role.id）不得被他 role 认领。
+    const groups = EXAMPLE_ROLE_GROUPS({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    expect(Object.keys(groups).sort()).toEqual(['business', 'engineering'])
+    const merged = { ...groups.engineering, ...groups.business }
+    const keys = Object.keys(merged)
+    expect(keys).toHaveLength(12)
+    // 键与 id 不脱节（claimConflict 只认 role.id，键只是存储形式）。
+    for (const key of keys) expect(merged[key]!.id).toBe(key)
+    expect(new Set(keys.map((key) => merged[key]!.id)).size).toBe(12)
+    expect(claimConflict(merged)).toBeUndefined()
+  })
+
+  it('W8 合并语义：已有同名角色时点示例按钮 ⇒ 该角色不被示例覆盖（保留用户已填的 label/target）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    const cfg = { ...DEFAULT_CONFIG_V6(), activePreset: 'saving' as string | null }
+    cfg.roles = { frontend: { id: 'frontend', label: '我的前端', target: { provider: 'kimi-coding', model: 'k3' } } }
+    await act(async () => { publish(readyV6Snapshot({ config: cfg })) })
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === '填入工程示例')!.click()
     })
     expect(saveRoles).toHaveBeenCalledTimes(1)
     const record = saveRoles.mock.calls[0][0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>
-    expect(Object.keys(record)).toEqual(['frontend', 'backend', 'writer'])
-    expect(record.frontend).toEqual({ id: 'frontend', label: '前端', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
-    expect(record.backend!.label).toBe('后端')
-    expect(record.writer!.label).toBe('写作')
-    // 回读渲染：发布含示例分工表的快照 → 三条角色行（角色显示名输入框逐行可见）
-    await act(async () => {
-      publish(readyV6Snapshot({ config: { ...DEFAULT_CONFIG_V6(), activePreset: 'saving', roles: record } }))
-    })
-    const labels = [...container.querySelectorAll('input[aria-label="角色显示名"]')] as HTMLInputElement[]
-    expect(labels.map((i) => i.value)).toEqual(['前端', '后端', '写作'])
-    const ids = [...container.querySelectorAll('input[aria-label="角色 id"]')] as HTMLInputElement[]
-    expect(ids.map((i) => i.value)).toEqual(['frontend', 'backend', 'writer'])
+    // Fails if: 示例覆盖了用户已有的同名角色（合并方向写反）。
+    expect(Object.keys(record)).toEqual(['frontend', 'backend', 'devops', 'qa', 'data', 'security'])
+    expect(record.frontend).toEqual({ id: 'frontend', label: '我的前端', target: { provider: 'kimi-coding', model: 'k3' } })
+    expect(record.devops).toEqual({ id: 'devops', label: '运维部署', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
   })
 
   it('「新增角色」→ saveRoles 合并一条新角色（kebab id、目标兜底 = 激活预设默认）', async () => {
@@ -1593,7 +1648,7 @@ describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / �
     expect(container.textContent).toContain('依据：unclaimed')
   })
 
-  it('B5「从词表生成角色」：未接入词表组批量生成角色（目标 = 激活预设默认模型，同「填入三条示例」兜底）', async () => {
+  it('B5「从词表生成角色」：未接入词表组批量生成角色（目标 = 激活预设默认模型，同示例填入按钮兜底）', async () => {
     const saveRoles = vi.fn(async () => {})
     const { store, publish } = makeDeferredStore({ saveRoles })
     await mount(store)
@@ -1604,7 +1659,7 @@ describe('SettingsCard B 项交互（2026-10-07 设计稿 §5：重叠动作 / �
     expect(btn.disabled).toBe(false)
     await act(async () => { btn.click() })
     // Fails if: ① 生成不经 saveRoles 守卫通道（认领冲突失去拒写保护）；② 目标
-    // 不是激活预设默认模型（§5.4 与「填入三条示例」同款兜底）；③ 把非未接入组
+    // 不是激活预设默认模型（§5.4 与示例填入按钮同款兜底）；③ 把非未接入组
     // （已被规则引用的内置 7 组）也生成了角色。
     expect(saveRoles).toHaveBeenCalledTimes(1)
     const record = saveRoles.mock.calls[0]![0] as Record<string, { id: string; label: string; target: { provider: string; model: string } }>

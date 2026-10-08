@@ -161,7 +161,7 @@ export const en: Record<keyof typeof zh, string> = {
   'help.section.routing.roles.title': 'Role table (role = domain → model)',
   'help.section.routing.roles.body0': 'One row per role: display name + id (lower-kebab-case; also the default claimed teammate name) + target model + additionally claimed teammate names + aliases.',
   'help.section.routing.roles.body1': 'Claimed names (the union of id and teammate names) must be unique across roles — duplicates are rejected on save (guard rejection; configuration is not persisted).',
-  'help.section.routing.roles.body2': '"Insert three examples" adds frontend / backend / writing roles in one click (target defaults to the current preset\'s default model; adjustable via dropdown).',
+  'help.section.routing.roles.body2': '"Fill in engineering examples" / "Fill in business examples" add the six engineering roles (frontend / backend / devops / QA / data / security) and the six business roles (writing / marketing / sales / support / finance / legal) respectively (target defaults to the current preset\'s default model; adjustable via dropdown).',
   'help.section.routing.roles.liveEmpty': 'Current: role table empty (specialist tasks are not rerouted on dispatch)',
   'help.section.routing.roles.liveCount': 'Current: {0} roles',
 

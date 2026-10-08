@@ -157,7 +157,7 @@ export const zh = {
   'help.section.routing.roles.title': '分工表（角色 = 领域 → 模型）',
   'help.section.routing.roles.body0': '每个角色一行：显示名 + id（lower-kebab-case，即默认认领的队友名）+ 目标模型 + 额外认领的队友名 + 别名。',
   'help.section.routing.roles.body1': '认领名（id 与队友名合起来的集合）不得跨角色重复——重复时保存会被拒绝（守卫式拒写，配置不会落盘）。',
-  'help.section.routing.roles.body2': '「填入三条示例」一键加入 前端/后端/写作 三个角色（目标先取当前预设的默认模型，可在下拉里改）。',
+  'help.section.routing.roles.body2': '「填入工程示例」「填入业务示例」分别加入 前端/后端/运维部署/测试/数据/安全 六个工程角色、写作/市场/销售/客服/财务/法务 六个业务角色（目标先取当前预设的默认模型，可在下拉里改）。',
   'help.section.routing.roles.liveEmpty': '当前：分工表为空（专项活不会被派发改道）',
   'help.section.routing.roles.liveCount': '当前：{0} 个角色',
 

@@ -44,7 +44,7 @@
  * ⇒ 词表行与角色行两侧各挂解释条 + 「规则跟随该角色 / 词并入该角色别名」
  * 两个一键动作，走 storeWriter 既有写通道）；B4 测试场「派给谁」（previewDispatch 预判队友
  * 改道目标与依据 role/unclaimed，文案点明 D6 两套作用域）；B5 词表 → 角色
- * 接入（orphan 词表组批量生成角色，目标兜底同「填入三条示例」）。
+ * 接入（orphan 词表组批量生成角色，目标兜底同示例填入按钮）。
  */
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createCardStore } from './card-store.js'
@@ -163,18 +163,35 @@ export function roleSlug(name: string, existing: Record<string, unknown>): strin
   }
 }
 
+/** 示例角色分组（W8：分工表示例扩容为 代码工程 6 + 一般业务 6 两组）。 */
+export type ExampleRoleGroup = 'engineering' | 'business'
+
 /**
- * 三条示例分工（Task 7 brief：前端/后端/写作，一键填入后由用户改目标）。
+ * 两组示例角色（target 取传入兜底目标）。
  * 占位策略（brief 二选一，按 TargetSelect/宿主 validate 现状定夺并已在测试钉住）：
  * 宿主 validateRouterConfig 要求 role.target 完整（provider/model 非空），
  * 空串占位必被拒写——示例目标以 fallback（调用方取激活预设 default）兜底。
+ * 示例只给 id/label/target（不带 teammate/aliases/effort），其余由用户按需补。
  */
-export function EXAMPLE_ROLES(fallback: RouteTarget): Record<string, RoleEntry> {
+export function EXAMPLE_ROLE_GROUPS(fallback: RouteTarget): Record<ExampleRoleGroup, Record<string, RoleEntry>> {
   const target = { provider: fallback.provider, model: fallback.model }
   return {
-    frontend: { id: 'frontend', label: copy('settings.role.example.frontend'), target },
-    backend: { id: 'backend', label: copy('settings.role.example.backend'), target },
-    writer: { id: 'writer', label: copy('settings.role.example.writer'), target },
+    engineering: {
+      frontend: { id: 'frontend', label: copy('settings.role.example.frontend'), target },
+      backend: { id: 'backend', label: copy('settings.role.example.backend'), target },
+      devops: { id: 'devops', label: copy('settings.role.example.devops'), target },
+      qa: { id: 'qa', label: copy('settings.role.example.qa'), target },
+      data: { id: 'data', label: copy('settings.role.example.data'), target },
+      security: { id: 'security', label: copy('settings.role.example.security'), target },
+    },
+    business: {
+      writer: { id: 'writer', label: copy('settings.role.example.writer'), target },
+      marketing: { id: 'marketing', label: copy('settings.role.example.marketing'), target },
+      sales: { id: 'sales', label: copy('settings.role.example.sales'), target },
+      support: { id: 'support', label: copy('settings.role.example.support'), target },
+      finance: { id: 'finance', label: copy('settings.role.example.finance'), target },
+      legal: { id: 'legal', label: copy('settings.role.example.legal'), target },
+    },
   }
 }
 
@@ -991,9 +1008,9 @@ export function SettingsCard(props: SettingsCardProps) {
     const id = roleSlug(`role-${roleEntries.length + 1}`, roles)
     saveRolesRecord({ ...roles, [id]: { id, label: t('settings.roles.newLabel'), target: roleFallbackTarget() } })
   }
-  const fillExampleRoles = (): void => {
-    // 既有角色保留（同 id 以用户现值为准，示例不覆盖）；三条示例置前便于就地改目标。
-    saveRolesRecord({ ...EXAMPLE_ROLES(roleFallbackTarget()), ...roles })
+  const fillExampleRoles = (group: ExampleRoleGroup): void => {
+    // 既有角色保留（同 id 以用户现值为准，示例不覆盖）；示例组置前便于就地改目标。
+    saveRolesRecord({ ...EXAMPLE_ROLE_GROUPS(roleFallbackTarget())[group], ...roles })
   }
 
   /**
@@ -1065,7 +1082,7 @@ export function SettingsCard(props: SettingsCardProps) {
   /**
    * B5 词表 → 角色接入（§5.4）：把「已备但没有任何规则引用」的词表组
    * （view.groups 中 wiring=orphan 的组）批量生成分工角色；目标先取当前预设
-   * 默认模型（与「填入三条示例」同款兜底策略，roleFallbackTarget）。生成仍走
+   * 默认模型（与示例填入按钮同款兜底策略，roleFallbackTarget）。生成仍走
    * 既有写入期校验（saveRoles 守卫：认领名跨角色唯一，冲突拒写并上浮）。
    */
   const orphanGroups = (routingView?.groups ?? []).filter((group) => group.wiring === 'orphan')
@@ -1596,10 +1613,18 @@ export function SettingsCard(props: SettingsCardProps) {
           <button
             type="button"
             disabled={!writable}
-            title={t('settings.roles.fillExampleTitle')}
-            onClick={fillExampleRoles}
+            title={t('settings.roles.fillEngineeringTitle')}
+            onClick={() => fillExampleRoles('engineering')}
           >
-            {t('settings.roles.fillExample')}
+            {t('settings.roles.fillEngineering')}
+          </button>
+          <button
+            type="button"
+            disabled={!writable}
+            title={t('settings.roles.fillBusinessTitle')}
+            onClick={() => fillExampleRoles('business')}
+          >
+            {t('settings.roles.fillBusiness')}
           </button>
           {/* B5 词表 → 角色接入（§5.4）：orphan 词表组（无规则引用）批量生成分工角色。 */}
           <button

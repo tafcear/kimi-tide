@@ -144,7 +144,7 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-role-row .kt-role-id { width: 110px; flex: none; }
     .kimi-tide-settings .kt-role-row .kt-role-names { flex: 1; min-width: 140px; }
     .kimi-tide-settings .kt-role-row .kt-target-wrap { flex: 1 1 160px; }
-    /* 分工表行内按钮（删除/新增角色/填入三条示例）：与关键词组按钮同款描边壳 + 紫 hover */
+    /* 分工表行内按钮（删除/新增角色/填入工程·业务示例/从词表生成角色）：与关键词组按钮同款描边壳 + 紫 hover */
     .kimi-tide-settings .kt-roles button { font-size: 12px; cursor: pointer;
       border: 1px solid var(--dsw-alias-border-l1, #e4e7ee);
       background: transparent; color: inherit; border-radius: 6px; padding: 1px 8px;
