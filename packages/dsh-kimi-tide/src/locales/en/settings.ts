@@ -117,6 +117,8 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.presets.copySuffix': '{0} copy',
   'settings.presets.deleteArmedTitle': 'Click again to confirm deletion (valid for 3 seconds)',
   'settings.presets.deleteArmed': 'Confirm delete?',
+  'settings.presets.nameLooksSecret': 'Display name looks like a secret and was not saved — use a plain preset name; do not paste an API key',
+  'settings.presets.nameTooLong': 'Display name may be at most {0} characters; not saved',
 
   /* ---- Keyword groups ---- */
   'settings.groups.summary': 'Keyword groups',
@@ -142,6 +144,8 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.roles.deleteAria': 'Delete role {0}',
   'settings.roles.add': 'Add role',
   'settings.roles.newLabel': 'New role',
+  'settings.roles.labelLooksSecret': 'Role display name looks like a secret and was not saved — use a plain name; do not paste an API key',
+  'settings.roles.labelTooLong': 'Role display name may be at most {0} characters; not saved',
   'settings.roles.fillEngineeringTitle': 'Fill in the six engineering roles Frontend / Backend / DevOps / QA / Data / Security (targets start as the active preset\'s default model; change them in the dropdowns)',
   'settings.roles.fillEngineering': 'Fill in engineering examples',
   'settings.roles.fillBusinessTitle': 'Fill in the six business roles Writing / Marketing / Sales / Support / Finance / Legal (targets start as the active preset\'s default model; change them in the dropdowns)',

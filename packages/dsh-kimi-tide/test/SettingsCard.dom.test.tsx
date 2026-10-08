@@ -1791,3 +1791,154 @@ describe('W6：试一句测试场英文（共享模块 copyNow 跟随语言）',
     }
   })
 })
+
+/**
+ * 显示名密钥闸（dracpet UX#3，2026-08-21 回访）：预设显示名与角色 label
+ * 共用 preset-name.ts 的同一判据——疑似密钥/超过 40 字符 ⇒ 零落盘 +
+ * 字段下 role=alert 报错；正常名照常走既有写通道（回归钉）。
+ */
+describe('SettingsCard 显示名密钥闸（dracpet UX#3）', () => {
+  let container: HTMLDivElement
+  let root: Root | undefined
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(async () => {
+    if (root !== undefined) {
+      await act(async () => {
+        root!.unmount()
+      })
+      root = undefined
+    }
+    container.remove()
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined
+  })
+
+  const mount = async (store: CardStore): Promise<void> => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+  }
+
+  const fireInput = (input: HTMLInputElement, value: string): void => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  const presetNameInput = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>('input[aria-label="新预设名"]')!
+  const createButton = (): HTMLButtonElement =>
+    [...container.querySelectorAll<HTMLButtonElement>('.kt-preset-ops button')].find((b) => b.textContent === '新建预设')!
+
+  it('预设名贴 sk- 密钥 ⇒ createPreset 零调用 + 字段下报错（输入保留待改）', async () => {
+    const createPreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ createPreset })
+    await mount(store)
+    await act(async () => { publish(readyV5Snapshot()) })
+
+    await act(async () => { fireInput(presetNameInput(), 'sk-proj-AbC123') })
+    await act(async () => { createButton().click() })
+
+    // Fails if: 密钥被当显示名落盘（dracpet UX#3 原缺陷：name 逐字进配置）。
+    expect(createPreset).not.toHaveBeenCalled()
+    const alert = container.querySelector('.kt-preset-ops [role="alert"]')
+    // Fails if: 拒绝但无可见提示（静默吞掉，用户以为已创建）。
+    expect(alert).not.toBeNull()
+    expect(alert!.textContent).toContain('密钥')
+    // 输入保留（不清空），用户知道自己贴了什么并可改正；aria-invalid 标出。
+    expect(presetNameInput().value).toBe('sk-proj-AbC123')
+    expect(presetNameInput().getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('预设名 41 字符 ⇒ 拒绝并提示长度上限 40', async () => {
+    const createPreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ createPreset })
+    await mount(store)
+    await act(async () => { publish(readyV5Snapshot()) })
+
+    // 41 个 CJK 字符：不碰密钥判据（不在令牌字符集），专钉长度闸。
+    await act(async () => { fireInput(presetNameInput(), `${'预设'.repeat(20)}x`) })
+    await act(async () => { createButton().click() })
+
+    // Fails if: 长度闸缺席（整条剪贴板原文落盘）。
+    expect(createPreset).not.toHaveBeenCalled()
+    expect(container.querySelector('.kt-preset-ops [role="alert"]')!.textContent).toContain('40')
+  })
+
+  it('预设名正常 ⇒ 照常创建并清空输入（回归：合法名不被误伤）', async () => {
+    const createPreset = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ createPreset })
+    await mount(store)
+    await act(async () => { publish(readyV5Snapshot()) })
+
+    await act(async () => { fireInput(presetNameInput(), '我的预设') })
+    await act(async () => { createButton().click() })
+
+    // Fails if: 正常名被密钥闸/长度闸误伤（假阳性）。
+    expect(createPreset).toHaveBeenCalledTimes(1)
+    expect(createPreset).toHaveBeenCalledWith('我的预设', expect.objectContaining({ name: '我的预设', rules: [] }))
+    expect(presetNameInput().value).toBe('')
+    expect(container.querySelector('.kt-preset-ops [role="alert"]')).toBeNull()
+  })
+
+  /** v6 就绪快照夹具：单角色 frontend（label 通道的挂载前提）。 */
+  const readyV6WithRole = (): CardSnapshot => ({
+    status: 'ready',
+    config: {
+      ...DEFAULT_CONFIG_V6(),
+      activePreset: 'saving',
+      roles: { frontend: { id: 'frontend', label: '前端', target: { provider: 'kimi-coding', model: 'k3' } } },
+    },
+    base: null,
+    user: null,
+    writable: true,
+    error: null,
+    catalog: null,
+    availability: null,
+    efforts: null,
+  })
+
+  const roleLabelInput = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>('.kt-role-row input[aria-label="角色显示名"]')!
+
+  it('角色 label 贴 ghp_ 密钥 ⇒ saveRoles 零调用 + 行内报错（同一判据）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    await act(async () => { publish(readyV6WithRole()) })
+
+    const input = roleLabelInput()
+    await act(async () => { fireInput(input, 'ghp_0123456789abcdef') })
+    await act(async () => { input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+
+    // Fails if: 角色 label 通道漏接同一判据（判据被复制两份/只接了预设侧）。
+    expect(saveRoles).not.toHaveBeenCalled()
+    const alert = container.querySelector('.kt-role-row [role="alert"]')
+    expect(alert).not.toBeNull()
+    expect(alert!.textContent).toContain('密钥')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('角色 label 正常改名 ⇒ 照旧经 saveRoles 落盘（回归）', async () => {
+    const saveRoles = vi.fn(async () => {})
+    const { store, publish } = makeDeferredStore({ saveRoles })
+    await mount(store)
+    await act(async () => { publish(readyV6WithRole()) })
+
+    const input = roleLabelInput()
+    await act(async () => { fireInput(input, '前端组') })
+    await act(async () => { input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+
+    // Fails if: 合法 label 被误伤，或改名不再走 saveRoles 守卫通道。
+    expect(saveRoles).toHaveBeenCalledTimes(1)
+    const record = saveRoles.mock.calls[0]![0] as Record<string, { label: string }>
+    expect(record.frontend!.label).toBe('前端组')
+    expect(container.querySelector('.kt-role-row [role="alert"]')).toBeNull()
+  })
+})

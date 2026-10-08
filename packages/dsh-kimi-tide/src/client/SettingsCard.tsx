@@ -52,6 +52,7 @@ import { Icon } from './icons.js'
 import { FALLBACK_HINT_KEYS } from './help-content.js'
 import { HelpTab } from './HelpTab.js'
 import { copy, setLanguage, useCopy, useLanguages } from './locale.js'
+import { checkDisplayName, DISPLAY_NAME_MAX } from './preset-name.js'
 import type { CopyKey, CopyParams } from '../locales/index.js'
 import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.js'
 import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
@@ -437,6 +438,9 @@ function RoleRow(props: {
     teammate: (role.teammate ?? []).join(','),
     aliases: (role.aliases ?? []).join(','),
   }))
+  // dracpet UX#3：label 与预设显示名同一「逐字落盘」通道，共用同一判据
+  // （preset-name.ts 单点）——疑似密钥/超长拒写，行内报错，draft 保留待改。
+  const [labelError, setLabelError] = useState<string | null>(null)
   const rowRef = useRef<HTMLDivElement | null>(null)
   const joined = `${role.label}\n${role.id}\n${(role.teammate ?? []).join(',')}\n${(role.aliases ?? []).join(',')}`
   useEffect(() => {
@@ -454,15 +458,31 @@ function RoleRow(props: {
     <div className="kt-role-row" ref={rowRef}>
       <input
         aria-label={t('settings.roles.labelAria')}
+        aria-invalid={labelError !== null || undefined}
         className="kt-role-label"
         value={draft.label}
         disabled={!props.writable}
-        onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+        onChange={(e) => {
+          setDraft({ ...draft, label: e.target.value })
+          setLabelError(null)
+        }}
         onBlur={() => {
           const label = draft.label.trim()
+          const verdict = checkDisplayName(label)
+          if (verdict !== 'ok') {
+            setLabelError(t(
+              verdict === 'secret' ? 'settings.roles.labelLooksSecret' : 'settings.roles.labelTooLong',
+              { 0: DISPLAY_NAME_MAX },
+            ))
+            return
+          }
+          setLabelError(null)
           if (label !== '' && label !== role.label) props.onSave({ ...role, label })
         }}
       />
+      {labelError !== null && (
+        <span className="kt-warn kt-role-label-error" role="alert">{labelError}</span>
+      )}
       <input
         aria-label={t('settings.roles.idAria')}
         className="kt-role-id"
@@ -770,6 +790,8 @@ export function SettingsCard(props: SettingsCardProps) {
   // `config === null` 提前返回——首帧 loading → ready 的重渲染若 hook 数变化，
   // React 直接卸载整卡（设置页「月汐」卡片空白；回归见 test/SettingsCard.dom.test.tsx）。
   const [newPresetName, setNewPresetName] = useState('')
+  // dracpet UX#3（2026-08-21）：显示名疑似密钥/超长 ⇒ 拒绝落盘并在此报错。
+  const [presetNameError, setPresetNameError] = useState<string | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
   const [trialText, setTrialText] = useState('')
   // B4（2026-10-07 §5.3）：测试场「派给谁」输入（角色/队友名 → previewDispatch 预判改道）。
@@ -1228,6 +1250,18 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const createPreset = (): void => {
     const name = newPresetName.trim()
+    // dracpet UX#3：疑似密钥/超长的显示名不写盘（剪贴板里的 API key 会随
+    // export-config/截图/issue 附件外泄）——判据单点在 preset-name.ts，
+    // 与角色 label 输入共用；拒绝时输入保留，用户在原值上改。
+    const verdict = checkDisplayName(name)
+    if (verdict !== 'ok') {
+      setPresetNameError(t(
+        verdict === 'secret' ? 'settings.presets.nameLooksSecret' : 'settings.presets.nameTooLong',
+        { 0: DISPLAY_NAME_MAX },
+      ))
+      return
+    }
+    setPresetNameError(null)
     const id = presetSlug(name, config.presets)
     const fallbackDefault: RouteTarget = active?.default
       ?? (modelOptions.length > 0
@@ -1786,12 +1820,19 @@ export function SettingsCard(props: SettingsCardProps) {
       <div className="kt-preset-ops">
         <input
           aria-label={t('settings.presets.newName')}
+          aria-invalid={presetNameError !== null || undefined}
           placeholder={t('settings.presets.newName')}
           value={newPresetName}
           disabled={!canManagePresets}
-          onChange={(e) => setNewPresetName(e.target.value)}
+          onChange={(e) => {
+            setNewPresetName(e.target.value)
+            setPresetNameError(null)
+          }}
         />
         <button type="button" disabled={!canManagePresets} onClick={createPreset}>{t('settings.presets.create')}</button>
+        {presetNameError !== null && (
+          <span className="kt-warn kt-preset-name-error" role="alert">{presetNameError}</span>
+        )}
         {active !== null && (
           <>
             <button type="button" disabled={!canManagePresets} onClick={duplicateActive}>{t('settings.presets.duplicate')}</button>

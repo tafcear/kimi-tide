@@ -115,6 +115,8 @@ export const zh = {
   'settings.presets.copySuffix': '{0} 副本',
   'settings.presets.deleteArmedTitle': '再次点击确认删除（3 秒内有效）',
   'settings.presets.deleteArmed': '确认删除？',
+  'settings.presets.nameLooksSecret': '显示名看起来像密钥，未保存——预设名请用普通名称，不要粘贴 API key',
+  'settings.presets.nameTooLong': '显示名最多 {0} 个字符，未保存',
 
   /* ---- 关键词组 ---- */
   'settings.groups.summary': '关键词组',
@@ -140,6 +142,8 @@ export const zh = {
   'settings.roles.deleteAria': '删除角色 {0}',
   'settings.roles.add': '新增角色',
   'settings.roles.newLabel': '新角色',
+  'settings.roles.labelLooksSecret': '角色显示名看起来像密钥，未保存——请用普通名称，不要粘贴 API key',
+  'settings.roles.labelTooLong': '角色显示名最多 {0} 个字符，未保存',
   'settings.roles.fillEngineeringTitle': '填入 前端 / 后端 / 运维部署 / 测试 / 数据 / 安全 六个工程角色（目标先取当前预设默认模型，可再在下拉里改）',
   'settings.roles.fillEngineering': '填入工程示例',
   'settings.roles.fillBusinessTitle': '填入 写作 / 市场 / 销售 / 客服 / 财务 / 法务 六个业务角色（目标先取当前预设默认模型，可再在下拉里改）',
