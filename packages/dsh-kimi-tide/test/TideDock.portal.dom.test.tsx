@@ -174,6 +174,26 @@ describe('TideDock 决策面板 portal 悬浮层', () => {
     expect(toggle.classList.contains('kt-armed')).toBe(true)
   })
 
+  it('面板自身滚动不关闭（滚动条可拖；2026-10-08 用户报告「条没法滚动」）', async () => {
+    await mount(makePanel())
+    await open()
+    const pop = document.querySelector('.kt-dock-pop')!
+    // 真 scroll 不冒泡（target=#pop，靠 window 捕获相位到达）；bubbles:true 对两种注册都成立，没牙
+    await act(async () => { pop.dispatchEvent(new Event('scroll', { bubbles: false })) })
+    // Fails if: 面板自身滚动被当成面板外滚动而收起（滚动条一碰就没了）
+    expect(document.querySelector('.kt-dock-pop')).not.toBeNull()
+  })
+
+  it('面板外元素滚动仍关闭面板（fixed 定位会漂移，原设计意图不许丢）', async () => {
+    await mount(makePanel())
+    await open()
+    // 面板外的普通元素（非面板、非触发按钮）发非冒泡 scroll：只有 window 捕获相位收得到
+    const outside = container.appendChild(document.createElement('div'))
+    await act(async () => { outside.dispatchEvent(new Event('scroll', { bubbles: false })) })
+    // Fails if: scroll 监听丢了捕获相位（true）或判据过宽（面板外滚动不再收起 → 悬浮层漂在错误位置）
+    expect(document.querySelector('.kt-dock-pop')).toBeNull()
+  })
+
   it('E-12 命令失败 notice 为 role=status 活动区（读屏播报，非静默插入）', async () => {
     const { tideDockBridge } = await import('../src/client/TideDock.js')
     const original = tideDockBridge.execute
@@ -268,6 +288,16 @@ describe('TideDock 用量总览 portal（用量/余额 spec §6.2）', () => {
     // Fails if: Esc 监听缺失（悬浮层无法收起）
     expect(document.querySelector('#kt-quota-overview')).toBeNull()
     await openOverview()
+    expect(document.querySelector('#kt-quota-overview')).not.toBeNull()
+  })
+
+  it('总览自身滚动不关闭（与决策面板同款缺陷，2026-10-08 一并修）', async () => {
+    await mount(overviewPanel())
+    await openOverview()
+    const pop = document.querySelector('#kt-quota-overview')!
+    // 真 scroll 不冒泡（target=#kt-quota-overview，靠 window 捕获相位到达）
+    await act(async () => { pop.dispatchEvent(new Event('scroll', { bubbles: false })) })
+    // Fails if: 总览自身滚动被当成面板外滚动而收起（总览滚动条同样一碰就收）
     expect(document.querySelector('#kt-quota-overview')).not.toBeNull()
   })
 })

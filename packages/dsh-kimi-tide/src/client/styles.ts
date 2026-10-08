@@ -288,7 +288,8 @@ export const CLIENT_CSS = `
     /* 决策面板 portal 悬浮层（挂 body，选择器不嵌 .kimi-tide-dock）；
        视觉升级：月汐紫渐变顶条 + 阴影加深 */
     .kt-dock-pop { position: fixed; z-index: 10000; width: min(430px, calc(100vw - 16px));
-      max-height: min(320px, 60vh); overflow: auto; padding: 8px 10px; font-size: 12px;
+      max-height: min(320px, 60vh); overflow: auto; overscroll-behavior: contain;
+      padding: 8px 10px; font-size: 12px;
       background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base, #fff));
       border: 1px solid var(--dsw-alias-border-l2, #d4d9e3); border-radius: 10px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.10);

@@ -252,6 +252,21 @@ function fmtClock(ts: number): string {
 /** 悬浮面板宽度上限与定位（fixed；贴 dock 下缘右对齐，视口内钳位）。 */
 const POP_WIDTH = 430
 
+/**
+ * 事件是否来自悬浮层自身（面板本体或其触发按钮）。
+ * 抽成模块级单点判据：决策面板与用量总览两处监听共用，避免两套判据各自漂移。
+ * why：window 上的 scroll 监听必须用捕获相位（页面内滚动容器发出的 scroll 不冒泡，
+ * 只有捕获相位收得到），但不区分来源就会「面板一滚即自关」
+ * （2026-10-08 用户报告「上下滑动的条没法滚动，点一下 dock 就没了」）。
+ * 判据只留「target 落在面板或其触发按钮内」：滚动条上的 mousedown 目标即滚动容器本身
+ * （2026-10-08 真机实测：target=`#pop`、offsetX > clientWidth），故 contains 足够；
+ * 面板矩形坐标判断是多余分支，已删。
+ */
+function fromFloatingPanel(event: Event, panel: HTMLElement | null, toggle: HTMLElement | null): boolean {
+  const target = event.target
+  return target instanceof Node && (panel?.contains(target) === true || toggle?.contains(target) === true)
+}
+
 export function TideDock(props: TideDockProps) {
   // 文案（W2 locale 化；P3 接回 useCopy）：useCopy() 取当前语言，服务缺席回落中文表；
   // 语言切换由 locale 订阅触发重渲染。模块级纯函数（overviewRows/fmtRemain 等）仍用 copy()。
@@ -386,19 +401,24 @@ export function TideDock(props: TideDockProps) {
     if (ovPos === null) placeOv()
     const close = () => { setOverviewOpen(false) }
     const onDown = (event: MouseEvent) => {
-      const target = event.target
-      if (target instanceof Node && (ovRef.current?.contains(target) === true || ovToggleRef.current?.contains(target) === true)) return
+      // 窗口级直派事件 target 非 Node（jsdom 实测）⇒ 直接按面板外关闭
+      if (fromFloatingPanel(event, ovRef.current, ovToggleRef.current)) return
       close()
     }
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    // 总览自身滚动不关（body/聊天区滚动仍关：fixed 定位会漂移）
+    const onScroll = (event: Event) => {
+      if (fromFloatingPanel(event, ovRef.current, ovToggleRef.current)) return
+      close()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', close, true)
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', close)
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', close)
     }
     // placeOv 不入依赖：定位只在展开动作/缺省补位时计算（同决策面板）。
@@ -411,20 +431,25 @@ export function TideDock(props: TideDockProps) {
     if (popPos === null) placePop()
     const close = () => { setExpanded(false) }
     const onDown = (event: MouseEvent) => {
-      const target = event.target
-      // window/document 级派发事件 target 非 Node（jsdom 实测），直接按面板外关闭
-      if (target instanceof Node && (popRef.current?.contains(target) === true || toggleRef.current?.contains(target) === true)) return
+      // 窗口级直派事件 target 非 Node（jsdom 实测）⇒ 直接按面板外关闭
+      if (fromFloatingPanel(event, popRef.current, toggleRef.current)) return
       close()
     }
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    // 面板自身滚动不关（面板就是 overflow:auto 滚动容器，「最近派发」超 20 行即出条）；
+    // body/聊天区滚动仍关：fixed 定位会漂移，这是原设计意图。
+    const onScroll = (event: Event) => {
+      if (fromFloatingPanel(event, popRef.current, toggleRef.current)) return
+      close()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', close, true)
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', close)
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', close)
     }
     // popPos 不入依赖：定位只在展开动作/缺省补位时计算。
