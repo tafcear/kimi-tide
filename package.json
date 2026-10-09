@@ -5,7 +5,7 @@
   "type": "module",
   "description": "kimi-tide（月汐）— preset-and-rule model router for DeepSeek Harness：任意已挂载的模型，都按你的规则选路（含图像转述协作流）",
   "scripts": {
-    "check": "node scripts/check-changelog.mjs && node scripts/check-doc-links.mjs && node scripts/check-readme-sync.mjs && node scripts/check-terminology.mjs && node scripts/check-client-i18n.mjs",
+    "check": "node scripts/check-changelog.mjs && node scripts/check-doc-links.mjs && node scripts/check-readme-sync.mjs && node scripts/check-secrets.mjs && node scripts/check-terminology.mjs && node scripts/check-client-i18n.mjs",
     "check:release-notes": "node scripts/check-release-notes.mjs",
     "check:terminology": "node scripts/check-terminology.mjs",
     "check:client-i18n": "node scripts/check-client-i18n.mjs",
