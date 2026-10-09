@@ -33,7 +33,8 @@ export function guardDetailOf(error: unknown): string {
 /**
  * 宿主工具执行面探测（三态分开，绝不抛）：
  * `ctx.get('tools')` 缺席 ⇒ `no-tools`；tools 在但 `guard` 不是函数 ⇒ `no-guard`；
- * 两者皆备 ⇒ `ready`（guard 面直接带出，调用方注册）。
+ * 两者皆备 ⇒ `ready`（guard 面以**绑定接收者的调用器**带出，调用方注册——
+ * 宿主 guard 是用 this 的方法，裸引用会丢接收者，见函数内注释）。
  * 必须经 `ctx.get`（probeTools 同款理由：cordis 代理下属性访问必抛，被 catch
  * 吞成 `no-tools` 归类为服务缺席——探测失败绝不让插件挂载失败）。
  */
@@ -46,9 +47,14 @@ export function probeGuardFace(ctx: unknown): GuardFace {
   try {
     const tools = (ctx as { get?: (name: string) => unknown }).get?.('tools') as { guard?: unknown } | undefined | null
     if (tools === undefined || tools === null) return { state: 'no-tools' }
-    return typeof tools.guard === 'function'
-      ? { state: 'ready', guard: tools.guard as (check: ToolGuardFn) => () => void }
-      : { state: 'no-guard' }
+    if (typeof tools.guard !== 'function') return { state: 'no-guard' }
+    // 接收者必须保住：宿主 tools.guard 是**用 this 的方法**（dsh-tools
+    // lib/index.js:2921 内读 this.ctx / this.layers.effect），裸方法引用摘出来
+    // 再调会丢 this ⇒ TypeError ⇒ 注册抛错归 register-failed、护栏静默装不上
+    // （d749c4c 引入的回归）。快照到局部常量后走**方法调用**（与 index.ts
+    // teamLookup 的 `(agent) => teams.tryMembership?.(agent)` 同款范式）。
+    const toolsService = tools as { guard: (check: ToolGuardFn) => () => void }
+    return { state: 'ready', guard: (check) => toolsService.guard(check) }
   } catch {
     return { state: 'no-tools' }
   }
