@@ -144,6 +144,22 @@ function rejectionText(id: string, role: Record<string, unknown>): string {
 }
 
 /**
+ * `agentTeams.tryMembership(executor)` 的返回值是不是**在册队友**（导出的纯函数，可单测）。
+ *
+ * 宿主语义（桌面端 0.2.0-rc.2 asar 实读，2026-10-09 实机验收）：`tryMembership` 对
+ * **没有父会话的根会话（= 主会话 / Lead）**返回 `{ role: 'lead', name: 'lead' }`
+ * （隐式根 Team 的正常返回，不是异常）；普通子代理（带 subagent descriptor）返回
+ * `undefined`；在册队友返回 `{ role: 'teammate', name }`。因此「返回了东西」≠「是
+ * 队友」——v2.2.0 的接入误用 `!== undefined` 当判据，把主会话当成队友放行，护栏对它
+ * 唯一的设计对象完全失效。判据与 `src/roles.ts` 的 `resolveRoleDecision()` 同源：
+ * **只认 `role === 'teammate'`**；`undefined`、`{ role: 'lead' }` 与一切畸形输入一律
+ * `false`，绝不抛。
+ */
+export function isTeammateMembership(membership: unknown): boolean {
+  return asRecord(membership)?.role === 'teammate'
+}
+
+/**
  * 派发护栏判据：拒绝理由字符串 ⇒ 拒绝该次调用；undefined ⇒ 放行。
  * 纯函数、不抛异常（畸形输入一律放行）。
  */

@@ -53,7 +53,7 @@ import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
 import { buildEffortCatalog, buildMountedModels } from './effort-catalog.js'
 import { installTeamSkill, type SkillsLike, type TeamSkillHandle } from './team-skill.js'
-import { dispatchGuardRejection } from './guard.js'
+import { dispatchGuardRejection, isTeammateMembership } from './guard.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -780,14 +780,21 @@ export function apply(ctx: Context, config: Config = {}) {
   /**
    * ctx.tools.guard 的宿主回调（同步、必须永不抛）：委托给 guard.ts 的纯函数。
    * `agentTeams` 每轮现读（不缓存实例）——`refreshHostServices` 会换实例并重挂，
-   * 现读保证判定用的是**当下**的团队服务；服务缺席 ⇒ callerIsTeammate 保持
-   * undefined ⇒ 护栏按"可能是主会话"放行（绝不因探测失败拒绝任何调用）。
+   * 现读保证判定用的是**当下**的团队服务；服务缺席 ⇒ callerIsTeammate 不传
+   * ⇒ 护栏按「身份未知 = 主会话口径」继续判（绝不因探测失败抛错或误判成队友）。
+   *
+   * 「是不是队友」只认 `role === 'teammate'`（guard.ts 的 isTeammateMembership，
+   * 与 src/roles.ts resolveRoleDecision 同一判据）。坑（2026-10-09 实机验收）：
+   * 宿主 `tryMembership` 对**没有父会话的根会话（主会话/Lead）**返回
+   * `{ role: 'lead', name: 'lead' }`（隐式根 Team 的正常返回，不是异常）——旧判据
+   * 「返回了东西 = 队友」（`!== undefined`）把主会话当成队友放行，护栏对它唯一的
+   * 设计对象完全失效（实测：主会话派「测试」活放行、子代理同词被拒）。
    */
   const guardRejectionOf = (toolName: string, args: unknown, executor: unknown): string | undefined => {
     try {
       const isTeammate = agentTeams === undefined
         ? undefined
-        : agentTeams.tryMembership?.(executor as Agent) !== undefined
+        : isTeammateMembership(agentTeams.tryMembership?.(executor as Agent))
       return dispatchGuardRejection({
         toolName,
         args,

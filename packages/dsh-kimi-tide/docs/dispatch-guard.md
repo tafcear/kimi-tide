@@ -65,7 +65,15 @@ v2.2.0 落地时把 `workflow` 留在拦截范围之外（当时的口径是「`
   分工表技能推荐的派发形态（也是护栏拒绝理由指的去路），后者是队友协作面。
 - **调用方身份**：`callerIsTeammate === true` 时不拦。队友自己再派活不进护栏，
   免得队友无法为自己不擅长的专项活起一个子代理。调用方身份由宿主 `agentTeams.tryMembership`
-  判定；该服务缺席时身份未知 ⇒ 一律放行（不误拦）。
+  判定，**判据只认 `role === 'teammate'`**（`src/guard.ts` 的 `isTeammateMembership()`，
+  与 `src/roles.ts` 的 `resolveRoleDecision()` 同一判据）。宿主语义（桌面端 0.2.0-rc.2
+  asar 实读）：`tryMembership` 对**没有父会话的根会话（= 主会话 / Lead）**返回
+  `{ role: 'lead', name: 'lead' }`（隐式根 Team 的正常返回，不是异常）——**根会话
+  返回 `role:'lead'` ⇒ 不得当作队友**。v2.2.0 的接线曾误用「返回了东西 = 队友」
+  （`!== undefined`）当判据，把主会话当成队友放行，护栏对它唯一的设计对象完全失效
+  （2026-10-09 实机验收实测：主会话派领域活放行、子代理同词被拒）；v2.2.1 起改为
+  只认 `role === 'teammate'`。该服务缺席时身份未知 ⇒ `callerIsTeammate` 不传 ⇒
+  按「身份未知 = 主会话口径」继续判（领域命中仍拒）——护栏不因探测失败解除。
 
 ## 3. 拒绝理由样例
 
@@ -139,6 +147,10 @@ export function dispatchGuardRejection(input: DispatchGuardInput): string | unde
 
 /** workflow 脚本判据「一次都没点名」（导出的纯函数，可单测）。 */
 export function workflowScriptUnnamed(script: string): boolean
+
+/** `tryMembership` 的返回值是不是在册队友——只认 `role === 'teammate'`（导出的纯函数，
+ *  可单测；根会话的 `{ role: 'lead' }` 与畸形输入一律 false）。接线在 `src/index.ts`。 */
+export function isTeammateMembership(membership: unknown): boolean
 ```
 
 放行（返回 `undefined`）的情形，逐条独立成立（实现按此顺序早退）：
@@ -246,8 +258,10 @@ v7 的 `routes` 里 dispatch 行的 `keywords` **双向按字段搬运**——�
    刻意的取舍：护栏是单调最终拒绝，误拦的代价比漏拦高。点名了但点错模型、或用变量
    间接传目标的形态，本护栏都不判。
 8. **实机验收需重启宿主**：护栏是宿主侧接入，插件代码更新后要重启宿主才能判读真实拒绝
-   行为。**本设计说明落地时只跑了静态门禁，实机未验收**（见 §7）——workflow 新分支
-   同属未验项，且宿主是否把 `workflow` 调用送进 `ctx.tools.guard` 回调同样待实机判读。
+   行为。2026-10-09 的首轮实机验收（未重启宿主）抓出「调用方是不是队友」判据把根会话的
+   `role:'lead'` 当成队友、护栏对主会话完全失效的缺陷（v2.2.1 修复，见 §2/§7.3）；
+   修复后的运行期复判与 workflow 新分支——以及宿主是否把 `workflow` 调用送进
+   `ctx.tools.guard` 回调——仍待重启宿主后判读。
 
 ## 7. 自查方法
 
@@ -274,9 +288,13 @@ cd packages/dsh-kimi-tide && npm run typecheck
 
 1. 前置：至少一个角色（记住它的 `id`）与 `dispatchGuard: 'enforce'`。
 2. 正向：让一个队友（`callerIsTeammate === true`）调用 `subagent`，`description` 含该角色的
-   领域词 → **预期：不拒绝**。
+   领域词 → **预期：不拒绝**。注意「队友」的判据是 `tryMembership` 返回
+   `role === 'teammate'`（§2）——主会话拿到的 `{ role: 'lead' }` 不算。
 3. 反向：主会话直接调用 `subagent`，`description` 含同一个领域词 → **预期：拒绝**，
    理由里出现该角色的显示名、`spawn_teammate(name="<id>")`，以及指路串。
+   （这条预期在 v2.2.0 从未成立：接线把宿主给根会话的 `{ role: 'lead' }` 当成队友
+   放行——2026-10-09 实机验收实测复现两次；v2.2.1 改为只认 `role === 'teammate'`
+   后它才是真的。修复后的运行期复判仍需重启宿主。）
 4. 对照：把 `dispatchGuard` 改回 `'off'`（或删掉该键）→ **预期：同一次调用放行**。
 5. 对照：任务的 `description` / `prompt` 与任何角色领域无关 → **预期：放行**。
 6. workflow 分支：主会话调用 `workflow`，`script` 里 `agent(prompt)` 不传
@@ -285,7 +303,9 @@ cd packages/dsh-kimi-tide && npm run typecheck
    否则会把「前提不成立」误判成「判据没生效」），理由写明「全部会跑默认目标」与两条改法；
    对照：同一脚本给 `agent()` 点名 `provider` / `model` → **预期：放行**。
 
-以上 1–6 属实机判据，须重启宿主后在真实会话里逐条留证；本设计说明落地时未执行。
+以上 1–6 属实机判据，须重启宿主后在真实会话里逐条留证。2026-10-09 的实机验收已在
+**未重启的宿主**上执行过步骤 3 的两个方向（主会话放行 / 子代理被拒）并据此抓出
+`role:'lead'` 误判缺陷（v2.2.1 修复）；修复后的正向复判（主会话被拒）仍待重启宿主。
 
 ## 8. 与术语规则的关系
 

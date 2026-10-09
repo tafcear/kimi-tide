@@ -236,3 +236,52 @@
    子代理"干完即销毁"会把父会话面板那一行立刻删掉 ⇒ 派发区永远空（A2②/A5② 失效）。
 
 另更正本 runbook 的面板取证写法（见 §0）：`/kimi-tide panel --json` 不产出宿主侧输出。
+
+---
+
+## 派发护栏实机验收（2026-10-09，宿主 0.2.0-rc.2 桌面端；Lead 亲跑）
+
+护栏（`dispatchGuard`）自 v2.2.0 起交付、运行期行为**从未判读过**（CHANGELOG 一直挂着「未验项」）。
+本轮把这次判读做掉，并**抓到一个阻断级缺陷**。
+
+### 判据与结果
+
+| 判据 | 内容 | 结果 | 证据 |
+|---|---|---|---|
+| G-1 产物级 | 对**构建产物**（`lib/*.js`，宿主重启后将加载的同一份代码）跑判据矩阵：事故脚本形态／点名形态／`agent(` 缺失／关闭态／队友／畸形实参／白名单外工具／角色命中与不命中／技能正文 | ✅ **39/39 PASS** | Lead 亲跑探针（配**真实配置**渲染 `renderTeamSkill`），跑完即删 |
+| G-2 配置热重挂 | 直接改 `cordis.patch.yml`（加 `dispatchGuard: enforce` ＋ 给 `qa` 行加 `note`）**无需重启**即重挂 | ✅ | 重载 `kimi-tide-team` ⇒ 表格「测试」行备注出现「验收中」 |
+| G-3 调用方身份 | `tryMembership` 给**根会话**返回 `{role:'lead'}` 时**不得**当作队友 | ⛔ → ✅ 修复 | 修复前：主会话派「测试」活**放行且跑完**（`93faa812` 11:47:17、`5f43b38c` 11:47:58，两次）；同刻子代理同词**被拒**（探针会话 `11923ace` 内层调用返回拒绝原文）。修复＝`isTeammateMembership()`（只认 `role === 'teammate'`）＋接线级回归钉（Lead 自造突变：改回 `!== undefined` ⇒ 新用例红 1 条，还原后 29/29 绿） |
+| G-4 拒绝可用性 | 拒绝理由含命中角色、正确下一步（`spawn_teammate(name="qa")`）与备选 | ✅ | 子代理侧返回原文（逐字，见下） |
+| G-5 运行期（新 `workflow` 分支） | 主会话派**未点名** `workflow` ⇒ 拒；点名 ⇒ 放行；队友派 ⇒ 不拦 | ⏳ **待重启宿主** | 宿主 PID 28004 创建于 10-08 22:45:36，**早于** `lib/` 构建 23:41:29 ⇒ 进程内是旧码（旁证：该会话载入的技能正文无「派完怎么验」一节） |
+
+### 缺陷（本轮唯一阻断项，已修）
+
+**现象**：`dispatchGuard: 'enforce'` 下，**主会话**（Lead）派一个命中角色领域的 `subagent`（description「验收探针」＋ prompt 含「测试」）**没有被拒绝**，子代理照常跑完（返回 `PONG`）；同一时刻由**子代理**发出的同词派发**被拒绝**。
+**根因**：`src/index.ts` 的接入用 `agentTeams.tryMembership?.(executor) !== undefined` 判「调用方是队友」。宿主真身 `@deepseek-ai/dsh-experimental-agent-team/lib/types/roster.js` 的 `tryMembership` 对**没有父会话的根会话（＝主会话／Lead）返回 `{ role: 'lead', name: 'lead' }`**（隐式根 Team 的正常返回）⇒ 主会话被判成队友 ⇒ `guard.ts` 的第一道红线段直接放行 ⇒ **护栏对它唯一的设计对象完全失效**。
+**修法**：新增导出纯函数 `isTeammateMembership()`（只认 `role === 'teammate'`，与 `src/roles.ts` 的 `resolveRoleDecision()` 同源），接入改用它；服务缺席仍不传 `callerIsTeammate`（按「身份未知＝主会话口径」继续判，见 `dispatch-guard.md` §2）。
+**回归钉**：`test/index-wiring.test.ts`「派发护栏调用方判据」——`{role:'lead'}` ⇒ 仍拒绝／`{role:'teammate'}` ⇒ 放行／服务缺席 ⇒ 照主会话口径判。
+**注**：该缺陷自 v2.2.0 起存在；`dispatch-guard.md` §7 自查步骤 3 原本就写「主会话 ⇒ 预期拒绝」——**文档要的行为从未生效**。
+
+### 子代理侧拒绝原文（逐字留档）
+
+```
+Error: 本任务命中角色「测试」：请派给它的队友 `qa`。普通子代理不参与分工表改道，会跑在默认模型上。
+做法：`spawn_teammate(name="qa", …)` 建起该队友（已存在就直接派给它），任务照原样派过去；
+若不归它，去掉「测试」这类领域词后重派。备选：给角色「测试」填 keywords（逗号分隔）：
+填了就优先按它判领域，留空则回退到显示名与别名。
+```
+
+### 重启后的二期判据（照抄即可）
+
+```bash
+# 0) 前置：设置页把「派发护栏」打开（或配置 router.dispatchGuard: enforce），然后重启宿主
+# 1) 主会话派「未点名」workflow ⇒ 预期：被拒绝，理由含「一次都没点名目标」
+#    （判据：工具返回 Error 且含 shared.roles.guard.rejectWorkflow 文案）
+# 2) 主会话派「已点名」workflow（agent(prompt, { provider, model })）⇒ 预期：正常跑完
+# 3) 主会话派领域命中 subagent（prompt 含「测试」）⇒ 预期：被拒绝（本轮修复的那条）
+# 4) 队友（spawn_teammate）派同类活 ⇒ 预期：不拦（身份放行）
+# 5) 每次派发后用 scripts/acceptance/check-dispatch-routing.mjs 回读子会话 request/header 复核
+```
+
+> 本轮的系统侧约束（如实）：宿主未重启 ⇒ 只能判读「产物级 ＋ 接入通路 ＋ 旧码可覆盖的分支」；
+> 新 `workflow` 分支的运行期行为**仍未判读**，CHANGELOG 的「未验项」据此收窄而非删除。

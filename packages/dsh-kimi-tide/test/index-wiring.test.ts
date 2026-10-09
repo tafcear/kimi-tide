@@ -655,6 +655,67 @@ describe('apply() settings namespace wiring (Task 4)', () => {
   })
 
   /**
+   * 派发护栏调用方判据（2026-10-09 实机验收修复）：宿主 `agentTeams.tryMembership`
+   * 对**没有父会话的根会话（主会话/Lead）**返回 `{ role: 'lead', name: 'lead' }`
+   * （隐式根 Team 的正常返回，不是异常）——不得当作队友。旧接线判据
+   * 「tryMembership 返回了东西 = 队友」（`!== undefined`）把主会话当成队友放行，
+   * 护栏对它唯一的设计对象完全失效（实测：主会话派「测试」活放行、子代理同词被拒）。
+   * 三种 membership ⇒ 三种结果：
+   * - `{ role: 'lead' }` ⇒ 仍拒绝（本条即缺陷的回归钉）；
+   * - `{ role: 'teammate' }` ⇒ 放行（队友自己派活不进护栏）；
+   * - 服务缺席 ⇒ callerIsTeammate 不传 ⇒ 按 guard.ts 既有语义照主会话口径判
+   *   （只有 `callerIsTeammate === true` 才放行；领域命中仍拒、未命中放行，
+   *   回调绝不抛——本分支语义逐字未动）。
+   */
+  it('派发护栏调用方判据：lead 仍拒绝（回归钉）；teammate 放行；服务缺席照主会话口径判', async () => {
+    const roles = {
+      qa: { id: 'qa', label: '测试', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    // 复刻实机验收的探针形态：description/prompt 含角色显示名「测试」，executor 即宿主回调的 execution.agent。
+    const probe = { name: 'subagent', arguments: { description: '验收探针', prompt: '帮我测试一下这条护栏' }, agent: { id: 'caller-1' } }
+    const probeUntouched = { name: 'subagent', arguments: { description: '翻译这段话', prompt: '译成英文' }, agent: { id: 'caller-2' } }
+
+    const mount = async (membership: 'lead' | 'teammate' | 'no-service'): Promise<(execution: unknown) => string | undefined> => {
+      const guardChecks: Array<(execution: unknown) => string | undefined> = []
+      const toolsStub = {
+        guard: (check: (execution: unknown) => string | undefined) => {
+          guardChecks.push(check)
+          return () => {}
+        },
+      }
+      const settings = makeSettings({ ...v5cfg('capability'), roles, dispatchGuard: 'enforce' } as never)
+      const agent: FakeAgent = { session: { append: vi.fn() } }
+      const { ctx } = makeCtx([agent], settings)
+      ;(ctx as Record<string, unknown>).tools = toolsStub
+      if (membership === 'lead') {
+        ;(ctx as Record<string, unknown>).agentTeams = { tryMembership: () => ({ role: 'lead', name: 'lead' }) }
+      } else if (membership === 'teammate') {
+        ;(ctx as Record<string, unknown>).agentTeams = { tryMembership: () => ({ role: 'teammate', name: 'qa' }) }
+      }
+      apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+      await tick()
+      // 路由开启即注册；候选枚举完成后路由重挂会先 dispose 再重装（旧 disposer 是
+      // 空操作，检查函数留在数组里）——取末位 = 现行护栏回调，与既有用例同款口径。
+      expect(guardChecks.length).toBeGreaterThanOrEqual(1)
+      return guardChecks.at(-1)!
+    }
+
+    // ① lead（主会话/根会话）：仍拒绝。旧接线在这里把 role:'lead' 当队友放行——本条必须红。
+    const rejected = (await mount('lead'))(probe)
+    expect(typeof rejected).toBe('string')
+    expect(`${rejected}`).toMatch(/qa|测试/)
+
+    // ② teammate：放行（队友自己派活不进护栏）。
+    expect((await mount('teammate'))(probe)).toBeUndefined()
+
+    // ③ 服务缺席：callerIsTeammate 不传 ⇒ 护栏照主会话口径判——领域命中仍拒
+    //    （docs/dispatch-guard.md §2 旧文「服务缺席 ⇒ 一律放行」与实现不符，文档侧同步订正），
+    //    领域无关的调用照常放行，回调不抛。
+    expect(typeof (await mount('no-service'))(probe)).toBe('string')
+    expect((await mount('no-service'))(probeUntouched)).toBeUndefined()
+  })
+
+  /**
    * v2.0.0 派发台账（Task 5）：panelSnapshot 带 dispatch —— 子代理派发行按父会话
    * 聚合到 Lead；无派发 = 空数组（非 undefined）；agent/disposed 按父会话收口——
    * 子代理销毁不动父会话可见行，父会话销毁才清掉其名下记账。

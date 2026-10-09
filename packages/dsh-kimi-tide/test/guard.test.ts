@@ -8,7 +8,7 @@ import {
 import { coerceRouterConfigV6, migrateV5, migrateV6 } from '../src/migrate.js'
 import { routerConfigSchema, validateRouterConfig } from '../src/settings-schema.js'
 import {
-  DISPATCH_GUARD_TOOLS, dispatchGuardRejection, missingKeywordsText, parseKeywords, workflowScriptUnnamed,
+  DISPATCH_GUARD_TOOLS, dispatchGuardRejection, isTeammateMembership, missingKeywordsText, parseKeywords, workflowScriptUnnamed,
 } from '../src/guard.js'
 
 const TARGET = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
@@ -223,6 +223,23 @@ describe('dispatchGuardRejection：workflow 分支（判据 = 一次都没点名
     }
     expect(reject(roles, unnamed, { toolName: 'workflow', guarded: false })).toBeUndefined()
     expect(reject(roles, unnamed, { toolName: 'workflow', callerIsTeammate: true })).toBeUndefined()
+  })
+})
+
+describe('isTeammateMembership：调用方身份判据（只认 role === "teammate"）', () => {
+  it('在册队友 true；根会话 lead / 普通子代理 undefined / 畸形一律 false（不抛）', () => {
+    // 在册队友（phase active/provisioning）
+    expect(isTeammateMembership({ role: 'teammate', name: 'qa' })).toBe(true)
+    // 根会话（主会话/Lead）：宿主 tryMembership 返回 role:'lead'（隐式根 Team 的
+    // 正常返回）——2026-10-09 实机验收缺陷的回归钉：不得当作队友。
+    expect(isTeammateMembership({ role: 'lead', name: 'lead' })).toBe(false)
+    // 普通子代理（带 subagent descriptor）：tryMembership 返回 undefined
+    expect(isTeammateMembership(undefined)).toBe(false)
+    // 畸形输入一律 false，绝不抛
+    for (const bad of [{}, null, 'teammate', 'lead', 42, [], { role: 42 }, { role: 'Teammate' }]) {
+      expect(() => isTeammateMembership(bad)).not.toThrow()
+      expect(isTeammateMembership(bad)).toBe(false)
+    }
   })
 })
 
