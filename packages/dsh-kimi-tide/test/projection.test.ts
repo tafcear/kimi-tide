@@ -28,13 +28,43 @@ function panel(quotaUsed: number): KimiTidePanelProjection {
   }
 }
 
-describe('panelSchema (projection v7)', () => {
+describe('panelSchema (projection v8)', () => {
   const parse = (kimiTideProjectionDefinition.stateSchema as { parse: (v: unknown) => unknown }).parse.bind(
     kimiTideProjectionDefinition.stateSchema as never,
   ) as (v: unknown) => KimiTidePanelProjection | null
 
-  it('pins stateVersion 7 (v7 投影)', () => {
-    expect(kimiTideProjectionDefinition.stateVersion).toBe(7)
+  it('pins stateVersion 8 (v8 投影)', () => {
+    expect(kimiTideProjectionDefinition.stateVersion).toBe(8)
+  })
+
+  it('v8：guard 在岗状态三态 schema 往返保留；缺席合法；非法 reason / 超长 detail 拒绝', () => {
+    // 三态各自的 wire 形状（issue #9）——Fails if: schema 未列 guard（可选新字段
+    // 必须显式入 schema 钉住往返，同 dispatch/quotaProvider 先例）。
+    const installed = panel(1)
+    installed.guard = { state: 'installed' }
+    expect(parse(installed)!.guard).toEqual({ state: 'installed' })
+    const off = panel(1)
+    off.guard = { state: 'off', reason: 'switch-off' }
+    expect(parse(off)!.guard).toEqual({ state: 'off', reason: 'switch-off' })
+    const unavailable = panel(1)
+    unavailable.guard = { state: 'unavailable', reason: 'register-failed', detail: 'boom' }
+    expect(parse(unavailable)!.guard).toEqual({ state: 'unavailable', reason: 'register-failed', detail: 'boom' })
+    // 缺席合法（v7 及更早的存量载荷向后兼容）
+    expect(parse(panel(1))!.guard).toBeUndefined()
+    // 非法 state / reason 枚举值拒绝
+    const badState = panel(1)
+    badState.guard = { state: 'bogus' } as never
+    expect(() => parse(badState)).toThrow()
+    const badReason = panel(1)
+    badReason.guard = { state: 'unavailable', reason: 'bogus' } as never
+    expect(() => parse(badReason)).toThrow()
+    // detail 恰好 200 通过、201 拒绝（wire 面收口，与 guard-status.ts 推送侧截断同款上限）
+    const edge = panel(1)
+    edge.guard = { state: 'unavailable', reason: 'register-failed', detail: 'x'.repeat(200) }
+    expect(parse(edge)!.guard).toMatchObject({ reason: 'register-failed', detail: 'x'.repeat(200) })
+    const over = panel(1)
+    over.guard = { state: 'unavailable', reason: 'register-failed', detail: 'x'.repeat(201) }
+    expect(() => parse(over)).toThrow()
   })
 
   it('v7：dispatch 派发行 schema 往返保留；缺席合法；超 20 条与非法 basis 拒绝', () => {

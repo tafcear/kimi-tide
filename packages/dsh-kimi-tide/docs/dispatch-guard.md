@@ -317,22 +317,50 @@ cd packages/dsh-kimi-tide && npm run typecheck
   陈述句、具体值（角色名 / 命令 / 参数）、不写房内口语。
 - zh/en 成对同批改：`scripts/check-client-i18n.mjs` 会验 zh/en 键集与占位符集合一致。
 
-## 9. 注册失败会降级（2026-10-09 起为已知账）
+## 9. 在岗可见 ＋ fail-closed（issue #9，2026-10-09 起已实现）
 
-`installDispatchGuard()`（`src/index.ts:760-771`）在**环境不满足**时**悄悄不装**：`tools` 服务缺席、
-`tools.guard` 不可用、注册抛错——三种都走 `warn` 后 `return null`，行为与没开护栏逐字节一致。
-（另两道 `return null` 是用户意图：无激活预设、开关不是 `enforce`。）
+护栏装没装上，**用户读得到**；开关已开而环境给不出护栏时，**不再静默**。
 
-**今天可接受**：护栏卖的是「防误派」的方便性，少一层提示不影响正确性。
+### 9.1 状态语义（单一事实源：`src/guard-status.ts`）
 
-**即将不可接受**：Q11 的**路线 B（按角色工具面）**与 README「规划中」的**只读角色**会把**安全属性**
-挂到同一个注册点上——届时降级就从「少一个提示」变成「**少一道边界而用户不知道**」。因此：
+`GuardStatus` 三态（判别键 `state`），每次安装/重挂（`remountDispatchGuard`）现算并整体重写，
+状态恒与「当下这份配置」一致：
 
-- 注册点的能力边界（`tools.guard` 可拒任意工具名，含保留传输 `run_code`；拒绝理由是**同步返回值、
-  不发事件**）见 issue **#10**；
-- 降级必须可见或 fail-closed 的要求见 issue **#9**；
-- 两件事应**同批**决定：先把「在岗 / 未在岗」做成可读回的事实，再往这个注册点上挂安全语义。
+| state | reason | 含义 | 呈现 |
+|---|---|---|---|
+| `installed` | — | 已注册到宿主 `ctx.tools.guard`，在岗 | dock 普通槽「护栏：在岗」 |
+| `off` | `no-preset` | 用户意图：无激活预设（路由关闭） | dock 置灰槽，**不告警、不写日志** |
+| `off` | `switch-off` | 用户意图：开关未开 | dock 置灰槽，**不告警、不写日志** |
+| `unavailable` | `no-tools` | 环境不满足：`tools` 服务缺席 | dock **警示槽**＋ warn「未在岗」 |
+| `unavailable` | `no-guard` | 环境不满足：`tools.guard` 注册面不可用 | dock **警示槽**＋ warn「未在岗」 |
+| `unavailable` | `register-failed` | 环境不满足：注册抛错（`detail` = 错误消息，截断 ≤200 字符） | dock **警示槽**＋ warn「未在岗」 |
+
+### 9.2 三个读回面
+
+1. **决策面板投影**：`kimi-tide/panel` 投影（`src/projection.ts` schema，v8）新增可选字段
+   `guard`；旧载荷无该字段照常解析（向后兼容，stateVersion 递升弃旧缓存）。
+2. **dock 一行**：`TideDock` 的「护栏」标记（`data-kt-el="guard-status"`）——在岗 /
+   未在岗（用户关闭，置灰）/ 未在岗（环境原因，**警示态**，既有 `kt-warn` 令牌）；
+   完整态渲染为 r2 槽位，紧凑态（真实宿主的挂载形态）内嵌在主按钮里，文案同一来源。
+3. **命令可读回**：`/kimi-tide panel --json` 输出的 `guard` 字段——agent / 脚本可直接
+   判读「在岗 / 未在岗 + 原因」。
+
+### 9.3 fail-closed 口径（明确不做的红线）
+
+开关已开（`dispatchGuard: 'enforce'`）而环境给不出护栏 ⇒ 这是**失败状态**：进状态
+（`unavailable` + 具体 reason）、面板警示态、warn 写明「**未在岗**」与原因（可检索）。
+但**不**让插件挂载失败、**不**抛到宿主、**不**自动改配置；开关未开时不做任何新判定、
+不写任何新日志（行为与旧版逐字节一致）；采集状态绝不抛异常（探测异常按 `no-tools`
+归类，注册异常归入 `register-failed`）。
+
+### 9.4 后续（issue #10）
+
+Q11 的**路线 B（按角色工具面）**与 README「规划中」的**只读角色**会把**安全属性**挂到
+同一个注册点上：注册点的能力边界（`tools.guard` 可拒任意工具名，含保留传输 `run_code`；
+拒绝理由是**同步返回值、不发事件**）见 issue [#10](https://github.com/tafcear/kimi-tide/issues/10)
+（**待实现**——本节所属的 #9「在岗可见 ＋ fail-closed」已实现，两者不要混读）。「在岗 / 未在岗」
+成为可读回的事实（本节）之后，再往这个注册点上挂安全语义才有可验收的底座。
 
 **一条实证对照**：护栏注册回调拿得到当次执行的 `name` / `arguments` / `agent`
-（`src/index.ts:766`）⇒ 按 agent 判、按工具名判、并在拒绝时自记留痕都做得到；guard 不发事件这一点
-意味着**留痕责任在插件侧**。
+（`src/index.ts` 的 `guardRejectionOf`）⇒ 按 agent 判、按工具名判、并在拒绝时自记留痕
+都做得到；guard 不发事件这一点意味着**留痕责任在插件侧**。

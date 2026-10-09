@@ -381,6 +381,8 @@ describe('说明页 UI 锚（评审 M7）：dock 元素与 DOCK_ELEMENTS 同源'
       imageContext: { native: 1, transcribed: 0, blind: 0 },
       // Task 6：派发锚点（data-kt-el="dispatch"）只在有派发时渲染，须进并集。
       dispatch: [{ basis: 'role', teammate: 'frontend', roleLabel: '前端', target: { provider: 'kimi-coding', model: 'k3' }, at: 1 }],
+      // v8：护栏在岗锚点（data-kt-el="guard-status"）只在实时快照（guard 有值）时渲染，须进并集。
+      guard: { state: 'installed' },
     })))
     const warning = anchorsOf(render(makePanel({ kimi: { route: false, key: false } })))
     const balanceState = anchorsOf(render(makePanel({
@@ -448,6 +450,47 @@ describe('余额槽（用量/余额 spec v2 §6.1）：API 计费源画余额，
     }))
     expect(visible(html)).toContain('¥1.00')
     expect(html).toContain('USD 2.00')
+  })
+})
+
+describe('TideDock 派发护栏在岗槽（issue #9：在岗可见 ＋ fail-closed）', () => {
+  const slotTag = (html: string): string => html.match(/<span[^>]*data-kt-el="guard-status"[^>]*>/)![0]!
+
+  it('在岗 → 「护栏：在岗」普通槽（不警示、不置灰）', () => {
+    const html = visible(render(makePanel({ guard: { state: 'installed' } })))
+    // Fails if: r2 未渲染护栏槽，或状态计算被改成恒「未在岗」
+    expect(html).toContain('data-kt-el="guard-status"')
+    expect(html).toContain('护栏：在岗')
+    expect(slotTag(html)).not.toContain('kt-warn')
+    expect(slotTag(html)).not.toContain('kt-dim')
+  })
+
+  it('用户关闭 → 「护栏：未在岗（开关未开 / 无激活预设）」置灰槽（不告警）', () => {
+    const switchOff = visible(render(makePanel({ guard: { state: 'off', reason: 'switch-off' } })))
+    expect(switchOff).toContain('护栏：未在岗（开关未开）')
+    expect(slotTag(switchOff)).toContain('kt-dim')
+    expect(slotTag(switchOff)).not.toContain('kt-warn')
+    const noPreset = visible(render(makePanel({ guard: { state: 'off', reason: 'no-preset' } })))
+    expect(noPreset).toContain('护栏：未在岗（无激活预设）')
+    expect(slotTag(noPreset)).toContain('kt-dim')
+  })
+
+  it('环境不满足 → 「护栏：未在岗（原因）」警示态（kt-warn 既有令牌）；register-failed 的 detail 进 title', () => {
+    const noTools = visible(render(makePanel({ guard: { state: 'unavailable', reason: 'no-tools' } })))
+    expect(noTools).toContain('护栏：未在岗（tools 服务缺席）')
+    // Fails if: 环境失败没有警示态（fail-closed 的「必须可见」落空）
+    expect(slotTag(noTools)).toContain('kt-warn')
+    const noGuard = visible(render(makePanel({ guard: { state: 'unavailable', reason: 'no-guard' } })))
+    expect(noGuard).toContain('护栏：未在岗（guard 注册面不可用）')
+    expect(slotTag(noGuard)).toContain('kt-warn')
+    const failed = render(makePanel({ guard: { state: 'unavailable', reason: 'register-failed', detail: 'boom-detail' } }))
+    expect(visible(failed)).toContain('护栏：未在岗（注册失败）')
+    expect(slotTag(failed)).toContain('kt-warn')
+    expect(failed).toContain('boom-detail')
+  })
+
+  it('旧载荷（guard 字段缺席）→ 不渲染该槽（向后兼容，不编造状态）', () => {
+    expect(render(makePanel())).not.toContain('data-kt-el="guard-status"')
   })
 })
 

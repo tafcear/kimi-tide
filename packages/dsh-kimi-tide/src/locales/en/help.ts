@@ -84,6 +84,11 @@ export const en: Record<keyof typeof zh, string> = {
   'help.section.dock.dispatch.body1': 'Expand the decision-observability overlay to view the last 20 dispatch entries (newest first).',
   'help.section.dock.dispatch.body2': 'This slot does not render when no dispatch has occurred in this session.',
 
+  'help.section.dock.guard.title': 'Dispatch guard status slot',
+  'help.section.dock.guard.body0': '"Guard: active" means the dispatch guard is registered; plain subagent dispatches that hit a role domain are rejected.',
+  'help.section.dock.guard.body1': '"Guard: inactive (switch off / no active preset)" renders dimmed — you turned it off yourself; behavior matches having no guard, so it is not an alarm.',
+  'help.section.dock.guard.body2': '"Guard: inactive (tools service absent / guard API unavailable / registration failed)" renders as a warning — the switch is on but the environment cannot provide the guard, so dispatches are NOT intercepted; hover for the specific reason.',
+
   'help.section.dock.fetch.title': 'Fetch time and refresh',
   'help.section.dock.fetch.body0': 'Shows the last successful quota fetch time. "(stale)" indicates the most recent refresh failed.',
   'help.section.dock.fetch.body1': 'The refresh button is equivalent to running `/kimi-tide refresh`.',

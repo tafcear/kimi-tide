@@ -80,6 +80,11 @@ export const zh = {
   'help.section.dock.dispatch.body1': '展开决策可观测悬浮层可看最近 20 条派发明细（新在前）。',
   'help.section.dock.dispatch.body2': '本会话还没有派发记录时不渲染这一槽。',
 
+  'help.section.dock.guard.title': '派发护栏在岗槽',
+  'help.section.dock.guard.body0': '「护栏：在岗」= 派发护栏已注册，命中角色领域的裸子代理派发会被拒绝。',
+  'help.section.dock.guard.body1': '「护栏：未在岗（开关未开 / 无激活预设）」置灰显示——这是你自己关的，行为与无护栏一致，不告警。',
+  'help.section.dock.guard.body2': '「护栏：未在岗（tools 服务缺席 / guard 注册面不可用 / 注册失败）」以警示色显示——开关已开但环境给不出护栏，派发不会被拦截；鼠标悬停看具体原因。',
+
   'help.section.dock.fetch.title': '取数时间与刷新',
   'help.section.dock.fetch.body0': '显示上次成功取配额的时刻；标「(过期)」= 最近一次刷新失败。',
   'help.section.dock.fetch.body1': '刷新按钮等价于执行 `/kimi-tide refresh`。',

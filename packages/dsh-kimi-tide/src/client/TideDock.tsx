@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { BalanceSnapshot, KimiTidePanelProjection, QuotaSnapshot } from '../types.js'
+import type { GuardStatus } from '../guard-status.js'
 import { formatDispatch, ReasonPanel } from './ReasonPanel.js'
 import { Icon } from './icons.js'
 import { copy, currentLanguage, useCopy } from './locale.js'
@@ -196,6 +197,44 @@ export interface OverviewRow {
   value: string
   when: string
   dim: boolean
+}
+
+/**
+ * 派发护栏在岗槽（issue #9，纯函数可单测）：三态文案与视觉分层。
+ * - 在岗：普通槽；
+ * - 用户关闭（开关未开 / 无激活预设）：置灰槽——是用户意图，不告警；
+ * - 环境不满足（tools 缺席 / guard 不可用 / 注册失败）：警示槽（kt-warn，
+ *   与 kimi 未接入同款既有令牌）——开关已开而护栏不在岗，必须显眼。
+ * register-failed 的 detail 进 title（宿主侧截断 ≤200 的原文，不在 locale 范围，透传）。
+ */
+export interface GuardChip {
+  text: string
+  title: string
+  warn: boolean
+  dim: boolean
+}
+
+export function guardChipOf(guard: GuardStatus): GuardChip {
+  if (guard.state === 'installed') {
+    return { text: copy('panel.dock.guardInstalled'), title: copy('panel.dock.guardInstalledTitle'), warn: false, dim: false }
+  }
+  if (guard.state === 'off') {
+    return guard.reason === 'no-preset'
+      ? { text: copy('panel.dock.guardOffNoPreset'), title: copy('panel.dock.guardOffNoPresetTitle'), warn: false, dim: true }
+      : { text: copy('panel.dock.guardOffSwitch'), title: copy('panel.dock.guardOffSwitchTitle'), warn: false, dim: true }
+  }
+  if (guard.reason === 'no-tools') {
+    return { text: copy('panel.dock.guardUnavailNoTools'), title: copy('panel.dock.guardUnavailNoToolsTitle'), warn: true, dim: false }
+  }
+  if (guard.reason === 'no-guard') {
+    return { text: copy('panel.dock.guardUnavailNoGuard'), title: copy('panel.dock.guardUnavailNoGuardTitle'), warn: true, dim: false }
+  }
+  return {
+    text: copy('panel.dock.guardUnavailRegisterFailed'),
+    title: copy('panel.dock.guardUnavailRegisterFailedTitle', { 0: guard.detail ?? copy('panel.dock.noValue') }),
+    warn: true,
+    dim: false,
+  }
 }
 
 /**
@@ -546,6 +585,9 @@ export function TideDock(props: TideDockProps) {
   // Task 6 派发台账（面板 v7）：每父会话最近 20 条、新在前；旧载荷缺席 → 空数组
   // → 摘要槽与明细区都不渲染（空态不挂锚点，不是渲染空字符串）。
   const dispatch = panel.dispatch ?? []
+  // 投影 v8 派发护栏在岗状态（issue #9）：旧载荷缺席（投影回退的历史快照）→ 不渲染
+  // 该槽；实时快照恒有值 → 三态槽（在岗 / 用户关闭置灰 / 环境不满足警示）。
+  const guardChip = panel.guard === undefined ? null : guardChipOf(panel.guard)
 
   return (
     <div className={`kimi-tide-dock ${compact ? 'kt-dock-c' : 'kt-dock-b'}`} ref={dockRef} role="region" aria-label={t('panel.dock.regionLabel')}>
@@ -576,6 +618,20 @@ export function TideDock(props: TideDockProps) {
             {(!kimi.route || !kimi.key) && (
               <span data-kt-el="kimi-warning" className="kt-c-warn" title={t('panel.dock.kimiMissingTitleCompact')}>
                 <Icon name="warn" />
+              </span>
+            )}
+
+            {/* 投影 v8 派发护栏在岗标记（issue #9）：紧凑态只有一个按钮的空间，
+                收进主按钮内（与 kimi 警示同款的内嵌标记，不占第三个控件）——
+                在岗 / 用户关闭置灰 / 环境不满足警示，文案与完整态 r2 同一来源。 */}
+            {guardChip !== null && (
+              <span
+                data-kt-el="guard-status"
+                className={`kt-c-guard${guardChip.warn ? ' kt-warn' : ''}${guardChip.dim ? ' kt-dim' : ''}`}
+                title={guardChip.title}
+              >
+                {guardChip.warn && <Icon name="warn" />}
+                {guardChip.text}
               </span>
             )}
           </button>
@@ -740,6 +796,19 @@ export function TideDock(props: TideDockProps) {
         {dispatch.length > 0 && (
           <span className="kt-slot kt-dispatch" data-kt-el="dispatch" title={t('panel.dock.dispatchTitle', { 0: formatDispatch(dispatch[0]!) })}>
             <span className="kt-ellip">{formatDispatch(dispatch[0]!)}</span>
+          </span>
+        )}
+
+        {/* 投影 v8 派发护栏在岗槽（issue #9）：实时快照恒渲染——在岗 = 普通槽；
+            用户关闭 = 置灰（不告警）；环境不满足 = 警示态（kt-warn 既有令牌，
+            与 kimi 未接入同款）。紧凑态同款标记内嵌在主按钮里（见上）。 */}
+        {guardChip !== null && (
+          <span
+            data-kt-el="guard-status"
+            className={`kt-slot${guardChip.warn ? ' kt-warn' : ''}${guardChip.dim ? ' kt-dim' : ''}`}
+            title={guardChip.title}
+          >
+            {guardChip.warn && <Icon name="warn" />} {guardChip.text}
           </span>
         )}
 

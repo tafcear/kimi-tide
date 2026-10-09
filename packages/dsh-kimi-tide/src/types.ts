@@ -5,6 +5,7 @@
  */
 import type { RouteTarget } from './config.js'
 import type { DispatchEntry } from './dispatch-ledger.js'
+import type { GuardStatus } from './guard-status.js'
 import type { ReviewEventPayload, ReviewRevisePayload } from './review.js'
 
 /**
@@ -147,6 +148,12 @@ export interface KimiTidePanelProjection {
    * 新在前）。实时快照恒写（无派发 = 空数组）；旧载荷缺席（可选，向后兼容）。
    */
   dispatch?: DispatchEntry[]
+  /**
+   * 派发护栏在岗状态（issue #9，投影 v8）：三态（在岗 / 用户关闭 / 环境不满足）。
+   * 实时快照恒写；旧载荷缺席（可选，向后兼容）。环境不满足 = 开关已开而
+   * 环境给不出护栏 ⇒ 面板警示态呈现（fail-closed，不再只在日志里 warn）。
+   */
+  guard?: GuardStatus
 }
 
 /** 一条评审记录 = 评审事件载荷形状（spec §7，直接复用，不另造字段）。 */

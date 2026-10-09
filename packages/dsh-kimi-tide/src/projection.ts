@@ -7,7 +7,9 @@
  * + router + kimi 二态接入指示 + candidates + decision. v6 (0.6.0 协作编排)
  * adds optional imageContext（按图三态计数快照）+ lastFlowEvent（流执行摘要）
  * ——新字段可选，对存量读取端向后兼容。v7（v2.0.0 团队派发）adds optional
- * dispatch（按父会话聚合的派发台账，每会话 ≤20 条）。Pure unit functions + the
+ * dispatch（按父会话聚合的派发台账，每会话 ≤20 条）。v8（issue #9）adds optional
+ * guard（派发护栏在岗状态：installed / off+reason / unavailable+reason+detail）。
+ * Pure unit functions + the
  * SessionProjectionMap merge that types both ends (host register / client
  * useProjection).
  *
@@ -122,6 +124,18 @@ const panelSchema = z.object({
     at: z.number(),
     parentSession: z.string().optional(),
   })).max(20).optional(),
+  // 投影 v8（issue #9，派发护栏在岗状态）：三态判别（state 为判别键）。
+  // 可选——v7 及更早的存量载荷无该字段照常通过（向后兼容）；实时快照恒写。
+  // detail ≤200 与 guard-status.ts 推送侧截断同款上限（wire 面拒超长，双端防御）。
+  guard: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('installed') }),
+    z.object({ state: z.literal('off'), reason: z.enum(['no-preset', 'switch-off']) }),
+    z.object({
+      state: z.literal('unavailable'),
+      reason: z.enum(['no-tools', 'no-guard', 'register-failed']),
+      detail: z.string().max(200).optional(),
+    }),
+  ]).optional(),
 })
 
 /**
@@ -185,9 +199,10 @@ export const kimiTideProjectionDefinition:
   Omit<PanelProjectionDefinition, 'wire'> & { wire: NonNullable<PanelProjectionDefinition['wire']> } = {
   key: KIMI_TIDE_PANEL_KEY,
   stateSchema: bridgedStateSchema,
-  // v5 → v6（0.6.0）→ v7（v2.0.0 团队派发 dispatch 字段）：形状变更即弃旧缓存
-  // （rc.2 迁移惯例——stateVersion 递升使持久化的旧版行整体作废，无需逐字段迁移）。
-  stateVersion: 7,
+  // v5 → v6（0.6.0）→ v7（v2.0.0 团队派发 dispatch 字段）→ v8（issue #9 派发护栏
+  // guard 字段）：形状变更即弃旧缓存（rc.2 迁移惯例——stateVersion 递升使持久化的
+  // 旧版行整体作废，无需逐字段迁移）。
+  stateVersion: 8,
   init: () => null,
   apply: (state, event) => {
     // Custom event types are not in the SessionEvent discriminated union;

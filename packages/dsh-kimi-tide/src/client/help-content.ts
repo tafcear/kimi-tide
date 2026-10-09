@@ -47,7 +47,7 @@ export const FALLBACK_HINTS: Record<ImageFallback, string> = {
 export const DOCK_ELEMENTS = [
   'label', 'preset-chip', 'baseline-chip', 'decision-chip', 'decision-toggle',
   'kimi-warning', 'week-quota', 'fivehour-quota', 'balance-slot', 'overview-toggle', 'image-context',
-  'dispatch', 'fetched-at', 'refresh', 'notice', 'dock-states',
+  'dispatch', 'guard-status', 'fetched-at', 'refresh', 'notice', 'dock-states',
 ] as const
 
 /** 设置页的功能区块 id（说明页必须逐个讲到）。`driver` = 主驱动卡（Task 8 补锚点，
@@ -272,6 +272,16 @@ export function buildHelpSections(t: T): readonly HelpSection[] {
             t('help.section.dock.dispatch.body0'),
             t('help.section.dock.dispatch.body1'),
             t('help.section.dock.dispatch.body2'),
+          ],
+        },
+        {
+          id: 'dock-guard',
+          title: t('help.section.dock.guard.title'),
+          anchors: ['guard-status'],
+          body: [
+            t('help.section.dock.guard.body0'),
+            t('help.section.dock.guard.body1'),
+            t('help.section.dock.guard.body2'),
           ],
         },
         {

@@ -237,6 +237,10 @@ export const CLIENT_CSS = `
       color: var(--dsw-alias-label-primary, #2b3245); }
     .kimi-tide-dock.kt-dock-c .kt-c-warn { display: inline-flex; flex: none;
       color: var(--dsw-alias-warning-strong, #d97706); }
+    /* 派发护栏在岗标记（issue #9）：内嵌主按钮的紧凑标记；颜色分层用全局
+       .kt-warn / .kt-dim 令牌（不新造颜色体系）。 */
+    .kimi-tide-dock.kt-dock-c .kt-c-guard { display: inline-flex; align-items: center; gap: 3px;
+      flex: none; font-size: 11.5px; white-space: nowrap; }
     .kimi-tide-dock.kt-dock-c .kt-c-quota { display: inline-flex; align-items: center; gap: 4px;
       flex: none; height: 26px; padding: 0 8px; border-radius: 8px;
       border: 1px solid var(--dsw-alias-border-l1, #e4e7ee); background: transparent;

@@ -639,19 +639,92 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     expect(guardDisposers[0]).toHaveBeenCalled()
   })
 
-  /** 负控：`ctx.get('tools')` 缺席（未挂工具流水线的组合包）⇒ 必须静默不装，且不报错。 */
-  it('派发护栏：tools 服务缺席 ⇒ 不注册、不 warn（未挂工具流水线的组合包照常加载）', async () => {
+  /**
+   * fail-closed（issue #9）：`ctx.get('tools')` 缺席（未挂工具流水线的组合包）+
+   * 开关已开 ⇒ 不注册（插件照常加载、不抛错），但**不再静默**——状态记
+   * `unavailable:no-tools` 且 warn 写明「未在岗」。开关未开时的逐字节一致
+   * （零护栏日志）由五态用例的 off 两态断言覆盖。
+   */
+  it('派发护栏：tools 服务缺席 + 开关已开 ⇒ 不注册但 fail-closed（unavailable + warn 未在岗），插件照常加载', async () => {
     const roles = {
       qa: { id: 'qa', label: '测试', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
     }
     const settings = makeSettings({ ...v5cfg('capability'), roles, dispatchGuard: 'enforce' } as never)
     const agent: FakeAgent = { session: { append: vi.fn() } }
-    // ⚠ 不挂 ctx.tools：探针必须自行降级。
-    const { ctx, warnMessages } = makeCtx([agent], settings)
+    // ⚠ 不挂 ctx.tools：探针必须自行降级（不抛、不影响挂载）。
+    const { ctx, getCommand, warnMessages } = makeCtx([agent], settings)
 
     apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
     await tick()
-    expect(warnMessages.filter((message) => message.includes('护栏'))).toHaveLength(0)
+    // fail-closed：环境不满足必须可见——日志写明「未在岗」与原因（可检索）。
+    expect(warnMessages.some((message) => message.includes('派发护栏未在岗') && message.includes('tools 服务缺席'))).toBe(true)
+    // 状态经命令通道读回（判据③ 的可自动化读数面）。
+    expect((await lastSnapshot(getCommand, agent)).guard).toEqual({ state: 'unavailable', reason: 'no-tools' })
+  })
+
+  /**
+   * 派发护栏在岗状态五态（issue #9，A+B）：installed / off:no-preset /
+   * off:switch-off / unavailable:no-tools|no-guard / unavailable:register-failed
+   * 各一条。读数面 = `/kimi-tide panel --json` 的 guard 字段（判据③ 的可自动化
+   * 断言）；用户意图两态仍静默（零护栏日志，行为与今天逐字节一致）；环境
+   * 不满足三态必须 warn「未在岗」。register-failed 的 detail 取错误消息并
+   * 截断 ≤200（牙口：去掉截断 ⇒ 本条红；状态计算改恒 installed ⇒ no-tools 条红）。
+   */
+  it('在岗状态五态：installed / off:no-preset / off:switch-off / unavailable:no-tools|no-guard / register-failed（detail ≤200）', async () => {
+    const roles = {
+      qa: { id: 'qa', label: '测试', target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    }
+    const mount = async (options: { activePreset: string | null; enforce?: boolean; tools?: unknown }) => {
+      const settings = makeSettings({
+        ...v5cfg(options.activePreset),
+        roles,
+        ...(options.enforce === true ? { dispatchGuard: 'enforce' } : {}),
+      } as never)
+      const agent: FakeAgent = { session: { append: vi.fn() } }
+      const { ctx, getCommand, warnMessages } = makeCtx([agent], settings)
+      if (options.tools !== undefined) (ctx as Record<string, unknown>).tools = options.tools
+      apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+      await tick()
+      return { guard: (await lastSnapshot(getCommand, agent)).guard, warnMessages }
+    }
+    const okTools = { guard: () => () => {} }
+
+    // ① installed：开关开 + 环境齐备 ⇒ 在岗。
+    expect((await mount({ activePreset: 'capability', enforce: true, tools: okTools })).guard)
+      .toEqual({ state: 'installed' })
+
+    // ② off:no-preset（用户意图）：路由关 ⇒ 静默（零护栏 warn），状态可读回。
+    const noPreset = await mount({ activePreset: null, enforce: true, tools: okTools })
+    expect(noPreset.guard).toEqual({ state: 'off', reason: 'no-preset' })
+    expect(noPreset.warnMessages.filter((m) => m.includes('护栏'))).toHaveLength(0)
+
+    // ③ off:switch-off（用户意图）：开关未开 ⇒ 静默；tools 缺席也不做任何新判定。
+    const switchOff = await mount({ activePreset: 'capability' })
+    expect(switchOff.guard).toEqual({ state: 'off', reason: 'switch-off' })
+    expect(switchOff.warnMessages.filter((m) => m.includes('护栏'))).toHaveLength(0)
+
+    // ④ unavailable:no-tools（环境不满足）：开关开 + tools 缺席 ⇒ 可见 + warn。
+    const noTools = await mount({ activePreset: 'capability', enforce: true })
+    expect(noTools.guard).toEqual({ state: 'unavailable', reason: 'no-tools' })
+    expect(noTools.warnMessages.some((m) => m.includes('派发护栏未在岗') && m.includes('tools 服务缺席'))).toBe(true)
+
+    // ⑤ unavailable:no-guard：tools 在但 guard 注册面不可用（与 ④ 分开记）。
+    const noGuard = await mount({ activePreset: 'capability', enforce: true, tools: {} })
+    expect(noGuard.guard).toEqual({ state: 'unavailable', reason: 'no-guard' })
+    expect(noGuard.warnMessages.some((m) => m.includes('派发护栏未在岗') && m.includes('guard 注册面不可用'))).toBe(true)
+
+    // ⑥ unavailable:register-failed：注册抛错 ⇒ detail = 错误消息（截断 ≤200）。
+    const longMessage = `boom-${'x'.repeat(300)}`
+    const throwing = { guard: () => { throw new Error(longMessage) } }
+    const failed = await mount({ activePreset: 'capability', enforce: true, tools: throwing })
+    const guard = failed.guard as { state: string; reason: string; detail?: string }
+    expect(guard.state).toBe('unavailable')
+    expect(guard.reason).toBe('register-failed')
+    expect(typeof guard.detail).toBe('string')
+    expect(guard.detail!.startsWith('boom-')).toBe(true)
+    expect(guard.detail!.length).toBeLessThanOrEqual(200)
+    expect(guard.detail!.length).toBeLessThan(longMessage.length)
+    expect(failed.warnMessages.some((m) => m.includes('派发护栏未在岗') && m.includes('注册失败'))).toBe(true)
   })
 
   /**

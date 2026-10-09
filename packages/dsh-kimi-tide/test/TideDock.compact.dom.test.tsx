@@ -3,7 +3,8 @@
  * TideDock 紧凑态（v1.5.0 位置调整，2026-10-03 用户裁定「排版位置 → 挪到工具行右端」）。
  *
  * 契约：`variant:'compact'` 时只渲染一行两个小按钮——
- *   ① `.kt-c-main`：预设 → 目标（点开决策面板；kimi 未接入时内嵌 ⚠）
+ *   ① `.kt-c-main`：预设 → 目标（点开决策面板；kimi 未接入时内嵌 ⚠；
+ *      v8 起内嵌派发护栏在岗标记 `data-kt-el="guard-status"`，issue #9）
  *   ② `.kt-c-quota`：配额/余额摘要（点开用量总览）
  * 不再渲染 r1/r2 两行（工具行只有一行空间），但两个 portal 面板与完整态完全同款。
  * 每个用例注释标注「会使其失败的生产改动」。
@@ -136,5 +137,35 @@ describe('TideDock 紧凑态（工具行右端）', () => {
     expect(label.getAttribute('title') ?? '').not.toBe('')
     expect(container.querySelector('.kimi-tide-dock')!.textContent?.trim()).toBe('月汐')
     expect(container.querySelector('.kimi-tide-dock svg')).not.toBeNull()
+  })
+
+  it('派发护栏在岗标记（issue #9）：三态内嵌主按钮，环境失败警示态；旧载荷不渲染', async () => {
+    const marker = () => container.querySelector('[data-kt-el="guard-status"]')
+    // 在岗 → 普通标记（真实宿主只挂紧凑态，「在岗可见」必须在紧凑态成立）
+    await mount(panel({ guard: { state: 'installed' } }))
+    // Fails if: 紧凑态没有护栏标记（真实宿主看不到「在岗」）
+    expect(marker()!.textContent).toContain('护栏：在岗')
+    expect(marker()!.className).not.toContain('kt-warn')
+
+    // 用户关闭 → 置灰（不告警）
+    await act(async () => { root!.unmount() })
+    root = undefined
+    await mount(panel({ guard: { state: 'off', reason: 'switch-off' } }))
+    expect(marker()!.textContent).toContain('护栏：未在岗（开关未开）')
+    expect(marker()!.className).toContain('kt-dim')
+    expect(marker()!.className).not.toContain('kt-warn')
+
+    // 环境失败 → 警示态（kt-warn 既有令牌）
+    await act(async () => { root!.unmount() })
+    root = undefined
+    await mount(panel({ guard: { state: 'unavailable', reason: 'no-tools' } }))
+    expect(marker()!.textContent).toContain('护栏：未在岗（tools 服务缺席）')
+    expect(marker()!.className).toContain('kt-warn')
+
+    // 旧载荷（guard 字段缺席）→ 不渲染（不编造状态）
+    await act(async () => { root!.unmount() })
+    root = undefined
+    await mount(panel())
+    expect(marker()).toBeNull()
   })
 })

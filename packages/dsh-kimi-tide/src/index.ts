@@ -54,6 +54,7 @@ import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus,
 import { buildEffortCatalog, buildMountedModels } from './effort-catalog.js'
 import { installTeamSkill, type SkillsLike, type TeamSkillHandle } from './team-skill.js'
 import { dispatchGuardRejection, isTeammateMembership } from './guard.js'
+import { guardDetailOf, probeGuardFace, type GuardStatus } from './guard-status.js'
 
 export const name = 'dsh-kimi-tide'
 
@@ -752,21 +753,61 @@ export function apply(ctx: Context, config: Config = {}) {
    * **只能拒绝、不能改派**（改派＝另一次 `spawn_teammate` 调用）⇒ 拒绝理由里必须
    * 自带"下一步怎么做"。判据在 `guard.ts` 纯函数里，这里只做宿主形状适配。
    *
-   * 降级：tools 服务缺席 / guard 不可用 / 路由关闭 / `dispatchGuard !== 'enforce'`
-   * ⇒ 不注册、不报错，行为与无护栏逐字节一致。
+   * 降级与可见性（issue #9，2026-10-09 起）：路由关闭 / `dispatchGuard !== 'enforce'`
+   * 是**用户意图** ⇒ 不注册、不告警、不写日志，行为与无护栏逐字节一致；
+   * tools 服务缺席 / guard 不可用 / 注册抛错是**环境不满足** ⇒ 开关已开即
+   * fail-closed：状态记 `unavailable`（投影 / dock 警示态 / 命令读回），日志
+   * 写明「未在岗」与原因——用户不能再对着「开」的开关以为护栏在岗。
    */
   let dispatchGuard: DispatchGuardHandle | null = null
 
+  /**
+   * 派发护栏在岗状态（issue #9，A+B：在岗可见 ＋ fail-closed；插件级状态，与
+   * dispatchGuard 同生命周期）：每次 installDispatchGuard 现算并**整体重写**——
+   * 状态恒与「当下这份配置」一致（配置/服务变更必走 remount ⇒ 必刷新），面板
+   * 快照与命令通道现读这份状态，不缓存过期值。
+   */
+  let guardStatus: GuardStatus = { state: 'off', reason: 'switch-off' }
+
+  /**
+   * 安装判定与状态采集（issue #9）：五种结局——
+   * ① 无激活预设 / ② 开关未开 ⇒ 用户意图，仍静默（不告警、不写日志，行为与
+   *    今天逐字节一致）；
+   * ③ tools 服务缺席 / ④ tools.guard 不可用 / ⑤ 注册抛错 ⇒ 开关已开而环境
+   *    给不出护栏＝**失败状态**（fail-closed）：状态记 `unavailable`＋具体
+   *    reason（投影 / dock 警示态 / 命令三面读回），日志写明「未在岗」与原因
+   *    ——不再是一行淹没在日志流里的「已降级」。
+   * 采集绝不抛异常：探测异常按 no-tools 归类，注册异常归入 register-failed
+   * （detail 截断 ≤200），插件挂载与工具调用都不因护栏状态失败。
+   */
   const installDispatchGuard = (): DispatchGuardHandle | null => {
-    if (!hasActivePreset(routerConfig)) return null
-    if (dispatchGuardModeOf(routerConfig) !== 'enforce') return null
-    const tools = probeTools(ctx)
-    if (tools?.guard === undefined) return null
+    if (!hasActivePreset(routerConfig)) {
+      guardStatus = { state: 'off', reason: 'no-preset' }
+      return null
+    }
+    if (dispatchGuardModeOf(routerConfig) !== 'enforce') {
+      guardStatus = { state: 'off', reason: 'switch-off' }
+      return null
+    }
+    const face = probeGuardFace(ctx)
+    if (face.state === 'no-tools') {
+      guardStatus = { state: 'unavailable', reason: 'no-tools' }
+      warn('dsh-kimi-tide: 派发护栏未在岗 — tools 服务缺席（开关已开，派发不会被拦截）')
+      return null
+    }
+    if (face.state === 'no-guard') {
+      guardStatus = { state: 'unavailable', reason: 'no-guard' }
+      warn('dsh-kimi-tide: 派发护栏未在岗 — tools.guard 注册面不可用（开关已开，派发不会被拦截）')
+      return null
+    }
     try {
-      const dispose = tools.guard((execution) => guardRejectionOf(execution.name, execution.arguments, execution.agent))
+      const dispose = face.guard((execution) => guardRejectionOf(execution.name, execution.arguments, execution.agent))
+      guardStatus = { state: 'installed' }
       return { installed: true, dispose }
     } catch (error) {
-      warn(`dsh-kimi-tide: 派发护栏注册失败（已降级为不装护栏）— ${String(error)}`)
+      const detail = guardDetailOf(error)
+      guardStatus = { state: 'unavailable', reason: 'register-failed', detail }
+      warn(`dsh-kimi-tide: 派发护栏未在岗 — 注册失败（开关已开，派发不会被拦截）— ${detail}`)
       return null
     }
   }
@@ -937,7 +978,8 @@ export function apply(ctx: Context, config: Config = {}) {
   // 启动初挂（裁决 R3）：路由关闭 ⇒ 不注册（静默）；roles 空 / skills 缺席 /
   // 注册失败的其余降级在 installTeamSkill 内部完成。
   remountTeamSkill()
-  // 派发护栏（修复路线③）：开关缺席 / 路由关闭 / tools 服务缺席 ⇒ 不注册（静默）。
+  // 派发护栏（修复路线③）：开关缺席 / 路由关闭 ⇒ 不注册（静默，用户意图）；
+  // tools 服务缺席等环境不满足 ⇒ 不注册但记 unavailable 状态并 warn「未在岗」（issue #9）。
   remountDispatchGuard()
   refreshCandidates()
 
@@ -1098,6 +1140,10 @@ export function apply(ctx: Context, config: Config = {}) {
     // undefined——读取端据此区分「无派发」与「旧载荷无此字段」）；夹具无 id →
     // 空串恒不匹配 → 空数组。
     snapshot.dispatch = dispatchLedger.recentFor((agent as { id?: string }).id ?? '')
+    // 投影 v8（issue #9）：派发护栏在岗状态——实时快照恒写（三态含 reason/detail），
+    // 旧载荷缺席（可选）。状态在 installDispatchGuard 每次安装/重挂时现算刷新，
+    // 这里只读现值（配置/服务变更必经 remount ⇒ 状态与当下这份配置一致）。
+    snapshot.guard = guardStatus
     return snapshot
   }
   /**
