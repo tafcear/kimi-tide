@@ -1,0 +1,7 @@
+[
+  { "id": "派发护栏对主会话失效的修复", "phrases": ["isTeammateMembership", "主会话完全不生效", "main session"], "surfaces": 2 },
+  { "id": "护栏拦截范围扩到 workflow", "phrases": ["一次都没点名", "without naming a target"], "surfaces": 3 },
+  { "id": "分工表技能「派完怎么验」", "phrases": ["派完怎么验", "how to verify a dispatch"], "surfaces": 2 },
+  { "id": "派发路由核验脚本", "phrases": ["check-dispatch-routing"], "surfaces": 2 },
+  { "id": "密钥门禁", "phrases": ["密钥门禁", "check-secrets", "secrets gate"], "surfaces": 3 }
+]

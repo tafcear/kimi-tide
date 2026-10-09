@@ -276,7 +276,7 @@ A：存在 DSH 设置里（「设置 → 月汐」编辑，重启保持）。跨
 
 ## 版本与路线
 
-> 当前版本：**v2.2.0（2026-10-08）**
+> 当前版本：**v2.2.1（2026-10-09）**
 
 - 每个版本你得到了什么：[CHANGELOG.md](CHANGELOG.md)
 - 维护者证据链（commit 锚点 / 验收记录）：[docs/release-evidence.md](docs/release-evidence.md)
