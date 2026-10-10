@@ -5,9 +5,9 @@ on:
     tags:
       - 'v*'
   # 手动入口（2026-10-10 加）：用来**在 npm 侧配置 Trusted Publisher 之后、不发新版的前提下**
-  # 验证整条 npm 发布链路——拿一个已有的 tag 触发，工作流的「版本一致性」步会要求
-  # tag 版本 == package.json 版本、且该 tag 已在 origin（git fetch 取附注），所以不会误发；
-  # 已发布的版本会被发布步的幂等分支跳过，但 OIDC 认证与打包比对照样跑一遍。
+  # 验证整条发布链路——拿一个已有的 tag 触发，工作流的「手动 tag 校验」步会要求
+  # tag 版本 == package.json 版本，已存在的 Release 与已发布的 npm 版本都会走幂等分支，
+  # 不会误发。
   workflow_dispatch:
     inputs:
       tag:
@@ -24,25 +24,42 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # 手动触发时把 tag 名统一到一个变量，后续步骤沿用同一套 ${GITHUB_REF_NAME#v} 逻辑。
-    env:
-      GITHUB_REF_NAME: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-      - name: Verify manual tag matches package.json
-        if: ${{ inputs.tag != '' }}
+      # 2026-10-10 改动：**不要再在 job 级 env 里覆盖 GITHUB_REF_NAME**——它是 GitHub
+      # 预定义变量，作业级同名 env 覆盖不生效（实测：手动运行里它仍是 `main`，
+      # 「手动 tag 校验」步因此必然失败）。改为在第一步显式解析出本次要发的 tag，
+      # 写进 GITHUB_ENV 供后续所有步骤使用：自动触发用 github.ref_name；手动触发用输入值。
+      - name: Resolve release tag
         shell: bash
         run: |
           set -euo pipefail
-          T="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::tag 必须以 v 开头（收到：$TAG）"; exit 1 ;;
+          esac
+          echo "KT_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "KT_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "本次要发的 tag：$TAG"
+      - uses: actions/checkout@v4
+        with:
+          # 手动运行默认落在 main；要打的是 tag 那棵树，所以显式检出 tag。
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - name: Verify manual tag matches package.json
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
           P="$(node -p "require('./packages/dsh-kimi-tide/package.json').version")"
-          if [ "$T" != "$P" ]; then
-            echo "::error::手动触发的 tag（$GITHUB_REF_NAME=$T）与 package.json（$P）不一致——拒绝运行，避免误发"
+          if [ "$KT_VERSION" != "$P" ]; then
+            echo "::error::手动触发的 tag（$KT_TAG=$KT_VERSION）与 package.json（$P）不一致——拒绝运行，避免误发"
             exit 1
           fi
-          echo "手动验证运行：tag=$GITHUB_REF_NAME 与 package.json $P 一致"
+          echo "手动验证运行：tag=$KT_TAG 与 package.json $P 一致"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -62,10 +79,9 @@ jobs:
       - name: Version consistency check
         shell: bash
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
           PKG_VERSION="$(node -p "require('./packages/dsh-kimi-tide/package.json').version")"
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "tag v${TAG_VERSION} != package.json ${PKG_VERSION}" >&2
+          if [ "$KT_VERSION" != "$PKG_VERSION" ]; then
+            echo "tag v${KT_VERSION} != package.json ${PKG_VERSION}" >&2
             exit 1
           fi
       - name: Bundle-patch field guard
@@ -104,12 +120,13 @@ jobs:
           #    （对象不同被拒）——所以要拿附注必须 --force 重取 tag 对象。
           # 因此：--force 取回附注 → 导出附注为 notes 文件 → --notes-file
           #（不依赖 gh 对本地 tag 状态的任何假设）。
-          git fetch origin tag "$GITHUB_REF_NAME" --force
-          git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > release-notes.md
-          # 附注取不到时**立刻停**：空正文会被下一步的正文门禁拦下，但拦下之前
-          # 已经跑过打包，日志会误导人；这里把根因（tag 不是附注 / 没推到 origin）说清。
+          set -euo pipefail
+          git fetch origin tag "$KT_TAG" --force
+          git tag -l "$KT_TAG" --format='%(contents)' > release-notes.md
+          # 附注取不到时**立刻停**：空正文会被下一步的正文门禁拦下，但拦下之前已经跑过
+          # 打包，日志会误导人；这里把根因（轻量 tag / 没推到 origin）说清。
           if [ ! -s release-notes.md ]; then
-            echo "::error::取不到 $GITHUB_REF_NAME 的附注消息（轻量 tag？还是没推到 origin？）"
+            echo "::error::取不到 $KT_TAG 的附注消息（轻量 tag？还是没推到 origin？）"
             exit 1
           fi
           echo "附注消息 $(wc -c < release-notes.md) 字节"
@@ -120,26 +137,27 @@ jobs:
           # 中文整块 + English 整块，各自 ① 一句话定位 ② 本次更新/What's new
           # ③ 安装与升级/Install & upgrade ④ 验证与验收/Verification & acceptance
           # ——不合规就停在 gh release create 之前，避免发布一个说明不全的版本页。
-          # 注意：正文文件由上一步导出到 packages/dsh-kimi-tide/release-notes.md
-          # （该步的 working-directory），本步从仓库根以相对路径引用。
-          node scripts/check-release-notes.mjs --file packages/dsh-kimi-tide/release-notes.md --version "${GITHUB_REF_NAME#v}"
+          # 注意：正文文件由「Export annotated tag notes」步导出到
+          # packages/dsh-kimi-tide/release-notes.md（该步的 working-directory），
+          # 本步从仓库根以相对路径引用。
+          node scripts/check-release-notes.mjs --file packages/dsh-kimi-tide/release-notes.md --version "$KT_VERSION"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/dsh-kimi-tide
         run: |
           set -euo pipefail
-          # 幂等：Release 已存在（手动验证运行 / 重跑）时不重复创建——gh release view 探一下。
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME 已存在，跳过创建（幂等）"
+          # 幂等：Release 已存在（手动验证运行 / 重跑）时不重复创建。
+          if gh release view "$KT_TAG" >/dev/null 2>&1; then
+            echo "Release $KT_TAG 已存在，跳过创建（幂等）"
             exit 0
           fi
           # 额外产出稳定名资产（dsh-kimi-tide.tgz）：awesome-dsh-plugin 收录
           # 条目的 tarball 字段指向 releases/latest/download/ 稳定名链接，
           # 版本号文件名会在下个发布后 404。
           cp dsh-kimi-tide-*.tgz dsh-kimi-tide.tgz
-          gh release create "$GITHUB_REF_NAME" \
-            --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
+          gh release create "$KT_TAG" \
+            --title "dsh-kimi-tide v${KT_VERSION}" \
             --notes-file release-notes.md \
             dsh-kimi-tide-*.tgz dsh-kimi-tide.tgz
       # ---- npm 渠道（2026-10-10 起并入 CI）------------------------------------------
@@ -152,10 +170,9 @@ jobs:
         working-directory: packages/dsh-kimi-tide
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
           # 幂等：tag 重推 / 重跑该工作流时，已发布的版本直接跳过，不制造失败。
-          if npm view "dsh-kimi-tide@$VERSION" version >/dev/null 2>&1; then
-            echo "npm 上已有 dsh-kimi-tide@$VERSION，跳过发布（幂等）"
+          if npm view "dsh-kimi-tide@$KT_VERSION" version >/dev/null 2>&1; then
+            echo "npm 上已有 dsh-kimi-tide@$KT_VERSION，跳过发布（幂等）"
             exit 0
           fi
           # Trusted Publisher 没配好时该怎么办：**不猜字段、看真实结果**。GitHub Release
@@ -182,14 +199,12 @@ jobs:
         working-directory: packages/dsh-kimi-tide
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
           LOCAL_SHA="$(cat /tmp/pack-sha256.txt)"
-          OWNER_REPO="${GITHUB_REPOSITORY}"
           # ① GitHub 侧：走 gh api 本地镜像比对（--repo 等价），失败重试 3 次
           GH_DIGEST=""
           for i in 1 2 3; do
-            GH_DIGEST="$(gh api "repos/${OWNER_REPO}/releases/tags/${GITHUB_REF_NAME}" \
-              --jq ".assets[] | select(.name == \"dsh-kimi-tide-${VERSION}.tgz\") | .digest" 2>/dev/null || true)"
+            GH_DIGEST="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${KT_TAG}" \
+              --jq ".assets[] | select(.name == \"dsh-kimi-tide-${KT_VERSION}.tgz\") | .digest" 2>/dev/null || true)"
             [ -n "$GH_DIGEST" ] && break
             sleep 5
           done
@@ -200,7 +215,8 @@ jobs:
             echo "::error::本地打包与 GitHub 资产 digest 不一致（打包后到上传之间被改动过？）"
             exit 1
           fi
-          # ② 跨渠道比对只在**本次真的发了 npm** 时才做（未配置 Trusted Publisher 时跳过）。
+          # ② 跨渠道比对只在**本次真的发了 npm** 时才做（未配置 Trusted Publisher 或该版本
+          #    已存在时跳过）。
           if [ "${NPM_PUBLISHED:-0}" != "1" ]; then
             echo "本次未发 npm（Trusted Publisher 未配置或该版本已存在）⇒ 跳过跨渠道比对"
             exit 0
@@ -209,7 +225,7 @@ jobs:
           #    轮询等待可见（最多约 5 分钟）。取它给的 tarball 并实测 sha256。
           NPM_SHA=""
           for i in $(seq 1 20); do
-            NPM_URL="$(npm view "dsh-kimi-tide@$VERSION" dist.tarball 2>/dev/null || true)"
+            NPM_URL="$(npm view "dsh-kimi-tide@$KT_VERSION" dist.tarball 2>/dev/null || true)"
             if [ -n "$NPM_URL" ]; then
               curl -fsSL "$NPM_URL" -o /tmp/npm-side.tgz 2>/dev/null || true
               if [ -s /tmp/npm-side.tgz ]; then
@@ -220,7 +236,7 @@ jobs:
             sleep 15
           done
           if [ -z "$NPM_SHA" ]; then
-            echo "::error::npm 侧 $VERSION 在等待 5 分钟后仍不可见"
+            echo "::error::npm 侧 $KT_VERSION 在等待 5 分钟后仍不可见"
             exit 1
           fi
           echo "npm 侧   : $NPM_SHA"
