@@ -4,19 +4,53 @@ on:
   push:
     tags:
       - 'v*'
+  # 手动入口（2026-10-10 加）：用来**在 npm 侧配置 Trusted Publisher 之后、不发新版的前提下**
+  # 验证整条 npm 发布链路——拿一个已有的 tag 触发，工作流的「版本一致性」步会要求
+  # tag 版本 == package.json 版本、且该 tag 已在 origin（git fetch 取附注），所以不会误发；
+  # 已发布的版本会被发布步的幂等分支跳过，但 OIDC 认证与打包比对照样跑一遍。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '用于验证的已存在 tag（必须与 package.json 版本一致，如 v2.2.2）'
+        required: true
+        type: string
 
 permissions:
   contents: write
+  # npm Trusted Publishing（OIDC）：发布步骤用 GitHub 的 id token 向 npm 换短期凭据，
+  # 仓库里**不再需要任何长期 NPM_TOKEN**（npm 已宣布 2027-01 起停用经典 token）。
+  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    # 手动触发时把 tag 名统一到一个变量，后续步骤沿用同一套 ${GITHUB_REF_NAME#v} 逻辑。
+    env:
+      GITHUB_REF_NAME: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Verify manual tag matches package.json
+        if: ${{ inputs.tag != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="${GITHUB_REF_NAME#v}"
+          P="$(node -p "require('./packages/dsh-kimi-tide/package.json').version")"
+          if [ "$T" != "$P" ]; then
+            echo "::error::手动触发的 tag（$GITHUB_REF_NAME=$T）与 package.json（$P）不一致——拒绝运行，避免误发"
+            exit 1
+          fi
+          echo "手动验证运行：tag=$GITHUB_REF_NAME 与 package.json $P 一致"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      # 2026-10-10：Trusted Publishing 要求较新的 npm（旧版没有 OIDC 发布路径），runner
+      # 自带的 npm 10 偏旧 ⇒ 发布前强制升到最新，避免「本地能发、CI 报 401/404」。
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest && npm --version
       - run: npm ci
         working-directory: packages/dsh-kimi-tide
       - name: Build
@@ -43,7 +77,18 @@ jobs:
           "
       - name: Pack
         working-directory: packages/dsh-kimi-tide
-        run: npm pack
+        run: |
+          set -euo pipefail
+          # 打一次包，把**文件名**与 **sha256** 记进环境/临时文件：后面「GitHub 资产 ↔
+          # npm 侧」逐字节比对要用它（2026-10-10 起两渠道同源：npm 发布也走 CI，而 CI 是
+          # LF 检出）。用 grep 取 .tgz 行而不用 basename——npm 的提示行在 Windows 上带
+          # 反斜杠，basename 会切错。
+          OUT="$(npm pack --silent)"
+          PKG="$(printf '%s\n' "$OUT" | grep -E '\.tgz$' | tail -n 1 | tr -d '\r')"
+          test -f "$PKG" || { echo "::error::npm pack 未产出 tgz（输出：$OUT）"; exit 1; }
+          echo "PKG_NAME=$PKG" >> "$GITHUB_ENV"
+          sha256sum "$PKG" | awk '{print $1}' > /tmp/pack-sha256.txt
+          echo "打包完成：$PKG（sha256 $(cat /tmp/pack-sha256.txt)）"
       - name: Export annotated tag notes
         shell: bash
         working-directory: packages/dsh-kimi-tide
@@ -61,6 +106,13 @@ jobs:
           #（不依赖 gh 对本地 tag 状态的任何假设）。
           git fetch origin tag "$GITHUB_REF_NAME" --force
           git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > release-notes.md
+          # 附注取不到时**立刻停**：空正文会被下一步的正文门禁拦下，但拦下之前
+          # 已经跑过打包，日志会误导人；这里把根因（tag 不是附注 / 没推到 origin）说清。
+          if [ ! -s release-notes.md ]; then
+            echo "::error::取不到 $GITHUB_REF_NAME 的附注消息（轻量 tag？还是没推到 origin？）"
+            exit 1
+          fi
+          echo "附注消息 $(wc -c < release-notes.md) 字节"
       - name: Release notes bilingual four-section gate
         shell: bash
         run: |
@@ -76,6 +128,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/dsh-kimi-tide
         run: |
+          set -euo pipefail
+          # 幂等：Release 已存在（手动验证运行 / 重跑）时不重复创建——gh release view 探一下。
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME 已存在，跳过创建（幂等）"
+            exit 0
+          fi
           # 额外产出稳定名资产（dsh-kimi-tide.tgz）：awesome-dsh-plugin 收录
           # 条目的 tarball 字段指向 releases/latest/download/ 稳定名链接，
           # 版本号文件名会在下个发布后 404。
@@ -84,3 +142,90 @@ jobs:
             --title "dsh-kimi-tide v${GITHUB_REF_NAME#v}" \
             --notes-file release-notes.md \
             dsh-kimi-tide-*.tgz dsh-kimi-tide.tgz
+      # ---- npm 渠道（2026-10-10 起并入 CI）------------------------------------------
+      # 为什么搬进来：此前 npm 是维护者在本机手发，而本机 `core.autocrlf=true`、仓库又
+      # 没有 .gitattributes ⇒ `npm pack` 打的是 CRLF 的工作树，CI 打的是 LF 检出，
+      # 于是 v2.2.0／v2.2.2 两轮都出现「两渠道有 4 个文件仅行尾不同」的可复现性缺口。
+      # 搬进 CI 后：**同一棵树、同一次打包、同一个 tgz** 既做 Release 资产又发 npm。
+      # 认证走 Trusted Publishing（OIDC），不需要 NPM_TOKEN。
+      - name: Publish to npm (trusted publishing)
+        working-directory: packages/dsh-kimi-tide
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # 幂等：tag 重推 / 重跑该工作流时，已发布的版本直接跳过，不制造失败。
+          if npm view "dsh-kimi-tide@$VERSION" version >/dev/null 2>&1; then
+            echo "npm 上已有 dsh-kimi-tide@$VERSION，跳过发布（幂等）"
+            exit 0
+          fi
+          # Trusted Publisher 没配好时该怎么办：**不猜字段、看真实结果**。GitHub Release
+          # 已经发出去了，此时因为 npm 侧配置缺失而让整个流水线翻红，会给人「发版失败」的
+          # 错觉——所以把「认得出的未配置/无凭据」类失败降级为警告（发版照旧算成功），别的
+          # 失败照旧硬失败。配置位置：npmjs.com → 该包 Settings → Trusted Publisher；
+          # 绑定 Repository = <owner>/<repo>、Workflow = release.yml。
+          set +e
+          PUB_OUT="$(npm publish "./$PKG_NAME" --provenance --tag latest --registry https://registry.npmjs.org/ 2>&1)"
+          PUB_CODE=$?
+          set -e
+          printf '%s\n' "$PUB_OUT"
+          if [ $PUB_CODE -ne 0 ]; then
+            if printf '%s' "$PUB_OUT" | grep -qiE 'ENEEDAUTH|not authenticated|401|403|trusted publisher|Two-factor|OTP'; then
+              echo "::warning::npm 渠道未发布：npm 侧还没把 Trusted Publisher 配到本仓库（包 Settings → Trusted Publisher：Repository=${GITHUB_REPOSITORY}、Workflow=release.yml）。GitHub Release 已正常发出，配好后下个 tag 自动接管 npm 渠道。"
+              echo "NPM_PUBLISHED=0" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "::error::npm publish 失败（非配置类原因，退出码 $PUB_CODE）"
+            exit 1
+          fi
+          echo "NPM_PUBLISHED=1" >> "$GITHUB_ENV"
+      - name: Verify both channels share one tarball
+        working-directory: packages/dsh-kimi-tide
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          LOCAL_SHA="$(cat /tmp/pack-sha256.txt)"
+          OWNER_REPO="${GITHUB_REPOSITORY}"
+          # ① GitHub 侧：走 gh api 本地镜像比对（--repo 等价），失败重试 3 次
+          GH_DIGEST=""
+          for i in 1 2 3; do
+            GH_DIGEST="$(gh api "repos/${OWNER_REPO}/releases/tags/${GITHUB_REF_NAME}" \
+              --jq ".assets[] | select(.name == \"dsh-kimi-tide-${VERSION}.tgz\") | .digest" 2>/dev/null || true)"
+            [ -n "$GH_DIGEST" ] && break
+            sleep 5
+          done
+          echo "本地打包 : $LOCAL_SHA"
+          echo "GitHub 侧: $GH_DIGEST"
+          # 本地打包 == 发出去的 tgz == GitHub 资产 digest，应逐字一致（两渠道同源的前提）
+          if [ "sha256:$LOCAL_SHA" != "$GH_DIGEST" ]; then
+            echo "::error::本地打包与 GitHub 资产 digest 不一致（打包后到上传之间被改动过？）"
+            exit 1
+          fi
+          # ② 跨渠道比对只在**本次真的发了 npm** 时才做（未配置 Trusted Publisher 时跳过）。
+          if [ "${NPM_PUBLISHED:-0}" != "1" ]; then
+            echo "本次未发 npm（Trusted Publisher 未配置或该版本已存在）⇒ 跳过跨渠道比对"
+            exit 0
+          fi
+          # ③ npm 侧：Trusted Publishing 是异步受理（本地实测 PUT 202，约 3 分钟才可查），
+          #    轮询等待可见（最多约 5 分钟）。取它给的 tarball 并实测 sha256。
+          NPM_SHA=""
+          for i in $(seq 1 20); do
+            NPM_URL="$(npm view "dsh-kimi-tide@$VERSION" dist.tarball 2>/dev/null || true)"
+            if [ -n "$NPM_URL" ]; then
+              curl -fsSL "$NPM_URL" -o /tmp/npm-side.tgz 2>/dev/null || true
+              if [ -s /tmp/npm-side.tgz ]; then
+                NPM_SHA="$(sha256sum /tmp/npm-side.tgz | awk '{print $1}')"
+                break
+              fi
+            fi
+            sleep 15
+          done
+          if [ -z "$NPM_SHA" ]; then
+            echo "::error::npm 侧 $VERSION 在等待 5 分钟后仍不可见"
+            exit 1
+          fi
+          echo "npm 侧   : $NPM_SHA"
+          if [ "$LOCAL_SHA" != "$NPM_SHA" ]; then
+            echo "::error::npm 侧 tarball 与 GitHub 侧 sha256 不一致——两渠道不再同源，请查 npm publish 路径"
+            exit 1
+          fi
+          echo "✅ 两渠道同一份 tarball（sha256 $LOCAL_SHA）"

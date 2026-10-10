@@ -139,6 +139,25 @@ node scripts/check-release-notes.mjs --tag v1.2.0
 git push origin v1.2.0
 ```
 
+**两渠道都由 CI 发出（2026-10-10 起）**：`release.yml` 在一次运行里完成「打包 → 发
+GitHub Release（版本名 tgz ＋ 稳定名 `dsh-kimi-tide.tgz`）→ 发 npm → 比对两渠道 tarball
+的 sha256」。要点：
+
+- **npm 认证走 Trusted Publishing（OIDC）**，仓库里**不存任何长期 token**（npm 已宣布
+  2027-01 起停用经典 token）。工作流需要 `id-token: write`（已加），发布前强制
+  `npm install -g npm@latest`（runner 自带的 npm 10 偏旧）。
+- **一次性配置（每个包一次，只有包维护者能做）**：npmjs.com → 该包 → Settings →
+  Trusted Publisher，填 **Repository = `<owner>/<repo>`**、**Workflow = `release.yml`**、
+  Environment 留空。**没配好之前**：npm 那一步把「无凭据 / 未配置」类失败降级为
+  **警告**（GitHub Release 照常发出、流水线不翻红），日志里写明缺的是哪一步。
+- **npm 侧收到的是 CI 打出的那份 tgz**（不让 npm 从目录再打一次包）⇒ 两条渠道逐字节同源。
+- **为什么必须搬进 CI**：维护者本机 `core.autocrlf=true`（且仓库无 `.gitattributes`）时
+  `npm pack` 打的是 **CRLF 工作树**，而 CI 是 **LF 检出** ⇒ 同一版本两条渠道会有若干文件
+  「仅行尾不同」（v2.2.0／v2.2.2 各踩一次，已如实登记在 `docs/release-evidence.md`）。
+- **手动验证入口**：`workflow_dispatch` 传一个**已存在**的 tag（如 `v2.2.2`）即可把整条
+  链路（打包／认证／比对）空跑一遍——它会要求 tag 版本 == `package.json` 版本，已存在的
+  Release 与已发布的版本都会被幂等分支跳过，不会误发。
+
 > **大坑（2026-09-10 v1.2.0 首发实踩）**：`git tag -a -F <文件>` 默认把 `#` 开头的行
 > 当作注释**整行剥掉**——四段式的 `## 本次更新` 等标题会全部消失，tag 消息变成
 > 无结构纯文本，CI 门禁报「当前二级标题 = (无)」。必须加 `--cleanup=verbatim`。
