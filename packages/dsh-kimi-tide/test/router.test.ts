@@ -9,7 +9,7 @@ import type { ImageStateEntry } from '../src/image-state.js'
 import type { ResolvedImage } from '../src/transcribe.js'
 import {
   applyDriverSticky, applyRoleDecision, confirmNoteOf, createStreamVisionCaller, effortForTarget,
-  KimiRouter, reasoningEffortFor, resolveImageFallback, shouldKeepExternalTarget, withConfirmNote,
+  KimiRouter, reasoningEffortFor, resolveImageFallback, shouldKeepExternalTarget, withConfirmNote, withWindowNote,
   type RouteDecision,
 } from '../src/router.js'
 
@@ -722,5 +722,160 @@ describe('v2.0.0：applyDriverSticky（主驱动恒定纯函数，优先级链�
     for (const d of [rule, explicit, role, flow, keep]) {
       expect(applyDriverSticky(d, false, DRIVER, true)).toBe(d)
     }
+  })
+})
+
+/* ================= issue #13（real-geekfan，2026-10-10）：规则目标窗口装不下会话占用 ⇒ 跳过降级 ================= */
+
+describe('withWindowNote（issue #13 可观测性补链，仿 withConfirmNote）', () => {
+  const base = {
+    kind: 'route' as const,
+    target: { provider: 'zai-coding-cn', model: 'glm-5.3' },
+    reason: '规则「code」命中 2 词（特异度最高）',
+    via: 'rule' as const,
+  }
+  const NOTE = '窗口容不下 1 条规则（code → 256,000 < 329,610 + 预留 32,000）已降级'
+
+  it('注记前置拼接，其余字段逐字节不变', () => {
+    const out = withWindowNote(base, NOTE)
+    expect(out.reason).toBe(`${NOTE} · 规则「code」命中 2 词（特异度最高）`)
+    expect(out.windowNote).toBe(NOTE)
+    expect(out.kind).toBe('route')
+    expect(out.via).toBe('rule')
+    expect(out.target).toEqual(base.target)
+  })
+
+  it('无注记时原样返回同一引用；既有 confirmNote 随 spread 保留', () => {
+    expect(withWindowNote(base, undefined)).toBe(base)
+    const out = withWindowNote({ ...base, confirmNote: '语义闸判否' }, NOTE)
+    expect(out.confirmNote).toBe('语义闸判否')
+    expect(out.windowNote).toBe(NOTE)
+  })
+})
+
+describe('issue #13：规则目标窗口判定（decide 第 6 参 opts2.occupancy）', () => {
+  /** 双规则链：alpha/beta 各命中 1 词（平手按列表序，alpha 先作首命中）。 */
+  const twoRuleConfig = () => {
+    const c = cfg('saving')
+    c.keywordGroups.alpha = ['重构']
+    c.keywordGroups.beta = ['翻译']
+    c.presets.saving.rules = [
+      { id: 'alpha-kfc', when: { kind: 'keywords', group: 'alpha' }, target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+      { id: 'beta-k3', when: { kind: 'keywords', group: 'beta' }, target: { provider: 'kimi-coding', model: 'k3' } },
+    ]
+    return c
+  }
+  const bothHits = [textMsg('帮我重构这段周报并翻译成英文')]
+  /** 仅 kimi-for-coding 带窗口；k3 未知（放行）。 */
+  const KFC_WINDOW: CandidateMeta[] = [
+    ...METAS.filter((m) => m.model !== 'kimi-for-coding'),
+    { provider: 'kimi-coding', model: 'kimi-for-coding', modalities: ['text', 'image'], available: true, contextWindow: 256_000 },
+  ]
+  /** 两个规则目标都带小窗口（kfc 256k、k3 200k）。 */
+  const BOTH_SMALL: CandidateMeta[] = KFC_WINDOW.map((m) =>
+    m.model === 'k3' ? { ...m, contextWindow: 200_000 } : m)
+
+  it('① 首条规则窗口不足 → 跳过，后续规则接住（via:rule），决策带窗口注记', () => {
+    const r = new KimiRouter(twoRuleConfig(), KFC_WINDOW, log)
+    // Fails if: decide 不做窗口判定（装不下的 alpha 照常命中 ⇒ 整轮 400 INVALID_REQUEST 且 message 为空）
+    expect(r.decide(bothHits, 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } })).toEqual({
+      kind: 'route',
+      target: { provider: 'kimi-coding', model: 'k3' },
+      reason: '窗口容不下 1 条规则（alpha → 256,000 < 297,610 + 预留 32,000）已降级 · 规则「beta」命中 1 词',
+      via: 'rule',
+      windowNote: '窗口容不下 1 条规则（alpha → 256,000 < 297,610 + 预留 32,000）已降级',
+    })
+  })
+
+  it('② 命中的规则窗口都不足 → 落默认目标（via:default），reason 带窗口注记且 windowNote 存在', () => {
+    const r = new KimiRouter(twoRuleConfig(), BOTH_SMALL, log)
+    expect(r.decide(bothHits, 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } })).toEqual({
+      kind: 'route',
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      reason: '窗口容不下 2 条规则（alpha → 256,000 < 297,610 + 预留 32,000）已降级 · 预设「省钱」默认',
+      via: 'default',
+      windowNote: '窗口容不下 2 条规则（alpha → 256,000 < 297,610 + 预留 32,000）已降级',
+    })
+  })
+
+  it('③ occupancy 缺省 ⇒ 决策与修前逐字相同（回归钉：窗口元数据在场也不生效）', () => {
+    const r = new KimiRouter(twoRuleConfig(), BOTH_SMALL, log)
+    // 夹具更正（红跑备案）：alpha/beta 平手双命中 ⇒ noteBase 两项、alpha 首位
+    // 命中带「（特异度最高）」标注——修前字面即如此，逐字照录。
+    const before = { kind: 'route', target: { provider: 'kimi-coding', model: 'kimi-for-coding' }, reason: '规则「alpha」命中 1 词（特异度最高）', via: 'rule' }
+    expect(r.decide(bothHits, 1)).toEqual(before)
+    // 显式空 opts2（occupancy: undefined）同样放行。
+    expect(r.decide(bothHits, 1, undefined, undefined, undefined, {})).toEqual(before)
+  })
+
+  it('④ 候选无 contextWindow 字段 ⇒ 窗口未知一律放行（占用再大也不跳规则）', () => {
+    const r = new KimiRouter(twoRuleConfig(), METAS, log)
+    expect(r.decide(bothHits, 1, undefined, undefined, undefined, { occupancy: { tokens: 10_000_000 } })).toEqual({
+      kind: 'route',
+      target: { provider: 'kimi-coding', model: 'kimi-for-coding' },
+      reason: '规则「alpha」命中 1 词（特异度最高）',
+      via: 'rule',
+    })
+  })
+
+  it('⑤ flow 规则：visionModel 窗口不足 → 跳过该流规则降级到后续规则，落点带注记', () => {
+    const metas: CandidateMeta[] = VISION_METAS.map((m) =>
+      m.model === 'deepseek-v4-flash-vision-exp' ? { ...m, contextWindow: 131_072 } : m)
+    const r = new KimiRouter(cfg5WithFlowRule('transcribe'), metas, log)
+    expect(r.decide([imageMsg()], 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } })).toEqual({
+      kind: 'route',
+      target: { provider: 'kimi-coding', model: 'k3' },
+      reason: '窗口容不下 1 条规则（带图 → 131,072 < 297,610 + 预留 32,000）已降级 · 规则「带图」命中',
+      via: 'rule',
+      windowNote: '窗口容不下 1 条规则（带图 → 131,072 < 297,610 + 预留 32,000）已降级',
+    })
+  })
+
+  /* ---- issue #13 B 项（预检）：默认目标也过窗口判定——装不下照旧路由，只留预警注记 ---- */
+
+  /** saving 预设默认目标（deepseek-v4-flash）带 200k 窗口。 */
+  const DEFAULT_SMALL: CandidateMeta[] = METAS.map((m) =>
+    m.model === 'deepseek-v4-flash' ? { ...m, contextWindow: 200_000 } : m)
+  const NO_HIT = [textMsg('今天天气不错')]
+  const DEFAULT_DECISION = {
+    kind: 'route',
+    target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    reason: '预设「省钱」默认',
+    via: 'default',
+  }
+  const DEFAULT_WARN = '默认目标 deepseek-official/deepseek-v4-flash 也装不下当前占用（297,610 + 预留 32,000 > 窗口 200,000）——本轮请求可能被网关拒绝'
+
+  it('⑥ 默认目标窗口装不下 ⇒ 仍路由默认（via:default、target 不变），决策带预警注记', () => {
+    const r = new KimiRouter(cfg('saving'), DEFAULT_SMALL, log)
+    // Fails if: 预检缺失（装不下的默认目标照常无提示 ⇒ 用户只看到空 message 的 400，无从归因）
+    expect(r.decide(NO_HIT, 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } })).toEqual({
+      kind: 'route',
+      target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      reason: `${DEFAULT_WARN} · 预设「省钱」默认`,
+      via: 'default',
+      windowNote: DEFAULT_WARN,
+    })
+  })
+
+  it('⑦ 默认目标窗口装得下（或未知）⇒ 不挂注记（原引用逐字，回归钉）', () => {
+    // 窗口未知（无 contextWindow 元数据）⇒ 放行
+    expect(new KimiRouter(cfg('saving'), METAS, log).decide(NO_HIT, 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } }))
+      .toEqual(DEFAULT_DECISION)
+    // 已知且装得下（1M 窗口）⇒ 放行
+    const fits = METAS.map((m) => m.model === 'deepseek-v4-flash' ? { ...m, contextWindow: 1_000_000 } : m)
+    expect(new KimiRouter(cfg('saving'), fits, log).decide(NO_HIT, 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } }))
+      .toEqual(DEFAULT_DECISION)
+  })
+
+  it('⑧ 规则被跳过且默认目标也装不下 ⇒ 注记合并（预警前置，关键数字在 120 字符内）', () => {
+    const all = BOTH_SMALL.map((m) => m.model === 'deepseek-v4-flash' ? { ...m, contextWindow: 200_000 } : m)
+    const r = new KimiRouter(twoRuleConfig(), all, log)
+    const d = r.decide(bothHits, 1, undefined, undefined, undefined, { occupancy: { tokens: 297_610 } }) as { reason: string; windowNote?: string }
+    expect(d).toMatchObject({ kind: 'route', via: 'default', target: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    expect(d.windowNote).toContain(DEFAULT_WARN)
+    expect(d.windowNote).toContain('窗口容不下 2 条规则（alpha → 256,000 < 297,610 + 预留 32,000）已降级')
+    // 面板对 reason 截断 120：预警的占用与窗口数字必须落在前 120 字符内。
+    expect(d.reason.indexOf('297,610')).toBeLessThan(120)
+    expect(d.reason.indexOf('窗口 200,000')).toBeLessThan(120)
   })
 })

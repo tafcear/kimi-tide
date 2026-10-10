@@ -190,6 +190,16 @@ function makeCtx() {
       return next()
     },
     /**
+     * issue #13 B 项：agent/request-error 瀑布仿真——与 preStep/request 同款
+     * （按注册序链起来，链终 undefined = 宿主缺省「不重试」语义）。
+     */
+    async requestError(payload: object): Promise<unknown> {
+      const cbs = [...(listeners.get('agent/request-error') ?? [])].map((r) => r.callback)
+      const inner = () => Promise.resolve(undefined)
+      const next = () => (cbs.shift() ?? inner)(payload, next)
+      return next()
+    },
+    /**
      * Host prompt pre-check deferral: mirrors cordis `serial` bail semantics
      * (EventsService.serial) — listeners run in order; the first bail value
      * (non-null/false/undefined) wins; no listener → undefined (reject).
@@ -550,11 +560,12 @@ describe('installRouter vs 宿主模型选择覆盖（rc.2 installModelSelection
     hostDispose()
   })
 
-  it('源码钉桩：installRouter 四个监听器注册均携带 prepend:true', async () => {
+  it('源码钉桩：installRouter 五个监听器注册均携带 prepend:true', async () => {
     const { readFile } = await import('node:fs/promises')
     const src = await readFile(new URL('../src/router.ts', import.meta.url), 'utf8')
     const installBody = src.slice(src.indexOf('export function installRouter'))
-    const markers = ['agent/pre-step', 'agent/request', 'llm/stream', 'agent/image-admission']
+    // issue #13 B 项新增 agent/request-error（注册序排在 image-admission 之后）。
+    const markers = ['agent/pre-step', 'agent/request', 'llm/stream', 'agent/image-admission', 'agent/request-error']
     const positions = markers.map((name) => installBody.indexOf(`ctx.on('${name}'`))
     expect(positions.every((p) => p !== -1)).toBe(true)
     for (let i = 0; i < positions.length; i++) {
@@ -1687,5 +1698,177 @@ describe('v2.0.0 §8-6 可用性护栏：role 目标不可用 ⇒ 不改道（�
     })
     // 显式轮不得带 roleLabel——否则满足「keep+roleLabel」外的渲染歧义面
     expect(entries[0]!.roleLabel).toBeUndefined()
+  })
+})
+
+/**
+ * issue #13 B 项（事后归因）：空 message 的 INVALID_REQUEST 在宿主侧是纯文本
+ * 匹配不上的 400——用户只看到 {"code":400,"message":""}。观测器只记日志：
+ * 不改写 failure、不重试（返回链终 undefined）、异常不上抛。
+ */
+describe('空 400 事后归因（issue #13 B 项：agent/request-error 观测）', () => {
+  /** 默认目标 flash 带 200k 窗口；无规则命中消息 ⇒ 决策落默认（槽位有决策）。 */
+  const WIN_METAS: CandidateMeta[] = METAS.map((m) =>
+    m.model === 'deepseek-v4-flash' ? { ...m, contextWindow: 200_000 } : m)
+  const NO_HIT_MSG = [textMessage('普通任务')]
+  const failureOf = (code: string, message: string) => ({ code, message })
+
+  it('INVALID_REQUEST + 空 message + 本轮决策目标带已知窗口 ⇒ 记归因日志（目标/窗口/占用/预留齐全）', async () => {
+    const { ctx, dispatch, logs } = makeCtx()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), WIN_METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      occupancy: () => ({ tokens: 297_610 }),
+    })
+
+    await dispatch.preStep({ agent, messages: NO_HIT_MSG, turn: 1, step: 1, signal: signal() })
+    await dispatch.requestError({
+      agent, turn: 1, step: 1, provider: 'deepseek-official',
+      failure: failureOf('INVALID_REQUEST', ''), retryPolicy: undefined, signal: signal(),
+    })
+
+    // Fails if: 观测器缺席 ⇒ 空 message 的 400 无任何归因线索（issue #13 原始形态）
+    const attributed = logs.filter((l) => l.includes('疑似超出目标模型上下文窗口'))
+    expect(attributed).toHaveLength(1)
+    expect(attributed[0]).toContain('deepseek-official/deepseek-v4-flash')
+    expect(attributed[0]).toContain('200,000')
+    expect(attributed[0]).toContain('297,610')
+    expect(attributed[0]).toContain('32,000')
+  })
+
+  it('四不记：code 不符／message 非空／本轮无插件决策／provider 非路由目标（判官转述等辅助调用）', async () => {
+    const mount = () => {
+      const made = makeCtx()
+      installRouter(made.ctx as never, new KimiRouter(CONFIG(), WIN_METAS, { info: () => {} }), {
+        ...makeDeps().deps,
+        occupancy: () => ({ tokens: 297_610 }),
+      })
+      return made
+    }
+    const attributed = (logs: string[]) => logs.filter((l) => l.includes('疑似超出目标模型上下文窗口'))
+
+    // code 不符（宿主自己有可读的失败语义）
+    {
+      const { ctx, dispatch, logs } = mount()
+      await dispatch.preStep({ agent, messages: NO_HIT_MSG, turn: 1, step: 1, signal: signal() })
+      await dispatch.requestError({ agent, turn: 1, step: 1, provider: 'deepseek-official', failure: failureOf('RATE_LIMIT', ''), retryPolicy: undefined, signal: signal() })
+      expect(attributed(logs)).toHaveLength(0)
+    }
+    // message 非空（空 message 是 issue #13 的判据，非空报错用户已可读，不重复归因）
+    {
+      const { ctx, dispatch, logs } = mount()
+      await dispatch.preStep({ agent, messages: NO_HIT_MSG, turn: 1, step: 1, signal: signal() })
+      await dispatch.requestError({ agent, turn: 1, step: 1, provider: 'deepseek-official', failure: failureOf('INVALID_REQUEST', 'maximum context length is 4096 tokens'), retryPolicy: undefined, signal: signal() })
+      expect(attributed(logs)).toHaveLength(0)
+    }
+    // 本轮无插件决策（未 pre-step，槽位空）
+    {
+      const { ctx, dispatch, logs } = mount()
+      await dispatch.requestError({ agent, turn: 1, step: 1, provider: 'deepseek-official', failure: failureOf('INVALID_REQUEST', ''), retryPolicy: undefined, signal: signal() })
+      expect(attributed(logs)).toHaveLength(0)
+    }
+    // provider ≠ 路由目标（判官/转述等辅助调用失败，不是路由目标的失败）
+    {
+      const { ctx, dispatch, logs } = mount()
+      await dispatch.preStep({ agent, messages: NO_HIT_MSG, turn: 1, step: 1, signal: signal() })
+      await dispatch.requestError({ agent, turn: 1, step: 1, provider: 'kimi-coding', failure: failureOf('INVALID_REQUEST', ''), retryPolicy: undefined, signal: signal() })
+      expect(attributed(logs)).toHaveLength(0)
+    }
+  })
+
+  it('handler 内部抛错不上抛（观测失败只吞掉，绝不冒泡进宿主失败处理链）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    // 观测链最末一环（日志面）抛错 ⇒ requestError 必须照常 resolve 且不改写链终值
+    ;(ctx as { logger: { info: (message: string) => void } }).logger = {
+      info: () => { throw new Error('logger blew up') },
+    }
+    installRouter(ctx as never, new KimiRouter(CONFIG(), WIN_METAS, { info: () => {} }), {
+      ...makeDeps().deps,
+      occupancy: () => ({ tokens: 297_610 }),
+    })
+    await dispatch.preStep({ agent, messages: NO_HIT_MSG, turn: 1, step: 1, signal: signal() })
+
+    // Fails if: 观测异常冒泡 ⇒ 宿主把观测缺陷当成路由器的失败处理掉
+    await expect(dispatch.requestError({
+      agent, turn: 1, step: 1, provider: 'deepseek-official',
+      failure: failureOf('INVALID_REQUEST', ''), retryPolicy: undefined, signal: signal(),
+    })).resolves.toBeUndefined()
+  })
+})
+
+describe('会话占用度量传入（issue #13：deps.occupancy → decide 第 6 参，三处同带）', () => {
+  /** review 规则目标 k3 带 200k 窗口；占用 297,610 + 预留 32,000 = 329,610 装不下。 */
+  const WIN_METAS: CandidateMeta[] = METAS.map((m) =>
+    m.model === 'k3' ? { ...m, contextWindow: 200_000 } : m)
+  // 消息只命中 review 组（审查）——code 组含「实现」，用「方案」避开交叉命中。
+  const REVIEW_MSG = [textMessage('请审查一下这个方案')]
+
+  it('deps.occupancy 度量到装不下的占用 ⇒ review 规则被跳过，落默认目标且带窗口注记', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), WIN_METAS, { info: () => {} }), {
+      ...fixture.deps,
+      occupancy: () => ({ tokens: 297_610 }),
+    })
+
+    await dispatch.preStep({ agent, messages: REVIEW_MSG, turn: 1, step: 1, signal: signal() })
+
+    // Fails if: pre-step 不把 deps.occupancy 传进 decide（规则照常命中 k3，窗口判定形同虚设）
+    expect(fixture.decisions[0]?.decision).toEqual({
+      kind: 'route',
+      target: SAVING_DEFAULT,
+      reason: '窗口容不下 1 条规则（review → 200,000 < 297,610 + 预留 32,000）已降级 · 预设「省钱」默认',
+      via: 'default',
+      windowNote: '窗口容不下 1 条规则（review → 200,000 < 297,610 + 预留 32,000）已降级',
+    })
+  })
+
+  it('deps 不传 occupancy ⇒ 决策与修前逐字相同（via:rule 命中 review 规则，无窗口注记）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    installRouter(ctx as never, new KimiRouter(CONFIG(), WIN_METAS, { info: () => {} }), fixture.deps)
+
+    await dispatch.preStep({ agent, messages: REVIEW_MSG, turn: 1, step: 1, signal: signal() })
+
+    expect(fixture.decisions[0]?.decision).toEqual({
+      kind: 'route',
+      target: { provider: 'kimi-coding', model: 'k3' },
+      reason: '规则「review」命中 1 词',
+      via: 'rule',
+    })
+  })
+
+  it('flow 转述后的重跑 decide 同样携带占用；且同轮只度量一次（三处共用同一值）', async () => {
+    const { ctx, dispatch } = makeCtx()
+    const fixture = makeDeps()
+    let occupancyCalls = 0
+    // image → transcribe 流 + code 规则（目标 kimi-for-coding 带 256k 窗口）：
+    // 首次 decide 命中流（vision 无窗口元数据 → 放行），转述成功后以 hasImage=false
+    // 重跑——重跑若不带占用，code 规则会照常命中 256k 窗口目标（issue #13 复发）。
+    const c = DEFAULT_CONFIG_V5()
+    c.activePreset = 'saving'
+    c.presets.saving.rules = [
+      { id: 'image-flow', when: { kind: 'image' }, target: { flow: 'transcribe' } },
+      { id: 'code-kfc', when: { kind: 'keywords', group: 'code' }, target: { provider: 'kimi-coding', model: 'kimi-for-coding' } },
+    ]
+    const metas: CandidateMeta[] = [
+      ...METAS.map((m) => m.model === 'kimi-for-coding' ? { ...m, contextWindow: 256_000 } : m),
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', modalities: ['text', 'image'], available: true },
+    ]
+    installRouter(ctx as never, new KimiRouter(c, metas, { info: () => {} }), {
+      ...fixture.deps,
+      occupancy: () => { occupancyCalls += 1; return { tokens: 297_610 } },
+    })
+
+    await dispatch.preStep({ agent, messages: [imageMessage('帮我重构这段周报')], turn: 1, step: 1, signal: signal() })
+
+    // Fails if: 重跑 decide 丢占用（code 规则复活命中 256k 目标）/ 同轮重复度量
+    expect(fixture.decisions[0]?.decision).toEqual({
+      kind: 'route',
+      target: SAVING_DEFAULT,
+      reason: '窗口容不下 1 条规则（code → 256,000 < 297,610 + 预留 32,000）已降级 · 预设「省钱」默认',
+      via: 'default',
+      windowNote: '窗口容不下 1 条规则（code → 256,000 < 297,610 + 预留 32,000）已降级',
+    })
+    expect(occupancyCalls).toBe(1)
   })
 })

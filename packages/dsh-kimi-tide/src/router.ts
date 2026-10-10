@@ -31,6 +31,8 @@ import type {
   CandidateMeta, CollaborationFlow, ReviewFlow, RoleEntry, RouteTarget, RouterConfigV4, RouterConfigV5, RouterConfigV6, RouterPreset, TranscribeFlow,
 } from './config.js'
 import { configKey, isFlowTarget, isV5Plus, KIMI_PROVIDER } from './config.js'
+import { CONTEXT_RESERVE_TOKENS, windowFit } from './window-fit.js'
+import type { ContextOccupancy } from './window-fit.js'
 import { dispatchMetaOf, resolveRoleDecision, type DispatchMeta } from './roles.js'
 import type { DispatchEntry } from './dispatch-ledger.js'
 import type { ImageStateEntry, ImageStateStore } from './image-state.js'
@@ -65,8 +67,8 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export type RouteDecision =
-  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default' | 'role'; confirmNote?: string }
-  | { kind: 'flow'; flowId: string; flow: TranscribeFlow; reason: string; via: 'rule'; confirmNote?: string }
+  | { kind: 'route'; target: RouteTarget; reason: string; via: 'explicit' | 'rule' | 'default' | 'role'; confirmNote?: string; windowNote?: string }
+  | { kind: 'flow'; flowId: string; flow: TranscribeFlow; reason: string; via: 'rule'; confirmNote?: string; windowNote?: string }
   | { kind: 'keep'; reason: string; confirmNote?: string }
 
 /**
@@ -82,6 +84,23 @@ export function withConfirmNote<T extends RouteDecision>(decision: T, note: stri
   if (note === undefined) return decision
   // 断言是刻意的：spread 保住判别式（kind/via）与全部既有字段，仅追加注记与前置 reason。
   return { ...decision, confirmNote: note, reason: `${note} · ${decision.reason}` } as T
+}
+
+/**
+ * 窗口注记（issue #13 可观测性补链，仿 withConfirmNote）：规则因目标上下文窗口
+ * 装不下会话占用而被跳过时，把结论前置拼进落点决策的原因串，并留下 `windowNote`
+ * 供 `buildDecisionSummary` 判别——全部命中规则被跳过 ⇒ 最终必然落默认目标
+ * （`via: 'default'`），而默认目标按既有语义不上报面板，不特殊处理的话
+ * 「已降级」这个结果恰恰完全不可见（与 v1.3.0 判否注记同款问题形态）。
+ *
+ * 注记必须短：`buildDecisionSummary` 对 reason 截断 120 字符，故前置以保证不被截掉。
+ * 传 `undefined` 时原样返回同一引用，既有决策逐字节不变。
+ */
+export function withWindowNote<T extends RouteDecision>(decision: T, note: string | undefined): T {
+  if (note === undefined) return decision
+  // 断言是刻意的：spread 保住判别式（kind/via）与全部既有字段（含 confirmNote），
+  // 仅追加注记与前置 reason——判词注记与窗口注记可同时在场。
+  return { ...decision, windowNote: note, reason: `${note} · ${decision.reason}` } as T
 }
 
 /**
@@ -342,6 +361,12 @@ export class KimiRouter {
    *
    * `opts.skipKeywordRules`（v2.0.0 D6）：子代理跳过关键词规则、保留图像规则
    * （图像正确性通道不随关键词一起跳）。主会话路径不传 opts，行为逐字节不变。
+   *
+   * `opts2.occupancy`（issue #13）：本会话当前占用（token 数）。规则目标（含流
+   * 目标的 visionModel）的上下文窗口装不下「占用 + 预留（CONTEXT_RESERVE_TOKENS）」
+   * 时跳过该规则继续降级链——与「目标不可用跳过」同构，落点决策留窗口注记
+   * （withWindowNote）。显式 @ 与分工表改道、图像护栏不参与该判定。缺省 ⇒
+   * 占用未知 ⇒ 一律放行，决策与修前逐字一致（硬红线）。
    */
   decide(
     messages: readonly UserMessage[],
@@ -349,6 +374,7 @@ export class KimiRouter {
     hasImageOverride?: boolean,
     omittedRuleIds?: ReadonlySet<string>,
     opts?: { skipKeywordRules?: boolean },
+    opts2?: { occupancy?: ContextOccupancy },
   ): RouteDecision {
     if (this.config.activePreset === null) return { kind: 'keep', reason: 'router off' }
     const text = latestUserText(messages)
@@ -422,6 +448,29 @@ export class KimiRouter {
       ? noteBase
       : noteBase.filter(({ rule }) => !omittedRuleIds.has(rule.id))
     const headId = noteBase.length > 1 ? noteBase[0]?.rule.id : undefined
+    // issue #13：会话占用 → 规则目标的窗口判定。占用未知 ⇒ windowFit 一律放行，
+    // 以下逻辑零生效（决策与修前逐字一致）。装不下 ⇒ 跳过该规则继续降级链
+    // （与「目标不可用跳过」同构），并把跳过记录（条件名 + 窗口 + 占用 + 预留）
+    // 留到落点决策的窗口注记里。
+    const occupancy = opts2?.occupancy
+    const fmt = (value: number): string => value.toLocaleString('en-US')
+    const windowSkips: Array<{ label: string; window: number; tokens: number }> = []
+    const windowNoteOf = (): string | undefined => {
+      if (windowSkips.length === 0) return undefined
+      const first = windowSkips[0]!
+      // 多条被跳过时只举例首条（条数写全），数值格式与 windowFit 诊断串同款。
+      return `窗口容不下 ${windowSkips.length} 条规则（${first.label} → ${fmt(first.window)} < ${fmt(first.tokens)} + 预留 ${fmt(CONTEXT_RESERVE_TOKENS)}）已降级`
+    }
+    // issue #13 B 项（预检）：默认目标自身的窗口判定——装不下也**照旧路由**（不
+    // keep、不改 target；A 项只挡规则不挡默认目标），仅把预警写进注记。数字前置：
+    // 面板对 reason 截断 120，占用与窗口要落在截断之前。
+    const defaultWindowNote = (): string | undefined => {
+      const meta = this.metas.find((m) => m.provider === preset.default.provider && m.model === preset.default.model)
+      const fit = windowFit(meta?.contextWindow, occupancy)
+      if (fit.fits) return undefined
+      // fits=false ⇒ meta 与占用都已知（windowFit 语义：任一未知必放行）。
+      return `默认目标 ${preset.default.provider}/${preset.default.model} 也装不下当前占用（${fmt(Math.round(occupancy!.tokens))} + 预留 ${fmt(CONTEXT_RESERVE_TOKENS)} > 窗口 ${fmt(meta!.contextWindow!)}）——本轮请求可能被网关拒绝`
+    }
     for (const [index, { rule, score }] of routable.entries()) {
       const target = rule.target
       // 0.8.0 原因升级：携带命中词数；多命中且为排序后首命中时加（特异度最高）
@@ -449,15 +498,35 @@ export class KimiRouter {
           (m) => m.provider === flow.visionModel.provider && m.model === flow.visionModel.model && m.available,
         )
         if (vision === undefined) continue
-        return { kind: 'flow', flowId, flow, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}（协作流 ${flowId}）`, via: 'rule' }
+        // issue #13：流目标的窗口判在 visionModel 上（图像转述的容量瓶颈在视觉端）。
+        const visionFit = windowFit(vision.contextWindow, occupancy)
+        if (!visionFit.fits) {
+          // fits=false ⇒ 窗口与占用都已知（windowFit 语义：任一未知必放行）。
+          windowSkips.push({ label: ruleLabel(rule), window: vision.contextWindow!, tokens: Math.round(occupancy!.tokens) })
+          continue
+        }
+        return withWindowNote({ kind: 'flow', flowId, flow, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}（协作流 ${flowId}）`, via: 'rule' }, windowNoteOf())
       }
       const meta = this.metas.find((m) => m.provider === target.provider && m.model === target.model && m.available)
       if (meta === undefined) continue
-      return { kind: 'route', target: { ...target }, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }
+      // issue #13：模型目标的窗口判定（窗口装不下 ⇒ 跳过该规则，降级语义与上同构）。
+      const fit = windowFit(meta.contextWindow, occupancy)
+      if (!fit.fits) {
+        windowSkips.push({ label: ruleLabel(rule), window: meta.contextWindow!, tokens: Math.round(occupancy!.tokens) })
+        continue
+      }
+      return withWindowNote({ kind: 'route', target: { ...target }, reason: `${noteHead}规则「${ruleLabel(rule)}」命中${note}`, via: 'rule' }, windowNoteOf())
     }
     // 3. 默认目标：未命中 ≠ keep——路由到预设默认模型（0.5.0 语义，spec §5.1）。
     // 被认领组命中不入链——全部命中被抑制时同样落此默认目标（1.1.0 §4）。
-    return { kind: 'route', target: { ...preset.default }, reason: `${noteHead}预设「${preset.name}」默认`, via: 'default' }
+    // issue #13：命中规则全被窗口判定跳过时也落此默认目标，决策挂窗口注记；
+    // B 项预检：默认目标自己也装不下时预警前置（先说本轮可能被拒，再说降级由来）。
+    const skipsNote = windowNoteOf()
+    const defaultWarn = defaultWindowNote()
+    const note = defaultWarn === undefined
+      ? skipsNote
+      : skipsNote === undefined ? defaultWarn : `${defaultWarn} · ${skipsNote}`
+    return withWindowNote({ kind: 'route', target: { ...preset.default }, reason: `${noteHead}预设「${preset.name}」默认`, via: 'default' }, note)
   }
 
   /**
@@ -567,6 +636,12 @@ export interface RouterOrchestrationDeps {
    * index.ts 注入 DispatchLedger.record。缺席 = 不记账（单测与旧宿主直通）。
    */
   onDispatch?: (agent: Agent, entry: DispatchEntry) => void
+  /**
+   * 会话占用度量（issue #13）：由 index.ts 用宿主 tokenMeter 度量当前会话占用后
+   * 传入。缺席 ⇒ 占用未知 ⇒ 规则目标的窗口判定一律放行（决策与修前逐字一致）。
+   * 同轮只度量一次，三处 decide 调用点共用同一值（转述后的重跑不重复度量）。
+   */
+  occupancy?: (agent: Agent) => ContextOccupancy | undefined
 }
 
 /**
@@ -939,6 +1014,9 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         (m) => m.provider === roleHit.role.target.provider && m.model === roleHit.role.target.model && m.available !== false,
       )
       const effectiveRoleHit = roleTargetUsable ? roleHit : undefined
+      // issue #13：同轮占用只度量一次，三处 decide 调用点共用同一值——重跑若不
+      // 带，终决策会丢窗口判定（与判否集合三处同传同款理由）。
+      const occupancyOpts = { occupancy: deps.occupancy?.(agent) }
       // 决策后处理链（顺序不可变）：role 覆盖（不覆盖显式 @ 与 flow；目标不可用
       // 时不套用）→ 主驱动恒定（仅主会话、仅默认目标）。三处 decide 调用点**同带**
       // ——转述后的重跑若不过链，终决策会丢 role 改道与 sticky（与判否集合/注记
@@ -948,7 +1026,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         applyDriverSticky(applyRoleDecision(d, effectiveRoleHit), isChild, teamCfg.driver, teamCfg.driverSticky)
       // 4. 决策（三处调用**同带判否集合**——转述后的重跑若不传，被判否的规则会复活；
       //    注记同样三处同带，否则重跑会把判词从原因串里抹掉）
-      let decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, hasImage, omitted, { skipKeywordRules })), confirmNote)
+      let decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, hasImage, omitted, { skipKeywordRules }, occupancyOpts)), confirmNote)
       let flowId: string | undefined
       // 0.6.x池#a：转述成败摘要（ok/total + 败图 id + visionModel）——onDecision
       // extra 透传给投影 lastFlowEvent（≤120 截断在推送侧）。
@@ -966,7 +1044,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         flowDigest = flowDigestOf(okCount, total, failedIds, flow.visionModel)
         if (failedIds.length === 0) {
           hasImage = false
-          decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, false, omitted, { skipKeywordRules })), confirmNote)
+          decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, false, omitted, { skipKeywordRules }, occupancyOpts)), confirmNote)
         } else if (flow.failurePolicy === 'latch-image') {
           decision = {
             kind: 'route',
@@ -978,7 +1056,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
         } else {
           for (const id of failedIds) images.mark(agent, id, 'blind')
           hasImage = false
-          decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, false, omitted, { skipKeywordRules })), confirmNote)
+          decision = withConfirmNote(postProcess(router.decide(payload.messages, payload.step, false, omitted, { skipKeywordRules }, occupancyOpts)), confirmNote)
         }
       }
       // 仍 native 的本轮新图补记 latchTarget（后续轮 latch 改道的目标）
@@ -1203,6 +1281,47 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       if (!canClaimImageAdmission(router.config, router.metas)) return undefined
       ctx.logger?.info?.('kimi-router: claimed image admission (premium multimodal)')
       return true
+    }, { prepend: true })
+    // issue #13 B 项（事后归因）：空 message 的 INVALID_REQUEST 在宿主侧是文本
+    // 匹配不上的 400（isContextWindowExceededError 对空串必不命中），用户只看到
+    // {"code":400,"message":""}。本观测器只在「空 message 的 INVALID_REQUEST +
+    // 本轮决策目标带已知窗口 + 失败 provider 即路由目标」时记一条可检索日志；
+    // 不改写 failure、不重试（透传 next() 链终值），观测全程 try/catch，任何
+    // 异常只吞不冒泡——绝不影响宿主的失败处理路径。事件已带类型（dsh-agent
+    // runtime-types.d.ts:348，载荷含 agent），直接强类型注册。
+    const disposeRequestError = ctx.on('agent/request-error', async (payload, next) => {
+      const result = await next()
+      try {
+        const failure = payload.failure
+        if (failure?.code !== 'INVALID_REQUEST' || (failure.message ?? '').trim() !== '') return result
+        // 归因资格：本轮决策由本插件做出（槽位有决策且为路由决策；keep = 未改
+        // 路）且失败调用就是路由目标（判官、转述等辅助调用的 provider 不同）。
+        const decision = slots.get(payload.agent)?.decision
+        const target = decision?.kind === 'route'
+          ? decision.target
+          : decision?.kind === 'flow'
+            ? { ...decision.flow.visionModel }
+            : undefined
+        if (target === undefined || payload.provider !== target.provider) return result
+        const meta = router.metas.find((m) => m.provider === target.provider && m.model === target.model)
+        if (meta?.contextWindow === undefined) return result
+        let occupancy: ContextOccupancy | undefined
+        try {
+          occupancy = deps.occupancy?.(payload.agent)
+        } catch {
+          occupancy = undefined   // 度量抛错视同占用未知（task-1 红线：不抛、不拦）
+        }
+        const fmt = (value: number): string => value.toLocaleString('en-US')
+        const used = occupancy === undefined
+          ? '未知'
+          : `${fmt(Math.round(occupancy.tokens))} + 预留 ${fmt(CONTEXT_RESERVE_TOKENS)}`
+        ctx.logger?.info?.(
+          `kimi-router: 疑似超出目标模型上下文窗口：本轮路由目标 ${target.provider}/${target.model}（窗口 ${fmt(meta.contextWindow)}），当前占用 ${used}。处理：调大窗口、更换规则目标，或停用该规则`,
+        )
+      } catch {
+        // 观测链任何异常只吞掉——绝不把观测缺陷冒泡成宿主侧的额外失败。
+      }
+      return result
     }, { prepend: true })
     // ---- Review flow 1.1.0 编排（spec §5；armed/累计/turn-stopping 异步评审/手动钩子）----
     // 槽位全部 Weak 键控：条目随 agent GC 回收；installRouter 重挂载=effect 闭包
@@ -1565,6 +1684,7 @@ export function installRouter(ctx: Context, router: KimiRouter, deps: RouterOrch
       disposeRequest()
       disposeStream()
       disposeAdmission()
+      disposeRequestError()
       disposeStop()
       feedsLive = false
       deps.onManualReview?.(null)

@@ -11,6 +11,12 @@ export interface CandidateMeta extends RouteTarget {
    * 适配器未暴露）——路由时不携带会话级 reasoningEffort，维持 0.5.x 行为。
    */
   reasoningEfforts?: string[]
+  /**
+   * 目标模型的上下文窗口（llm.resolveModelInfo → LlmResolvedModelInfo.contextWindow，
+   * dsh-llm types.d.ts:297；单位 token）。undefined = 未知（候选枚举未完成或
+   * 适配器未暴露）——窗口判定一律放行（issue #13，见 window-fit.ts）。
+   */
+  contextWindow?: number
 }
 /** 0.4.x：插件固定的 Kimi provider 路由（pi-ai catalog 原生名）。 */
 export const KIMI_PROVIDER = 'kimi-coding'

@@ -152,6 +152,14 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
       resolveModelInfo: async (provider: string, model: string) => ({
         provider, id: model, name: model,
         inputModalities: provider === 'kimi-coding' || model === 'deepseek-v4-flash-vision-exp' ? ['text', 'image'] : ['text'],
+        // issue #13：窗口采集面。两种披露形态各钉一侧——`kimi-for-coding` 走契约面
+        // `context.contextWindow`（dsh-llm types.d.ts:377-379；deepseek / pi-ai 两个真实
+        // 适配器都是这一形），`deepseek-v4-flash` 走 LlmDiscoveredModel 的顶层
+        // `contextWindow`（同文件 :291-297）。第三个模型**两个形态都不给** ⇒ 窗口未知
+        // ⇒ 判定放行（不伪造）。三者的窗口刻意各不相同，好让「读到的是哪一个」可判。
+        ...(model === 'kimi-for-coding'
+          ? { context: { contextWindow: 64_000 } }
+          : model === 'deepseek-v4-flash' ? { contextWindow: 512_000 } : {}),
       }),
       // 生产 VisionCaller 缝（createStreamVisionCaller）的内存替身：text-delta + finish。
       stream: async function* () {
@@ -176,7 +184,7 @@ function makeCtx(agents: FakeAgent[], settings?: FakeSettings) {
       // 可选宿主服务（acceptance-fix-1）：与生产 cordis 的 ctx.get 同语义——按名
       // 现查 store（调用时读，而非注册时快照），测试可在 apply 前往 ctx 挂
       // agentTeams / tools 替身，或在 apply 后挂以模拟「晚挂载」。
-      if (name === 'skills' || name === 'agentTeams' || name === 'tools') return ctx[name]
+      if (name === 'skills' || name === 'agentTeams' || name === 'tools' || name === 'tokenMeter') return ctx[name]
       return undefined
     },
   }
@@ -268,6 +276,85 @@ describe('apply() settings namespace wiring (Task 4)', () => {
     const result = await command!.handler({ rawInput: 'panel --json', agent }) as { kind: string; text: string }
     return JSON.parse(result.text) as Record<string, unknown>
   }
+
+  /**
+   * issue #13：候选枚举采集 `contextWindow`，且这份元数据**真的驱动决策**。
+   *
+   * 为什么断言取决策而不取面板：`面板 candidates` 是刻意的三字段投影
+   * （provider/model/available，见 `CandidateSummary`），看不到窗口——按它判会把
+   * 「采集已生效」判成红（本用例第一版就栽在这里）。改判**端到端效果**：
+   * 同一预设、同一消息、只换占用 ——
+   *   占用 100,000 + 预留 32,000 > kimi-for-coding 的 64,000（契约面
+   *   `context.contextWindow`）⇒ 该规则被跳过、落默认目标，决策带窗口注记；
+   *   占用 1,000 ⇒ 装得下 ⇒ 规则正常命中该目标。
+   * 两侧都过才说明「采集 → 判定」整条链成立；`deepseek-v4-flash` 的 512,000 经
+   * **顶层形态**采到（其规则在 saving 预设里未被本条消息命中，故不参与断言）。
+   */
+  it('候选枚举采集 contextWindow 并驱动决策：装不下则跳过该规则落默认、装得下则命中', async () => {
+    const seed = DEFAULT_CONFIG_V5()
+    seed.activePreset = 'saving'
+    seed.presets.saving.rules = [{ id: 'code', when: { kind: 'keywords', group: 'code' }, target: { provider: 'kimi-coding', model: 'kimi-for-coding' } }]
+    const settings = makeSettings(seed)
+    const agent: FakeAgent = { session: { append: vi.fn() } }
+    const { ctx, listeners, getCommand } = makeCtx([agent], settings)
+    // 宿主令牌度量替身：只暴露本插件读的那一个面（measure().totalTokens）。
+    // **必须在 apply 之前挂上**：插件在 apply 里 `ctx.get('tokenMeter')` 探一次并
+    // 持有该引用（与 skills/agentTeams/tools 同款缓存范式），apply 之后再挂不会被看到。
+    let occupancyTokens = 0
+    ctx.tokenMeter = { measure: () => ({ totalTokens: occupancyTokens }) }
+
+    apply(ctx as never, withRouter({ patchFile, sidecarFile, usagePollOnStart: false }))
+    // ⚠ 候选枚举是 apply 之后的**异步**刷新（refreshCandidates → 枚举完成才以新候选
+    // 重挂路由器）。只 await tick()（20ms）在本机偶发不足：pre-step 会打在**枚举前的
+    // 降级候选池**上（那一份没有 contextWindow ⇒ 判定全放行 ⇒ 本用例假红）。这里轮询
+    // 到「枚举已落地」再驱动决策——判据取面板 candidates 里出现目录特有模型。
+    const deadline = Date.now() + 3000
+    let enumerated = false
+    let seen: string[] = []
+    while (Date.now() < deadline) {
+      try {
+        const candidates = (await lastSnapshot(getCommand, agent)).candidates as Array<{ model?: string; available?: boolean }>
+        seen = candidates.map((c) => `${String(c.model)}:${String(c.available)}`)
+        // 判据必须**只有枚举后**才成立：`vision-exp` 是新版预设里被携带的规则目标，
+        // 枚举前它会以 available:false 的降级项在场（配置携带的 target）——所以不能按
+        // 「名字在不在」等（那会立刻成立、pre-step 仍打在降级池上 ⇒ 假红）。等它转 true。
+        if (candidates.some((c) => c.model === 'deepseek-v4-flash-vision-exp' && c.available === true)) { enumerated = true; break }
+      } catch { /* 枚举未落地时快照可能缺字段：继续轮询 */ }
+      await new Promise((resolve) => setTimeout(resolve, 15))
+    }
+    // 枚举没落地就显式失败：否则本用例会退化成「打在降级候选池上」的假红/假绿
+    if (!enumerated) throw new Error(`候选枚举未在 3s 内落地，面板 candidates = ${JSON.stringify(seen)}`)
+
+    // 走**最新**那次挂载的监听器：cordis waterfall 里 installRouter 以 prepend 注册
+    // （router.ts:895-901），最新挂载恒为最外层、其返回值即生效决策；本 harness 的
+    // `on` 是 push，所以最新那个在数组**末尾**。驱动 [0]（最早那次挂载）会打在枚举前的
+    // 降级候选池上——那是生产里同样存在但会被外层覆盖的旧实例，不代表生效语义。
+    const preStep = (listeners.get('agent/pre-step') ?? []).at(-1) as unknown as (
+      payload: { agent: FakeAgent; messages: unknown[]; turn: number; step: 1; signal: AbortSignal },
+      next: () => Promise<unknown>,
+    ) => Promise<{ kind: string; messages: unknown[] }>
+    expect(preStep).toBeDefined()
+    const runPreStep = (tokens: number) => {
+      occupancyTokens = tokens
+      return preStep(
+        { agent, messages: [{ role: 'user', content: [{ type: 'text', text: '帮我重构这个函数' }] }], turn: 1, step: 1, signal: new AbortController().signal },
+        async () => ({ kind: 'enter', messages: [] }),
+      )
+    }
+
+    await runPreStep(100_000)
+    const blocked = await lastSnapshot(getCommand, agent) as { decision?: { chosen?: { model?: string }; reason?: string } | null }
+    // 装不下 ⇒ 规则被跳过 ⇒ 落默认目标（默认目标无窗口声明 ⇒ 未知 ⇒ 放行）
+    expect(blocked.decision?.chosen?.model).toBe('deepseek-v4-flash')
+    expect(blocked.decision?.reason).toContain('窗口容不下')
+    expect(blocked.decision?.reason).toContain('64,000')
+
+    await runPreStep(1_000)
+    const allowed = await lastSnapshot(getCommand, agent) as { decision?: { chosen?: { model?: string }; reason?: string } | null }
+    // 装得下 ⇒ 规则照常命中（采集若失效则两次都命中，上一条断言即红）
+    expect(allowed.decision?.chosen?.model).toBe('kimi-for-coding')
+    expect(allowed.decision?.reason ?? '').not.toContain('窗口容不下')
+  })
 
   it('registers the plugin config as the settings channel and reports configSource "settings"', async () => {
     const settings = makeSettings(undefined)

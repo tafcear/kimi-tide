@@ -156,6 +156,7 @@ decide(messages, step, hasImageOverride?):
      preset = presets[activePreset]；缺失 → keep('active preset not found') + warn
      for rule of matchingRules(config, text, hasImage):               // 按序返回全部命中
        if 目标不在枚举池或 available:false → 跳过该规则（降级，继续）    // 见「降级语义」
+       if 目标窗口装不下本会话占用 + 预留（issue #13）→ 跳过该规则（降级，继续） // 见「降级语义」的窗口半节
        else → route(rule.target, `<noteHead>规则「<条件名>」命中 <n> 词[（特异度最高）]`, via: 'rule')   // 0.8.0 起带词数；（特异度最高）仅标注排序后首命中（0.8.x①：降级命中不误标）；image 规则无词数
        // 子代理默认不进本档（rulesApplyToChildren !== true，D6）；图像规则保留
   5. 默认目标：主会话 → route(driverSticky === true && driver ? driver : preset.default, …, via: 'default')
@@ -179,12 +180,34 @@ decide(messages, step, hasImageOverride?):
 的最后正确性轨仍是护栏：全池无多模态可用候选时 keep（宿主友好拒绝接管）。
 UI 对不可用目标标灰（规则编辑器与默认模型下拉均标灰）。
 
+### 窗口装不下（issue #13，2.2.2 起）
+
+第二类跳过：目标**可用**，但它的上下文窗口**装不下本会话当前占用 + 预留输出**。
+判定 `windowFit(contextWindow, occupancy)`（`src/window-fit.ts`，纯函数）：
+
+- **占用**来自宿主令牌度量 `ctx.get('tokenMeter').measure(agent.session).totalTokens`
+  （pre-step 每轮取一次，同一轮三处 decide 共用）；服务缺席 / 度量抛错 ⇒ 占用未知。
+- **窗口**来自候选元数据 `CandidateMeta.contextWindow`（`resolveModelInfo` 的
+  `context.contextWindow`，顶层 `contextWindow` 形态也认）；未披露 ⇒ 窗口未知。
+- **预留**是常量 `CONTEXT_RESERVE_TOKENS = 32000`（响应与系统开销，不是设置项）。
+  判据 `contextWindow − (occupancy + 预留) >= 0`。
+- **任一未知一律放行**（与修前行为逐字节一致）——不因能力未知拦路由。
+- 装不下 ⇒ 跳过该规则继续降级链（与「不可用」同构）；落点决策挂 `windowNote`
+  （前置拼进 `reason`，面板与 `/kimi-tide panel --json` 可见）。规则目标全被跳过时
+  落默认目标并同样带注记；**默认目标自身装不下时仍然路由到它**（用户配置的终点，
+  插件不替他改道），只把原因写清楚。
+- 事后归因：宿主 `agent/request-error` 上仅当「`INVALID_REQUEST` + `message` 空白」
+  且本轮决策由本插件做出、目标窗口已知时记一条宿主日志。**不改写失败信息、不重试**。
+- 已知限制：候选目录就绪前跑的是无窗口信息的降级候选池 ⇒ 那一小段窗口内判定放行
+  （长会话撞窗口的实况发生在目录早已就绪之后）。
+
 ## 候选池（全量枚举）
 
 ```ts
 interface CandidateMeta extends RouteTarget {
   modalities: string[]            // 来自 llm.resolveModelInfo().inputModalities
   available: boolean              // 不在实时目录 → false（面板标灰、路由跳过）
+  contextWindow?: number          // 上下文窗口（issue #13）；未披露 = 未知 ⇒ 窗口判定放行
 }
 ```
 

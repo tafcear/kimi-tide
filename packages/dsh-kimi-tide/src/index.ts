@@ -46,6 +46,7 @@ import { configKey, DEFAULT_CONFIG_V4, DEFAULT_CONFIG_V5, isFlowTarget, isV5Plus
 import { routerConfigSchema, validateRouterConfig } from './settings-schema.js'
 import { createSettingsPort, hasActivePreset, hasExplicitV5Config, isLegacyRouterShape, onRouterConfigChanged, rawRouterConfig, readRouterConfig } from './settings-port.js'
 import { RouterSidecarStore } from './sidecar.js'
+import type { ContextOccupancy } from './window-fit.js'
 import { RouterSettingsStore, type RouterConfig } from './settings.js'
 import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import { buildQuotaSources, providerKeyCandidates } from './quota-sources.js'
@@ -151,13 +152,17 @@ export function defaultSidecarFile(): string {
  * 判否 ⇒ 被否规则过滤出路由链 ⇒ 最终必然落默认目标，若沿用「默认目标不上报」，那么
  * 「判否」这个最需要被看见的结果反而完全不可见——A7 实机失效正是被这一点掩盖的。
  * 无注解的默认目标仍不上报（既有语义逐字节不变）。
+ *
+ * issue #13 同款例外：带**窗口注记**（`windowNote`）的默认目标决策同样要上报——
+ * 「规则因为目标窗口装不下而被跳过 ⇒ 本轮实际跑在默认目标上」若是不可见的，用户
+ * 就只看到模型换了却没换，正是本 issue 的形态。
  */
 export function buildDecisionSummary(decision: RouteDecision): DecisionSummary | null {
   if (decision.kind === 'flow') {
     return { chosen: { provider: 'flow', model: decision.flowId }, reason: decision.reason.slice(0, 120) }
   }
   if (decision.kind !== 'route') return null
-  if (decision.via === 'default' && decision.confirmNote === undefined) return null
+  if (decision.via === 'default' && decision.confirmNote === undefined && decision.windowNote === undefined) return null
   return { chosen: { provider: decision.target.provider, model: decision.target.model }, reason: decision.reason.slice(0, 120) }
 }
 
@@ -231,6 +236,7 @@ async function enumerateCandidates(
     for (const model of models) {
       let modalities: string[] = ['text']
       let reasoningEfforts: string[] | undefined
+      let contextWindow: number | undefined
       try {
         const resolved = await llm.resolveModelInfo(provider.id, model.id)
         if (Array.isArray(resolved.inputModalities) && resolved.inputModalities.length > 0) {
@@ -241,6 +247,15 @@ async function enumerateCandidates(
         if (Array.isArray(resolved.reasoning?.efforts) && resolved.reasoning.efforts.length > 0) {
           reasoningEfforts = resolved.reasoning.efforts.map((e) => e.id)
         }
+        // 上下文窗口（issue #13）：路由判定「这个目标装不装得下当前会话」的唯一依据。
+        // 契约面是 `LlmResolvedModelInfo.context.contextWindow`（dsh-llm types.d.ts:377-379
+        // + LlmModelContext:317-320）；顶层 `contextWindow` 属于 LlmDiscoveredModel
+        // （listModels 面，同文件 :291-297）——两种形态都读，宿主适配器披露哪一个都认。
+        // 只采有限正数；缺失/畸形一律留空 ⇒ 该目标的窗口未知 ⇒ 判定放行（不伪造）。
+        const windowOf = (value: unknown): number | undefined =>
+          typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+        const disclosed = resolved as { contextWindow?: unknown; context?: { contextWindow?: unknown } }
+        contextWindow = windowOf(disclosed.context?.contextWindow) ?? windowOf(disclosed.contextWindow)
       } catch (error) {
         // Conservative degradation, not a drop: an unresolvable model stays
         // available as text-only (modalities ['text']) so routing keeps
@@ -254,6 +269,7 @@ async function enumerateCandidates(
         modalities,
         available: true,
         ...(reasoningEfforts === undefined ? {} : { reasoningEfforts }),
+        ...(contextWindow === undefined ? {} : { contextWindow }),
       })
       seen.add(configKey({ provider: provider.id, model: model.id }))
     }
@@ -392,6 +408,52 @@ export function probeSkills(ctx: unknown): SkillsLike | undefined {
 type AgentTeamsProbe = { tryMembership?: (agent: Agent) => { role: string; name: string } | undefined }
 
 /**
+ * tokenMeter 服务探测形状（issue #13）：只看 measure 这一个面。
+ * 宿主度量面是 `TokenMeter`（`@deepseek-ai/dsh-token-meter`，挂宿主平面），
+ * 其 `measure(session, requestHeader?)` 返回 `{ totalTokens, … }`。
+ * 本插件只读 `totalTokens`，其余字段不依赖。
+ */
+type TokenMeterProbe = { measure?: (session: unknown, requestHeader?: unknown) => { totalTokens?: unknown } | undefined }
+
+/**
+ * tokenMeter 服务探测（issue #13）：与 probeSkills / probeAgentTeams / probeTools
+ * **同款范式与同款理由**——必须经 `ctx.get('tokenMeter')` 读取（cordis 代理下属性访问
+ * 对未声明 inject 的服务必抛），`tokenMeter` 同样**不得**进 inject 数组（宿主平面未挂
+ * 令牌度量的组合包必须能加载本插件）。缺席 ⇒ 上下文占用未知 ⇒ 窗口判定放行。
+ */
+export function probeTokenMeter(ctx: unknown): TokenMeterProbe | undefined {
+  try {
+    const meter = (ctx as { get?: (name: string) => unknown }).get?.('tokenMeter') as TokenMeterProbe | undefined
+    return typeof meter?.measure === 'function' ? meter : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 会话当前的上下文占用（issue #13，纯读取）。
+ *
+ * 取值口径：宿主令牌度量 `measure(agent.session).totalTokens`——它是「当前请求把会话
+ * 历史 + 工具面摊平后的总 token 预压」，正是网关判 400 的那个量级；把整条消息文本量
+ * 当占用会明显低估（工具面与系统提示不在 claimed 消息里）。
+ *
+ * **三种情况一律返回 undefined（放行）**：度量服务缺席、会话面对不上、measure 抛错。
+ * 红线是「本次修复不引入新的失败模式」：拿不到占用就照修前行为路由，绝不因为读不到
+ * 数字而拒掉规则。
+ */
+export function measureContextOccupancy(meter: TokenMeterProbe | undefined, session: unknown): ContextOccupancy | undefined {
+  if (meter === undefined || session === undefined) return undefined
+  try {
+    const measured = meter.measure?.(session)
+    const tokens = measured?.totalTokens
+    if (typeof tokens !== 'number' || !Number.isFinite(tokens)) return undefined
+    return { tokens }
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * agentTeams 服务探测（acceptance-fix-1，与 probeSkills 同款范式）：经
  * `ctx.get('agentTeams')` 读取 —— 旧的属性访问形态在 cordis 代理下必抛，被
  * try/catch 静默吞成 undefined，导致认领队友的 role 改道在生产宿主**永不生效**
@@ -460,6 +522,10 @@ export function apply(ctx: Context, config: Config = {}) {
   // ctx.get('tools') 探测并缓存（同款范式，修复路线③）：宿主未挂工具服务时护栏整链
   // 降级为不注册；缓存只为「服务换实例 ⇒ 重挂」这条判据，判定本身仍现读服务。
   let toolsService = probeTools(ctx)
+  // ctx.get('tokenMeter') 探测并缓存（issue #13 同款范式）：宿主未挂令牌度量时上下文
+  // 占用恒为未知 ⇒ 窗口判定放行（修前行为）。**刻意不进 changed 判据**：本服务只影响
+  // 决策取值、不影响挂载面，换实例无需重挂路由器。
+  let tokenMeter = probeTokenMeter(ctx)
 
   /**
    * 宿主服务重探测（acceptance-fix-1 晚挂载兜底）：cordis 组合包按 profile 装配，
@@ -477,6 +543,7 @@ export function apply(ctx: Context, config: Config = {}) {
     skillsService = nextSkills
     agentTeams = nextTeams
     toolsService = nextTools
+    tokenMeter = probeTokenMeter(ctx)
     return changed
   }
 
@@ -906,6 +973,13 @@ export function apply(ctx: Context, config: Config = {}) {
   let manualReviewFn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null = null
   // v1.4.0 §3.1：手动退回实现登记（与 manualReviewFn 同款「apply 作用域存最新 fn」）。
   let manualReviseFn: ((agent: Agent) => Promise<{ ok: boolean; message: string }>) | null = null
+  /**
+   * 本会话当前的上下文占用（issue #13）：决策时按需现算——度量服务与实例都在
+   * 闭包外被重探测（refreshHostServices），故**读时取值**而非挂载时刻快照。
+   * 取不到（服务缺席 / 会话面对不上 / 度量抛错）⇒ undefined ⇒ 窗口判定放行。
+   */
+  const occupancyOf = (agent: Agent): ContextOccupancy | undefined =>
+    measureContextOccupancy(tokenMeter, agent.session)
   const mountRouter = () => {
     disposeRouter?.()
     disposeRouter = null
@@ -945,6 +1019,10 @@ export function apply(ctx: Context, config: Config = {}) {
         // v2.0.0（Task 5）：派发台账记账注入——请求层仅在子代理轮（槽位带
         // dispatch 元信息）回调；台账本体插件级，重挂路由器不丢。
         onDispatch: (_agent, entry) => dispatchLedger.record(entry),
+        // issue #13：会话占用度量注入——pre-step 每轮取一次，同一轮三处 decide 共用
+        // 该值；router 的规则链据此判定「目标窗口装不装得下当前会话」。缺席 ⇒
+        // 占用未知 ⇒ 判定放行（决策与修前逐字一致）。
+        occupancy: occupancyOf,
       })
     }
   }
