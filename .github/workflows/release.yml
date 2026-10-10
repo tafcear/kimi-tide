@@ -24,6 +24,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # GH_TOKEN 放在**作业级**：发布 Release 与后面读 Release 资产 digest 的校验步都要用。
+    # 2026-10-10 实跑踩到：校验步漏了 token ⇒ `gh api` 静默失败 ⇒ 拿到空 digest、
+    # 报出「本地打包与资产 digest 不一致」这种**假红**（run 38034664120）。
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       # 2026-10-10 改动：**不要再在 job 级 env 里覆盖 GITHUB_REF_NAME**——它是 GitHub
       # 预定义变量，作业级同名 env 覆盖不生效（实测：手动运行里它仍是 `main`，
@@ -150,8 +155,14 @@ jobs:
           # 幂等：Release 已存在（手动验证运行 / 重跑）时不重复创建。
           if gh release view "$KT_TAG" >/dev/null 2>&1; then
             echo "Release $KT_TAG 已存在，跳过创建（幂等）"
+            # 手动验证运行会走这里：此时 CI 打出的包与**当初发布的那份**未必逐字节相同
+            # （v2.2.2 的资产是维护者本机 CRLF 工作树打的，而 CI 是 LF 检出）。所以下面的
+            # 「本地打包 == 资产 digest」断言只对**本次真的创建了 Release**的运行有意义，
+            # 这里显式标注为跳过，避免又一次假红。
+            echo "DIGEST_ASSERT=skip" >> "$GITHUB_ENV"
             exit 0
           fi
+          echo "DIGEST_ASSERT=on" >> "$GITHUB_ENV"
           # 额外产出稳定名资产（dsh-kimi-tide.tgz）：awesome-dsh-plugin 收录
           # 条目的 tarball 字段指向 releases/latest/download/ 稳定名链接，
           # 版本号文件名会在下个发布后 404。
@@ -210,10 +221,16 @@ jobs:
           done
           echo "本地打包 : $LOCAL_SHA"
           echo "GitHub 侧: $GH_DIGEST"
-          # 本地打包 == 发出去的 tgz == GitHub 资产 digest，应逐字一致（两渠道同源的前提）
-          if [ "sha256:$LOCAL_SHA" != "$GH_DIGEST" ]; then
+          # 本地打包 == 发出去的 tgz == GitHub 资产 digest 应逐字一致——但**只在本次真的
+          # 创建了 Release 时**才成立：手动验证运行拿到的是历史资产（可能是另一台机器、
+          # 另一种行尾打出来的），那时该断言没有意义（见上一步的 DIGEST_ASSERT）。
+          if [ "${DIGEST_ASSERT:-on}" = "skip" ]; then
+            echo "Release 已存在（手动验证运行）⇒ 跳过「本地打包 == 资产 digest」断言；本次 CI 打包 sha256 = $LOCAL_SHA"
+          elif [ "sha256:$LOCAL_SHA" != "$GH_DIGEST" ]; then
             echo "::error::本地打包与 GitHub 资产 digest 不一致（打包后到上传之间被改动过？）"
             exit 1
+          else
+            echo "✅ 本地打包与 GitHub 资产 digest 一致"
           fi
           # ② 跨渠道比对只在**本次真的发了 npm** 时才做（未配置 Trusted Publisher 或该版本
           #    已存在时跳过）。
