@@ -227,6 +227,11 @@ export const CLIENT_CSS = `
       min-width: 0; max-width: 320px; font-size: 12px; }
     .kimi-tide-dock.kt-dock-c .kt-c-main { display: inline-flex; align-items: center; gap: 4px;
       min-width: 0; max-width: 220px; height: 26px; padding: 0 8px; border-radius: 8px;
+      /* 2026-10-10 显示错位修复（issue #13 验收现场）：固定尺寸芯片必须**自收**——
+         没有 overflow:hidden 时，长 provider/model 会把按钮撑开、横向盖到右侧宿主的
+         模型选择控件上（实机观感：紫字被截成两截、模型名压到护栏那一列）；
+         flex-wrap:nowrap 保证 26px 高按钮里的内容永不视觉塌成两行。 */
+      overflow: hidden; flex-wrap: nowrap;
       border: 1px solid var(--dsw-alias-border-l1, #e4e7ee); background: transparent;
       color: var(--dsw-alias-label-secondary, #8b93a7); font: inherit; font-size: 12px; cursor: pointer; }
     .kimi-tide-dock.kt-dock-c .kt-c-main:hover { background: var(--kt-accent-soft, rgb(139 111 244 / 0.14));
@@ -251,6 +256,13 @@ export const CLIENT_CSS = `
     .kimi-tide-dock.kt-dock-c .kt-c-quota.kt-armed { border-color: var(--kt-accent-line, rgb(139 111 244 / 0.45));
       color: var(--kt-accent-strong, #7c5cf0); }
     .kimi-tide-dock.kt-dock-c .kt-c-state { white-space: nowrap; }
+    /* 紧凑主按钮内的目标文本（2026-10-10 显示错位修复，配合 .kt-c-main 的 overflow）：
+       目标模型名与 route-target 的紫色是**同一个** span，所以收缩与配色都落在这一条上
+       ——kt-ellip 默认没有 flex: 1 1 auto，长串会挤掉右侧护栏标记；收缩到省略号是默认态，
+       悬停按钮 title 仍可读全文。 */
+    .kimi-tide-dock.kt-dock-c .kt-c-main .kt-ellip { flex: 1 1 auto; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--kt-accent-strong); font-weight: 600; }
     /* r1 锁单行：决策原因不进文本流（在开关 title 里），长原因不再挤换行 */
     .kimi-tide-dock .kt-dock-r1 { display: flex; align-items: center; gap: 8px; width: 100%;
       white-space: nowrap; overflow: hidden; }

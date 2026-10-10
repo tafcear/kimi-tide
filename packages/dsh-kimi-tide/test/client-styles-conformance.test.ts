@@ -37,9 +37,16 @@ const SOURCE_CSS = readFileSync(resolve(HERE, '../src/client/styles.ts'), 'utf8'
 const radiusValues = (css: string): string[] =>
   [...css.matchAll(/border-radius:\s*([^;]+);/g)].map((m) => m[1].trim())
 
-/** 规则块（本样式表无 @media，平铺，可用「选择器 { 声明 }」逐块取）。 */
+/**
+ * 规则块（本样式表无 @media，平铺，可用「选择器 { 声明 }」逐块取）。
+ *
+ * 2026-10-10：先剥掉 CSS 注释再切块——注释紧贴选择器时会被字符类通配连带捕获
+ * （实测选择器串变成「斜杠星号注释 + .kt-c-guard」这种形态），
+ * 选择器精确匹配与 box-shadow 扫描都会被说明文字污染。
+ */
 const ruleBlocks = (css: string): Array<{ selector: string; body: string }> =>
-  [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selector: m[1].trim(), body: m[2] }))
+  [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ selector: m[1].trim(), body: m[2] }))
 
 describe('§9 官方 UI 规则：圆角 token 棘轮', () => {
   it('字面量圆角只许减不许增；token 圆角不许减少', () => {
@@ -84,6 +91,52 @@ describe('§9 官方 UI 规则：阴影不得用于分组', () => {
     const unexpected = tails.filter((t) => !BASELINE_SHADOW_SELECTORS.includes(t))
     // Fails if: 新增一处阴影（例如给设置卡再加一层"浮起"效果）。
     expect(unexpected).toEqual([])
+  })
+})
+
+/**
+ * 紧凑态（`.kt-dock-c`）容纳契约（2026-10-10，issue #13 验收现场抓到的显示错位）。
+ *
+ * 现场：dock 主按钮里同时要塞「预设名 + 决策目标（provider/model 可能很长）+ 护栏标记」，
+ * 而按钮是 `height: 26px; max-width: 220px` 的固定尺寸芯片。当时 `.kt-c-main` **没有
+ * `overflow: hidden`**、`.kt-ellip` 也没拿到 `flex: 1 1 auto` ⇒ 文本撑开按钮，内容
+ * 横向溢出、**盖到右侧宿主的模型选择控件上**（实机观感：紫字被截成「deepseek」/
+ * 「-official」两截、模型名压到「护栏」那一列）。
+ *
+ * 本块把「紧凑芯片必须自收」钉成契约：溢出被剪、目标文本可收缩出省略号、护栏标记
+ * 与警告标记不得被压扁。三处任缺一处，同样的错位就会复现。
+ */
+describe('紧凑态 dock 容纳契约（显示错位棘轮）', () => {
+  const compactMain = (): { selector: string; body: string } => {
+    const block = ruleBlocks(SOURCE_CSS).find((b) => b.selector === '.kimi-tide-dock.kt-dock-c .kt-c-main')
+    expect(block, '`.kt-c-main` 规则块应存在').toBeDefined()
+    return block!
+  }
+
+  it('`.kt-c-main` 必须剪掉溢出且不换行（固定高度芯片不得让内容溢到宿主控件上）', () => {
+    const body = compactMain().body
+    // Fails if: 有人去掉 overflow:hidden（内容会重新盖到右侧宿主按钮上）。
+    expect(body, '`.kt-c-main` 需要 overflow: hidden').toMatch(/overflow:\s*hidden/)
+    // Fails if: 有人允许换行（26px 高的按钮会视觉塌成两行）。
+    expect(body, '`.kt-c-main` 需要 flex-wrap: nowrap').toMatch(/flex-wrap:\s*nowrap/)
+  })
+
+  it('紧凑态 `.kt-ellip` 必须可收缩（否则长 provider/model 挤掉护栏标记）', () => {
+    const block = ruleBlocks(SOURCE_CSS).find((b) => b.selector === '.kimi-tide-dock.kt-dock-c .kt-c-main .kt-ellip')
+    expect(block, '紧凑态需要一条 `.kt-dock-c .kt-ellip` 规则（flex 收缩 + 省略号）').toBeDefined()
+    const body = block!.body
+    expect(body, '`.kt-ellip` 需要 flex: 1 1 auto').toMatch(/flex:\s*1\s+1\s+auto/)
+    expect(body, '`.kt-ellip` 需要 min-width: 0（flex 收缩前提）').toMatch(/min-width:\s*0/)
+  })
+
+  it('护栏标记与警告标记不得被压缩（flex: none 保住原位）', () => {
+    const guard = ruleBlocks(SOURCE_CSS).find((b) => b.selector === '.kimi-tide-dock.kt-dock-c .kt-c-guard')
+    const warn = ruleBlocks(SOURCE_CSS).find((b) => b.selector === '.kimi-tide-dock.kt-dock-c .kt-c-warn')
+    expect(guard, '`.kt-c-guard` 规则块应存在').toBeDefined()
+    expect(warn, '`.kt-c-warn` 规则块应存在').toBeDefined()
+    // Fails if: 有人把 flex: none 改成可收缩（护栏标记会被长目标文本挤到看不见）。
+    expect(guard!.body).toMatch(/flex:\s*none/)
+    expect(warn!.body).toMatch(/flex:\s*none/)
   })
 })
 
