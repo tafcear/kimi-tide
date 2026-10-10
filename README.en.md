@@ -70,8 +70,10 @@ When a message arrives, kimi-tide decides in this order (**five tiers**, aligned
 2. **The caller's pick**: a subagent's caller already named a model (different from the default target) → it is kept, not overridden.
 3. **Roster role (teammates only)**: the request comes from a teammate claimed by the roster → rerouted to that role's target model (see "Team dispatch" below).
 4. **Keyword rules (main session only)**: score the preset's rules — has an image? how many keyword-group words matched? → rules are sorted by **specificity** (more matched words first, image always first, ties keep list order) and the **first rule whose target is available and whose context window fits this session** wins (an unavailable target, or a window that cannot hold the session's current occupancy plus the reserved output, falls through to the next rule). Child agents skip keyword rules by default (switchable in Settings).
-5. **Default target**: nothing fires → the main session uses the "pinned driver" target (or the preset default when that is off); a child agent keeps the model it inherited.
+5. **Default target**: nothing fires → the main session uses the "pinned driver" target (or the preset default when that is off); a child agent keeps the model it inherited. When the default target itself cannot hold the current session, the decision reason says the turn may be rejected by the gateway — it is **still routed there**; the plugin never reroutes on your behalf.
 6. **Image guard**: even if a text-only model was picked, an image-bearing message is rerouted to a model that can see — no crashes.
+7. **Compact dock containment**: in a narrow composer row the kimi-tide chip shrinks a long target into an ellipsis (hover shows the full value) instead of overflowing and covering the host's model selector — this is the **alignment fix** for the mis-render caught on a real machine on 2026-10-10.
+8. **Failures are attributable**: if a window-related failure still happens (say even the default target cannot fit), the plugin writes one **attributable** conclusion to the host log — which target ran, how big its window is, how full the session was, and what to change — while the empty-message error itself is **left exactly as the host recorded it**.
 
 ```mermaid
 flowchart LR
@@ -276,7 +278,7 @@ A: In DSH settings (edited via "Settings → 月汐", restart-safe). Upgrades mi
 
 ## Version & Roadmap
 
-> Current version: **v2.2.1 (2026-10-09)**
+> Current version: **v2.2.2 (2026-10-10)**
 
 - What every version gives you: [CHANGELOG.md](CHANGELOG.md)
 - Maintainer evidence chain (commit anchors / acceptance records): [docs/release-evidence.md](docs/release-evidence.md)

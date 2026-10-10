@@ -1,0 +1,6 @@
+[
+  { "id": "规则目标窗口纳入路由判定", "phrases": ["窗口装不下", "fits this session"], "surfaces": 3 },
+  { "id": "空 400 可归因", "phrases": ["attributable"], "surfaces": 2 },
+  { "id": "派发护栏在岗可见 / 不再静默", "phrases": ["未在岗"], "surfaces": 3 },
+  { "id": "紧凑态 dock 显示错位修复", "phrases": ["显示错位", "alignment fix"], "surfaces": 3 }
+]
