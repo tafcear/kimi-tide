@@ -16,6 +16,49 @@
 
 ---
 
+## v2.2.3（2026-10-12）
+
+- **修复 · 分工表第 3 档「队友角色改道」在带 `subagent/descriptor` 的队友上静默失效**。
+  **现象**（2026-10-12 实机定位）：设置页「路由」页显示第 3 档**已就绪（8 个角色参与派发改道）**，
+  但按认领名派出去的队友全部跑在**默认目标**上——实测 `backend`／`data`／`qa` 三个认领队友
+  全落 `deepseek-official/deepseek-flash`（应分别为 `zai-coding-cn/glm-5.3`／
+  `qwen-token-plan-cn/qwen3.8-max`），面板无任何异常、日志无报错。**往日同类队友是能改道的**
+  （10-08 的 `frontend`→k3、10-09 的 `qa`→qwen3.8-max、10-10 的 `backend`→glm-5.3 实测命中），
+  差别在会话日志形态：今日宿主的 `spawn_teammate` 队友是**带 `subagent/descriptor` 的
+  continuable 子会话**（`startContinuable` ⇒ continuation-activation.js:443 追加 descriptor），
+  而往日那批同一个位置是空的。
+  **根因**：宿主名册的**非抛错探测面** `roster.tryMembership()` 在名册 `member` 取不到时
+  **先判** `subagentDescriptor(agent)`，为真即直接 `return undefined`
+  （`dsh-experimental-agent-team/lib/types/roster.js:64-98`，注释口径「直接子会话不在名册内即不算队友」）
+  ⇒ 插件拿到的身份恒为 `undefined` ⇒ `resolveRoleDecision` 不命中 ⇒ 落默认目标。
+  宿主 Team 工具自己走的是**抛错版的权威面** `membership(agent)`（`TeamService.membership`
+  → `roster.membership` → `journal.state(root).members` 实名解析，`phase ∈ {active, provisioning}`），
+  它对同一形态答得出真身份——但旧实现只读了探测面这一个面。
+  **改法**：新增 `resolveTeamMembership(teams, agent)`（`src/index.ts`）——**权威面优先、
+  失败回落、绝不抛**：① 先问 `membership(agent)`，命中即用；② 它抛错（＝本 agent 不在任何 Team，
+  宿主语义，不是异常）或答不出 ⇒ 回落 `tryMembership(agent)`；③ 两面皆无 ⇒ `undefined`，
+  **与修前逐字节一致**（普通子代理、未认领队友、旧宿主无权威面三种形态行为不变）。
+  两个调用点**同一条判据**（第 3 档分工表与派发护栏）——否则会出现「分工表认这个队友、
+  护栏不认」的分叉。**红线**：不把失败当队友（`role: 'lead'` 照原样返回，是否算队友仍由
+  `role === 'teammate'` 决定）、不在 pre-step 同步路径上抛异常、不自动改派、不新增配置项。
+- **修复 · 同一条路顺带可观测**：改道真正生效时，派发台账记 `basis='role'` ＋队友名（面板
+  「派发」槽 / `/kimi-tide panel --json` 的 `dispatch` 面），"认领队友跑在哪个模型上"从此不必
+  靠人工回读会话日志才发现——本缺陷此前唯一的发现途径正是逐会话读 `request/header`。
+- **回归钉（先红后绿）**：`test/router-wiring.test.ts` 新增「带 subagent descriptor 的认领队友
+  （探测面 `undefined`）仍须改道」——把 `teamLookup` 改回只用探测面 ⇒ 该用例红（config 落
+  `EXTERNAL`、via `default`、台账 `keep`），还原解析链即绿；`test/host-service-probe.test.ts`
+  新增 6 条钉住解析链五态（权威面命中／权威面抛错回落／两面皆无／只有权威面／畸形不抛／
+  `lead` 不改写）。**1217/1217 绿**（64 文件，v2.2.2 为 1209）。
+- **实机验收（2026-10-12 当晚完成）**：修复后在**连续两次重启**里各派一个认领名队友，回读子会话首条
+  `request/header`——`frontend` → `kimi-coding/k3`、`security` → `zai-coding-cn/glm-5.3`，**两次都命中分工表目标**
+  （修复前同日 4/4 落默认目标）。判据取宿主持久真源，⛔ 不采信 `spawn_teammate` 返回值／会话头／`list_agents`。
+- **已知边界（如实）**：队友身份的挂载是**快照式**，而宿主 `agentTeams` 服务可能晚于本插件挂载
+  （2026-10-12 实测挂载序：「缺席 → 缺席 → 在场」）。服务出现会经 `applyConfig` → `refreshHostServices()`
+  触发重挂，实测两次启动的**最后一次挂载都是「在场」**、其后的队友派发均改道成功；但**若最后一次
+  `applyConfig` 恰好早于服务出现**，闭包会留着「缺席」态而**静默退化**为旧行为（面板仍显示「已就绪」）。
+  本版**未**把这条竞态改成「用到身份时现探」——与上游 issue 一并留待下一版。
+- **未做**：把宿主 `roster.js:64-98` 的 descriptor 抢判上报为上游 issue（属宿主侧行为，本版只做插件侧规避）。
+
 ## v2.2.2（2026-10-10）
 
 - **修复 · 护栏在岗状态可读回；环境不满足不再静默**（[issue #9](https://github.com/tafcear/kimi-tide/issues/9)）。

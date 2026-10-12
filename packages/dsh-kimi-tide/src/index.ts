@@ -404,8 +404,20 @@ export function probeSkills(ctx: unknown): SkillsLike | undefined {
   }
 }
 
-/** ctx.get('agentTeams') 探测形状（v2.0.0 Task 4）：只看 tryMembership 这一个面。 */
-type AgentTeamsProbe = { tryMembership?: (agent: Agent) => { role: string; name: string } | undefined }
+/**
+ * ctx.get('agentTeams') 探测形状（v2.0.0 Task 4；v2.2.3 扩面）。
+ *
+ * `tryMembership` 是**门槛面**（旧宿主也有，形状判据不变）；`membership` 是宿主的
+ * **权威面**（抛错版，Team 工具自己走的那条：roster.membership → journal.state(root)
+ * .members 实名解析）。两者都读，是因为 `tryMembership` 对**带 subagent descriptor 的
+ * continuable 子会话**（＝今日 `spawn_teammate` 队友的普遍形态）返回 undefined
+ * （dsh-experimental-agent-team/lib/types/roster.js:64-98 的 descriptor 抢判），
+ * 而权威面对同一形态答得出真身份 —— 见 resolveTeamMembership 注释。
+ */
+type AgentTeamsProbe = {
+  tryMembership?: (agent: Agent) => { role: string; name: string } | undefined
+  membership?: (agent: Agent) => { role: string; name: string }
+}
 
 /**
  * tokenMeter 服务探测形状（issue #13）：只看 measure 这一个面。
@@ -464,6 +476,45 @@ export function probeAgentTeams(ctx: unknown): AgentTeamsProbe | undefined {
   try {
     const teams = (ctx as { get?: (name: string) => unknown }).get?.('agentTeams') as AgentTeamsProbe | undefined
     return typeof teams?.tryMembership === 'function' ? teams : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 队友身份解析链（v2.2.3 缺陷修复，2026-10-12 实机定位）：**权威面优先、失败回落、
+ * 绝不抛**。
+ *
+ * 为什么不能只信 `tryMembership`：宿主名册的 `tryMembership()` 是「非抛错的探测面」，
+ * 它在名册 `member` 取不到时**先**判 `subagentDescriptor(agent)`，为真即直接
+ * `return undefined`（roster.js:64-98；注释口径：「不带名册记录的直接子会话不算队友」）。
+ * 今日宿主的 `spawn_teammate` 队友恰好是**带 descriptor 的 continuable 子会话**
+ * （`startContinuable` → continuation-activation.js:443 追加 descriptor，且写在首条
+ * 模型请求之前）⇒ 探测面恒答 undefined ⇒ 第 3 档分工表静默不点火，认领队友全部落
+ * 默认目标（实测：`backend`／`data`／`qa` 全落 v4F），而设置页仍显示「已就绪」。
+ *
+ * 权威面为什么可信：宿主的 Team 工具自己走 `membership(agent)`（TeamService
+ * .membership → roster.membership → **抛错版**实名解析：`journal.state(root).members`
+ * 里找 `id === agent.id` 且 `phase ∈ {active, provisioning}`），它对本形态返回真正的
+ * `{ role: 'teammate', name }`。本函数只做「先问权威面、答不出再问探测面」这一件事：
+ *
+ * - **不**把失败当队友（权威面抛错 ⇒ 回落探测面；两面皆无 ⇒ undefined，与修前逐字节一致）；
+ * - **不**替调用方改写角色（`role: 'lead'` 照原样返回，是否算队友由调用点的
+ *   `role === 'teammate'` 判据决定）；
+ * - **不**让任何异常冒泡（本函数在 pre-step 与宿主工具闸的同步路径上，抛一次就是整轮失败）。
+ */
+export function resolveTeamMembership(
+  teams: AgentTeamsProbe,
+  agent: Agent,
+): { role: string; name: string } | undefined {
+  try {
+    const resolved = teams.membership?.(agent)
+    if (resolved !== undefined && resolved !== null) return resolved
+  } catch {
+    // 权威面抛 = 本 agent 不在任何 Team（宿主语义），不是错误：回落探测面。
+  }
+  try {
+    return teams.tryMembership?.(agent)
   } catch {
     return undefined
   }
@@ -897,12 +948,16 @@ export function apply(ctx: Context, config: Config = {}) {
    * `{ role: 'lead', name: 'lead' }`（隐式根 Team 的正常返回，不是异常）——旧判据
    * 「返回了东西 = 队友」（`!== undefined`）把主会话当成队友放行，护栏对它唯一的
    * 设计对象完全失效（实测：主会话派「测试」活放行、子代理同词被拒）。
+   *
+   * v2.2.3：身份改走 resolveTeamMembership（权威面优先）——护栏与第 3 档分工表
+   * 必须用**同一条**身份判据，否则会出现「分工表认这个队友、护栏不认」的分叉
+   * （带 descriptor 的队友在旧探测面下两边都答不出，护栏会把它当路人拒绝）。
    */
   const guardRejectionOf = (toolName: string, args: unknown, executor: unknown): string | undefined => {
     try {
       const isTeammate = agentTeams === undefined
         ? undefined
-        : isTeammateMembership(agentTeams.tryMembership?.(executor as Agent))
+        : isTeammateMembership(resolveTeamMembership(agentTeams, executor as Agent))
       return dispatchGuardRejection({
         toolName,
         args,
@@ -1014,7 +1069,7 @@ export function apply(ctx: Context, config: Config = {}) {
         // 挂载必须钉死挂载时刻的服务实例。
         teamLookup: (() => {
           const teams = agentTeams
-          return teams === undefined ? undefined : (agent: Agent) => teams.tryMembership?.(agent)
+          return teams === undefined ? undefined : (agent: Agent) => resolveTeamMembership(teams, agent)
         })(),
         // v2.0.0（Task 5）：派发台账记账注入——请求层仅在子代理轮（槽位带
         // dispatch 元信息）回调；台账本体插件级，重挂路由器不丢。

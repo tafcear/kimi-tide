@@ -22,6 +22,8 @@ import {
 import { HitConfirmGate } from '../src/hit-confirm.js'
 import { Transcriber, type ResolvedImage, type VisionCaller } from '../src/transcribe.js'
 import type { DispatchEntry } from '../src/dispatch-ledger.js'
+import { resolveTeamMembership } from '../src/index.js'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 /**
  * Integration tests for installRouter against the VERIFIED dsh-agent-loop
@@ -1409,6 +1411,9 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
     | { kind: 'absent' }
     | { kind: 'present-undefined' }
     | { kind: 'member'; membership: { role: string; name: string } }
+    /** v2.2.3：宿主服务在场，但**探测面**答不出（带 descriptor 的 continuable 队友）、
+     *  **权威面**答得出 —— 今日 `spawn_teammate` 队友的真实形态。 */
+    | { kind: 'authority'; membership: { role: string; name: string } }
 
   const mountTeam = (config: RouterConfigV6, team: TeamLookupShape = { kind: 'absent' }) => {
     const { ctx, dispatch, logs } = makeCtx()
@@ -1420,7 +1425,15 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
         ? {}
         : team.kind === 'present-undefined'
           ? { teamLookup: () => undefined }
-          : { teamLookup: () => team.membership }),
+          : team.kind === 'member'
+            ? { teamLookup: () => team.membership }
+            : {
+                // 生产接线 1:1：探测面答不出、权威面答真身份 ⇒ 解析链须命中权威面
+                teamLookup: (agent: Agent) => resolveTeamMembership(
+                  { tryMembership: () => undefined, membership: () => team.membership },
+                  agent,
+                ),
+              }),
       onDispatch: (_agent, entry) => { entries.push(entry) },
     })
     return { dispatch, fixture, logs, entries }
@@ -1490,6 +1503,31 @@ describe('v2.0.0 团队派发闭包：via:role 改道 + 主驱动恒定', () => 
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ basis: 'keep', target: EXTERNAL })
     expect(entries[0]!.teammate).toBeUndefined()
+  })
+
+  it('★ v2.2.3 回归：带 subagent descriptor 的认领队友（探测面 undefined）仍须改道', async () => {
+    // 生产缺陷（2026-10-12 实测定位）：今日宿主 `spawn_teammate` 的队友是**带
+    // subagent descriptor 的 continuable 子会话**，宿主 `tryMembership()` 对它在
+    // roster.js:64-98 被 descriptor 抢判 ⇒ 恒返回 undefined ⇒ 第 3 档分工表静默
+    // 不点火：实测 MES 会话的 `backend`／`data`／`qa` 三个认领队友全部落默认目标
+    // v4F（应为 glm-5.3／qwen3.8-max），而设置页仍显示「已就绪」。宿主 Team 工具
+    // 自己走的是**抛错版** membership(agent)（实名解析 journal.state(root).members）
+    // —— 它对同一形态答得出真身份。
+    // Fails if: teamLookup 只用 tryMembership（旧接线）⇒ role 不点火、落默认目标、
+    // 且被 B-1a 让位保持 EXTERNAL（旧行为：config === EXTERNAL、via==='default'）。
+    const { dispatch, fixture, entries } = mountTeam(
+      TEAM_CONFIG({ roles: { frontend: ROLE_FRONT } }),
+      { kind: 'authority', membership: { role: 'teammate', name: 'frontend' } },
+    )
+    await dispatch.preStep({ agent: child, messages: [textMessage('普通任务')], turn: 1, step: 1, signal: signal() })
+    const config = await dispatch.request({ agent: child, turn: 1, step: 1, signal: signal() }, EXTERNAL)
+    // ① 改道生效（权威面身份被采信）
+    expect(config).toEqual({ provider: 'kimi-coding', model: 'kimi-for-coding' })
+    // ② 终决策 via='role'（不是 default）
+    expect(fixture.decisions.at(-1)?.decision.kind === 'route' && fixture.decisions.at(-1)?.decision.via).toBe('role')
+    // ③ 派发台账记 basis='role' 并带队友名（面板「派发」槽的证据面）
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ basis: 'role', teammate: 'frontend', roleLabel: '前端' })
   })
 
   it('R2 字段判据：version 显式写 5 的旧文档形态，roles 字段照样生效（不以版本号门控）', async () => {

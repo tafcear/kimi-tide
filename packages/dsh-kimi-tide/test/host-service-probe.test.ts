@@ -16,7 +16,7 @@
  * ④ get 自身抛错 / 形状不符 ⇒ 兜底 undefined，绝不冒泡。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { probeAgentTeams, probeSkills } from '../src/index.js'
+import { probeAgentTeams, probeSkills, resolveTeamMembership } from '../src/index.js'
 
 /**
  * 模拟 cordis 上下文代理：除 `get` 之外的任何属性访问都抛
@@ -87,5 +87,67 @@ describe('probeAgentTeams（acceptance-fix-1：经 ctx.get，无 inject 要求�
   it('get 自身抛错 ⇒ try/catch 兜底为 undefined，不冒泡', () => {
     const ctx = { get: () => { throw new Error('boom') } }
     expect(probeAgentTeams(ctx)).toBeUndefined()
+  })
+
+  it('探测返回的服务原样带出权威面（membership / listMembers 不被裁掉）', () => {
+    const svc = { tryMembership: vi.fn(), membership: vi.fn(), listMembers: vi.fn() }
+    expect(probeAgentTeams({ get: () => svc })).toBe(svc)
+  })
+})
+
+/**
+ * v2.2.3：队友身份改用**权威面优先**的解析链。
+ *
+ * 背景（2026-10-12 实测缺陷）：带 `subagent/descriptor` 的 continuable 子会话
+ * （＝今日宿主里 `spawn_teammate` 队友的普遍形态）过不了宿主的
+ * `roster.tryMembership()` —— roster.js:64-98 在名册 `member` 取不到时先判
+ * `subagentDescriptor(agent)`，为真即 `return undefined`（注释口径：「直接子会话
+ * 不在名册内即不算队友」）。于是插件拿到 undefined ⇒ 第 3 档分工表静默不点火，
+ * 认领队友（backend/data/qa）全部落默认目标 v4F，而设置页仍显示「已就绪」。
+ * 宿主的 Team 工具自己走的是**抛错版** `membership(agent)`（roster.membership →
+ * journal.state(root).members 实名解析），它对本形态返回真正的
+ * `{ role: 'teammate', name }`。故本组钉死：权威面优先、失败取 tryMembership 的
+ * 回落、两面皆无 ⇒ undefined（与修前逐字节一致），且**任何分支都不抛**。
+ */
+describe('resolveTeamMembership：权威面优先 + 回落（2026-10-12 缺陷修复）', () => {
+  it('① 权威面命中 ⇒ 用它（本缺陷的修复判据）', () => {
+    const svc = {
+      membership: () => ({ role: 'teammate', name: 'backend' }),
+      tryMembership: () => undefined,
+    }
+    expect(resolveTeamMembership(svc, {})).toEqual({ role: 'teammate', name: 'backend' })
+  })
+
+  it('② 权威面抛（本 agent 不在任何 Team）⇒ 回落 tryMembership，取它的答案', () => {
+    const svc = {
+      membership: () => { throw new Error('agent is not a member of an active Agent Team') },
+      tryMembership: () => ({ role: 'lead', name: 'lead' }),
+    }
+    expect(resolveTeamMembership(svc, {})).toEqual({ role: 'lead', name: 'lead' })
+  })
+
+  it('③ 两面都答不出 ⇒ undefined：普通子代理/未认领队友形态，行为与修前逐字节一致', () => {
+    const svc = {
+      membership: () => { throw new Error('TEAM_NOT_MEMBER') },
+      tryMembership: () => undefined,
+    }
+    expect(resolveTeamMembership(svc, {})).toBeUndefined()
+  })
+
+  it('④ 只有权威面（旧宿主无 tryMembership）：命中即用，不在名册即 undefined', () => {
+    expect(resolveTeamMembership({ membership: () => ({ role: 'teammate', name: 'qa' }) }, {})).toEqual({ role: 'teammate', name: 'qa' })
+    expect(resolveTeamMembership({ membership: () => { throw new Error('TEAM_NOT_MEMBER') } }, {})).toBeUndefined()
+  })
+
+  it('⑤ 两面都缺席 / 畸形 / 方法本身抛 ⇒ undefined，绝不向上抛', () => {
+    expect(resolveTeamMembership({}, {})).toBeUndefined()
+    expect(resolveTeamMembership({ membership: () => undefined, tryMembership: () => { throw new Error('boom') } }, {})).toBeUndefined()
+    expect(resolveTeamMembership({ membership: 'not-a-fn', tryMembership: 42 } as never, {})).toBeUndefined()
+  })
+
+  it('⑥ 权威面**不作弊**：它返回 lead 也不改写（主会话口径仍由调用点 isChild 决定）', () => {
+    // 调用点只在子代理轮读身份（router.ts 的 isChild 分支），本函数不做任何角色改写；
+    // guard 侧靠 isTeammateMembership 只认 role==='teammate'，lead 照旧不算队友。
+    expect(resolveTeamMembership({ membership: () => ({ role: 'lead', name: 'lead' }) }, {})).toEqual({ role: 'lead', name: 'lead' })
   })
 })
