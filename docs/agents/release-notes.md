@@ -154,9 +154,18 @@ GitHub Release（版本名 tgz ＋ 稳定名 `dsh-kimi-tide.tgz`）→ 发 npm �
 - **为什么必须搬进 CI**：维护者本机 `core.autocrlf=true`（且仓库无 `.gitattributes`）时
   `npm pack` 打的是 **CRLF 工作树**，而 CI 是 **LF 检出** ⇒ 同一版本两条渠道会有若干文件
   「仅行尾不同」（v2.2.0／v2.2.2 各踩一次，已如实登记在 `docs/release-evidence.md`）。
-- **手动验证入口**：`workflow_dispatch` 传一个**已存在**的 tag（如 `v2.2.2`）即可把整条
-  链路（打包／认证／比对）空跑一遍——它会要求 tag 版本 == `package.json` 版本，已存在的
-  Release 与已发布的版本都会被幂等分支跳过，不会误发。
+  ⚠ **这条根因已于 2026-10-12 关闭**：仓库新增 `.gitattributes`（`* text=auto eol=lf` ＋ 二进制
+  显式声明），工作树与打包产物一律 LF；搬进 CI 只是绕过，`.gitattributes` 才是根治。
+- **手动验证入口**：`workflow_dispatch` 传一个 tag 可把整条链路（打包／认证／比对）走一遍——
+  它会要求 tag 版本 == `package.json` 版本，**已存在的 Release** 与**已发布的 npm 版本**走幂等分支。
+  ⚠ **它不是「空跑」**：幂等只跳过「已经发布过」的版本；传一个 tag 而该版本**尚未在 npm 上**
+  （例如「tag 推送那次 npm 步失败了」的情形）会**真的发布** —— 2026-10-12 v2.2.3 就是这样
+  补上 npm 渠道的（Release run `38223811969` 的 npm 步失败于 `ENEEDAUTH`，手动 run
+  `38224654288` 真的发布了它）。要"只验不发布"，请传一个**已发布过**的 tag。
+- **Trusted Publisher 的「Pending validation」**：npm 包页的 TP 绑定建好后会处于
+  `Status: Pending validation`，要**一次成功发布**才转正；在那之前 `npm publish` 会以
+  `ENEEDAUTH`（"requires you to be logged in"）失败——**看起来像配置缺失，实际是差一次发布**。
+  工作流会把这类失败降级为警告（GitHub Release 照常发出）。
 
 > **大坑（2026-09-10 v1.2.0 首发实踩）**：`git tag -a -F <文件>` 默认把 `#` 开头的行
 > 当作注释**整行剥掉**——四段式的 `## 本次更新` 等标题会全部消失，tag 消息变成

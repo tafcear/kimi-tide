@@ -58,6 +58,13 @@
   `applyConfig` 恰好早于服务出现**，闭包会留着「缺席」态而**静默退化**为旧行为（面板仍显示「已就绪」）。
   本版**未**把这条竞态改成「用到身份时现探」——与上游 issue 一并留待下一版。
 - **未做**：把宿主 `roster.js:64-98` 的 descriptor 抢判上报为上游 issue（属宿主侧行为，本版只做插件侧规避）。
+- **渠道面（同日收尾）**：**npm 渠道第一次真正走通 CI** —— tag 推送那次 Release 运行的 npm 步失败于
+  `ENEEDAUTH`（npm 包页当时是 `Pending validation`：Trusted Publisher 绑定已建、**还差一次成功发布来激活**；
+  工作流按设计把它降级成警告，所以整跑仍是 success），随后手动入口真的把 2.2.3 发上 npm。**实测**：
+  `latest = 2.2.3`；npm 侧 tarball 与 GitHub 资产**逐字节相等**（各 606,460 B / `sha256 410bc711…34d7`）；
+  带 **SLSA provenance**。**并且：仓库新增 `.gitattributes`（`* text=auto eol=lf` ＋ 二进制显式声明）**，
+  那条「本机 CRLF / CI LF ⇒ 两渠道产物不可复现」的**根因至此关闭**（v2.2.0／v2.2.2 两次踩坑的登记见
+  `docs/release-evidence.md`）。
 
 ## v2.2.2（2026-10-10）
 

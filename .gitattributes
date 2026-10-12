@@ -1,0 +1,33 @@
+# 行尾与文本属性（2026-10-12 加，v2.2.3 之后）
+#
+# 为什么必须有这个文件：本机是 Windows 且 `core.autocrlf=true`，而仓库此前
+# **没有** `.gitattributes` ⇒ 工作树里的行尾取决于「文件是谁写出来的」：
+# git 检出的文件是 CRLF，工具写出的文件是 LF，同一个仓里两种行尾并存。
+# 后果不是「风格问题」而是**产物不可复现**：维护者在本机 `npm pack` 打出的是
+# CRLF 版本，CI 检出的是 LF 版本 —— v2.2.0／v2.2.2 两轮都因此出现「两渠道
+# tarball 有若干文件仅行尾不同」（登记在 `docs/release-evidence.md`）。
+# v2.2.3 起 npm 发布并入 CI 只是**绕过**了这个坑；本文件把它**关掉**：
+# 无论谁、在哪台机器、用哪个工具写文件，入库与打包一律 LF。
+#
+# 口径：
+# - `* text=auto eol=lf`：git 认定的文本文件一律以 LF 入库、并以 LF 检出。
+# - 二进制类型显式声明，避免 `text=auto` 对它们做任何行尾推断。
+# - ⛔ 不要加 `eol=crlf` 的例外：本项目没有任何需要 CRLF 的工具链
+#   （无 .bat/.cmd/Visual Studio 工程文件）。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.tgz binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.wasm binary
