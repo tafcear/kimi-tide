@@ -61,6 +61,7 @@ export const zh = {
   'settings.field.defaultModelSameAsDriver': '主驱动目标与本预设默认模型同值（{0}）——目前两处看不出差别，改动任一处才会分叉',
   'settings.field.effortFollowDefault': '跟随默认',
   'settings.field.effortFollowDefaultUndeclared': '跟随默认（该模型未声明档位）',
+  'settings.field.effortFollowDefaultNoTable': '跟随默认（档位表未取到）',
   'settings.field.imageFallback': '带图兜底',
   'settings.field.imageFallbackLatch': '锁存',
   'settings.field.imageFallbackBlind': '盲答',
@@ -248,5 +249,6 @@ export const zh = {
   'settings.diag.effortNoConnection': 'effort 档位表：connection 通道不可用',
   'settings.diag.effortDescribeFailed': 'effort 档位表 describe 失败：{0}',
   'settings.diag.effortNamespaceMissing': 'effort 档位表：describe 视图里既无 {0} 也无 {1}',
+  'settings.diag.effortTableEmpty': '档位表为空：未取到任何模型的档位，档位下拉暂不可选。重启应用可重新取一次。',
   'settings.diag.describeFailed': 'describe 失败：{0}',
 } as const

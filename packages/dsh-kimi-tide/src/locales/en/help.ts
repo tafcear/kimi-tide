@@ -205,7 +205,7 @@ export const en: Record<keyof typeof zh, string> = {
 
   'help.section.flows.reviewFields.title': 'Review flow fields',
   'help.section.flows.reviewFields.body0': 'Review model = **who reviews**; trigger mode = **when to review** (two distinct fields; do not conflate).',
-  'help.section.flows.reviewFields.body1': 'Tier = the review model\'s **reasoning strength** (same control as the transcribe flow: the dropdown lists only tiers declared by the host catalog. "Follow default (model declares no tier)" means the model makes no declaration and the adapter default applies).',
+  'help.section.flows.reviewFields.body1': 'Tier = the review model\'s **reasoning strength** (same control as the transcribe flow: the dropdown lists only tiers declared by the host catalog. "Follow default (model declares no tier)" means the model makes no declaration and the adapter default applies. "Follow default (no effort table)" means this run reported no tiers for any model; the settings page shows a notice at the top and restarting the app fetches the table again).',
   'help.section.flows.reviewFields.body2': 'Rounds = number of review passes; **also the per-session cap on reject-and-redo**.',
   'help.section.flows.reviewFields.body3': 'Auto-revise = when the verdict is "fail" or "conditional pass", **automatically ask the main model to revise per feedback**. Recheck = run another review pass after revision.',
   'help.section.flows.reviewFields.body4': 'Both switches incur additional calls: reject adds one main-model turn; recheck adds one review-model turn.',

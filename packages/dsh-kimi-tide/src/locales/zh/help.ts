@@ -201,7 +201,7 @@ export const zh = {
 
   'help.section.flows.reviewFields.title': '评审流的字段',
   'help.section.flows.reviewFields.body0': '评审模型 = **谁来评**；触发方式 = **什么时候评**（两个字段，别混）。',
-  'help.section.flows.reviewFields.body1': '档位 = 评审模型的**推理强度**（与转述流同款：下拉里只列宿主目录声明支持的档位；显示「跟随默认（该模型未声明档位）」= 这个模型没声明，交给适配器默认）。',
+  'help.section.flows.reviewFields.body1': '档位 = 评审模型的**推理强度**（与转述流同款：下拉里只列宿主目录声明支持的档位；显示「跟随默认（该模型未声明档位）」= 这个模型没声明，交给适配器默认；显示「跟随默认（档位表未取到）」= 本次运行没取到任何模型的档位，设置页顶部同时给出提示，重启应用可重新取一次）。',
   'help.section.flows.reviewFields.body2': '轮次 = 评几轮，**也是每会话「退回重做」的次数上限**。',
   'help.section.flows.reviewFields.body3': '自动修订 = 评审判「不通过/有条件通过」时**自动让主模型按意见改**；复检 = 改完再评一轮。',
   'help.section.flows.reviewFields.body4': '两个开关都会多花调用：退回多一轮主模型，复检再多一轮评审。',

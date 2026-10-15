@@ -208,6 +208,10 @@ export const CLIENT_CSS = `
     .kimi-tide-settings .kt-danger { color: var(--dsw-alias-danger-strong, #e5484d); }
     /* W7「界面语言」行（页签行之下）：左标签 + 下拉一行、小字说明另起一行；
        控件复用 .kt-row / .kt-field-label / 裸 select 既有规则——不新增圆角/描边/阴影（§9.2） */
+    /* 2.2.4：档位表为空的卡片级提示（页签行之下、任何页签可见）：图标 + 一行说明；
+       颜色借 .kt-warn 的告警令牌，不新造色板（§9.2）。 */
+    .kimi-tide-settings .kt-effort-table-empty { display: flex; align-items: flex-start; gap: 6px;
+      margin: 4px 0; font-size: 12px; }
     .kimi-tide-settings .kt-language { display: flex; flex-direction: column; gap: 2px; }
     .kimi-tide-settings .kt-language select { flex: none; min-width: 120px; }
     /* 设置导航图标标记：契约无 icon 字段——按文案标记自己的行后，

@@ -63,6 +63,8 @@ import type { CardStore, ConnectionLike, SettingsScopeLike } from './card-store.
 import { claimedGroupRuleConflicts, claimedReviewGroups, duplicateRuleIds, previewRoute, ruleConditionKey, ruleConditionSummary, ruleLabel } from '../rules.js'
 import { buildRoutingView, previewDispatch, type GroupInfo, type OverlapInfo, type RoutingConfigLike, type RoutingView } from '../routing-view.js'
 import { parseKeywords } from '../guard.js'
+// 2.2.4：空表判据与宿主同源（src/effort-catalog.ts 纯函数），避免两端各写一份口径。
+import { isEmptyEffortCatalog } from '../effort-catalog.js'
 import {
   configKey,
   DEFAULT_FLOWS,
@@ -347,11 +349,16 @@ function TargetSelect(props: {
 /** effort 下拉（0.8.0 D3）：选项 = 该模型支持档位（宿主档位表）；未声明档位
  *  → 只渲染禁用态「跟随默认」。0.8.x⑤：存量值不在选项集（表缺席/漂移）时
  *  追加显示存量原值——运行期由支持集判定（effortForTarget），显示不撒谎；
- *  无选项集仍禁用（不可改选）。 */
+ *  无选项集仍禁用（不可改选）。
+ *  2.2.4（2026-10-15 实机）：禁用态文案分**两种来源**——`tableHasData` 真值且
+ *  该模型缺键 = 这个模型没声明；整张表为空 = 本次运行没取到档位。修前两者共用
+ *  「该模型未声明档位」，把"没数据"说成"模型不支持"，用户据此查模型查不出所以然。 */
 function EffortSelect(props: {
   label: string
   value: string | undefined
   options: string[] | undefined
+  /** 档位表是否有数据（至少一个模型有条目）；false ⇒ 禁用态说「档位表未取到」。 */
+  tableHasData: boolean
   disabled: boolean
   onChange: (effort: string | undefined) => void
 }) {
@@ -367,8 +374,13 @@ function EffortSelect(props: {
       onChange={(e) => props.onChange(e.target.value === '' ? undefined : e.target.value)}
     >
       {/* 1.4.1：模型未在宿主目录声明档位时这一项就是唯一选项（下拉禁用）——文案
-          自解释，别让用户对着灰框猜原因（实机反馈：「模型能力没法设置」）。 */}
-      <option value="">{options.length === 0 ? t('settings.field.effortFollowDefaultUndeclared') : t('settings.field.effortFollowDefault')}</option>
+          自解释，别让用户对着灰框猜原因（实机反馈：「模型能力没法设置」）。
+          2.2.4：整表为空是另一种状态，文案分开（见本组件头注）。 */}
+      <option value="">{options.length > 0
+        ? t('settings.field.effortFollowDefault')
+        : props.tableHasData
+          ? t('settings.field.effortFollowDefaultUndeclared')
+          : t('settings.field.effortFollowDefaultNoTable')}</option>
       {stored && <option value={props.value!}>{props.value!}</option>}
       {options.map((option) => (
         <option key={option} value={option}>{option}</option>
@@ -432,6 +444,8 @@ function RoleRow(props: {
   modelNames: Record<string, string>
   availability: Record<string, boolean> | null
   effortsOf: (target: RouteTarget) => string[] | undefined
+  /** 档位表是否有数据（2.2.4：区分「表未取到」与「该模型未声明档位」两态文案）。 */
+  effortTableHasData: boolean
   onSave: (next: RoleEntry) => void
   onRename: (rawId: string) => void
   onDelete: () => void
@@ -518,6 +532,7 @@ function RoleRow(props: {
         label={t('settings.roles.targetEffortAria', { 0: role.label })}
         value={role.target.effort}
         options={props.effortsOf(role.target)}
+        tableHasData={props.effortTableHasData}
         disabled={!props.writable}
         onChange={(effort) => {
           const next: RouteTarget = effort === undefined
@@ -611,6 +626,8 @@ function FlowRow(props: {
   claimConflicts: Array<{ presetId: string; presetName: string; ruleId: string; group: string }>
   /** effort 选项取数（0.8.0 D3）：宿主档位表按 configKey 查询。 */
   effortsOf: (target: RouteTarget) => string[] | undefined
+  /** 档位表是否有数据（2.2.4：区分「表未取到」与「该模型未声明档位」两态文案）。 */
+  effortTableHasData: boolean
   onSave: (flow: CollaborationFlow) => void
   onDelete: () => void
 }) {
@@ -636,6 +653,7 @@ function FlowRow(props: {
             label={t('settings.flows.visionEffortAria', { 0: props.id })}
             value={flow.visionModel.effort}
             options={props.effortsOf(flow.visionModel)}
+            tableHasData={props.effortTableHasData}
             disabled={!props.writable}
             onChange={(effort) => {
               const v = flow.visionModel
@@ -671,6 +689,7 @@ function FlowRow(props: {
             label={t('settings.flows.reviewerEffortAria', { 0: props.id })}
             value={flow.reviewer.effort}
             options={props.effortsOf(flow.reviewer)}
+            tableHasData={props.effortTableHasData}
             disabled={!props.writable}
             onChange={(effort) => {
               const r = flow.reviewer
@@ -1011,8 +1030,11 @@ export function SettingsCard(props: SettingsCardProps) {
   }
   // effort 选项取数（0.8.0 D3）：宿主档位表（snapshot.efforts，configKey 索引）；
   // null/undefined（无通道/失败/模型未声明）→ 无档位可选（下拉禁用「跟随默认」）。
+  // 2.2.4：`efforts` 是**已发布但零键**的空表还是"没这回事"，决定了禁用态该说哪句话
+  // ——`effortTableHasData` 供 EffortSelect 三态取值（见其头注）。
   const effortsOf = (target: RouteTarget): string[] | undefined =>
     efforts === null || efforts === undefined ? undefined : efforts[configKey(target)]
+  const effortTableHasData = !isEmptyEffortCatalog(efforts)
   const groupNames = Object.keys(config.keywordGroups)
 
   /* ---- 0.6.0 协作流（v5+ 门控；v4 配置下本节全部为空/不渲染，行为保持）---- */
@@ -1345,6 +1367,7 @@ export function SettingsCard(props: SettingsCardProps) {
               label={t('settings.field.defaultModelEffort')}
               value={active.default.effort}
               options={effortsOf(active.default)}
+              tableHasData={effortTableHasData}
               disabled={!writable}
               onChange={(effort) => {
                 const next: RouteTarget = effort === undefined
@@ -1477,6 +1500,7 @@ export function SettingsCard(props: SettingsCardProps) {
                         label={t('settings.rules.effortAria', { 0: index + 1 })}
                         value={rule.target.effort}
                         options={effortsOf(rule.target)}
+                        tableHasData={effortTableHasData}
                         disabled={!writable}
                         onChange={(effort) => {
                           const t = rule.target as RouteTarget
@@ -1664,6 +1688,7 @@ export function SettingsCard(props: SettingsCardProps) {
               modelNames={modelNames}
               availability={availability}
               effortsOf={effortsOf}
+              effortTableHasData={effortTableHasData}
               onSave={(next) => updateRole(id, next)}
               onRename={(raw) => renameRole(id, raw)}
               onDelete={() => {
@@ -1743,6 +1768,14 @@ export function SettingsCard(props: SettingsCardProps) {
         {snapshot.error !== null && <span className="kt-warn kt-error" role="alert"><Icon name="warn" /> {snapshot.error}</span>}
         {savedFlash && <span className="kt-saved" role="status">{t('settings.status.saved')}</span>}
       </div>
+
+      {/* 2.2.4（2026-10-15 实机）：档位表为空是**运行面**状态，不是某一行的问题——
+          修前它只表现为「每一行的档位下拉都灰」，且唯一的禁用文案把空表说成"该模型
+          未声明档位"（用户据此去查那个模型，查不出所以然）。这里给一次可核对的来源
+          说明；`efforts === null`（还没取到/通道缺席）不报——那是加载态，不是结论。 */}
+      {efforts !== null && !effortTableHasData && (
+        <p className="kt-warn kt-effort-table-empty"><Icon name="warn" /> {t('settings.diag.effortTableEmpty')}</p>
+      )}
 
       {/* W7「界面语言」行（卡片顶部，页签行与一行摘要之间——任何页签下都可见）：
           左标签 + 右下拉（宿主注册的全部语言，当前项选中；语言名 label 是宿主数据，
@@ -2129,6 +2162,7 @@ export function SettingsCard(props: SettingsCardProps) {
               groupNames={groupNames}
               claimConflicts={claimConflicts}
               effortsOf={effortsOf}
+              effortTableHasData={effortTableHasData}
               onSave={(next) => void storeWriter.saveFlows({ ...flows, [flowId]: next })}
               onDelete={() => void storeWriter.deleteFlow(flowId)}
             />

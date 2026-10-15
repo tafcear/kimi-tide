@@ -63,6 +63,7 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.field.defaultModelSameAsDriver': 'The driver target equals this preset\'s default model ({0}) — the two are indistinguishable right now and diverge only when one of them changes',
   'settings.field.effortFollowDefault': 'Follow default',
   'settings.field.effortFollowDefaultUndeclared': 'Follow default (this model declares no effort tiers)',
+  'settings.field.effortFollowDefaultNoTable': 'Follow default (no effort table)',
   'settings.field.imageFallback': 'Image fallback',
   'settings.field.imageFallbackLatch': 'Latch',
   'settings.field.imageFallbackBlind': 'Blind',
@@ -250,5 +251,6 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.diag.effortNoConnection': 'effort tiers: the connection channel is unavailable',
   'settings.diag.effortDescribeFailed': 'effort tiers describe failed: {0}',
   'settings.diag.effortNamespaceMissing': 'effort tiers: the describe view has neither {0} nor {1}',
+  'settings.diag.effortTableEmpty': 'The effort table is empty: no model reported effort tiers, so effort controls stay disabled. Restart the app to fetch it again.',
   'settings.diag.describeFailed': 'describe failed: {0}',
 }

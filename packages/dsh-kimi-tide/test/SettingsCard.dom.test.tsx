@@ -911,8 +911,12 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
    * 1.4.1（2026-10-03 桌面端实机缺陷）：「模型能力没法设置」——路由页的档位下拉
    * 在宿主未声明档位时是禁用的，但唯一项的文案只说「跟随默认」，用户只能猜。
    * 现在文案自解释；声明了档位的模型照旧可选、可写。
+   * 2.2.4（2026-10-15 桌面端实机缺陷）：本用例的 `efforts: {}`（空表）原先也断言
+   * 「该模型未声明档位」——那句把"没数据"说成"模型不支持"，正是用户被带偏的原因。
+   * 空表改说「档位表未取到」+ 卡片级来源说明；「该模型未声明档位」留给下表非空而
+   * 缺该模型键的那一态（见下一条用例）。
    */
-  it('1.4.1：档位下拉——未声明档位时禁用且文案自解释；声明后可改', async () => {
+  it('1.4.1 + 2.2.4：档位下拉——空表说「档位表未取到」+ 卡片提示；表取到后可改', async () => {
     const savePreset = vi.fn(async () => {})
     const { store, publish } = makeDeferredStore({ savePreset })
     const base = readyV5Snapshot({ efforts: {} })
@@ -926,19 +930,47 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
 
     let effort = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
     expect(effort).not.toBeNull()
-    // Fails if: 空表被当成「有档位表但该模型没声明」以外的语义 / 文案退回裸「跟随默认」
+    // Fails if: 空表复用「该模型未声明档位」这句——2026-10-15 实机：用户据此去查
+    // GLM-5.3 的档位能力，查不出所以然（真身是宿主没发布档位表）。
     expect(effort!.disabled).toBe(true)
-    expect(effort!.options[0]!.textContent).toBe('跟随默认（该模型未声明档位）')
+    expect(effort!.options[0]!.textContent).toBe('跟随默认（档位表未取到）')
+    // 2.2.4：空表是运行面状态，卡片给一次可核对的来源说明（同一句值此一处）。
+    expect(container.querySelector('.kt-effort-table-empty')?.textContent).toContain('档位表为空')
 
     await act(async () => { publish(readyV5Snapshot({ efforts: { [key]: ['low', 'high', 'max'] } })) })
     effort = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
     expect(effort!.disabled).toBe(false)
     expect([...effort!.options].map((o) => o.textContent)).toEqual(['跟随默认', 'low', 'high', 'max'])
+    // Fails if: 表取到后空表提示不撤（卡片常驻一条已过期的状态说明）。
+    expect(container.querySelector('.kt-effort-table-empty')).toBeNull()
     await act(async () => { fireSelectChange(effort!, 'high') })
     // Fails if: 选了档位不落盘（D3 写路径断链）
     expect(savePreset).toHaveBeenCalledWith(base.config!.activePreset, expect.objectContaining({
       default: { provider: dft.provider, model: dft.model, effort: 'high' },
     }))
+  })
+
+  /**
+   * 2.2.4：与上一条**成对**的另一种禁用来源——表里有数据、只是缺这一个模型的键。
+   * 这一态才是「该模型未声明档位」的准确语义，且不该出现空表提示。
+   */
+  it('2.2.4：档位表有数据但该模型缺键 → 仍是「该模型未声明档位」，无空表提示', async () => {
+    const { store, publish } = makeDeferredStore()
+    const base = readyV5Snapshot({ efforts: { 'kimi-coding/k3': ['low', 'high', 'max'] } })
+    const dft = base.config!.presets[base.config!.activePreset!]!.default
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => { publish(base) })
+
+    const effort = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
+    expect(effort).not.toBeNull()
+    expect(`${dft.provider}/${dft.model}`).not.toBe('kimi-coding/k3')
+    // Fails if: 表非空时也走「档位表未取到」文案（两种禁用来源又被混成一句）。
+    expect(effort!.options[0]!.textContent).toBe('跟随默认（该模型未声明档位）')
+    expect(effort!.disabled).toBe(true)
+    expect(container.querySelector('.kt-effort-table-empty')).toBeNull()
   })
 
   /**

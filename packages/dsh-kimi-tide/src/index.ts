@@ -52,7 +52,7 @@ import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import { buildQuotaSources, providerKeyCandidates } from './quota-sources.js'
 import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
-import { buildEffortCatalog, buildMountedModels } from './effort-catalog.js'
+import { buildEffortCatalog, buildMountedModels, isEmptyEffortCatalog, planEmptyCatalogRetry } from './effort-catalog.js'
 import { installTeamSkill, type SkillsLike, type TeamSkillHandle } from './team-skill.js'
 import { dispatchGuardRejection, isTeammateMembership } from './guard.js'
 import { guardDetailOf, probeGuardFace, type GuardStatus } from './guard-status.js'
@@ -815,9 +815,64 @@ export function apply(ctx: Context, config: Config = {}) {
         mountedModels = buildMountedModels(metas)
         syncCatalog?.()
         mountRouter()
+        noteCatalogState()
       })
-      .catch((error) => warn(`dsh-kimi-tide: candidate enumeration failed: ${(error as Error).message}`))
+      .catch((error) => {
+        warn(`dsh-kimi-tide: candidate enumeration failed: ${(error as Error).message}`)
+        // 枚举整体失败（llm 服务还没就绪等）：同样按空表口径排一轮重试，不当作终局。
+        noteCatalogState()
+      })
   }
+
+  /**
+   * 发布后观测（2.2.4，2026-10-15 实机）：枚举完成即核对两件事，并只在**内容变化**
+   * 时各打一次警告（每次枚举都刷屏会淹掉真正有用的日志）。
+   *
+   * ① 档位表为空而挂载表非空：本插件把「没有任何模型声明档位」发布给客户端 ⇒ 设置页
+   *    每一行的档位下拉禁用。实机现场（desktop profile）：挂载表 4 个模型、档位表 `{}`，
+   *    用户只看到「跟随默认（该模型未声明档位）」这句把空表说成模型能力缺失的文案。
+   * ② 配置里的目标不在挂载表里：这些目标的档位与可用性判定读不到自己（实机现场：
+   *    `zai-coding-cn/glm-5.3`、`qwen-token-plan-cn/qwen3.8-max` 不在挂载表，而分工表
+   *    仍指着它们）。
+   *
+   * 另外排一次**有界自动重枚举**（planEmptyCatalogRetry）：适配器晚于本插件挂载注册时，
+   * 首次枚举只拿到残缺池子——等一轮再枚举即可自愈，不需要用户重启。
+   */
+  let catalogNoticeKey = ''
+  let catalogRetryAttempt = 0
+  let catalogRetryTimer: ReturnType<typeof setTimeout> | null = null
+  const noteCatalogState = () => {
+    const empty = isEmptyEffortCatalog(effortCatalog)
+    const mounted = new Set(mountedModels)
+    const missing = configuredTargets(routerConfig)
+      .map(configKey)
+      .filter((key) => !mounted.has(key))
+    const noticeKey = `${empty ? 'empty' : 'filled'}|${missing.join(',')}`
+    if (noticeKey !== catalogNoticeKey) {
+      catalogNoticeKey = noticeKey
+      if (empty) {
+        warn(`dsh-kimi-tide: 档位表为空（本轮枚举到 ${mountedModels.length} 个模型，均未声明档位）；设置页的档位下拉保持禁用`)
+      }
+      if (missing.length > 0) {
+        warn(`dsh-kimi-tide: 配置里的目标未出现在挂载表：${missing.join(', ')}（档位与可用性判定读不到它们）`)
+      }
+    }
+    const delay = planEmptyCatalogRetry({ efforts: effortCatalog, mounted: mountedModels, attempt: catalogRetryAttempt })
+    if (delay === undefined) return
+    if (catalogRetryTimer !== null) clearTimeout(catalogRetryTimer)
+    catalogRetryAttempt += 1
+    catalogRetryTimer = setTimeout(() => {
+      catalogRetryTimer = null
+      refreshCandidates()
+    }, delay)
+    // 定时器不得拖住进程退出（cli/测试里插件卸载后不留挂起句柄）。
+    ;(catalogRetryTimer as unknown as { unref?: () => void }).unref?.()
+  }
+  ctx.effect(() => () => {
+    if (catalogRetryTimer === null) return
+    clearTimeout(catalogRetryTimer)
+    catalogRetryTimer = null
+  })
 
   let disposeRouter: (() => void) | null = null
 

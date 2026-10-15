@@ -44,20 +44,26 @@ function v4cfg(activePreset: string | null): RouterConfigV4 {
 }
 
 /** 与 index-apply.test.ts 相同的 fake ctx（llm 枚举面 stub，kimi-tide 多模态）。 */
-function makeCtx(agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }> = []) {
+function makeCtx(
+  agents: Array<{ session: { append: ReturnType<typeof vi.fn> } }> = [],
+  /** 2.2.4：诊断面观测（警告文案）+ 枚举次数计数（空表重试）。缺省行为不变。 */
+  options: { warn?: (message: string) => void; onListModels?: (provider: string) => void } = {},
+) {
   const listeners = new Map<string, Array<(payload: unknown) => unknown>>()
   let commandDef: { name: string; handler: (invocation: { rawInput: string; agent?: unknown }) => Promise<unknown> } | undefined
   return {
     ctx: {
-      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      logger: { info: () => {}, warn: options.warn ?? (() => {}), error: () => {} },
       llm: {
         registerAdapter: () => {},
         listProviders: () => [
           { id: 'kimi-coding', name: 'Kimi' },
           { id: 'deepseek-official', name: 'DeepSeek' },
         ],
-        listModels: async (provider: string) =>
-          provider === 'kimi-coding' ? [{ id: 'kimi-for-coding' }] : [{ id: 'deepseek-v4-flash' }],
+        listModels: async (provider: string) => {
+          options.onListModels?.(provider)
+          return provider === 'kimi-coding' ? [{ id: 'kimi-for-coding' }] : [{ id: 'deepseek-v4-flash' }]
+        },
         resolveModelInfo: async (provider: string, model: string) => ({
           provider,
           id: model,
@@ -125,6 +131,40 @@ describe('integration: 临时 DSH_HOME 下的 sidecar 生命周期', () => {
   it('默认路径解析到 $DSH_HOME/profiles/web 且互邻', () => {
     expect(patchFile).toBe(join(dshHome, 'profiles', 'web', 'cordis.patch.yml'))
     expect(sidecarFile).toBe(join(dshHome, 'profiles', 'web', 'kimi-tide-router.yml'))
+  })
+
+  /**
+   * 2.2.4（2026-10-15 桌面端实机）：宿主枚举到模型、却没有任何一个声明档位 ⇒ 发布的
+   * 档位表为空 ⇒ 设置页每一行的档位下拉禁用，而唯一的禁用文案把空表说成「该模型未
+   * 声明档位」（用户据此去查那个模型，查不出所以然）。本用例钉两件事：① 这种状态
+   * **必须留下可归因的警告**（修前静默）；② 排一次自动重枚举（适配器晚注册时自愈，
+   * 不必让用户重启）。fake llm 的 resolveModelInfo 不带 reasoning = 空表现场。
+   */
+  it('2.2.4：枚举拿到模型但无档位 ⇒ 警告「档位表为空」+ 有界自动重枚举', async () => {
+    vi.useFakeTimers()
+    try {
+      const warns: string[] = []
+      const listModelsCalls: string[] = []
+      const { ctx } = makeCtx([], { warn: (m) => warns.push(m), onListModels: (p) => listModelsCalls.push(p) })
+      apply(ctx as never, { patchFile, sidecarFile, usagePollOnStart: false })
+      await vi.advanceTimersByTimeAsync(0)
+      const firstRound = listModelsCalls.length
+      expect(firstRound).toBeGreaterThan(0)
+      // Fails if: 空表只体现为「下拉全灰」，日志与卡片都没有可核对的来源。
+      expect(warns.some((m) => m.includes('档位表为空'))).toBe(true)
+      // 配置里的目标不在挂载表（deepseek-v4-flash/kimi-for-coding 之外的目标）同样留痕。
+      expect(warns.some((m) => m.includes('未出现在挂载表'))).toBe(true)
+      // Fails if: 空表不排重试（用户只能重启，且重启后是否恢复不可知）。
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(listModelsCalls.length).toBeGreaterThan(firstRound)
+      // 重试仍为空 ⇒ 第二档时延（20s）继续排；用尽后不再排（有界，不刷屏）。
+      await vi.advanceTimersByTimeAsync(20_000)
+      const afterRetries = listModelsCalls.length
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(listModelsCalls.length).toBe(afterRetries)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('save → load：source sidecar，内容逐字段回环', () => {
