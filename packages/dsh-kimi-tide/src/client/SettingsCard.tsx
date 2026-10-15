@@ -1035,6 +1035,10 @@ export function SettingsCard(props: SettingsCardProps) {
   const effortsOf = (target: RouteTarget): string[] | undefined =>
     efforts === null || efforts === undefined ? undefined : efforts[configKey(target)]
   const effortTableHasData = !isEmptyEffortCatalog(efforts)
+  // 2.2.4：空表**提示**只在"枚举到了模型却没有档位"时报（判据与宿主 planEmptyCatalogRetry
+  // 同源：挂载表非空）。挂载表也为空 = 本插件还没枚举完（挂载时首帧发布恒为
+  // `efforts: {} + mounted: []`）⇒ 不报，避免每次启动窗口闪一条"档位表为空"。
+  const effortTableEmpty = isEmptyEffortCatalog(efforts) && (snapshot.mounted?.length ?? 0) > 0
   const groupNames = Object.keys(config.keywordGroups)
 
   /* ---- 0.6.0 协作流（v5+ 门控；v4 配置下本节全部为空/不渲染，行为保持）---- */
@@ -1772,8 +1776,10 @@ export function SettingsCard(props: SettingsCardProps) {
       {/* 2.2.4（2026-10-15 实机）：档位表为空是**运行面**状态，不是某一行的问题——
           修前它只表现为「每一行的档位下拉都灰」，且唯一的禁用文案把空表说成"该模型
           未声明档位"（用户据此去查那个模型，查不出所以然）。这里给一次可核对的来源
-          说明；`efforts === null`（还没取到/通道缺席）不报——那是加载态，不是结论。 */}
-      {efforts !== null && !effortTableHasData && (
+          说明。判据＝挂载表非空（与宿主 planEmptyCatalogRetry 同源）：本插件挂载时的
+          首帧发布恒为 `efforts: {} + mounted: []`，那是**还没枚举**，不该在每次启动
+          窗口里报一条"档位表为空"；枚举到了模型却一个档位都没有，才是要说的那种。 */}
+      {effortTableEmpty && (
         <p className="kt-warn kt-effort-table-empty"><Icon name="warn" /> {t('settings.diag.effortTableEmpty')}</p>
       )}
 

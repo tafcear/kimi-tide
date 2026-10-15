@@ -919,7 +919,9 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
   it('1.4.1 + 2.2.4：档位下拉——空表说「档位表未取到」+ 卡片提示；表取到后可改', async () => {
     const savePreset = vi.fn(async () => {})
     const { store, publish } = makeDeferredStore({ savePreset })
-    const base = readyV5Snapshot({ efforts: {} })
+    // 空表 + 挂载表非空 = 异常态（枚举到模型却一个档位都没报）。挂载表也空的那一态
+    // 是启动窗口，见下一条用例。
+    const base = readyV5Snapshot({ efforts: {}, mounted: ['kimi-coding/k3'] })
     const dft = base.config!.presets[base.config!.activePreset!]!.default
     const key = `${dft.provider}/${dft.model}`
     await act(async () => {
@@ -948,6 +950,28 @@ describe('SettingsCard 0.6.x池#c/#7 界外输入钳制 + 新建流', () => {
     expect(savePreset).toHaveBeenCalledWith(base.config!.activePreset, expect.objectContaining({
       default: { provider: dft.provider, model: dft.model, effort: 'high' },
     }))
+  })
+
+  /**
+   * 2.2.4（2026-10-15 重启复核发现的伴随缺口）：本插件挂载时的**首帧发布恒为**
+   * `efforts: {} + mounted: []`（候选池还没枚举完）——若只按"efforts 为空"报警，
+   * 每次启动窗口都会闪一条"档位表为空"。判据必须带上挂载表（与宿主
+   * planEmptyCatalogRetry 同源）：挂载表也空 ⇒ 只是还没取到，不报。
+   */
+  it('2.2.4：启动窗口（空表 + 挂载表也空）→ 不报「档位表为空」，占位文案仍是「未取到」', async () => {
+    const { store, publish } = makeDeferredStore()
+    await act(async () => {
+      root = createRoot(container)
+      root.render(createElement(SettingsCard, { scope: null, connection: null, close: () => {}, storeFactory: () => store }))
+    })
+    await act(async () => { publish(readyV5Snapshot({ efforts: {}, mounted: [] })) })
+
+    const effort = container.querySelector<HTMLSelectElement>('select[aria-label="默认模型 · 档位"]')
+    expect(effort).not.toBeNull()
+    // Fails if: 启动窗口被当成异常态（每次开机都闪一条不成立的结论）。
+    expect(container.querySelector('.kt-effort-table-empty')).toBeNull()
+    // 禁用态文案仍如实（"还没取到"），不退回"该模型未声明档位"。
+    expect(effort!.options[0]!.textContent).toBe('跟随默认（档位表未取到）')
   })
 
   /**
