@@ -44,27 +44,83 @@ export function isEmptyEffortCatalog(efforts: Record<string, string[]> | null | 
 }
 
 /**
- * 空档位表的重试计划（纯函数）：**挂载表非空而档位表为空** ⇒ 返回下一次重试时延；
- * 其余情况返回 undefined（不排重试）。判据为什么带挂载表：挂载表为空 = 枚举整体
- * 没拿到东西（provider 尚未注册），与「枚举成功但无模型声明档位」是两种状态；只有
- * 后者值得再等一轮适配器注册。
- * @param input.efforts - 本轮发布的档位表。
- * @param input.mounted - 本轮发布的挂载表。
+ * 空目录的重试计划（纯函数）：只要「这一轮没拿到可用的目录」就排下一次重试，有界。
+ *
+ * 2.2.5（2026-10-19 桌面端实机）：判据从「挂载表非空而档位表为空」放宽为
+ * `emptyPool || 档位表为空`。修前把「挂载表也为空」判成「provider 尚未注册、
+ * 等宿主事件即可」，于是**不重试**；实机真身是 DSH 0.2.1-rc.2 上适配器已注册
+ * （listProviders 有 4 个路由）但 `listModels` 在挂载窗口内还拿不到模型——宿主的
+ * 模型目录/凭据解析是异步就绪的，几秒后才回填。这个窗口里枚举出空池、又被写成
+ * `efforts: {} + mounted: []`，此后既无事件也无重试 ⇒ 档位表永久为空（每次重启
+ * 都可能复现）。空池与「有模型但无档位」都值得再等一轮。
+ *
+ * @param input.efforts - 当前**已发布**的档位表（可能来自上一轮/持久化快照）。
+ * @param input.emptyPool - 本轮枚举是否一个可用模型都没拿到（空池/枚举抛错）。
  * @param input.attempt - 已重试次数（0 起）。
  * @param input.delays - 重试时延表；缺省 EMPTY_CATALOG_RETRY_DELAYS_MS。
  * @returns 下一次重试时延（毫秒），或 undefined（不再重试）。
  */
 export function planEmptyCatalogRetry(input: {
   efforts: Record<string, string[]>
-  mounted: readonly string[]
+  emptyPool: boolean
   attempt: number
   delays?: readonly number[]
 }): number | undefined {
   const delays = input.delays ?? EMPTY_CATALOG_RETRY_DELAYS_MS
-  if (input.mounted.length === 0) return undefined
-  if (!isEmptyEffortCatalog(input.efforts)) return undefined
+  if (!input.emptyPool && !isEmptyEffortCatalog(input.efforts)) return undefined
   if (input.attempt < 0 || input.attempt >= delays.length) return undefined
   return delays[input.attempt]
+}
+
+/** `{ efforts, mounted }` 的运行面目录快照（宿主 Config 的 volatile 字段形态）。 */
+export interface PublishedCatalog {
+  efforts: EffortCatalog
+  mounted: string[]
+}
+
+/**
+ * 从宿主给的 Config 值里读**上一轮已发布**的运行面目录（纯函数，给插件重载用）。
+ *
+ * 为什么需要：插件实例每次重载（设置写入触发 owner 重载 / 宿主重启 / profile 更新）
+ * 都会先按「空目录」发布首帧。若首轮枚举又恰好落在宿主的异步就绪窗口里，就会把
+ * 上一轮本来完好的档位表**覆盖成空表**，而且枚举失败时无从恢复（实机 16:54 现场）。
+ * 读取来源有两级：条目原始 config（profile patch 原文，volatile 字段就落在这里）
+ * 与宿主解析快照（schemastery 引用，带 `.get()`）。两者形状不合/缺失 ⇒ 返回 null，
+ * 调用方退回旧行为（不伪造数据）。
+ *
+ * @param value - 条目原始 config、Config 快照，或任何 `{ efforts?, mounted? }` 形状的值。
+ * @returns 规范化后的目录（缺键按空表/空表处理），或 null（没有任何目录字段/形状不合）。
+ */
+export function readPublishedCatalog(value: unknown): PublishedCatalog | null {
+  /** 解开 schemastery 引用（`.get()`）；普通值原样返回。 */
+  const plain = (input: unknown): unknown =>
+    input !== null && typeof input === 'object' && typeof (input as { get?: unknown }).get === 'function'
+      ? (input as { get: () => unknown }).get()
+      : input
+  const raw = plain(value)
+  if (raw === null || typeof raw !== 'object') return null
+  const holder = raw as { efforts?: unknown; mounted?: unknown }
+  const hasEfforts = holder.efforts !== undefined
+  const hasMounted = holder.mounted !== undefined
+  if (!hasEfforts && !hasMounted) return null
+
+  const efforts: EffortCatalog = {}
+  if (hasEfforts) {
+    const candidate = plain(holder.efforts)
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+    for (const [key, levels] of Object.entries(candidate as Record<string, unknown>)) {
+      if (typeof key !== 'string' || key.length === 0) return null
+      if (!Array.isArray(levels) || levels.some((level) => typeof level !== 'string')) return null
+      efforts[key] = [...(levels as string[])]
+    }
+  }
+  const mounted: string[] = []
+  if (hasMounted) {
+    const candidate = plain(holder.mounted)
+    if (!Array.isArray(candidate) || candidate.some((entry) => typeof entry !== 'string')) return null
+    mounted.push(...(candidate as string[]))
+  }
+  return { efforts, mounted }
 }
 
 /**

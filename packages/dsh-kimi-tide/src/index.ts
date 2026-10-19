@@ -52,7 +52,7 @@ import { UsageMonitor, QUOTA_SOURCE_PROVIDER } from './usage.js'
 import { buildQuotaSources, providerKeyCandidates } from './quota-sources.js'
 import { HitConfirmGate } from './hit-confirm.js'
 import type { CandidateSummary, ConfigSource, DecisionSummary, KimiAccessStatus, KimiTidePanelProjection, QuotaLike, QuotaSourceMeta, QuotaSourceState } from './types.js'
-import { buildEffortCatalog, buildMountedModels, isEmptyEffortCatalog, planEmptyCatalogRetry } from './effort-catalog.js'
+import { buildEffortCatalog, buildMountedModels, isEmptyEffortCatalog, planEmptyCatalogRetry, readPublishedCatalog } from './effort-catalog.js'
 import { installTeamSkill, type SkillsLike, type TeamSkillHandle } from './team-skill.js'
 import { dispatchGuardRejection, isTeammateMembership } from './guard.js'
 import { guardDetailOf, probeGuardFace, type GuardStatus } from './guard-status.js'
@@ -759,7 +759,8 @@ export function apply(ctx: Context, config: Config = {}) {
    * （v1 的 mode/primary/premium 会在解析期被 schema 补成 version:6，解析后再判就
    * 永远认不出存量）；无 router 段时退回 patch 静态块（v1 词汇），只为存量迁移路径保留。
    */
-  const rawRouter = rawRouterConfig(config, (ctx as unknown as { fiber?: { entry?: { options?: { config?: unknown } } } }).fiber?.entry?.options?.config)
+  const rawEntryConfig = (ctx as unknown as { fiber?: { entry?: { options?: { config?: unknown } } } }).fiber?.entry?.options?.config
+  const rawRouter = rawRouterConfig(config, rawEntryConfig)
   // 启动种子（决定是否走 coerce 迁移链）：仅当原始配置**是旧词汇形态**（v1~v4）时
   // 用它——那种形态在 schema 解析期会被补成 version:6，解析后就认不出来了。
   // 其余情形（v5+ 形态、或条目未配置）一律用宿主解析值，避免把 v5+ 用户配置再搬一遍。
@@ -796,47 +797,84 @@ export function apply(ctx: Context, config: Config = {}) {
   // 客户端用读路由配置的**同一次** settings.describe 就能拿到，少一次 RPC，也不再
   // 往任何"设置文件"里塞运行面数据。（历史：0.8.0 走 typert $mount，实机证伪后改
   // 自有命名空间；该命名空间在 0.1.7 无对应物。）
-  let effortCatalog: Record<string, string[]> = buildEffortCatalog(candidateMetas)
+  //
+  // 2.2.5（2026-10-19 桌面端实机）：插件重载（设置写入/宿主重启）后**先把上一轮已发布的
+  // 目录读回来**再发布首帧。修前首帧恒为空表，而这与下一段「空池瞬态」叠加时会把本来
+  // 完好的档位表覆盖成空（实机现场：凭据更新后 16:54 的 profile patch 被写成
+  // `efforts: {}` + `mounted: []`，设置页全部档位下拉禁用且无恢复路径）。
+  const publishedCatalog = readPublishedCatalog(rawEntryConfig)
+    ?? readPublishedCatalog({ efforts: (config as { efforts?: unknown }).efforts, mounted: (config as { mounted?: unknown }).mounted })
+  let effortCatalog: Record<string, string[]> = publishedCatalog?.efforts ?? buildEffortCatalog(candidateMetas)
   // 1.1.0 A8（2026-09-04）：真实挂载表同节发布——试一句 reviewer 不可用判定的唯一
   // 真相源（availability 三态对自挂 provider 盲）。
-  let mountedModels: string[] = buildMountedModels(candidateMetas)
+  let mountedModels: string[] = publishedCatalog?.mounted ?? buildMountedModels(candidateMetas)
   let enumerationSeq = 0
+  /** 最近一轮枚举是否空池（无可用模型）。瞬态判据：空池不覆盖已发布目录，只排重试。 */
+  let emptyPool = false
   // 设置通道就绪后由下方赋值；枚举刷新触发一次同步。写前做内容脏检查：只有模型清单
   // 真变化才落盘（volatile 提交虽不重载插件，仍是一次 profile patch 写）。
   let syncCatalog: (() => void) | null = null
   let lastSyncedCatalog = ''
-  const refreshCandidates = () => {
+  /**
+   * 重新枚举候选池。
+   *
+   * `resetRetry`：外部触发（首挂 / 配置变更 / 适配器更新 / 凭据更新）重置**有界重试**
+   * 计数，重试定时器自身调用时传 false（继续消耗同一轮预算）。
+   *
+   * 2.2.5（2026-10-19 桌面端实机）：空池 = 瞬态，不发布。修前先写 `mounted: []` +
+   * `efforts: {}`，而 planEmptyCatalogRetry 又以「挂载表为空」判为不重试 ⇒ 档位表
+   * 永久为空。现在保留上一轮已发布目录（或挂载首帧的配置目标兜底表），只排有界重试；
+   * 枚举到可用模型才发布。DSH 0.2.1-rc.2 实测：插件挂载时 listProviders 已有 4 个路由，
+   * 但 listModels 要等宿主凭据/目录异步就绪（≈数秒）才回模型。
+   */
+  const refreshCandidates = (resetRetry = true) => {
+    if (resetRetry) {
+      catalogRetryAttempt = 0
+      // 外部触发重置预算时，取消上一轮还没跑的重试定时器——否则两轮会各自再排一次，
+      // 枚举次数与提示时序都不可预期（外部事件已覆盖「再枚举一次」的意图）。
+      if (catalogRetryTimer !== null) {
+        clearTimeout(catalogRetryTimer)
+        catalogRetryTimer = null
+      }
+    }
     const seq = ++enumerationSeq
     void enumerateCandidates(ctx.llm as unknown as LlmCatalog, routerConfig, warn)
       .then((metas) => {
         if (seq !== enumerationSeq) return
+        const nextMounted = buildMountedModels(metas)
+        if (nextMounted.length === 0) {
+          emptyPool = true
+          noteCatalogState()
+          return
+        }
+        emptyPool = false
         candidateMetas = metas
         effortCatalog = buildEffortCatalog(metas)
-        mountedModels = buildMountedModels(metas)
+        mountedModels = nextMounted
         syncCatalog?.()
         mountRouter()
         noteCatalogState()
       })
       .catch((error) => {
         warn(`dsh-kimi-tide: candidate enumeration failed: ${(error as Error).message}`)
-        // 枚举整体失败（llm 服务还没就绪等）：同样按空表口径排一轮重试，不当作终局。
+        // 枚举整体失败（llm 服务还没就绪等）：按瞬态空池处理——保留已发布目录 + 有界重试。
+        emptyPool = true
         noteCatalogState()
       })
   }
 
   /**
-   * 发布后观测（2.2.4，2026-10-15 实机）：枚举完成即核对两件事，并只在**内容变化**
-   * 时各打一次警告（每次枚举都刷屏会淹掉真正有用的日志）。
+   * 发布后观测（2.2.4，2026-10-15 实机；2.2.5 扩到空池瞬态）：枚举完成即核对并只在
+   * **内容变化**时各打一次警告（每次枚举都刷屏会淹掉真正有用的日志）。
    *
-   * ① 档位表为空而挂载表非空：本插件把「没有任何模型声明档位」发布给客户端 ⇒ 设置页
+   * ① 空池（本轮一个可用模型都没拿到）：宿主模型目录/凭据尚未异步就绪的常见窗口。
+   *    此时**不发布**，保留上一轮目录，并排有界重试（用户不必重启）。
+   * ② 档位表为空而挂载表非空：本插件把「没有任何模型声明档位」发布给客户端 ⇒ 设置页
    *    每一行的档位下拉禁用。实机现场（desktop profile）：挂载表 4 个模型、档位表 `{}`，
    *    用户只看到「跟随默认（该模型未声明档位）」这句把空表说成模型能力缺失的文案。
-   * ② 配置里的目标不在挂载表里：这些目标的档位与可用性判定读不到自己（实机现场：
+   * ③ 配置里的目标不在挂载表里：这些目标的档位与可用性判定读不到自己（实机现场：
    *    `zai-coding-cn/glm-5.3`、`qwen-token-plan-cn/qwen3.8-max` 不在挂载表，而分工表
    *    仍指着它们）。
-   *
-   * 另外排一次**有界自动重枚举**（planEmptyCatalogRetry）：适配器晚于本插件挂载注册时，
-   * 首次枚举只拿到残缺池子——等一轮再枚举即可自愈，不需要用户重启。
    */
   let catalogNoticeKey = ''
   let catalogRetryAttempt = 0
@@ -847,23 +885,26 @@ export function apply(ctx: Context, config: Config = {}) {
     const missing = configuredTargets(routerConfig)
       .map(configKey)
       .filter((key) => !mounted.has(key))
-    const noticeKey = `${empty ? 'empty' : 'filled'}|${missing.join(',')}`
+    const noticeKey = `${empty ? 'empty' : 'filled'}|${emptyPool ? 'pool-empty' : 'pool-filled'}|${missing.join(',')}`
     if (noticeKey !== catalogNoticeKey) {
       catalogNoticeKey = noticeKey
-      if (empty) {
+      if (emptyPool) {
+        warn(`dsh-kimi-tide: 本轮候选枚举为空（宿主模型目录/凭据可能尚未就绪）；保留上一轮已发布的档位表（${Object.keys(effortCatalog).length} 项）并自动重试`)
+      } else if (empty) {
         warn(`dsh-kimi-tide: 档位表为空（本轮枚举到 ${mountedModels.length} 个模型，均未声明档位）；设置页的档位下拉保持禁用`)
       }
       if (missing.length > 0) {
         warn(`dsh-kimi-tide: 配置里的目标未出现在挂载表：${missing.join(', ')}（档位与可用性判定读不到它们）`)
       }
     }
-    const delay = planEmptyCatalogRetry({ efforts: effortCatalog, mounted: mountedModels, attempt: catalogRetryAttempt })
+    const delay = planEmptyCatalogRetry({ efforts: effortCatalog, emptyPool, attempt: catalogRetryAttempt })
     if (delay === undefined) return
     if (catalogRetryTimer !== null) clearTimeout(catalogRetryTimer)
     catalogRetryAttempt += 1
     catalogRetryTimer = setTimeout(() => {
       catalogRetryTimer = null
-      refreshCandidates()
+      // 重试属于同一轮预算：不重置 attempt，用尽即停（有界，不刷屏）。
+      refreshCandidates(false)
     }, delay)
     // 定时器不得拖住进程退出（cli/测试里插件卸载后不留挂起句柄）。
     ;(catalogRetryTimer as unknown as { unref?: () => void }).unref?.()
@@ -1369,6 +1410,9 @@ export function apply(ctx: Context, config: Config = {}) {
   ;(ctx as unknown as { on: (name: string, listener: () => void) => () => void }).on('credentials/reference-updated', () => {
     void refreshKimiStatus()
     void refreshAllQuotas()
+    // 2.2.5（2026-10-19 实机）：凭据更新是「模型目录刚刚变化」的最强信号——适配器/凭据
+    // 解析在这一刻前后异步就绪，正是空池窗口的高发点。显式重枚举并重置重试预算。
+    refreshCandidates()
   })
   // 0.1.7：agent/created 的监听器签名带 `this: Scoped<Agent>` 与返回位
   // （`undefined | Promise<undefined>`）；载荷多出 source/signal 两字段，参数按
